@@ -17,7 +17,7 @@
 这个项目的大多数入口都集中在左下角的小齿轮里，后台管理、检索配置、工作流触发等功能都在这里。
 
 <p align="center">
-  <img src="./tutorial-entry-panel.png" alt="使用入口面板" width="88%" />
+  <img src="docs/tutorial/tutorial-entry-panel.png" alt="使用入口面板" width="88%" />
 </p>
 
 进入后台管理面板后，点击“新增”可以创建一个新的专题词条。
@@ -25,7 +25,7 @@
 先在“检索需求”里输入你真正想追踪的方向，再点击“生成候选”，然后从候选结果里勾选需要保留的专题。
 
 <p align="center">
-  <img src="./tutorial-topic-setup.png" alt="专题创建与候选生成" width="88%" />
+  <img src="docs/tutorial/tutorial-topic-setup.png" alt="专题创建与候选生成" width="88%" />
 </p>
 
 建议将关键词控制在 **8 个以内**，自然语言 query 控制在 **5 个以内**，这样更容易保持召回质量和配置可维护性。
@@ -33,7 +33,7 @@
 保存查询后，记得再保存一次词条。完成后，就可以点击右侧的搜寻论文区域，发起第一次论文检索。
 
 <p align="center">
-  <img src="./tutorial-first-search.png" alt="首次搜寻论文" width="88%" />
+  <img src="docs/tutorial/tutorial-first-search.png" alt="首次搜寻论文" width="88%" />
 </p>
 
 ---
@@ -54,27 +54,27 @@
 4. 打开 Zotero 设置，进入 `Actions & Tags` 完成配置
 
 <p align="center">
-  <img src="./tutorial-zotero-settings.png" alt="Zotero Actions and Tags 设置" width="88%" />
+  <img src="docs/tutorial/tutorial-zotero-settings.png" alt="Zotero Actions and Tags 设置" width="88%" />
 </p>
 
 5. 下载仓库里的脚本，并导入到 Zotero 中
 
 <p align="center">
-  <img src="./tutorial-zotero-script-download.png" alt="下载 Zotero 脚本" width="88%" />
+  <img src="docs/tutorial/tutorial-zotero-script-download.png" alt="下载 Zotero 脚本" width="88%" />
 </p>
 
 <p align="center">
-  <img src="./tutorial-zotero-script-import.png" alt="导入 Zotero 脚本" width="88%" />
+  <img src="docs/tutorial/tutorial-zotero-script-import.png" alt="导入 Zotero 脚本" width="88%" />
 </p>
 
 导入并启用脚本后，打开论文页；如果 Zotero 图标状态已经变化，就可以开始一键保存。
 
 <p align="center">
-  <img src="./tutorial-zotero-save-entry.png" alt="网页端一键保存到 Zotero" width="88%" />
+  <img src="docs/tutorial/tutorial-zotero-save-entry.png" alt="网页端一键保存到 Zotero" width="88%" />
 </p>
 
 保存成功后，你可以在 Zotero 中看到自动生成的摘要笔记效果：
 
 <p align="center">
-  <img src="./tutorial-zotero-note-preview.png" alt="Zotero 自动生成摘要笔记预览" width="88%" />
+  <img src="docs/tutorial/tutorial-zotero-note-preview.png" alt="Zotero 自动生成摘要笔记预览" width="88%" />
 </p>
