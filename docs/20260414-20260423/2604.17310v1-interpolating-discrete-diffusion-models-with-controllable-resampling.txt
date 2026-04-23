@@ -1,0 +1,1415 @@
+Title: Interpolating Discrete Diffusion Models with Controllable Resampling
+
+URL Source: https://arxiv.org/pdf/2604.17310v1
+
+Published Time: Tue, 21 Apr 2026 01:11:28 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Marcel Kollovieh * 1 2 3 Sirine Ayadi * 1 2 Stephan G ¨ unnemann 1 2 3 
+
+Abstract 
+
+Discrete diffusion models form a powerful class of generative models across diverse domains, in-cluding text and graphs. However, existing ap-proaches face fundamental limitations. Masked diffusion models suffer from irreversible errors due to early unmasking, while uniform diffusion models, despite enabling self-correction, often yield low-quality samples due to their strong re-liance on intermediate latent states. We introduce 
+
+IDDM , an Interpolating Discrete Diffusion Model, that improves diffusion by reducing dependence on intermediate latent states. Central to IDDM is a controllable resampling mechanism that partially resets probability mass to the marginal distribu-tion, mitigating error accumulation and enabling more effective token corrections. IDDM specifies a generative process whose transitions interpolate between staying at the current state, resampling from a prior, and flipping toward the target state, while enforcing marginal consistency and fully de-coupling training from inference. We benchmark our model against state-of-the-art discrete diffu-sion models across molecular graph generation as well as text generation tasks, demonstrating competitive performance. 
+
+1. Introduction 
+
+Discrete diffusion models (Austin et al., 2021) have emerged as a powerful approach for generating structures across domains such as proteins (Gruver et al., 2023; Nisonoff et al., 2024), DNA sequences (Sarkar et al., 2024), and molecules (Vignac et al., 2022; Campbell et al., 2022), and are starting to catch up with autoregressive models in lan-guage generation (Lou et al., 2023; Sahoo et al., 2025; Schiff et al., 2024). As with their continuous counterparts, the core idea is to define Markov transitions that gradually corrupt 
+
+> *
+
+Equal contribution 1School of Computation, Information and Technology, Technical University of Munich 2Munich Data Sci-ence Institute 3Munich Center for Machine Learning. Correspon-dence to: Marcel Kollovieh <m.kollovieh@tum.de >.
+
+Preprint. April 21, 2026. · · · · · · q1 x1 xt xs x0
+
+(ii) (iii) (i) 
+
+Figure 1. Graphical model of IDDM. In each step, our model consists of three actions: (i) stay in the current state, (ii) flip to the goal state, and (iii) sample from the prior distribution. The model can be trained without the need to define a forward process. 
+
+the data, and then learn a model to denoise it by parametriz-ing the reverse process. Common forward processes include uniform transitions over the state space or masking, also known as absorbing-state diffusion, in which the state either remains unchanged or transitions to a mask token (Austin et al., 2021; Sahoo et al., 2024; Shi et al., 2024). While these frameworks work analogously to the continuous case, they introduce considerable limitations. Masked diffu-sion models, for example, do not support refinement: once a token is unmasked, it remains fixed throughout the entire generation, restricting the model to correct earlier mistakes and leading to error accumulation (Sahoo et al., 2024; Wang et al., 2025; Shi et al., 2024; Boget, 2025). Uniform tran-sitions, on the other hand, allow flips back to the prior, but they can still suffer from error accumulation (Boget, 2025), and are typically outperformed by absorbing-state diffusion approaches (Austin et al., 2021; Lou et al., 2023). In this work, we propose Interpolating Discrete Diffusion Model (IDDM ), a generative model for discrete data that derives transition probabilities from a different perspective. Instead of defining a Markovian forward transition to reach a terminal distribution, we directly define the reverse, i.e., the generative distribution. To this end, our transitions make use of three different actions: (i) staying in the current state, 
+
+(ii) transitioning to the goal state, and (iii) resampling from the prior distribution, see Figure 1. By constraining the marginal distribution to match an in-terpolation from prior to the data distribution, we obtain a family of posterior transitions. The posteriors interpolate between a fully local update without random flips and a state-independent update that discards the current state, en-abling us to trade off preservation of the current knowledge and stochasticity. To demonstrate IDDM’s capability, we evaluate it on molecule generation and language tasks. 1                  
+
+> arXiv:2604.17310v1 [cs.LG] 19 Apr 2026 Interpolating Discrete Diffusion Models with Controllable Resampling pθλ(xs|xt)x1∼q1xtxsx0
+> fθ(xt, t )
+> xt
+> A
+> B
+> C
+> D
+> E
+> States
+> λforget
+> 0.00.51.0
+> Figure 2. Overview of the generative process of IDDM. Initial samples are drawn from the prior distribution q1. In each denoising step xs|xt, our model constructs the posterior pθλ(xs|xt). Increasing λincreases the stochasticity and state transitions by shifting probability mass from the current to the predicted and random states, as visualized in the bar plot.
+
+Contributions. Our contributions can be summarized as: • Interpolating reverse dynamics. We propose the In-terpolating Discrete Diffusion Model (IDDM) , a simple discrete diffusion model consisting of three different actions, i.e., stay in the current state, transition to the goal state, resample from the prior. • Marginal-consistent posterior family. By enforcing that the marginals adhere to an interpolation between the prior and the data distribution, we derive a family of posterior transitions that trades off preserving the current state against injecting stochasticity. • Forward-process interpretation. We show that the resulting transitions correspond, in general, to a non-Markovian forward process. • Empirical evaluation. We demonstrate that our model achieves competitive performance on well-established benchmarks for molecule generation and language modeling. 
+
+2. Discrete Diffusion Models 
+
+Notations. For clarity and ease of presentation, we use x
+
+to denote a single discrete random variable taking values in 
+
+{1, . . . , K }. In sequence modeling, x represents a single token, while in graph modeling, it can represent a single node or a single edge in the graph. We denote the corre-sponding one-hot encoding by ex ∈ ∆K−1, where ∆K−1 is the simplex over K categories. We denote by Cat( ·; y) the categorical distribution with probability vector y ∈ ∆K−1.Diffusion models learn a Markov chain that involves a for-ward process to perturb the data x ∼ q0(x) to increasingly noisy latent variables xt, for t ∈ [0 , 1] , and a trained reverse process. The forward process p(xt | xs) is expressed under the Markovian assumption, and the induced marginal for every latent variable xt can be defined as an interpolation between the clean data and a noisy prior q1 (Sahoo et al., 2024): 
+
+p(xt | x) = Cat( xt; (1 − αt)q1 + αtex) , (1) where αt ∈ [0 , 1] is a strictly decreasing function in t, and unless stated otherwise, xt is represented in one-hot form. The parametrized reverse process pθ (xs | xt, x), s < t is trained to optimize a variational lower bound on the log-likelihood: 
+
+log pθ (x) ≥
+
+Ep(xt(1) ,..., xt(T )|x)
+
+
+
+log pθ (x, xt(1) , . . . , xt(T ))
+
+p(xt(1) , . . . , xt(T ) | x)
+
+
+
+, (2) where t(i) = i/T , T is the number of diffusion steps, and the reverse Markov process 
+
+pθ (x, xt(1: T )) = 
+
+p(xt(T ))
+
+> T
+
+Y
+
+> i=2
+
+pθ (xt(i−1) | xt(i)) pθ (x | xt(1) ), (3) gradually denoises the latent states towards the data dis-tribution. There exist two popular variants for interpolat-ing discrete diffusion models: uniform diffusion models with a stationary distribution q1 = 1/K , where 1 is a 
+
+K−dimensional column vector of all ones, and masked diffusion models, also known as absorbing state diffusion, where the space is augmented with a special mask token, and the prior distribution is set to q1 = m. Marginal distri-butions over node and edge attributes as noise have proven to be more suitable for graph generation. Standard discrete diffusion models tightly couple the reverse process to a fixed forward corruption mechanism. The for-ward process is defined as a Markov chain p(xt | xs), and 2Interpolating Discrete Diffusion Models with Controllable Resampling ABCDE           
+
+> xt
+> λ= 0 .00 λ= 0 .14 λ= 0 .29 λ= 0 .43
+> ABCDE
+
+xs     
+
+> ABCDE
+> xt
+> λ= 0 .57
+> ABCDE
+
+xs     
+
+> λ= 0 .71
+> ABCDE
+
+xs     
+
+> λ= 0 .86
+> ABCDE
+
+xs 
+
+> λ= 1 .00
+> 0
+> 1
+
+Figure 3. Visualization of p(xs | xt, x = A) for different values of λ. Low λ preserves the current state with high probability. As 
+
+λ increases, the mass progressively shifts toward resampling from the prior (uniform in this example). 
+
+the reverse transitions can be determined via Bayes’ rule: 
+
+p(xs | xt, x) = p(xt | xs)p(xs | x)
+
+p(xt | x) ,
+
+where p(xt | xs) = p(xt | xs, x) follows from the Markov property. As a result, the reverse dynamics are largely de-termined once the forward kernel and the noise schedule are fixed. This can limit the extent to which reverse updates can be modified independently of the noising process and, consequently, can negatively impact the sample quality. For example, in absorbing-state diffusion, once a token is un-masked, it remains fixed for the remainder of the generative process. This can lead to systematic error accumulation as early mistakes cannot be recovered. Uniform diffusion mod-els, on the other hand, inherently enable self-correction since the latent states xt can be continuously updated throughout the reverse process. However, this mechanism can also intro-duce errors, as correctly predicted tokens can be randomly resampled from the uniform prior. 
+
+3. Methodology 
+
+In this section, we propose Interpolating Discrete Diffusion Model (IDDM) , a simple generative model for discrete data that enables controlled resampling during inference and improves token correction. We provide an overview of IDDM in Figure 2. Our goal is to learn the target distribution 
+
+q0. Similar to diffusion models, we define a sequence of latent variables xt that interpolate between the data at t = 0 
+
+and a prior distribution at t = 1 . However, unlike diffusion models, we do not explicitly define forward, i.e., noising process p(xt | xs, x), for s < t . Instead, we define the reverse-time generative process directly. We start by defining our posterior transition probability with three actions: (i) stay at the current state, (ii) flip to the goal state ex, or (iii) resample from the prior q1. More specifically: 
+
+p(xs | xt, x) = Cat 
+
+
+
+wstay xt + wprior q1 + wflip ex
+
+
+
+,
+
+(4) with wstay , w flip , w prior ≥ 0 and wstay + wflip + wprior = 1 .
+
+Marginal distribution. We constrain the marginal distri-bution to interpolate between the prior distribution and the goal state: 
+
+p(xt | x) = Cat 
+
+
+
+xt; (1 − γt)q1 + γtex
+
+
+
+, (5) with γt ∈ [0 , 1] , γ1 = 0 and γ0 = 1 . This choice enables direct sampling of xt at arbitrary t without simulating inter-mediate states. 
+
+Parametrization of transition weights. To enforce 
+
+p(xs | x) = Cat((1 − γs)q1 + γsex) for all s < t , our weights must satisfy the following constraints: 
+
+(1) wstay (1 − γt) + wprior = 1 − γs, and 
+
+(2) wstay γt + wflip = γs. (6) We use this to introduce a forgetting parameter λ ∈ [0 , 1] 
+
+that interpolates between a purely local update ( λ = 0 ) and a global reset to the marginal at time s (λ = 1 ). 
+
+Theorem 3.1. Let γ : [0 , 1] → [0 , 1] satisfy γ0 = 1 and 
+
+γ1 = 0 , and assume γ is monotone decreasing. For any 
+
+0 < t ≤ 1 and 0 ≤ s < t , define 
+
+γs|t := 1 − γs
+
+1 − γt
+
+∈ [0 , 1] . (7) 
+
+Then, for every λ ∈ [0 , 1] , the weights 
+
+wstay := (1 − λ) γs|t, (8) 
+
+wprior := λ (1 − γs), (9) 
+
+wflip := (1 − λ) (1 − γs|t) + λ γ s (10) 
+
+satisfy the marginal constraints in equation 6. Therefore, the reverse transition can be written equivalently as 
+
+pλ(xs | xt, x) = Cat 
+
+
+
+xs; (1 − λ)γs|t xt + λ(1 − γs)q1
+
++
+
+
+
+1 −  (1 − λ)γs|t + λ(1 − γs)
+
+ex
+
+
+
+(11) 
+
+and its marginal satisfies 
+
+X
+
+> xt
+
+pλ(xs | xt, x) p(xt | x) = p(xs | x), for all s < t, 
+
+(12) 
+
+where p(xt | x) = Cat( xt; (1 − γt)q1 + γtex).
+
+We provide a proof for Theorem 3.1 in Section A. 3Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Algorithm 1 Training IDDM 
+
+Inputs: Data distribution q0(x); denoising model fθ ;noise schedule γ(·); steps T ; learning rate η
+
+Output: trained parameters θ
+
+While not converged do 
+
+dt = 1 /T 
+
+x ∼ q0(x)
+
+t ∼ U (d t, 1) , s = t − dt
+
+xt ∼ p(xt | x)
+
+p(xs | xt, x) = γs|t xt + (1 − γs|t) x
+
+p(xs | xt) = γs|t xt + (1 − γs|t) fθ (xt, t )
+
+θ = θ − η∇θ Ldiff 
+
+end while Algorithm 2 Sampling with IDDM 
+
+Inputs: Denoiser fθ ; nosing scheduler γ(·); forgetting scheduler λ(·); steps T ; prior q1
+
+Output: x0
+
+xT ∼ q1(·)
+
+for i = T, T − 1, . . . , 1 do 
+
+t = i/T , s = ( i − 1) /T γs|t = (1 − γs)/(1 − γt), λt = λ(t)
+
+wstay = (1 − λ)γs|t, wprior = λ(1 − γs)
+
+wflip = 1 − (wstay + wprior )
+
+xs ∼ Cat( xs; wstay xt + wprior q1
+
++ wflip fθ (xt, t )) 
+
+end for Special cases. The parameter λ acts as a forget mecha-nism controlling how much probability mass is taken from the current state xt, and how much is resampled indepen-dently from the marginal. Figure 3 visualizes the transition distributions p(xs | xt, x) for increasing values of λ. At 
+
+λ = 0 , our model reduces to two choices, i.e., either re-main in the current state, or flip to the data token. More specifically, 
+
+p0(xs | xt, x) = Cat 
+
+
+
+xs; γs|t xt +
+
+
+
+1 − γs|t
+
+
+
+ex
+
+
+
+. (13) This dynamics defines an absorbing diffusion process di-rected toward the data token ex. In particular, when 
+
+xt = ex, the transition distribution collapses to p0(xs |
+
+xt = ex, x) = Cat  xs; ex
+
+ indicating that ex is absorbing and every other state xt̸ = ex remains non-absorbing, with a nonzero probability of transitioning to ex. This behavior is reflected in Figure 3, where probability mass is concen-trated along the diagonal and the column corresponding to the data point x. For λ = 1 , the posterior reduces to: 
+
+p1(xs | xt, x) = Cat 
+
+
+
+xs; (1 − γs)q1 + γsex
+
+
+
+= p(xs | x).
+
+(14) In this case, the latent variables xt and xs are conditionally independent given x, i.e., the state xt is entirely discarded, and the transitions reset to the marginal distribution. This is illustrated in Figure 3 where all rows collapse to the same distribution, reflecting complete forgetting of the current state xt.
+
+Remark on the forward process. Our approach does not require instantiating a Markovian noising process p(xt |
+
+xs), for s < t , following standard diffusion methods. In-stead, we directly sample the noisy latents from the marginal distribution in equation 5. For completeness, however, we derive the underlying forward transition step of IDDM via Bayes’ rule, pλ(xt | xs, x) ∝ pλ(xs | xt, x)p(xt | x).
+
+This induces a non-Markovian forward kernel of the form: 
+
+pλ(xt | xs, x) = Cat 
+
+
+
+xt; αxs mt + (1 − αxs )xs
+
+
+
+, (15) where mt = p(xt | x) and αxs ∈ [0 , 1] is a state-dependent resampling probability. This transition admits a simple in-terpretation: with probability αxs , the latent xt is resampled from the marginal distribution, otherwise the state retains the previous state xs with probability 1 − αxs . We provide a full derivation in Section B. Crucially, our marginal is inde-pendent of the resampling scheduler λ, allowing decoupled training and sampling. 
+
+3.1. Generative Distribution and optimization 
+
+As the true sample x is not known during inference, we train a neural network as a surrogate. We define the generative distribution as follows: 
+
+pθλ(xs | xt) = Cat 
+
+
+
+xs; (1 − λ)γs|t xt + (1 − γs|t)xθ
+
+
+
++ λ(1 − γs)q1 + γsxθ
+
+
+
+, (16) where xθ := fθ (xt, t ) is a neural network prediction. As with standard diffusion models, we aim to optimize the log-likelihood log pθ (x). However, due to the intractability of the marginalization, we derive the evidence lower bound (ELBO): 
+
+log pθλ(x) ≥
+
+Epλ(xt(1) ,..., xt(T )|x)
+
+"
+
+log pθλ(x, xt(1) , . . . , xt(T ))
+
+pλ(xt(1) , . . . , xt(T ) | x)
+
+#
+
+= Epλ(xt(1) |x)
+
+log pθλ(x | xt(1) )
+
+−
+
+> T
+
+X
+
+> i=2
+
+Epλ(xt(i)|x)
+
+h
+
+L(i)
+
+> diff
+
+i
+
+− Eq0(x)
+
+
+
+KL 
+
+
+
+p(xt(T ) | x) p(xt(T ))
+
+
+
+, (17) 4Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+where 
+
+L(i) 
+
+> diff
+
+= KL  pλ(xt(i−1) | xt(i), x) pθλ(xt(i−1) | xt(i)) .
+
+The ELBO is maximized when the KL divergences between the two distributions are minimized, i.e., when the neural network fθ predicts ex. As the ELBOs share the same op-timum across all λ when the model perfectly predicts x,we only need to train one model, allowing us to change λ
+
+only during inference. We provide the training and sam-pling algorithms of IDDM in Algorithm 1 and Algorithm 2, respectively. 
+
+Expected total number of state transitions. In the fol-lowing, we analyze the expected number of state transi-tions induced by IDDM, i.e., xt(k−1) ̸ = xt(k), for k ∈{1, · · · , T }, along a generation trajectory of T steps. Let 
+
+Ck = 1
+
+h
+
+xt(k−1) ̸ = xt(k)
+
+i
+
+denote the indicator of a state change at step k. The expected total number of transitions is then given by: 
+
+Eλ
+
+NT
+
+ = Eλ
+
+" TX
+
+> k=1
+
+Ck
+
+#
+
+=
+
+> T
+
+X
+
+> k=1
+
+Eλ
+
+h
+
+pλ(Ck = 1 | xt(k))
+
+i
+
+.
+
+In Section C, we show that this expectation admits the form 
+
+Eλ
+
+NT
+
+ = Aλ + B, where A, B ≥ 0. This implies that the expected number of state transitions grows linearly with the resampling coefficient λ. In practice, however, the model 
+
+fθ (xt, t ) does not perfectly preserve the marginal, therefore the distribution of xt(k) can drift with λ. We investigate this effect in Section 4.4. 
+
+Extension to graphs and sequences. So far, we have con-sidered a single-token data point x. IDDM can be readily applied to arbitrary discrete domains and accommodates arbitrary prior distributions. In this paper, we apply IDDM to both graph and sequence generation tasks. We represent a graph G = ( X, E) with N nodes, where X ∈ RN ×K1 is a matrix of one-hot encoded representations of each node 
+
+xi ∈ { 0, 1}K1 , and E ∈ RN ×N ×K2 groups the one-hot encoding of each edge eij ∈ { 0, 1}K2 . Here, K1 and K2
+
+denote the number of possible node and edge attributes, respectively. We adopt marginal prior distributions over nodes and edges, as they have proved effective in prior graph diffusion approaches (Vignac et al., 2022; Qin et al., 2024). For sequence generation, a sequence is represented as S ∈ RL×K , where L is the sequence length and K is the vocabulary size. In this work, we mainly focus on uniform priors, as we find that they consistently yield lower perfor-mance than absorbing-state diffusion models in language modeling (Austin et al., 2021; Lou et al., 2023). 
+
+4. Experiments 
+
+In this section, we discuss our empirical evaluation across various benchmarks. Our primary goal is to compare our generative model to previous discrete diffusion approaches and investigate the effect of random flips to the prior dis-tribution. We benchmark our model on two tasks: graph generation in Section 4.1 and text generation in Section 4.2. Additional details on the datasets, model architectures, train-ing, and evaluation metrics are provided in Section D. 
+
+4.1. Graph Generation Experimental setup. For graph generation, we parametrize our neural network with the graph transformer of Vignac et al. (2022), using Relative Random Walk Probabilities (RRWP) (Ma et al., 2023; Qin et al., 2024) to encode structural properties. The network predicts and gen-erates node and edge labels (see Section 3.1). We provide additional details and hyperparameters in Section D.3. 
+
+Small molecules. We evaluate our model on the QM9 dataset (Wu et al., 2018) (without hydrogen). The results and baselines are reported in Table 1. 
+
+Table 1. QM9 without hydrogen generation performance. Best results in bold , second best underlined . Baseline results are taken from the corresponding papers.                                               
+
+> Model Val. ↑Relaxed Val. ↑Unique ↑FCD ↓
+> Training set 99.3 99.5 99.2 0.03 DiGress (Vignac et al., 2022) 99.0 -96.2 -DisCo (Xu et al., 2024) 99.3 ---Cometh (Siraudin et al., 2024) 99.6 -96.8 0.25 DeFoG (Qin et al., 2024) (10%) 98.9 99.2 96.2 0.26 DeFoG (Qin et al., 2024) 99.3 99.4 96.3 0.12
+> IDDM (Ours) (10%) 99.3 99.5 96.5 0.10 IDDM (Ours) 99.3 99.5 96.3 0.13
+
+Overall, IDDM faithfully learns the data distribution, achiev-ing a validity of 99.3%, matching the training distribution, and achieves state-of-the-art FCD results with λ = 0 and a time distortion scheduler with ρ = 4 , see Section 4.3 for more details. 
+
+Large molecules. In addition to QM9, we evaluate IDDM on the two established benchmarks GuacaMol (Brown et al., 2019) and MOSES (Polykovskiy et al., 2020). We follow the standard data splits and provide our experimental results in Table 2. We observe that our model excels in FCD, SNN, and Filters while maintaining a high validity. Notably, our model with reduced steps (10% of steps) outperforms DeFoG with reduced steps across most metrics. Also, the full-step model achieves a higher validity than DeFoG. For these results, we used ρ = 4 for both datasets, and λ = 0 .4
+
+for MOSES and λ = 0 .2 for GuacaMol. 5Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Table 2. Large molecule generation performance. Best scores in bold , second best underlined . Baseline results are taken from the corresponding papers. 
+
+GuacaMol MOSES Model Val. ↑ V.U. ↑ V.U.N. ↑ FCD ↑ Val. ↑ Unique. ↑ Novelty ↑ Filters ↑ FCD ↓ SNN ↑ Scaf ↑
+
+Training set 100.0 100.0 0.0 92.8 100.0 100.0 0.0 100.0 0.01 0.64 99.1 DiGress (Vignac et al., 2022) 85.2 85.2 85.1 68.0 85.7 100.0 95.0 97.1 1.19 0.52 14.8 DisCo (Xu et al., 2024) 86.6 86.6 86.5 59.7 88.3 100.0 97.7 95.6 1.44 0.50 15.1 Cometh (Siraudin et al., 2024) 98.9 98.9 97.6 72.7 90.5 99.9 92.6 99.1 1.27 0.54 16.0 DeFoG (Qin et al., 2024) 99.0 99.0 97.9 73.8 92.8 99.9 92.1 98.9 1.95 0.55 14.4 
+
+IDDM (Ours) 99.6 99.5 97.8 78.3 90.7 99.9 90.2 99.4 1.58 0.56 13.2 DeFoG (Qin et al., 2024) (10% steps) 91.7 91.7 91.2 57.9 83.9 99.9 96.9 96.5 1.87 0.50 23.5 IDDM (Ours) (10% steps) 98.1 98.0 97.5 77.6 87.1 99.9 94.3 98.9 1.14 0.53 18.5 
+
+4.2. Text Generation Experimental setting. We train IDDM on two datasets: the One Billion Words Dataset (LM1B) (Chelba et al., 2013) and OpenWebText (OWT) (Gokaslan & Cohen, 2019). We use the same data splits as Wang et al. (2025) and follow their tokenization and model configurations. For evaluation, we assess language modeling performance using likelihood-based metrics and report perplexity on the test split. To evaluate the quality of generated sequences, we compute generative perplexity (Gen PPL) using GPT-2 Large, and measure sentence entropy to assess output diversity. 23 26 29
+
+T
+
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+
+Perplexity 
+
+> IDMM ( λ=0.2) D3PM Uniform D3PM Absorb
+
+Figure 4. Perplexity scaling. 
+
+Likelihood evaluation. 
+
+We compute the perplex-ity on LM1B and report results in Table 3. Our primary baselines are uniform discrete diffusion models, including D3PM (uniform) (Austin et al., 2021) and SEDD (uni-form) (Lou et al., 2023). We further include an autoregressive baseline, as well as absorbing-state diffusion models such as D3PM (absorb) and MDLM (Sahoo et al., 2024). Compared to prior diffusion baselines, IDDM consistently improves performance within the uniform diffusion family, with SEDD (Uniform) (Lou et al., 2023) achieving the lowest perplexity. As shown in Figure 4, we analyze perplexity scaling with respect to the number of diffusion steps. Using a fixed resampling parameter λ = 0 .2, IDDM attains strong performance with as few as 16 steps and outperforms both D3PM Uniform and D3PM Absorb by a substantial margin. Additional results with different resampling parameters are presented in Figure 10. 
+
+Sample quality. We assess the generation capability of IDDM when training on OpenWebText. In Table 4, we re-port the generative perplexity and the entropy for generation steps in {1024 , 512 , 256 }. We use λ = 0 .2 for sampling. IDDM achieves comparable generative perplexity to SEDD (uniform) (Lou et al., 2023), while providing improved di-versity. 
+
+Table 3. Test perplexities (PPL) on LM1B. The best value is underlined , and the best uniform diffusion model is bolded . †, ∗,and $ indicate results taken from Sahoo et al. (2025), Lou et al. (2023), and Austin et al. (2021), respectively. 
+
+Model PPL ↓
+
+Autoregressive †
+
+Transformer (Sahoo et al., 2024) 22.3 
+
+Diffusion (Absorbing State / Gaussian) †
+
+BERT-Mouth (Wang & Cho, 2019) 142 .9
+
+D3PM Absorb $ (Austin et al., 2021) 76 .9
+
+Diffusion-LM (Li et al., 2022) 118 .6
+
+DiffusionBert (He et al., 2023) 63 .8
+
+SEDD Absorb (Lou et al., 2023) 32 .7
+
+MDLM (Sahoo et al., 2024) 27.0 
+
+Duo (Sahoo et al., 2025) 29 .9
+
+IDDM (Ours) 42 .2
+
+Diffusion (Uniform) 
+
+D3PM Uniform $ (Austin et al., 2021) 137 .9
+
+SEDD Uniform ∗ (Lou et al., 2023) 40.3 IDDM (Ours) 51 .1
+
+4.3. Time distortion 
+
+Following previous works, we distort time steps during sampling (Karras et al., 2022; Qin et al., 2024). Instead of uniformly spacing the time steps, we allocate more steps to later stages of generation, i.e., closer to the final sample. 6Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Table 4. Generative perplexity using GPT-2 large and entropy for different generation steps T . Best values are underlined , and the best uniform diffusion results are bolded .Gen PPL. ↓ Entropy ↑
+
+Model T = 1024 T = 512 T = 256 T = 1024 T = 512 T = 256 
+
+Autoregressive 12 .1 - - 5.22 - -SEDD Absorb (Lou et al., 2023) 105 .0 104 .5 109 .8 5.62 5.62 5.63 
+
+MDLM (Sahoo et al., 2024) 104 .9 104 .4 112 .7 5.63 5.63 5.66 
+
+Duo (Sahoo et al., 2025) 77.7 78.1 78.6 5.55 5.55 5.55 
+
+SEDD Uniform (Lou et al., 2023) 99.9 100.4 103 .4 5.56 5.56 5.56 
+
+IDDM (ours) 100 .9 103 .2 98.5 5.60 5.64 5.51 0.0 0.2 0.4 0.6 0.8 1.0
+
+λ
+
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+
+FCD (50 steps)      
+
+> 0.00.20.40.60.81.0
+
+λ
+
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 2.2
+
+FCD (500 steps)      
+
+> 0.00.20.40.60.81.0
+
+λ
+
+> 75
+> 80
+> 85
+
+Validity (50 steps)      
+
+> 0.00.20.40.60.81.0
+
+λ
+
+> 87
+> 88
+> 89
+> 90
+> 91
+
+Validity (500 steps)            
+
+> ρ= 1 .0ρ= 2 .0ρ= 3 .0ρ= 4 .0ρ= 5 .0ρ= 6 .0
+
+Figure 5. Different metrics on the MOSES dataset across different values of ρ and λ. For 50 steps, increasing ρ proves to be helpful but yields vanishing improvements after ρ = 2 . Further, the FCD and validity achieve their optimum around 0.4 for 50 steps. Finally, for 500 steps, increasing λ worsens the FCD while increasing the validity. 
+
+More specifically, we use a similar scheduler as (Karras et al., 2022): 
+
+t(i)′ = t(i)ρ,
+
+with ρ > 1. We analyze the effect of ρ in Figure 5 and report the FCD and validity for MOSES across different settings. Increasing ρ above 1 yields a substantial improvement while stagnating from ρ = 2 . We provide additional ablations in Section E. 
+
+4.4. Effect of λ
+
+Intuitively, increasing λ introduces more transitions, i.e., 
+
+xt̸ = xs, during generation as the weights wflip and wprior 
+
+increase. In the extreme case λ = 0 , the transition in equa-tion 4 reduces to a purely local update and will have at most one transition to the goal state. In practice, however, our trained neural network is not guaranteed to consistently pre-dict the same class, which can lead to additional transitions. To quantify this effect, we measure the average number of state transitions over 50 sampling steps on QM9, for the nodes and edges. We show the results in Figure 6. We observe that the number of transitions increases linearly 0.0 0.2 0.4 0.6 0.8 1.0
+
+λ
+
+> 0
+> 5
+> 10
+> 15
+> Transitions
+
+ρ = 1      
+
+> 0.00.20.40.60.81.0
+
+λ
+
+ρ = 4 
+
+> Edge transitions Node transitions
+
+Figure 6. Number of transitions across different λ. The number of transitions rises linearly when increasing λ for nodes and edges on the QM9 dataset. 
+
+with λ, starting close to 0. Note that the average number of transitions for λ = 0 is well below 1, as we have a highly imbalanced class distribution and our sampling algorithm starts from the marginal distribution. We show its empirical effect on performance in Figure 5. 
+
+5. Related Work 
+
+Discrete Diffusion models. Diffusion models were first introduced for continuous data (Sohl-Dickstein et al., 7Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+2015), and have demonstrated strong generative perfor-mance across a range of domains, including images (Nichol & Dhariwal, 2021; Ho et al., 2020), audio (Kong et al., 2020), and video (Ho et al., 2022). The extension of dif-fusion models to discrete data was first explored by Sohl-Dickstein et al. (2015), which adopted a binomial diffusion process for binary data. Building on this, Hoogeboom et al. (2021) generalized the framework to categorical random variables using transition matrices with uniform corruption probabilities. Austin et al. (2021) propose more structured categorical corruption processes for certain data types, such as absorbing-state diffusion for sequences, and discretized Gaussian kernels for ordinal data. Recent works (Sahoo et al., 2024) examine a special case of the corruption process in Austin et al. (2021), reformu-lating it as an interpolation between clean data and a prior distribution. In particular, Sahoo et al. (2024) focus on masked diffusion models, and derive a simplified expression of the ELBO, showing that it corresponds to a weighted average of cross-entropy losses. Schiff et al. (2024) extend this to uniform noise models and provide a continuous-time NELBO leading to performance gains. Sahoo et al. (2025) propose a hybrid model that combines a discrete diffusion process with a Gaussian diffusion process defined directly over one-hot token representations rather than continuous embeddings. Alternative perspectives on discrete diffusion leverage continuous-time Markov chains (CTMC) (Camp-bell et al., 2022; 2024) or concrete score matching (Lou et al., 2023). 
+
+Graph generation. Graph generation approaches can be categorized into two classes: autoregressive approaches, which generate nodes and edges sequentially, and one-shot approaches, which rely on diffusion-based methods. Diffu-sion models leverage the order-agnostic nature of denoising processes to maintain permutation equivariance, and many state-of-the-art approaches further incorporate marginal dis-tributions over node and edge attributes as priors (Vignac et al., 2022; Qin et al., 2024). Recent advances in graph generation have demonstrated that both discrete diffusion models, implemented in either discrete-time settings (Vi-gnac et al., 2022) or continuous-time formulations (Xu et al., 2024), as well as discrete flow-matching approaches (Qin et al., 2024), achieve strong performance in different do-mains, including molecular and synthetic graph generation. Boget (2025) propose a diffusion model for graphs by as-suming that the intermediate noisy states only depend on the clean data, thereby removing the dependence on partially denoised states. This is closely related to IDDM’s extreme case where the resampling coefficient is equal to 1. 
+
+Text generation. For language modeling, autoregressive transformers (Radford et al., 2019; Vaswani et al., 2017) have achieved impressive results. However, their sequential token sampling leads to slow inference and limited con-trollability. To address this, various works explore discrete diffusion models for language generation. In particular, absorbing-state diffusion models (Shi et al., 2024; Sahoo et al., 2024) have demonstrated strong empirical results; however, they suffer from a key limitation: once a token is unmasked, it cannot be revised, which can cause error accumulation and degrade sample quality. Several predictor-corrector samplers have been proposed (Campbell et al., 2022; Gat et al., 2024; Wang et al., 2025) to mitigate this issue, but at the cost of increased computation. In contrast, uniform diffusion models (Austin et al., 2021; Schiff et al., 2024) naturally exhibit a self-correcting property absent in autoregressive and masked diffusion approaches. However, they do not achieve state-of-the-art performance. We note that our IDDM approach naturally enables resampling from arbitrary priors, thereby allowing refinement of tokens for both absorbing-state and uniform diffusion. 
+
+6. Discussion 
+
+Limitations. We evaluate our model on graph and text generation. However, our proposed framework applies di-rectly to any other discrete domain, including protein gen-eration (Campbell et al., 2024) and DNA sequences (Stark et al., 2024). Further, our experiments are limited to uniform and marginal priors. Our generative model, however, readily extends to masking-based priors, thereby enabling iterative token refinement. 
+
+Future work. Beyond extending to different domains and prior distributions, future work could investigate the use of guidance and other conditioning techniques. Finally, it would be promising to explore alternative training tech-niques based on variance reduction or distillation (Sahoo et al., 2025). 
+
+7. Conclusion 
+
+In this work, we introduced a discrete diffusion model whose reverse process is expressed by three actions: (i) stay-ing in the current state, (ii) transitioning to the goal state, and (iii) resampling from the prior distribution. By defining a marginal distribution, we derive a family of posteriors that interpolates between a local and a state-independent update, enabling us to directly control the transition fre-quency, while only training a single model. Further, we show that our reverse process cannot be recovered from a standard Markov noising process, as it corresponds to a non-Markovian forward process. Finally, we demonstrate that IDDM achieves competitive performance on graph and language generation tasks. 8Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Broader Impact 
+
+In this work, we propose a generative model for discrete data and apply it to molecule and text generation. As discrete generative models can be applied in various fields, we see potential positive and negative societal impacts. Generative modeling can accelerate scientific discovery and enhance natural language generation capabilities. However, there are potential societal consequences, specifically those related to the generation of harmful text or designing unsafe drugs. 
+
+References 
+
+Austin, J., Johnson, D. D., Ho, J., Tarlow, D., and Van Den Berg, R. Structured denoising diffusion models in discrete state-spaces. Advances in neural information processing systems , 34:17981–17993, 2021. Boget, Y. Simple and critical iterative denoising: A re-casting of discrete diffusion in graph generation. arXiv preprint arXiv:2503.21592 , 2025. Brown, N., Fiscato, M., Segler, M. H., and Vaucher, A. C. Guacamol: benchmarking models for de novo molecular design. Journal of chemical information and modeling ,59(3):1096–1108, 2019. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deli-giannidis, G., and Doucet, A. A continuous time frame-work for discrete denoising models. Advances in Neural Information Processing Systems , 35:28266–28279, 2022. Campbell, A., Yim, J., Barzilay, R., Rainforth, T., and Jaakkola, T. Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. arXiv preprint arXiv:2402.04997 , 2024. Chelba, C., Mikolov, T., Schuster, M., Ge, Q., Brants, T., Koehn, P., and Robinson, T. One billion word benchmark for measuring progress in statistical language modeling. 
+
+arXiv preprint arXiv:1312.3005 , 2013. Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T., Syn-naeve, G., Adi, Y., and Lipman, Y. Discrete flow match-ing. Advances in Neural Information Processing Systems ,37:133345–133385, 2024. Gokaslan, A. and Cohen, V. Openwebtext cor-pus. http://Skylion007.github.io/ OpenWebTextCorpus , 2019. Gruver, N., Stanton, S., Frey, N., Rudner, T. G., Hotzel, I., Lafrance-Vanasse, J., Rajpal, A., Cho, K., and Wil-son, A. G. Protein design with guided discrete diffusion. 
+
+Advances in neural information processing systems , 36: 12489–12517, 2023. He, Z., Sun, T., Tang, Q., Wang, K., Huang, X.-J., and Qiu, X. Diffusionbert: Improving generative masked language models with diffusion models. In Proceedings of the 61st annual meeting of the association for computational lin-guistics (volume 1: Long papers) , pp. 4521–4534, 2023. Ho, J., Jain, A., and Abbeel, P. Denoising diffusion proba-bilistic models. Advances in neural information process-ing systems , 33:6840–6851, 2020. Ho, J., Salimans, T., Gritsenko, A., Chan, W., Norouzi, M., and Fleet, D. J. Video diffusion models. Advances in neural information processing systems , 35:8633–8646, 2022. Hoogeboom, E., Nielsen, D., Jaini, P., Forr ´e, P., and Welling, M. Argmax flows and multinomial diffusion: Learning categorical distributions. Advances in neural information processing systems , 34:12454–12465, 2021. Karras, T., Aittala, M., Aila, T., and Laine, S. Elucidating the design space of diffusion-based generative models. 
+
+Advances in neural information processing systems , 35: 26565–26577, 2022. Kong, Z., Ping, W., Huang, J., Zhao, K., and Catanzaro, B. Diffwave: A versatile diffusion model for audio synthesis. 
+
+arXiv preprint arXiv:2009.09761 , 2020. Li, X., Thickstun, J., Gulrajani, I., Liang, P. S., and Hashimoto, T. B. Diffusion-lm improves controllable text generation. Advances in neural information process-ing systems , 35:4328–4343, 2022. Lou, A., Meng, C., and Ermon, S. Discrete diffusion model-ing by estimating the ratios of the data distribution. arXiv preprint arXiv:2310.16834 , 2023. Ma, L., Lin, C., Lim, D., Romero-Soriano, A., Dokania, P. K., Coates, M., Torr, P., and Lim, S.-N. Graph in-ductive biases in transformers without message passing. In International Conference on Machine Learning , pp. 23321–23337. PMLR, 2023. Nichol, A. Q. and Dhariwal, P. Improved denoising diffu-sion probabilistic models. In International conference on machine learning , pp. 8162–8171. PMLR, 2021. Nisonoff, H., Xiong, J., Allenspach, S., and Listgarten, J. Unlocking guidance for discrete state-space diffusion and flow models. arXiv preprint arXiv:2406.01572 , 2024. Peebles, W. and Xie, S. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF interna-tional conference on computer vision , pp. 4195–4205, 2023. 9Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Polykovskiy, D., Zhebrak, A., Sanchez-Lengeling, B., Golo-vanov, S., Tatanov, O., Belyaev, S., Kurbanov, R., Arta-monov, A., Aladinskiy, V., Veselov, M., et al. Molecular sets (moses): a benchmarking platform for molecular gen-eration models. Frontiers in pharmacology , 11:565644, 2020. Preuer, K., Renz, P., Unterthiner, T., Hochreiter, S., and Klambauer, G. Fr ´echet chemnet distance: a metric for generative models for molecules in drug discovery. Jour-nal of chemical information and modeling , 58(9):1736– 1741, 2018. Qin, Y., Madeira, M., Thanou, D., and Frossard, P. De-fog: Discrete flow matching for graph generation. arXiv preprint arXiv:2410.04263 , 2024. Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I., et al. Language models are unsupervised multitask learners. OpenAI blog , 1(8):9, 2019. Sahoo, S., Arriola, M., Schiff, Y., Gokaslan, A., Marroquin, E., Chiu, J., Rush, A., and Kuleshov, V. Simple and effective masked diffusion language models. Advances in Neural Information Processing Systems , 37:130136– 130184, 2024. Sahoo, S. S., Deschenaux, J., Gokaslan, A., Wang, G., Chiu, J., and Kuleshov, V. The diffusion duality. arXiv preprint arXiv:2506.10892 , 2025. Sarkar, A., Kang, Y., Somia, N., Mantilla, P., Zhou, J. L., Nagai, M., Tang, Z., Zhao, C., and Koo, P. Designing dna with tunable regulatory activity using score-entropy discrete diffusion. bioRxiv , pp. 2024–05, 2024. Schiff, Y., Sahoo, S. S., Phung, H., Wang, G., Boshar, S., Dalla-torre, H., de Almeida, B. P., Rush, A., Pierrot, T., and Kuleshov, V. Simple guidance mechanisms for dis-crete diffusion models. arXiv preprint arXiv:2412.10193 ,2024. Shi, J., Han, K., Wang, Z., Doucet, A., and Titsias, M. Simplified and generalized masked diffusion for discrete data. Advances in neural information processing systems ,37:103131–103167, 2024. Siraudin, A., Malliaros, F. D., and Morris, C. Cometh: A continuous-time discrete-state graph diffusion model. 
+
+arXiv preprint arXiv:2406.06449 , 2024. Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequi-librium thermodynamics. In International conference on machine learning , pp. 2256–2265. pmlr, 2015. Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzi-lay, R., and Jaakkola, T. Dirichlet flow matching with applications to dna sequence design. arXiv preprint arXiv:2402.05841 , 2024. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. At-tention is all you need. Advances in neural information processing systems , 30, 2017. Vignac, C., Krawczuk, I., Siraudin, A., Wang, B., Cevher, V., and Frossard, P. Digress: Discrete denoising diffusion for graph generation. arXiv preprint arXiv:2209.14734 ,2022. Wang, A. and Cho, K. Bert has a mouth, and it must speak: Bert as a markov random field language model. arXiv preprint arXiv:1902.04094 , 2019. Wang, G., Schiff, Y., Sahoo, S. S., and Kuleshov, V. Re-masking discrete diffusion models with inference-time scaling. arXiv preprint arXiv:2503.00307 , 2025. Wu, Z., Ramsundar, B., Feinberg, E. N., Gomes, J., Ge-niesse, C., Pappu, A. S., Leswing, K., and Pande, V. Moleculenet: a benchmark for molecular machine learn-ing. Chemical science , 9(2):513–530, 2018. Xu, Z., Qiu, R., Chen, Y., Chen, H., Fan, X., Pan, M., Zeng, Z., Das, M., and Tong, H. Discrete-state continuous-time diffusion for graph generation. Advances in Neural Information Processing Systems , 37:79704–79740, 2024. 10 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+A. Proof of Theorem 3.1 
+
+Theorem A.1. Let γ : [0 , 1] → [0 , 1] satisfy γ0 = 1 and γ1 = 0 , and assume γ is monotone decreasing. For any 0 < t ≤ 1
+
+and 0 ≤ s < t , define 
+
+γs|t := 1 − γs
+
+1 − γt
+
+∈ [0 , 1] . (18) 
+
+Then for every λ ∈ [0 , 1] , the weights 
+
+wstay := (1 − λ) γs|t, (19) 
+
+wprior := λ (1 − γs), (20) 
+
+wflip := (1 − λ) (1 − γs|t) + λ γ s (21) 
+
+satisfy the marginal constraints equation 6. Therefore, the reverse transition can be written equivalently as 
+
+pλ(xs | xt, x) = Cat 
+
+
+
+xs; (1 − λ)γs|t xt + λ(1 − γs)q1
+
++
+
+
+
+1 −  (1 − λ)γs|t + λ(1 − γs)
+
+ex
+
+ (22) 
+
+and its marginal satisfies 
+
+X
+
+> xt
+
+pλ(xs | xt, x) p(xt | x) = p(xs | x), for all s < t, (23) 
+
+where p(xt | x) = Cat( xt; (1 − γt)q1 + γtex).Proof. We provide a proof by induction. As a starting point, we have p(xt1 | x) = Cat((1 − γt1 )q1 + γt1 ex) by definition. For the inductive hypothesis, we assume that for some t ∈ [0 , 1] , the marginal satisfies p(xt | x) = Cat((1 − γt)q1 + γtex). The goal is to show that 
+
+p(xs | x) = Cat((1 − γs)q1 + γsex), for s < t .Let mt = (1 − γt)q1 + γtex. By marginalizing out xt and using the linearity of the expectation, we have: 
+
+p(xs | x) = X
+
+> xt
+
+pλ(xs | xt, x) p(xt | x)= X
+
+> xt
+
+Cat( xs; wstay xt + wprior q1 + wflip ex) Cat( xs; mt)= Cat 
+
+
+
+xs; Ext∼p(·| x)[wstay xt + wprior q1 + wflip ex]
+
+
+
+= Cat 
+
+
+
+xs; wstay mt + wprior q1 + wflip ex
+
+
+
+(24) Now we simplify the expressions using the coefficients in equation 19 and equation 21: 
+
+wstay mt = (1 − λ) γs|t
+
+ (1 − γt)q1 + γtex
+
+
+
+= (1 − λ) 1 − γs
+
+1 − γt
+
+(1 − γt)q1 + (1 − λ)γs|tγtex
+
+= (1 − λ)(1 − γs)q1 + (1 − λ)γs|tγtex (25) 
+
+wflip ex =  (1 − λ)(1 − γs|t) + λγ s
+
+ex
+
+= (1 − λ)(1 − γs|t)ex + λγ sex (26) 11 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Substituting equation 25 and equation 26 into equation 24 yields: 
+
+p(xs | x) = Cat 
+
+
+
+xs; wstay mt + wprior q1 + wflip ex
+
+
+
+= Cat 
+
+
+
+xs; (1 − λ)(1 − γs)q1 + (1 − λ)γs|tγtex + λ(1 − γs)q1 + (1 − λ)(1 − γs|t)ex + λγ sex
+
+
+
+= Cat 
+
+
+
+xs; (1 − γs)q1 +  (1 − λ)(1 − γs|t(1 − γt)) + λγ s
+
+ex
+
+
+
+= Cat 
+
+
+
+xs; (1 − γs)q1 +  (1 − λ)(1 − 1 − γs
+
+1 − γt
+
+(1 − γt)) + λγ s
+
+ex
+
+
+
+= Cat 
+
+
+
+xs; (1 − γs)q1 +  (1 − λ)γs + λγ s
+
+ex
+
+
+
+= Cat 
+
+
+
+xs; (1 − γs)q1 + γsex
+
+
+
+This completes the induction. 
+
+B. Derivation of the forward transition pλ(xt | xs, x)
+
+In the following, we derive the forward transition step pλ(xt | xs, x). Recall our reverse process defined for λ ∈ [0 , 1] :
+
+pλ(xs | xt, x) = Cat 
+
+
+
+xs; (1 − λ)γs|t xt + λ(1 − γs)q1 (27) 
+
++
+
+
+
+1 −  (1 − λ)γs|t + λ(1 − γs)
+
+ex
+
+
+
+(28) 
+
+= Cat 
+
+
+
+xs; wstay xt + wprior q1 + wflip ex
+
+
+
+(29) Let xt and ex be single tokens. We write the categorical parameters in scalar form. The reverse kernel implies that, for any 
+
+i, j ∈ { 1, . . . K },
+
+pλ(xs = i | xt = j, ex) = wstay 1[i = j] + wprior q1(i) + wflip 1[i = x].
+
+Let mt(j) = p(xt = j | x), where mt(·) = (1 − γt)q1(·) + γt1[. = x].We first derive the unnormalized forward probabilities: We fix xs = i. Then, for each j, we have: 
+
+pλ(xt = j | xs = i, x) ∝ pλ(xs = i | xt = j, x)p(xt = j | x) (30) 
+
+∝  wstay 1[i = j] + wprior q1(i) + wflip 1[i = x]mt(j) (31) 
+
+∝  wstay 1[i = j] + Di
+
+mt(j), (32) where Di = wprior q1(i) + wflip 1[i = x].The normalizing constant is p(xs = i | x) = ms(i). We can also derive it as follows: 
+
+p(xs = i | x) = X
+
+> j′
+
+pλ(xs = i | xt = j′, x)p(xt = j′ | x) (33) 
+
+= X
+
+> j′
+
+(wstay 1[i = j′] + Di)mt(j′) (34) 
+
+= wstay mt(i) + Di
+
+X
+
+> j′
+
+mt(j′) (35) 
+
+= wstay mt(i) + Di , (36) since P 
+
+> j′
+
+mt(j′) = 1 . The normalized forward transition of equation 32 is: 
+
+pλ(xt = j | xs = i, x) = 
+
+ wstay 1[i = j] + Di
+
+mt(j)
+
+ms(i) . (37) If i = j, then: 
+
+pλ(xt = i | xs = i, x) = (wstay + Di)mt(i)
+
+ms(i) .
+
+12 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+For i̸ = j:
+
+pλ(xt = j | xs = i, x) = Dimt(j)
+
+ms(i) .
+
+To further simplify equation 37, we define the coefficient: 
+
+αi = Di
+
+ms(i) = Di
+
+wstay mt(i) + Di
+
+∈ [0 , 1] . (38) Then, we can rewrite the distribution over xt as a mixture: 
+
+pλ(xt = j | xs = i, x) = αimt(j) + (1 − αi)1[j = i] . (39) The final forward transition can be simplified to: 
+
+pλ(xt | xs, x) = Cat( xt; αxs mt + (1 − αxs )exs ) , (40) which means that in the forward transition, xt = xs with probability (1 − αxs ), otherwise we sample from the marginal 
+
+xt ∼ mt = p(xt | x). The underlying forward process of IDDM is therefore non-Markovian as it requires access to the clean state x.
+
+Instantiating the forward transitions for the special cases. For λ = 0 : The coefficients in the reverse process are simplified to: 
+
+wstay = γs|t, wprior = 0 , and wflip = 1 − γs|t.
+
+Therefore, Di = (1 − γs|t)1[i = x]. The forward transition is: • Case 1: if xs̸ = x i.e., (i̸ = x), then Di = 0 and the mixing coefficients αi = 0 according to equation 38. If we plug in these terms to equation 40, we get 
+
+p0(xt | xs, x) = Cat( xt; ex) .
+
+• Case 2: if xs = x, then Di = (1 − γs|t), and the coefficient α in equation 40 simplifies to 
+
+α = 1 − γs|t
+
+(1 − γs|t + γs|tmt) .
+
+For λ = 1 : The coefficients of the generative process are 
+
+wstay = 0 , wprior = (1 − γs), and wflip = γs
+
+. Therefore, the Bayes expression in equation 37 collapses to: 
+
+p1(xt = j | xs = i, x) = Dimt(j)
+
+Di
+
+= mt(j) .
+
+This implies that the forward transition is conditionally independent of xs given x and corresponds directly to the marginal 
+
+p1(xt | xs, x) = p(xt | x) = Cat 
+
+
+
+(1 − γt)q1 + γtex
+
+
+
+.
+
+C. Number of expected transitions 
+
+We can analytically derive the expected number of transitions, i.e., number of transitions where xs̸ = xt. First, we recall the update probability: 
+
+pλ(xs = j | xt = i, x) = (1 − λ)γs|t1[i = j] + λ(1 − γs)q1(j) + wflip 1[j = x]. (41) A transition occurs when j̸ = i. We define the indicator variable C = 1[xt̸ = xs]. Now we want to derive the probability of a transition: 
+
+pλ(C = 1 | xt = i, x) = 1 − pλ(xs = i | xt = i, x). (42) Next, we condition the probability pλ(xs = j | xt = i, x) on two events: 13 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+Case 1: xt̸ = x In this case, the last term drops out out and the transition simplifies further: 
+
+pλ(xs = xt | xt̸ = x) = (1 − λ)γs|t + λ(1 − γs)q1(xt), (43) (44) and therefore: 
+
+pλ(C = 1 | xt̸ = x) = 1 − (1 − λ)γs|t − λ(1 − γs)q1(xt), (45) 
+
+= 1 − γs|t + λγ s|t − λ(1 − γs)q1(xt) (46) 
+
+= A + λ
+
+ 1 − γs
+
+1 − γt
+
+− (1 − γs)q1(xt)
+
+
+
+(47) 
+
+= A|{z} 
+
+> ≥0
+
++λ
+
+
+
+(1 − γs)
+
+ 11 − γt
+
+− q1(xt)
+
+ | {z }
+
+> ≥0
+
+(48) 
+
+Case 2: xt = x Here, we plug in the value of wflip :
+
+pλ(xs = xt | xt = x) = (1 − λ)γs|t + λ(1 − γs)q1(x) + (1 − λ) (1 − γs|t) + λ γ s (49) And therefore: 
+
+pλ(C = 1 | xt = x) = 1 − (1 − λ)γs|t − λ(1 − γs)q1(x) − (1 − λ) (1 − γs|t) − λ γ s (50) 
+
+= 1 − (1 − λ) − λ(1 − γs)q1(x) − λ γ s (51) 
+
+= λ − λ(1 − γs)q1(x) − λ γ s (52) 
+
+= λ (1 − (1 − γs)q1(x) − γs) (53) 
+
+= λ ((1 − γs)(1 − q1(x)) 
+
+| {z }
+
+> ≥0
+
+(54) (55) Finally, we write down the number of total expected transitions: 
+
+E
+
+" TX
+
+> t=1
+
+Ct
+
+#
+
+=
+
+> T
+
+X
+
+> t=1
+
+E [Ct] (56) 
+
+=
+
+> T
+
+X
+
+> t=1
+
+E [Ct | xt = x] p(xt = x) + E [Ct | xt̸ = x] p(xt̸ = x) (57) 
+
+=
+
+> T
+
+X
+
+> i=1
+
+pλ(Ct = 1 | xt = x)p(xt = x) + pλ(Ct = 1 | xt̸ = x)p(xt̸ = x), (58) which is a mixture of two functions that are linear with respect to λ. As the mixture parameters are independent of λ, the total expected value is linear. 14 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+D. Experimental Details 
+
+For all experiments we use a linear scheduler for γt, i.e., γt = 1 − t. In the following, we describe dataset specific details. 
+
+D.1. Datasets  
+
+> Table 5. Additional details on the datasets.
+
+Dataset Tokenizer Vocab. Size Sequence Length OWT GPT2 50,257 1024 LM1B bert-base-uncased 30,522 128 D.1.1. T EXT DATASETS 
+
+We summarize the details of the text dataset in Table 5. 
+
+LM1B. We download the dataset from Hugging Face Datasets (LM1B), and use the bert-base-uncased tokenizer. We pad the sequences to a maximum length of 128. We use the official training, validation, and test splits provided in the dataset. 
+
+OpenWebText. We tokenize using the GPT-2 tokenizer and wrap the sequences to a maximum length of 1024. We adopt the same train-validation splits from Sahoo et al. (2024), where the last 100,000 samples are used for validation. D.1.2. M OLECULE DATASETS 
+
+QM9. The QM9 dataset (Wu et al., 2018) consists of molecules with up to 9 heavy atoms. We use the same split established by (Vignac et al., 2022), and 10000 graphs for evaluation. 
+
+GuacaMol. Furthermore, we evaluate our model on the GuacaMol dataset (Brown et al., 2019). The molecules range from 2 to 88 heavy atoms. 
+
+MOSES. Finally, we benchmark our model on the MOSES dataset (Polykovskiy et al., 2020), spanning filtered molecules from 8 to 27 heavy atoms. 
+
+D.2. Model architectures  
+
+> Table 6. Model architectures on various datasets.
+
+Dataset Architecture Parameter Count LM1B Transformer 139 M OWT Transformer 169 M 
+
+Text datasets. For LM1B and OWT training, we use the modified Transformer (Peebles & Xie, 2023) architecture from Sahoo et al. (2024). The model consists of 12 layers, a hidden dimension of 768, and 12 attention heads. 
+
+Graph datasets. For the graph datasets, we use the graph transformer proposed by (Vignac et al., 2022) with the hyperparameters used by (Qin et al., 2024) and Relative Random Walk Probabilities (Ma et al., 2023) as node and edge features. We show our hyperparameters in Table 7. 
+
+D.3. Training settings 
+
+In Table 7 and Table 8, we report the training hyperparameters used in our experiments for the different datasets. 15 Interpolating Discrete Diffusion Models with Controllable Resampling  
+
+> Table 7. Overview of the training hyperparameters for the different experiments.
+
+QM9 Guacamol Moses Epochs 1000 250 300 Learning rate 2 × 10 −4 2 × 10 −4 2 × 10 −4
+
+Optimizer ADAM (0 .9, 0.999) ADAM (0 .9, 0.999) ADAM (0 .9, 0.999) 
+
+RRWP steps 12 12 20 Number of layers 9 10 12 Number of heads 8 8 8
+
+ρ 4 4 4
+
+λ 0.0 0.2 0.4  
+
+> Table 8. Overview of the training hyperparameters for the different experiments.
+
+LM1B OWT Train steps 1000K 150K Context size 128 1024 Batch size 512 64 Learning rate 1 × 10 −3 3 × 10 −4
+
+Optimizer ADAM (0 .9, 0.999) ADAM (0 .9, 0.999) 
+
+LR warmup steps 2.5K 2.5K 
+
+D.4. Evaluation metrics 
+
+D.4.1. T EXT GENERATION 
+
+Perplexity. Perplexity is computed as the exponential of the negative average token-level log-likelihood over the evaluation data. We report the perplexities on the test splits following Sahoo et al. (2024). 
+
+Generative perplexity. We report generative perplexity for unconditionally generated sequences, following (Sahoo et al., 2025). We measure it using GPT-2 large (Radford et al., 2019). We further report sample entropy to assess diversity. D.4.2. G RAPH GENERATION 
+
+We evaluate the graph generation with standard molecule metrics. We report the validity, uniqueness, i.e., proportion of generated molecules with different SMILES string, and novelty, i.e., proportion of generated molecules not in the training set. Furthermore, we report the Frechet ChemNetDistance (FCD) (Preuer et al., 2018), which measures the embedding similarity of the generated molecules with respect to the training set. Finally, we report the Scaffold similarity and SNN. 16 Interpolating Discrete Diffusion Models with Controllable Resampling 
+
+E. Additional Results 
+
+In the following, we show hyperparameter ablations for ρ and λ across the datasets QM9, Moses, GuacaMol, and LM1B in Figures 7 to 10. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+0.13 0.17 0.20 0.26 0.33 0.41 0.10 0.13 0.18 0.20 0.23 0.29 0.12 0.12 0.14 0.20 0.20 0.27 0.10 0.13 0.14 0.16 0.22 0.26 0.10 0.11 0.14 0.17 0.19 0.27 0.09 0.11 0.14 0.16 0.18 0.26 
+
+50 steps 
+
+> 0.09  0.41
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+0.10 0.17 0.22 0.27 0.31 0.36 0.10 0.19 0.23 0.29 0.33 0.38 0.11 0.22 0.25 0.31 0.34 0.42 0.13 0.21 0.28 0.35 0.43 0.51 0.11 0.23 0.32 0.39 0.50 0.57 0.12 0.23 0.35 0.43 0.53 0.64 
+
+500 steps 
+
+> 0.10  0.64
+
+(a) FCD ↓0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+96.11 95.45 95.07 94.59 94.83 94.35 99.14 99.11 98.99 99.23 99.07 99.18 99.25 99.34 99.36 99.37 99.35 99.42 99.32 99.44 99.39 99.49 99.45 99.30 99.28 99.46 99.25 99.46 99.27 99.26 99.21 99.38 99.38 99.40 99.31 99.48 
+
+50 steps 
+
+> 94.35  99.49
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+98.86 99.05 99.01 98.82 98.93 99.00 99.30 99.19 99.31 99.41 99.32 99.44 99.30 99.43 99.49 99.32 99.46 99.49 99.27 99.42 99.45 99.39 99.44 99.42 99.43 99.36 99.26 99.49 99.41 99.38 99.39 99.32 99.38 99.37 99.29 99.36 
+
+500 steps  
+
+> 98.82  99.49
+
+(b) Validity ↑
+
+Figure 7. FCD and validity for QM9 across different parameters. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+1.55 1.56 1.59 1.65 1.74 1.78 1.31 1.23 1.20 1.20 1.25 1.23 1.31 1.19 1.16 1.17 1.16 1.20 1.26 1.20 1.14 1.17 1.17 1.20 1.27 1.17 1.15 1.16 1.15 1.18 1.24 1.18 1.13 1.16 1.16 1.20 
+
+50 steps 
+
+> 1.13  1.78
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+1.34 1.47 1.57 1.65 1.72 1.82 1.32 1.53 1.66 1.77 1.92 2.18 1.31 1.46 1.61 1.77 1.98 2.19 1.32 1.49 1.58 1.74 1.91 2.19 1.32 1.41 1.63 1.72 1.86 2.10 1.31 1.46 1.57 1.69 1.89 2.13 
+
+500 steps 
+
+> 1.31  2.19
+
+(a) FCD ↓0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+79.68 78.13 77.08 75.54 73.73 72.17 86.20 86.76 86.83 86.91 86.28 85.79 86.56 87.26 87.33 86.92 86.83 86.77 86.28 86.95 87.09 86.86 86.86 87.09 86.62 87.18 87.36 86.79 86.80 86.45 86.38 87.00 86.40 86.85 86.78 86.40 
+
+50 steps 
+
+> 72.17  87.36
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+86.52 89.66 89.37 89.00 89.16 89.31 87.76 90.06 90.54 90.26 90.58 89.90 87.86 90.24 90.46 90.35 90.82 90.64 87.38 90.18 90.66 90.34 90.37 90.36 87.76 90.30 90.57 90.44 90.42 90.35 87.97 90.35 90.32 90.50 90.16 90.66 
+
+500 steps  
+
+> 86.52  90.82
+
+(b) Validity ↑0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+0.50 0.51 0.51 0.50 0.51 0.50 0.51 0.52 0.53 0.53 0.53 0.53 0.51 0.52 0.53 0.53 0.54 0.54 0.51 0.52 0.53 0.53 0.54 0.54 0.51 0.52 0.53 0.53 0.53 0.54 0.51 0.52 0.52 0.53 0.53 0.54 
+
+50 steps 
+
+> 0.50  0.54
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+0.52 0.54 0.54 0.55 0.55 0.56 0.52 0.55 0.55 0.56 0.56 0.57 0.52 0.55 0.55 0.56 0.56 0.57 0.52 0.55 0.56 0.56 0.57 0.57 0.52 0.55 0.56 0.56 0.57 0.57 0.52 0.55 0.56 0.56 0.57 0.57 
+
+500 steps 
+
+> 0.52  0.57
+
+(c) SNN ↑0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+0.15 0.18 0.18 0.18 0.24 0.22 0.16 0.16 0.18 0.18 0.16 0.17 0.17 0.17 0.17 0.17 0.20 0.16 0.16 0.16 0.19 0.18 0.18 0.19 0.18 0.18 0.19 0.18 0.18 0.19 0.16 0.19 0.20 0.20 0.19 0.18 
+
+50 steps 
+
+> 0.15  0.24
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+
+0.16 0.14 0.13 0.14 0.14 0.12 0.13 0.14 0.13 0.13 0.13 0.13 0.15 0.14 0.13 0.14 0.13 0.13 0.16 0.12 0.13 0.14 0.14 0.13 0.15 0.14 0.14 0.14 0.14 0.14 0.17 0.15 0.13 0.14 0.13 0.11 
+
+500 steps  
+
+> 0.11  0.17
+
+(d) Scaf ↑
+
+Figure 8. FCD, validity, SNN, and Scaffold similarity for MOSES across different parameters. 
+
+17 Interpolating Discrete Diffusion Models with Controllable Resampling 0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+68.07 65.98 63.20 60.91 55.62 47.73 74.50 76.51 75.90 74.44 71.72 67.08 75.84 77.26 76.64 74.54 72.91 69.01 75.77 77.59 76.60 75.71 72.30 69.93 75.47 77.31 76.09 75.59 73.39 69.94 75.14 76.03 76.58 74.96 72.85 69.56 
+
+50 steps 
+
+> 47.73  77.59
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 2.0 3.0 4.0 5.0 6.0
+
+77.62 78.36 74.77 69.33 58.49 49.53 78.29 78.07 73.24 67.19 58.45 48.28 77.58 78.27 73.78 66.89 59.05 49.96 77.94 77.57 73.37 67.80 59.28 50.06 78.31 77.46 73.74 67.86 61.10 50.84 
+
+500 steps 
+
+> 48.28  78.36
+
+(a) FCD ↓0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 1.0 2.0 3.0 4.0 5.0 6.0
+> ρ
+
+82.83 81.29 79.14 76.14 74.36 72.14 95.65 96.30 96.61 97.12 96.65 96.76 96.55 97.62 97.97 98.04 98.24 98.23 96.77 98.06 98.24 98.43 98.43 98.70 97.36 98.10 98.35 98.50 98.39 98.56 97.01 97.60 98.16 98.45 98.38 98.42 
+
+50 steps 
+
+> 72.14  98.70
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+λ
+
+> 2.0 3.0 4.0 5.0 6.0
+
+97.66 99.45 99.48 99.45 99.33 98.81 98.08 99.70 99.71 99.50 99.40 99.20 98.12 99.57 99.60 99.44 99.58 99.35 98.45 99.65 99.73 99.64 99.55 99.58 98.65 99.72 99.76 99.74 99.54 99.50 
+
+500 steps  
+
+> 97.66  99.76
+
+(b) Validity ↑
+
+Figure 9. FCD and validity for Guacamol across different parameters. 25 26 27 28 29 210 
+
+Sampling steps 
+
+61 
+
+62 
+
+63 
+
+64 
+
+65 
+
+66 
+
+67 
+
+68 
+
+> λ
+
+λ
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+(a) Perplexity vs. sampling steps 32 64 128 256 512 1024 
+
+Sampling steps 
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> λ
+
+67.14 64.30 62.47 61.92 61.69 61.57 67.34 64.51 62.89 61.30 61.41 61.13 67.03 63.97 62.37 62.19 61.75 61.19 67.53 64.66 63.02 61.98 61.19 61.07 67.79 64.21 62.62 61.67 61.22 61.12 67.62 64.26 62.49 62.11 61.74 61.18  
+
+> 61.07  67.79
+
+(b) Heatmap 
+
+Figure 10. Perplexity on LM1B as a function of the number of sampling steps for different mixing scheduler values λ.
+
+18
