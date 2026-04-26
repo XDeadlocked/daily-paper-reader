@@ -1,0 +1,844 @@
+Title: ParetoSlider: Diffusion Models Post-Training for Continuous Reward Control
+
+URL Source: https://arxiv.org/pdf/2604.20816v1
+
+Published Time: Thu, 23 Apr 2026 01:21:19 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# ParetoSlider: Diffusion Models Post-Training for Continuous Reward Control 
+
+## Shelly Golan 1 Michael Finkelson 1,2 Ariel Bereslavsky 1 Yotam Nitzan 3 Or Patashnik 11 Tel Aviv University 2 Lightricks 3 Adobe Research Photorealism Reward Sketch Reward 
+
+Reward A 
+
+> Reward B
+
+Input Image Preservation Reward Editing Reward     
+
+> “An origami crane on a wooden table”
+> “Turn this into a Disney Pixar 3D animated scene”
+
+Figure 1. ParetoSlider enables smooth inference-time control over competing rewards trade-off via a single preference-conditioned model. 
+
+Top: Text-to-image generation sliding between photorealism and sketch. Bottom: Image editing sliding between source preservation and prompt adherence. 
+
+## Abstract 
+
+Reinforcement Learning (RL) post-training has become the standard for aligning generative models with human preferences, yet most methods rely on a single scalar re-ward. When multiple criteria matter, the prevailing prac-tice of “early scalarization” collapses rewards into a fixed weighted sum. This commits the model to a single trade-off point at training time, providing no inference-time con-trol over inherently conflicting goals – such as prompt ad-herence versus source fidelity in image editing. We intro-duce ParetoSlider , a multi-objective RL (MORL) frame-work that trains a single diffusion model to approximate the entire Pareto front. By training the model with con-tinuously varying preference weights as a conditioning sig-nal, we enable users to navigate optimal trade-offs at infer-ence time without retraining or maintaining multiple check-points. We evaluate ParetoSlider across three state-of-the-art flow-matching backbones: SD3.5, FluxKontext, and LTX-2. Our single preference-conditioned model matches or exceeds the performance of baselines trained separately for fixed reward trade-offs, while uniquely providing fine-grained control over competing generative goals. 
+
+## 1. Introduction 
+
+Reinforcement Learning (RL) has emerged as the cor-nerstone for aligning Large Language Models with nu-anced human intent, transforming them into highly capa-ble systems across a vast array of real-world applications [5, 32, 38]. This success is now driving a parallel paradigm shift in visual generative modeling [3, 7, 11, 42]. Recent ad-vances [28, 47, 52] have successfully applied RL methods to diffusion and flow matching models to optimize intricate and occasionally subjective objectives such as aesthetic ap-peal, style fidelity, and precise adherence to complex text prompts [21, 30, 45, 46]. In practice, these models are not judged based on a sin-gle metric. Rather, their utility depends on the simultaneous satisfaction of multiple rewards that jointly define the qual-1
+
+> arXiv:2604.20816v1 [cs.LG] 22 Apr 2026
+
+ity and utility of the generated content. In instruction-based editing, for example, a model must maximize a reward for adherence to the edit prompt while satisfying a second re-ward for faithfulness to the source image. These objectives are inherently in tension: pushing for more aggressive edit-ing often degrades structural preservation. This conflict is a hallmark of multi-objective optimiza-tion (MOO), where there is typically no single “perfect” solution [9, 31]. In practice, MOO problems are often ad-dressed through early scalarization , which collapses multi-ple objectives into a single fixed weighted sum [9, 16, 31, 37]. This approach requires a costly search for weighting coefficients and freezes the model at a single, static oper-ating point, thereby forcing a permanent compromise that precludes the flexibility required to adapt to varying user-defined preferences at inference time. A more principled approach to MOO is identifying the Pareto front : the set of optimal trade-offs where no single criterion can be im-proved without degrading another. While recent efforts have begun addressing multi-objective alignment in visual generative models through RL (MORL), they typically face a trilemma of flexibility, effi-ciency, and scalability. Some methods utilize Pareto-based selection during training, but remain limited to a fixed, static trade-off at inference-time [25, 26]. Others achieve inference-time control through model interpolation, yet this requires training and storing multiple checkpoints – a cost that scales linearly with the number of objectives [6, 35]. Fi-nally, training-free steering approaches offer flexibility but suffer from heavy per-step sampling overhead [19]. To bridge this gap, we introduce ParetoSlider, a multi-objective reinforcement learning (MORL) framework for diffusion alignment. Rather than restricting the model to a fixed balance of rewards during training, we introduce a preference vector ω that specifies the desired trade-off be-tween objectives and is provided to the model as a condi-tioning signal. Since the model is conditioned on the pref-erence vector ω, it has the foresight to produce results that abide by the current relative reward preference. Conse-quently, the model learns to approximate the entire Pareto front within a single set of parameters, rather than converg-ing to a single static solution. Still, the training process requires an aggregate scalar signal to guide gradient updates. Directly aggregating raw rewards, even based on preference ω, is suboptimal, as ob-jectives with naturally high magnitudes or variances can dominate the learning signal, effectively overshadowing other rewards and the preference conditioning ω. To prevent such “reward hijacking”, we introduce a late-scalarization 
+
+strategy that normalizes per-reward advantages indepen-dently before the weighted aggregation with preference vec-tor ω. Doing so ensures that the optimization landscape is defined strictly by the target preference vector rather than the arbitrary raw scales of the underlying reward functions. To efficiently optimize this continuous formulation, we build upon DiffusionNFT [52], an RL fine-tuning frame-work for flow-matching models. We compute NFT losses for each reward independently and aggregate them based on preferences ω only at the final step. At inference time, ParetoSlider enables users to continuously control a trade-off slider, navigating between competing goals without the overhead of training multiple checkpoints. We evaluate ParetoSlider on three state-of-the-art flow-matching backbones: Stable Diffusion 3.5 [40] for text-to-image synthesis, FluxKontext [23] for instruction-based im-age editing, and LTX-2 [13] for text-to-video generation. Across all three domains, our single preference-conditioned model matches or exceeds the performance of multiple sep-arately tuned early-scalarization baselines at their respec-tive operating points, while enabling continuous inference-time control over reward weights. Through extensive ab-lations, we compare conditioning mechanisms for inject-ing the preference vector into diffusion transformers, iden-tifying design choices that enable a smooth and contin-uous transition between reward trade-offs. Additionally, we compare scalarization strategies and loss formulations, demonstrating that late scalarization with per-reward losses yields more faithful adherence to the requested trade-off than early-scalarization alternatives. 
+
+## 2. Related Work 
+
+RL Fine-Tuning of Diffusion Models. RL-based post-training for generative models falls into two paradigms: of-fline methods, which rely on static datasets of human pref-erences (e.g., DPO [42]), and online methods, which ac-tively sample from the model’s current policy and query explicit reward functions during training. Because online methods continuously explore the generation space, they are not bounded by the coverage of a pre-collected dataset. Early methods [3, 11] applied REINFORCE-style pol-icy gradients over the full denoising trajectory, whereas oth-ers [7] traded generality for efficiency by back-propagating directly through differentiable rewards. More recently, GRPO [38] was adapted to flow-matching models [27, 28, 47], reducing variance via group-based normalization in-stead of learned value networks. DiffusionNFT [52] shifts optimization to the forward process, using implicit velocity steering (§3) and a flow-matching loss, it avoids storing or differentiating through sampled trajectories. However, all of these online methods optimize a single scalar objective or a fixed weighted combination of rewards, producing a single operating point with no inference-time control. ParetoSlider extends DiffusionNFT to the online multi-objective setting, enabling continuous control along the Pareto front. 2Multi-Objective RL. Multi-objective RL (MORL) learns policies that navigate trade-offs among conflicting objec-tives [15]. LLM alignment methods tackle this by condi-tioning a single model on continuous preference weights during training – whether appended to prompts [48], in-jected via adapters [53], or integrated into the DPO objec-tive [36]. Consequently, one model covers all preference combinations, enabling continuous inference-time control. Conditioning a single model on preference weights has seen limited adoption in visual generation. Text-to-image methods like Parrot [26] and Flow-Multi [24] balance re-wards via Pareto-based sample selection but, lacking ex-plicit conditioning, converge to a single fixed policy. Al-ternatively, Rewarded Soups [35] and Diffusion Blend [6] achieve control by interpolating between independently trained single-reward models, causing checkpoint storage to scale linearly with the objectives. Finally, PROUD [49] obtains Pareto-optimal samples via per-step gradient opti-mization, incurring substantial computational overhead. Our ParetoSlider avoids the limitations above by explic-itly conditioning a single model on a preference vector ω
+
+during training. As a result, a single model captures the entire Pareto frontier, enabling continuous inference-time control with negligible overhead. While a separate line of work explores multi-objective alignment in the offline set-ting (discussed in the next paragraph), our focus remains strictly on the exploratory advantages of the online regime. 
+
+Offline Multi-Preference Fine-Tuning of Diffusion Mod-els. Offline alignment has emerged as a data-driven al-ternative to online RL. Relying on static pairwise compar-isons rather than explicit reward models makes these meth-ods practically appealing. Diffusion-DPO [43], for exam-ple, first adopted DPO for diffusion models by deriving likelihood surrogates from the denoising objective. How-ever, while this reduces computational overhead, it comes at the cost of exploration: offline methods are fundamentally bounded by their training datasets and struggle to adapt to preferences unseen during training. Of greater relevance to our work are offline methods tar-geting the multi-objective setting. CaPO [25] constructs training pairs by selecting from Pareto frontiers across mul-tiple reward models, jointly optimizing competing criteria within a single DPO objective. PPD [8] trains a preference-conditioned diffusion model that interpolates between mul-tiple objectives at inference time, conditioning on per-user embeddings extracted by a VLM from few-shot pair-wise examples. Unlike scalar reward optimization, PPD genuinely supports multi-reward control within a single model. However, because preferences are represented as learned user identities rather than explicit reward weights, the reachable control space is limited to interpolations be-tween seen user embeddings instead of arbitrary points on the continuous reward simplex. ParetoSlider, in contrast, conditions directly on explicit preference vectors ω and trains online, actively exploring the objective space to cover a broader and more precise Pareto frontier. 
+
+## 3. Preliminaries 
+
+3.1. RL Formulation of Diffusion and Flow Models 
+
+Following prior work [3, 11], we formulate the iterative de-noising process of a diffusion or flow-matching model as a sequential Markov decision process (MDP), defined by a tuple ( S, A, P, R). The state space S consists of all pairs 
+
+st = ( xt, c ) of noisy latents xt at diffusion timestep t and the conditioning signal c (e.g., a text prompt or input im-age). The action space A consists of the model’s per-step predictions at, which for flow-matching corresponds to the velocity vector at = vθ (xt, t, c ). The transition dynamics P
+
+defines the transition from state st and action at to the next state st−1, which in a flow-matching model corresponds to the sampling scheduler. The diffusion model thus serves as the policy πθ (xt−1 | xt, c ), mapping the current noisy state to a distribution over the next, less noisy state. The reward function R yields a non-zero scalar value only at the terminal step, where the final sample x0 is evaluated by 
+
+M distinct objectives to produce an M -dimensional reward vector r(x0, c ) = [ r1(x0, c ), . . . , r M (x0, c )] ⊤.Standard diffusion RL methods are formulated for a scalar reward signal and therefore optimize a single ex-pected return. Hence, when multiple objectives are present, a conventional reduction is to first map the reward vector 
+
+r(x0, c ) to a scalar (i.e., early scalarization) before applying a standard single-objective update. This yields an inflexible policy committed to one fixed trade-off. In the multi-objective setting, there is no longer a sin-gle return to maximize. Instead, for each objective m ∈{1, . . . , M }, we define a separate expected return Jm(π) = 
+
+Ec, x 0∼π(·| c)[rm(x0, c )] , and the goal is to find a policy that achieves the optimal trade-off across all M objectives si-multaneously. 
+
+3.2. Pareto optimality 
+
+When rewards compete, gains in one component generally come at the expense of another, and no single policy max-imizes all components simultaneously. The relevant notion of optimality is therefore set-valued: instead of a single per-fect policy, we seek an entire set of Pareto-optimal policies. 
+
+Pareto Dominance. We say that a policy π dominates an-other policy π′ (denoted π ≻ π′) if it achieves an expected return that is no smaller on every objective and strictly larger on at least one: 
+
+π ≻ π′ ⇐⇒ ∀ m ∈ { 1, . . . , M }, J m(π) ≥ Jm(π′)
+
+∧ ∃ l ∈ { 1, . . . , M } s.t. Jl(π) > J l(π′).
+
+(1) 3Pareto Optimality. We define a policy as Pareto optimal 
+
+if no feasible policy dominates it. The Pareto front F∗ is the set of all Pareto-optimal policies: 
+
+F∗ = {π | ∄ π′ s.t. π′ ≻ π}. (2) 
+
+3.3. DiffusionNFT 
+
+Prior RL-based fine-tuning of diffusion models, such as FlowGRPO, formulate reinforcement learning on the re-verse sampling process [28, 47]. In particular, FlowGRPO optimization is carried out over a multi-step reverse-time trajectory. Each update depends on likelihood ratio terms accumulated across many denoising steps. This tends to be computationally expensive, since rewards must be propa-gated through long sampled trajectories. DiffusionNFT [52] addresses these limitations by reformulating the policy op-timization on the forward process rather than the reverse denoising process. Instead of optimizing a policy through reverse-time likelihood ratios over sampled denoising tra-jectories, they directly update the policy model via a stan-dard flow-matching loss. In practice, samples are first gen-erated and scored by the current policy, and the resulting re-wards are then used to construct a supervised training signal that updates the model through a flow-matching loss. More specifically, at each training step, the current policy πθ gen-erates a prompt-group of K samples {x(i)0 }Ki=1 for a given prompt c, and each sample is evaluated via a scalar reward function r(x(i)0 , c ). By avoiding reverse-process policy-gradient optimization, this yields a more efficient and stable online RL procedure. 
+
+Group-Relative Advantage. Following FlowGRPO, DiffusionNFT computes a group-relative advantage by normalizing rewards within each prompt group. For a group j containing K samples, generated by the same prompt c, the advantage of a sample i is defined as: 
+
+A(i) = ( r(i) − μj )/(σj + ϵ), (3) where r(i) = r(x(i)0 , c ) is the scalar reward assigned to the 
+
+i-th sample in the group j, and μj and σj are the mean and standard deviation of rewards across the K samples in that group. ϵ is a small constant added to prevent division by zero. This group-relative normalization uses the prompt’s own generation statistics as a dynamic baseline, reducing variance without requiring a learned value function. 
+
+Implicit Velocity Steering. The sample-wise advantage is clipped and linearly mapped to an interpolation weight 
+
+ρ(i) ∈ [0 , 1] :
+
+ρ(i) = 0 .5 + 0 .5 · clip 
+
+
+
+A(i)/ϵ clip , −1, 1
+
+
+
+, (4) where ϵclip is a hyperparameter that controls the clipping range. During training, a timestep t ∼ U (0 , 1) and noise 
+
+ξ ∼ N (0, I) are sampled, and the noisy latent correspond-ing to sample i is constructed as x(i) 
+
+> t
+
+= (1 −t) x(i)0 +t ξ , with ground-truth velocity target v(i) = ξ − x(i)0 . An exponential moving average (EMA) of the policy, vold , is maintained to define implicit positive and negative velocity targets: 
+
+v(i)+ = (1 − β) vold (x(i) 
+
+> t
+
+, c, t ) + β v θ (x(i) 
+
+> t
+
+, c, t ); (5) 
+
+v(i) 
+
+> −
+
+= (1 + β) vold (x(i) 
+
+> t
+
+, c, t ) − β v θ (x(i) 
+
+> t
+
+, c, t ), (6) where β controls the effective step size. The empirical Dif-fusionNFT loss for sample i is then: 
+
+L(i)NFT =ρ(i) ∥v(i)+ − v(i)∥22 +  1 − ρ(i) ∥v(i) 
+
+> −
+
+− v(i)∥22.
+
+(7) When ρ(i) > 0.5, corresponding to a positive advantage, the loss places greater weight on the positive branch and thus steers vθ toward the higher-reward sample. The full loss is obtained by averaging over the samples: LNFT =
+
+> 1
+> K
+
+P 
+
+> i
+
+L(i)NFT .
+
+When multiple reward functions are enabled, the Diffu-sionNFT framework computes each reward separately and then combines them through early scalarization. As a result, even in the multi-reward configuration, the learned policy remains a standard single-objective policy corresponding to one fixed scalarized trade-off among the selected rewards. This motivates our extension of DiffusionNFT to the multi-objective setting, presented in the next section. 
+
+## 4. Method 
+
+We introduce ParetoSlider, a multi-objective reinforcement learning framework for diffusion models. Our goal is to enable users to continuously navigate the trade-off be-tween a set of objectives, quantified by reward functions 
+
+r1, . . . , r M , while remaining as close as possible to the Pareto front. To navigate the trade-offs between these ob-jectives, we introduce an M -dimensional preference vector 
+
+ω = [ ω1, . . . , ω M ]⊤, where ω lies on the probability sim-plex Ω, i.e., each weight is non-negative ( ωm ≥ 0) and the weights sum to one ( P 
+
+> m
+
+ωm = 1 ). For any given preference ω, we aim to find a policy π
+
+that maximizes the scalarized expected return: Jω (π) = 
+
+PMm=1 ωmJm(π). By the linearity of expectation, this is equivalent to maximizing the expected scalarized reward: 
+
+Jω (π) = 
+
+> M
+
+X
+
+> m=1
+
+ωmJm(π) = Ec, x 0∼π(·| c)[Rω (x0, c )] , (8) where Rω (x0, c ) = PMm=1 ωmrm(x0, c ). Under this for-mulation, different preference vectors ω specify different desired trade-offs among the reward functions. When the rewards are placed on a comparable scale, the optimal pol-icy is therefore a function of the specific weighting. Conse-quently, a single model cannot maximize the expectation of the scalarized reward Rω for an arbitrary preference ω with-out explicit access to the preference vector itself. We there-4“A photo of                       
+
+> a cute dog”
+> 𝜔 =𝜔 !,…,𝜔 "
+> Reward
+> Model 1
+> Reward
+> Model 𝑀
+> 𝑟 !
+> (#)
+> 𝑟 %
+> (#)
+> Stage (1): Generation
+> 𝐴 !
+> (#)=𝑟 !
+> (#)−𝜇 &
+> 𝜎 &
+> 𝐴 %
+> (#)=𝑟 %
+> #−𝜇 &
+> 𝜎 &
+> Stage (2): Rewarding & Advantage Stage (3): Loss Calculation
+> ℒ#$%
+> (!)
+> ℒ#$%
+> "
+> ×𝜔 !
+> ×𝜔 %
+> Preference -
+> Conditional
+> Policy
+> Gradient Update
+> Group 𝑗
+> ℒ!
+> (()
+> ℒ"
+> (
+> Σ(
+> Σ(
+> Sample 𝑖
+> out of 𝐾
+
+Figure 2. ParetoSlider training pipeline. (1) For each prompt and sampled ω, the policy generates K images, (2) which are scored by M
+
+reward models and normalized into per-reward advantages. (3) A DiffusionNFT loss is computed per reward and aggregated with ω before the gradient update. 
+
+fore move beyond static policies and introduce a preference-conditioned diffusion policy πθ (xt−1 | xt, c, ω ). By expos-ing the model to continuously varying preference ω during training, we enable the iterative denoising process to map any user-specified preference to its corresponding optimal point on the Pareto frontier. In practice, raw reward functions often exhibit disparate numerical scales and variances. To prevent “loud” rewards from hijacking the gradient and overshadowing the prefer-ence conditioning ω, we move away from standard early scalarization in favor of a late-scalarization strategy, de-tailed as part of our training paradigm in Section 4.1. Then, in Section 4.2 we describe the architectural mechanisms for conditioning the diffusion backbone on ω.
+
+4.1. Preference Guided Policy Training 
+
+We adopt DiffusionNFT (§3.3) as our base RL algorithm due to its strong reward-alignment performance and sub-stantially improved training efficiency, reported to be 3 ×
+
+to 25 × faster than FlowGRPO. Following this framework, our method relies on an iterative, three-stage process: (1) generating a batch of grouped visual samples using the cur-rent policy and scoring them across all reward functions, (2) transforming these raw rewards into advantages to sta-bilize the optimization, and (3) updating the policy using a combination of the DiffusionNFT loss and a KL-divergence loss. To enable the policy to learn the entire Pareto front, we modify each of these three stages to explicitly incorporate the preference vector ω, as illustrated in Figure 2. 
+
+Preference-Conditioned Group Generation. Following the group-relative policy optimization strategy used in FlowGRPO, we adopt a group-based generation strategy to construct the batch. The key idea is to generate multiple samples under identical conditioning, so that their rewards can be compared within the group and used to form a rel-ative training signal without introducing a separate value network. While standard frameworks like DiffusionNFT condition this generation solely on the input c, our policy must be explicitly conditioned on both c and the preference vector ω. To achieve this, for each input c, we draw a pref-erence ω from a distribution over the simplex Ω (defined in §4). The conditioned policy πθ (xt−1 | xt, c, ω ) then gener-ates a group of K independent samples for the pair (c, ω ),and each sample is evaluated by all M reward functions, yielding a reward vector r(x(i)0 , c ) ∈ RM per sample. 
+
+Late-scalarization Advantage Estimation. To decouple reward scales from the preference conditioning, we adopt 
+
+late scalarization , which was previously demonstrated in a robotics MORL setting [1]. Specifically, we compute an advantage vector A(i) = [ A(i)1 , . . . , A (i) 
+
+> M
+
+]⊤ by standardizing each reward channel m independently across the K samples within the group (Equation 3). This yields a distinct ad-vantage for every reward function and sample, eliminating scale imbalance and ensuring the subsequent optimization respects ω. Crucially, in contrast to DiffusionNFT [52] and FlowGRPO [28], ω does not enter the normalization in our setting. Instead, it is deferred to the loss aggregation step described next. 
+
+Preference-Weighted Policy Optimization. Each per-objective advantage A(i) 
+
+> m
+
+is mapped to its own interpolation weight ρ(i) 
+
+> m
+
+∈ [0 , 1] via Equation 4, yielding a distinct Dif-fusionNFT loss per reward: 
+
+L(i) 
+
+> m
+
+= ρ(i) 
+
+> m
+
+∥v(i)+ − v(i)∥22 +  1 − ρ(i)
+
+> m
+
+ ∥v(i) 
+
+> −
+
+− v(i)∥22. (9) The preference vector is introduced only at the final aggre-gation: 
+
+L(i)NFT =
+
+> M
+
+X
+
+> m=1
+
+ωm L(i) 
+
+> m
+
+, LNFT = 1
+
+K
+
+> K
+
+X
+
+> i=1
+
+L(i)NFT . (10) A KL-divergence term regularizes the policy toward the pretrained reference model, and the total training objective is L = LNFT +λKL LKL . The full procedure is summarized in Algorithm 1 in the supplementary material. 5“A hummingbird hovering near bright tropical flowers”             
+
+> Photorealistic ←−−−−−−→Flat Vector Art
+> “A macro photo of a honeybee on a sunflower”
+> Photorealistic ←−−−−−−→Watercolor
+> “A girl riding a bicycle through a field of sunflowers”
+> Photorealistic ←−−−−−−→Anime
+> “A lighthouse on a green cliff overlooking a turquoise sea”
+> Photorealistic ←−−−−−−→Animated Scene
+> “An easter bunny on a spring day in a field holding a basket of easter eggs”
+> Photorealistic ←−−−−−−→Sketch
+> “A hot air balloon flying over a lavender field”
+> Sketch Photorealistic Watercolor
+
+Figure 3. Multi-objective style interpolation results. Each triplet shows images generated at three preference configurations spanning the Pareto front. 
+
+4.2. Preference conditioning Architectures 
+
+We inject the preference vector ω into the model through lightweight conditioning modules trained jointly with LoRA adapters. All conditioning modules are initialized so that their output is near-zero at the start of training, en-suring that preference conditioning is introduced gradually without disturbing the pretrained base model. To demon-strate the versatility of our approach, we apply ParetoSlider to three different base models (SD3.5, FluxKontext, LTX2), tailoring the integration to each architecture. 
+
+Text-to-Image. We build upon the SD3.5 [10] architec-ture, which processes image and text tokens through L = 18 
+
+joint transformer blocks, each modulated by AdaLN param-eters derived from a shared timestep embedding temb . In our text-to-image configuration, we inject ω through two complementary pathways: an implicit global signal via the timestep embedding, and a shared residual correction ap-plied to the image stream of all transformer blocks. A two-layer MLP ftime : RM → Rd (d = 1152 ) maps the prefer-ence vector into the timestep-embedding space and adds it directly: 
+
+˜temb = temb + ftime (ω). (11) Because every transformer block derives its AdaLN scale, shift, and gating parameters from ˜temb , this injection broad-casts preference information to all L blocks simultaneously. A projector network fblk first encodes ω via sinusoidal positional embeddings and then maps the result through a four-layer MLP to produce a shared modulation vector 
+
+δω = fblk (enc( ω)) ∈ Rd. In each transformer block ℓ,
+
+δω is injected into the image-stream hidden states after the feed-forward layer, gated by the block’s native AdaLN gat-ing parameter g(ℓ):
+
+h(ℓ) ← h(ℓ) + g(ℓ) ⊙ δω , (12) where h(ℓ) denotes the image-stream hidden states at block 
+
+ℓ. By reusing the block’s own gating mechanism, the mod-ulation participates in the same per-block scaling learned during pretraining, which we find stabilizes training. The same δω is shared across all L blocks, keeping the parame-ter overhead minimal. 
+
+Image-to-Image. For image editing and personalization, we build upon FluxKontext [23]. Following the abla-tion studies by Prihar et al. [33], we directly modulate the AdaLN scale and shift of the context (text) stream within each of the 19 dual-stream transformer blocks. We first encode ω via sinusoidal embeddings and project it alongside the pooled text embedding ¯etext : enc( ω) =[sin( πω ); cos( πω )] ∈ R2M , and then: 
+
+(∆ γω , ∆βω ) = fctx ([ Wenc enc( ω); ¯ etext ]) , (13) where fctx is a three-layer MLP with hidden dimension 
+
+2048 . The resulting corrections are added residually to the existing AdaLN parameters of the context stream: γ ←
+
+γ + ∆ γω , β ← β + ∆ βω .
+
+Unlike SD3.5, where our final text-to-image configura-tion modulates the image stream via a shared residual sig-nal reused across blocks, here we target the text stream, as FluxKontext’s dual-stream architecture routes conditioning primarily through the context pathway. 
+
+Text-to-Video For this task, we adopt the LTX-2 [13] model and condition the policy through the same shared block-residual mechanism used for SD3.5 (Equation 12), targeting the video stream and using the LTX-2 inner di-mension d = 3840 . The projector fblk (sinusoidal PE fol-lowed by a four-layer MLP) is unchanged apart from its output width. For stable early RL fine-tuning, the final linear layer of fblk is initialized with weights drawn from 
+
+N (0 , 10 −3) and zero bias. 6“Change this portrait into a pixel-art style”             
+
+> Input Preserve Balanced Edit
+> “Turn this into a 3D-rendered Disney Pixar scene”
+> Input Preserve Balanced Edit
+> “Turn this woman into a warrior”
+> Input Preserve Balanced Edit
+> “Change the style of this image to a Ghibli scene”
+> Input Preserve Balanced Edit
+
+Figure 4. Input preservation vs. instruction adherence, moving from full source preservation to full instruction adherence with a balanced midpoint. 
+
+> Anime Balanced Realistic
+> “Extreme closeup of a human eye blinking slowly.” “A orange cat walking towards the camera across a sunny kitchen floor.”
+
+Figure 5. Qualitative results on text-to-video generation (LTX2, Animation vs. Photorealistic). Each block shows three frames from a generated video for three preference settings: ω = (1 , 0) 
+
+(animation), ω = (0 .5, 0.5) (balanced), and ω = (0 , 1) (photore-alistic). A single model produces all outputs, with the preference vector controlling the style at inference time. 
+
+4.3. Inference-Time Control 
+
+At inference time, the user specifies ω ∈ Ω and the model generates samples through its standard denoising process. No retraining, model interpolation, or per-step gradient guidance is required. Varying ω continuously traces the learned Pareto front, providing a slider interface for multi-reward control. 
+
+## 5. Experiments 
+
+Our experiments are designed to answer three complemen-tary questions. (1) The necessity of explicit preference con-ditioning: We investigate whether existing control mecha-nisms – such as classifier-free guidance scales or prompt engineering – can already produce controllable trade-offs by comparing ParetoSlider against various training- and inference-time baselines (§5.4). (2) The impact of core design choices: Through targeted ablations, we isolate the specific contributions of our preference-conditioning archi-tecture and late-scalarization loss (§5.5). (3) Pareto frontier approximation: We demonstrate that ParetoSlider consis-tently covers the full trade-off spectrum via qualitative and quantitative comparisons (§5.4). In addition, we evaluate coverage and convergence using the hypervolume (HV) in-dicator, where our method consistently dominates. Detailed HV results are provided in the supplementary material. We begin with describing the experimental setup, in-cluding the backbones, reward models, and datasets used across tasks. We then show that ParetoSlider consistently outperforms existing training-time and inference-time con-trol mechanisms for navigating reward trade-offs in visual generation §5.3. Lastly, we analyze the main factors behind this behavior through ablations on the conditioning archi-tecture and the loss formulation. 
+
+5.1. Implementation Details 
+
+Backbones and Tasks. We evaluate on three flow-matching backbones spanning distinct generative tasks: Stable Diffusion3.5 [10] for text-to-image (T2I) synthesis, FluxKontext [23] for instruction-based image editing (I2I), and LTX-2 [13] for text-to-video (T2V) generation. 
+
+Reward Functions. We use two families of reward models. For style objectives such as photorealism and sketch, we use domain classifiers trained on PACS-style domains [50] together with learned human preference or CLIP-based scoring functions, including PickScore [21] and CLIPScore [17, 34]. For more abstract or open-ended objectives, including watercolor, animation, and other stylistic attributes, we use VLM-based reward mod-els (e.g., Qwen2.5-VL [2] or UnifiedReward [44]). Full re-ward definitions, prompt templates, and hyper-parameters are provided in the supplementary material. 
+
+5.2. Datasets 
+
+Text-to-Image. For text-to-image generation, we use prompt-only datasets. To ensure a direct and fair com-7ParetoSlider FixedWeights                   
+
+> Realistic ←−ω= ( ωreal , ω sketch )−→Sketch FlowMulti
+> Prompting
+> Epoch 100 Epoch 200 Epoch 300 Realistic Mix Sketch Figure 6. Pareto front and qualitative T2I comparison on SD3.5 for photorealism-sketch trade-offs. Left: ParetoSlider traces a smooth, continuous Pareto frontier as the preference vector ω= ( ωreal , ω sketch )varies, consistently outperforming FixedWeights, FlowMulti, and Prompting baselines. Right: Qualitative results for the prompt “A chocolate cake with frosting on a stand” . ParetoSlider yields smooth and faithful transitions from photorealistic to sketch-like outputs as ωchanges. In contrast, FixedWeights requires a separate model for each trade-off point and tends to collapse toward the dominant reward, FlowMulti produces only a single static output, and Prompting provides only three coarse operating points.
+
+parison with our primary baseline, we utilized the same Pickscore dataset as used in DiffusionNFT. 
+
+Image-to-Image. For instruction-based image editing, we construct a custom instruction set derived from the FFHQ-512 captions [20]. We utilize Claude 4.6 Opus to parse each source caption for semantic facial attributes and subsequently generate diverse, contextually appropriate edit instructions. Each generated sample records the instruc-tion, the source image index, and the specific edit category, see Table 4 for representative examples. Additionally, we present results of our model trained on the general editing dataset, EditScore [29], in the supplementary materials. 
+
+Text-to-Video. For text-to-video post-training, we use a prompt-only corpus of 1,000 prompts generated with Claude 4.6 Opus. The prompts are diverse and medium-short in length, covering a broad range of scenes, entities, and motion patterns. We present few examples in Table 5. 
+
+5.3. Qualitative Results 
+
+We begin with qualitative results across tasks, illustrating how varying the preference vector ω produces coherent and continuous transitions along the learned reward trade-off surface, as shown in Figures 3, 4, and 5. Figure 3 demon-strates our method in the text-to-image domain, showing smooth preference-controlled transitions between photore-alism and several target styles, including flat vector art, wa-tercolor, anime, animated scene, and sketch. The figure also presents how our method extends beyond two rewards and interpolates seamlessly between three distinct styles (bot-tom right triplet). Figure 4 applies our approach in the I2I domain to balance instruction adherence with input image preservation. The Warrior row demonstrates the transition from a woman’s portrait to a fully armored fantasy charac-ter. At high preservation levels, fine-grained identity details like tiny freckles are faithfully maintained. However, as ad-herence to the prompt increases, the identity slightly shifts and these subtle details are eventually lost to the stronger stylistic edit. In all the shown examples, the balanced oper-ating point faithfully interpolates between the two extremes, and subject identity is well preserved throughout. Finally, Figure 5 shows our method in the T2V domain on the LTX2 model, navigating the trade-off between photorealism and animation. Each extreme faithfully adheres to its target re-ward, while the balanced operating point clearly interpo-lates between them. 
+
+5.4. Comparisons 
+
+Baselines T2I. We compare against three baselines that represent natural alternatives to our preference-conditioned training. Fixed-Weights uses the same DiffusionNFT train-ing pipeline with a fixed weighted reward sum, requiring a separate training run per operating point. We train Diffu-sionNFT on an equal setting of hyperparameters and num-ber of epochs as our approach. Flow-Multi [24] is a GRPO-based baseline with batch-wise Pareto non-dominated se-lection. This baseline was fine-tuned according to the set-ting detailed in the paper. Unlike our method, it still learns a single static policy and offers no inference-time control. 
+
+Prompt Rewriting uses an LLM to rewrite prompts em-phasizing each objective (e.g., appending photorealism or sketch descriptors), providing control through text alone. As shown in Figure 6 (right), ParetoSlider produces smooth, 8Shared Per      
+
+> Hybrid Token Figure 7. Ablation of preference-conditioning architectures for SD3.5 on the photorealism-sketch trade-off. Left: Shared conditioning produce stronger, better-spread Pareto frontiers than hybrid and token-based conditioning. Right: Qualitative results at different preference settings, from photorealistic to sketch-like generations. The top row compares Shared and Per block conditioning, while the bottom row compares hybrid and Token conditioning. Shared and per-block conditioning yield smoother, more faithful transitions, whereas hybrid and token conditioning show weaker controllability and a collapsed trade off towards the dominant metric.
+
+coherent transitions across the full preference spectrum, while Fixed-Weights collapses toward the dominant re-ward and both Flow-Multi and Prompt Rewriting offer only coarse, isolated operating points. Quantitatively, Figure 6 (left) shows that our single preference-conditioned model traces a well-ordered Pareto frontier that consistently dom-inates all baselines. 
+
+Baselines I2I. For image-to-image editing, we compare against inference-time baselines that already expose practi-cal control knobs over the edit-preservation trade-off. Fol-lowing the dual-guidance controls demonstrated in Instruct-Pix2Pix [4], Text-CFG sweeps the text classifier-free guid-ance scale, increasing adherence to the editing instruction at the cost of stronger deviations from the source image, while 
+
+Image-CFG sweeps the image guidance scale to strengthen source preservation and suppress larger edits. We also com-pare against Prompt Rewriting , which uses an LLM to re-formulate the editing instruction so as to emphasize either edit strength or source fidelity. These baselines test whether standard guidance controls and instruction engineering are sufficient to recover the desired trade-off without explicit preference-conditioned training. Additionally, we fine-tune five DiffusionNFT models separately on uniformly spaced trade-off points along the Pareto front. As shown in Figure 9 (right), while this produces a reasonable trade-off, the edit-ing quality is weaker than our approach. Notably, increas-ing the Image-CFG scale progressively strengthens source preservation at the cost of visual artifacts. Similarly, as the text CFG scale rises the images tend to look more saturated. The Pareto front comparison in Figure 9 (left) shows that our preference-conditioned model produces a smooth and consistent trade-off curve. Our method covers a broader range of the trade-off space than Text CFG and consistently dominates FixedWeights, which requires training a sepa-rate model for each operating point, resulting in a superior Pareto frontier overall. 
+
+5.5. Ablation Studies 
+
+We ablate two independent design choices on SD3.5 (T2I generation): the preference conditioning method and the multi-objective loss formulation. Each experiment varies one axis while fixing the other in our default setting. Quali-tative transitions and Pareto front comparisons for both ab-lation choice are presented in Figures 7 and 8. As can be seen both qualitatively and quantitatively, our method out-performs both variants, producing images that faithfully ad-here to the preference vector ω.
+
+Conditioning Method. We compare four architectures for injecting the preference vector ω into the transformer, differing in both the location and mechanism of condition-ing. The Shared and Per-block variants apply modulation-based conditioning, as described in §5.1. The Token variant projects ω into learnable tokens that are prepended to the text sequence. The Hybrid variant combines timestep con-ditioning with AdaLN modulation. Full architectural details are provided in §4.2 and the supplementary material. 
+
+Loss Formulation. We compare several ways of aggre-gating multiple reward objectives during policy optimiza-tion in order to understand how multi-objective diffusion fine-tuning should combine them during training. Our default formulation is the late-scalarization loss. In this approach, we first compute a separate Diffusion-NFT loss L(i) 
+
+> m
+
+for each reward m ∈ { 1, . . . , M }, and only then aggregate these losses using the sampled preference weights, as in Equation 10. This preserves the structure of each reward channel until the final aggregation at the loss stage. We compare late scalarization against two alterna-tives: early scalarization , which combines rewards before computing the policy update (at the advantage normaliza-tion stage), and Smooth Tchebycheff (STCH) , which uses a different preference-aware loss aggregation rule. As shown in Figure 8, all three formulations recover a similar overall 9Late Early STCH                  
+
+> Realistic ←−−−−−→Sketch Figure 8. Ablation of scalarization strategies for SD3.5 on the photorealism-sketch trade-off. Left: Pareto front comparison for late scalarization, early scalarization, and Smooth Tchebycheff (STCH). Late scalarization recovers a well-spread Pareto frontiers, while early scalarization achieves similar overall coverage but with less uniform spacing between operating points. Right: Qualitative results as the preference shifts from photorealistic to sketch-like generations. Late scalarization produces the smoothest and most faithful progression across the trade-off, whereas early scalarization and STCH show weaker intermediate transitions and a greater tendency to collapse toward one objective.
+> “Change this portrait to a 3D rendered Disney Pixar scene”
+> ParetoSlider
+> ImageCFG
+> FixedWeights
+> TextCFG
+> Input Preserve Balanced Edit Preserve Balanced Edit Figure 9. Comparison on instruction-based image editing between source preservation and instruction adherence. Left: ParetoSlider traces a smoother and stronger trade-off curve than FixedWeights, ImageCFG, and TextCFG baselines. Right: Qualitative results as the preference shifts from preserving the input image to following the edit instruction. ParetoSlider produces smooth transitions with a strong balanced midpoint, while FixedWeights requires separate models for each operating point and ImageCFG and TextCFG often introduce weaker edits or visual artifacts along with a less spread pareto front.
+
+Pareto frontier, consistent with the theoretical and empiri-cal findings of Panacea [53], which argue that preference-conditioned alignment can remain effective under a linear aggregation rule. That said, the qualitative behavior of the methods differs. Although early scalarization and STCH achieve comparable frontier coverage, both show a stronger tendency to collapse toward the photorealism objective, es-pecially at intermediate preference values. In contrast, late scalarization yields a smoother and more gradual transition across the trade-off spectrum. All rows are generated with the same seed and training epoch. 
+
+## 6. Conclusions 
+
+We presented ParetoSlider, a multi-objective RL post-training framework that enables continuous inference-time control over trade-offs between competing rewards in dif-fusion and flow-matching models. Rather than committing to a fixed operating point at training time, ParetoSlider con-ditions a single model on a preference vector ω, amortizing an approximation of the reward Pareto frontier into a single set of parameters. We evaluated ParetoSlider across three state-of-the-art backbones spanning text-to-image synthe-sis, instruction-based image editing, and text-to-video gen-eration. In all settings, a single preference-conditioned model matches or exceeds multiple separately trained fixed-weight baselines, while providing smooth inference-time control. We believe ParetoSlider establishes a scalable paradigm for multi-objective alignment of visual generative models, and opens the door to richer user-facing control interfaces where non-expert users can intuitively navigate complex reward trade-offs at inference time. 10 Acknowledgments 
+
+We thank Ofir Schlisselberg and Itay Nakash for their early feedback and helpful suggestions. We also thank NVIDIA for their generous support through the NVIDIA Academic Grant program, which provided GPU hours via Brev for this research. 
+
+## References 
+
+[1] Tanmay Ambadkar, Sourav Panda, Shreyash Kale, Jonathan Dodge, and Abhinav Verma. Preference conditioned multi-objective reinforcement learning: Decomposed, diversity-driven policy optimization, 2026. 5 [2] Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei Huang, et al. Qwen technical report. arXiv preprint arXiv:2309.16609 , 2023. 7, 16, 18, 20 [3] Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. Training diffusion models with reinforce-ment learning. In The Twelfth International Conference on Learning Representations . 1, 2, 3 [4] Tim Brooks, Aleksander Holynski, and Alexei A Efros. In-structpix2pix: Learning to follow image editing instructions. In Proceedings of the IEEE/CVF conference on computer vi-sion and pattern recognition , pages 18392–18402, 2023. 9 [5] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Sub-biah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakan-tan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Lan-guage models are few-shot learners. pages 1877–1901, 2020. 1[6] Min Cheng, Fatemeh Doudi, Dileep Kalathil, Mohammad Ghavamzadeh, and Panganamala R. Kumar. Diffusion blend: Inference-time multi-preference alignment for diffu-sion models, 2025. 2, 3 [7] Kevin Clark, Paul Vicol, Kevin Swersky, and David J Fleet. Directly fine-tuning diffusion models on differentiable re-wards. In The Twelfth International Conference on Learning Representations . 1, 2 [8] Meihua Dang, Anikait Singh, Linqi Zhou, Stefano Ermon, and Jiaming Song. Personalized preference fine-tuning of diffusion models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 8020–8030, 2025. 3 [9] Kalyanmoy Deb. Multi-objective optimisation using evolu-tionary algorithms: an introduction. In Multi-objective evo-lutionary optimisation for product design and manufactur-ing , pages 3–34. Springer, 2011. 2 [10] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas M¨ uller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling recti-fied flow transformers for high-resolution image synthesis. In Forty-first international conference on machine learning ,2024. 6, 7, 14 [11] Ying Fan, Olivia Watkins, Yuqing Du, Hao Liu, Moonkyung Ryu, Craig Boutilier, Pieter Abbeel, Moham-mad Ghavamzadeh, Kangwook Lee, and Kimin Lee. Dpok: Reinforcement learning for fine-tuning text-to-image diffu-sion models. pages 79858–79885, 2023. 1, 2, 3 [12] Rinon Gal, Or Patashnik, Haggai Maron, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. Stylegan-nada: Clip-guided domain adaptation of image generators. ACM Trans-actions on Graphics (TOG) , 41(4):1–13, 2022. 20 [13] Yoav HaCohen, Benny Brazowski, Nisan Chiprut, Yaki Bitterman, Andrew Kvochko, Avishai Berkowitz, Daniel Shalem, Daphna Lifschitz, Dudu Moshe, Eitan Porat, Eitan Richardson, Guy Shiran, Itay Chachy, Jonathan Chetboun, Michael Finkelson, Michael Kupchick, Nir Zabari, Nitzan Guetta, Noa Kotler, Ofir Bibi, Ori Gordon, Poriya Panet, Roi Benita, Shahar Armon, Victor Kulikov, Yaron Inger, Yonatan Shiftan, Zeev Melumian, and Zeev Farbman. Ltx-2: Efficient joint audio-visual foundation model, 2026. 2, 6, 7 [14] Zeyu Han, Chao Gao, Jinyang Liu, Jeff Zhang, and Sai Qian Zhang. Parameter-efficient fine-tuning for large models: A comprehensive survey. Transactions on Machine Learning Research . 14 [15] Conor F. Hayes, Roxana R˘ adulescu, Eugenio Bargiacchi, Johan K¨ allstr¨ om, Matthew Macfarlane, Mathieu Reymond, Timothy Verstraeten, Luisa M. Zintgraf, Richard Dazeley, Fredrik Heintz, Enda Howley, Athirai A. Irissappane, Patrick Mannion, Ann Now´ e, Gabriel Ramos, Marcello Restelli, Pe-ter Vamplew, and Diederik M. Roijers. A practical guide to multi-objective reinforcement learning and planning. Au-tonomous Agents and Multi-Agent Systems , 36(1), 2022. 3 [16] Conor F. Hayes, Roxana R˘ adulescu, Eugenio Bargiacchi, Johan K¨ allstr¨ om, Matthew Macfarlane, Mathieu Reymond, Timothy Verstraeten, Luisa M. Zintgraf, Richard Dazeley, Fredrik Heintz, Enda Howley, Athirai A. Irissappane, Patrick Mannion, Ann Now´ e, Gabriel Ramos, Marcello Restelli, Pe-ter Vamplew, and Diederik M. Roijers. A practical guide to multi-objective reinforcement learning and planning. Au-tonomous Agents and Multi-Agent Systems , 36(1), 2022. 2 [17] Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan Le Bras, and Yejin Choi. Clipscore: A reference-free evaluation met-ric for image captioning. In Proceedings of the 2021 confer-ence on empirical methods in natural language processing ,pages 7514–7528, 2021. 7, 14, 16, 20 [18] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perel-man, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Weli-hinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. 
+
+arXiv preprint arXiv:2410.21276 , 2024. 18 [19] Luozhijie Jin, Zijie Qiu, Jie Liu, Zijie Diao, Lifeng Qiao, Ning Ding, Alex Lamb, and Xipeng Qiu. Inference-time alignment control for diffusion models with reinforcement learning guidance, 2025. 2 [20] Tero Karras, Samuli Laine, and Timo Aila. A style-based generator architecture for generative adversarial networks. In Proceedings of the IEEE/CVF conference on computer vi-sion and pattern recognition , pages 4401–4410, 2019. 8 [21] Yuval Kirstain, Adam Polyak, Uriel Singer, Shahbuland Ma-tiana, Joe Penna, and Omer Levy. Pick-a-pic: An open dataset of user preferences for text-to-image generation. pages 36652–36663, 2023. 1, 7, 14, 16 [22] Max Ku, Dongfu Jiang, Cong Wei, Xiang Yue, and Wenhu Chen. Viescore: Towards explainable metrics for conditional image synthesis evaluation. In Proceedings of the 62nd An-
+
+11 nual Meeting of the Association for Computational Linguis-tics (Volume 1: Long Papers) , pages 12268–12290, 2024. 18, 20 [23] Black Forest Labs, Stephen Batifol, Andreas Blattmann, Frederic Boesel, Saksham Consul, Cyril Diagne, Tim Dock-horn, Jack English, Zion English, Patrick Esser, Sumith Ku-lal, Kyle Lacey, Yam Levi, Cheng Li, Dominik Lorenz, Jonas M¨ uller, Dustin Podell, Robin Rombach, Harry Saini, Axel Sauer, and Luke Smith. Flux.1 kontext: Flow matching for in-context image generation and editing in latent space, 2025. 2, 6, 7, 15 [24] Jaegun Lee and Janghoon Choi. Flow-multi: A flow-matching multi-reward framework for text-to-image gener-ation. Sensors , 26(4):1120, 2026. 3, 8 [25] Kyungmin Lee, Xiahong Li, Qifei Wang, Junfeng He, Jun-jie Ke, Ming-Hsuan Yang, Irfan Essa, Jinwoo Shin, Feng Yang, and Yinxiao Li. Calibrated multi-preference opti-mization for aligning diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 18465–18475, 2025. 2, 3 [26] Seung Hyun Lee, Yinxiao Li, Junjie Ke, Innfarn Yoo, Han Zhang, Jiahui Yu, Qifei Wang, Fei Deng, Glenn Entis, Jun-feng He, et al. Parrot: Pareto-optimal multi-reward reinforce-ment learning framework for text-to-image generation. In 
+
+European Conference on Computer Vision , pages 462–478. Springer, 2024. 2, 3 [27] Junzhe Li, Yutao Cui, Tao Huang, Yinping Ma, Chun Fan, Miles Yang, and Zhao Zhong. Mixgrpo: Unlocking flow-based grpo efficiency with mixed ode-sde. arXiv preprint arXiv:2507.21802 , 2025. 2 [28] Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng Liu, Xintao Wang, Pengfei Wan, Di ZHANG, and Wanli Ouyang. Flow-grpo: Training flow matching models via on-line rl. In The Thirty-ninth Annual Conference on Neural Information Processing Systems . 1, 2, 4, 5 [29] Xin Luo, Jiahao Wang, Chenyuan Wu, Shitao Xiao, Xiyan Jiang, Defu Lian, Jiajun Zhang, Dong Liu, and Zheng Liu. Editscore: Unlocking online rl for image editing via high-fidelity reward modeling. arXiv preprint arXiv:2509.23909 ,2025. 8, 22 [30] Yuhang Ma, Xiaoshi Wu, Keqiang Sun, and Hongsheng Li. Hpsv3: Towards wide-spectrum human preference score. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 15086–15095, 2025. 1 [31] Kaisa Miettinen. Nonlinear multiobjective optimization .Springer Science & Business Media, 1999. 2 [32] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Car-roll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. pages 27730–27744, 2022. 1 [33] Rishubh Parihar, Or Patashnik, Daniil Ostashev, R Venkatesh Babu, Daniel Cohen-Or, and Kuan-Chieh Wang. Kontinuous kontext: Continuous strength control for instruction-based image editing. arXiv preprint arXiv:2510.08532 , 2025. 6 [34] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervi-sion. In International conference on machine learning , pages 8748–8763. PmLR, 2021. 7 [35] Alexandre Rame, Guillaume Couairon, Corentin Dancette, Jean-Baptiste Gaya, Mustafa Shukor, Laure Soulier, and Matthieu Cord. Rewarded soups: towards pareto-optimal alignment by interpolating weights fine-tuned on diverse re-wards. pages 71095–71134, 2023. 2, 3 [36] Yinuo Ren, Tesi Xiao, Michael Shavlovsky, Lexing Ying, and Holakou Rahmanian. Cos-dpo: Conditioned one-shot multi-objective fine-tuning framework. In Conference on Uncertainty in Artificial Intelligence , pages 3525–3551. PMLR, 2025. 3 [37] D. M. Roijers, P. Vamplew, S. Whiteson, and R. Dazeley. A survey of multi-objective sequential decision-making. Jour-nal of Artificial Intelligence Research , 48:67–113, 2013. 2 [38] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models, 2024. 1, 2 [39] Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, et al. Lora: Low-rank adaptation of large lan-guage models. 14 [40] Stability AI. Sd3.5. https : / / github . com / Stability-AI/sd3.5 , 2024. 2 [41] Gemma Team, Thomas Mesnard, Cassidy Hardin, Robert Dadashi, Surya Bhupatiraju, Shreya Pathak, Laurent Sifre, Morgane Rivi` ere, Mihir Sanjay Kale, Juliette Love, et al. Gemma: Open models based on gemini research and tech-nology. arXiv preprint arXiv:2403.08295 , 2024. 17 [42] Bram Wallace, Meihua Dang, Rafael Rafailov, Linqi Zhou, Aaron Lou, Senthil Purushwalkam, Stefano Ermon, Caiming Xiong, Shafiq Joty, and Nikhil Naik. Diffusion model align-ment using direct preference optimization. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 8228–8238, 2024. 1, 2 [43] Bram Wallace, Meihua Dang, Rafael Rafailov, Linqi Zhou, Aaron Lou, Senthil Purushwalkam, Stefano Ermon, Caiming Xiong, Shafiq Joty, and Nikhil Naik. Diffusion model align-ment using direct preference optimization. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 8228–8238, 2024. 3 [44] Yibin Wang, Yuhang Zang, Hao Li, Cheng Jin, and Jiaqi Wang. Unified reward model for multimodal understanding and generation. arXiv preprint arXiv:2503.05236 , 2025. 7, 16, 18, 20 [45] Xiaoshi Wu, Yiming Hao, Keqiang Sun, Yixiong Chen, Feng Zhu, Rui Zhao, and Hongsheng Li. Human preference score v2: A solid benchmark for evaluating human preferences of text-to-image synthesis, 2023. 1 [46] Jiazheng Xu, Xiao Liu, Yuchen Wu, Yuxuan Tong, Qinkai Li, Ming Ding, Jie Tang, and Yuxiao Dong. Imagere-ward: Learning and evaluating human preferences for text-to-image generation. In Thirty-seventh Conference on Neu-ral Information , pages 15903–15935, 2023. 1 [47] Zeyue Xue, Jie Wu, Yu Gao, Fangyuan Kong, Lingting Zhu, Mengzhao Chen, Zhiheng Liu, Wei Liu, Qiushan Guo, 
+
+12 Weilin Huang, and Ping Luo. Dancegrpo: Unleashing grpo on visual generation, 2025. 1, 2, 4 [48] Rui Yang, Xiaoman Pan, Feng Luo, Shuang Qiu, Han Zhong, Dong Yu, and Jianshu Chen. Rewards-in-context: Multi-objective alignment of foundation models with dynamic preference adjustment. In International Conference on Ma-chine Learning , pages 56276–56297. PMLR, 2024. 3 [49] Yinghua Yao, Yuangang Pan, Jing Li, Ivor Tsang, and Xin Yao. Proud: Pareto-guided diffusion model for multi-objective generation. Machine Learning , 113(9):6511–6538, 2024. 3 [50] Samuel Yu, Peter Wu, Paul Pu Liang, Ruslan Salakhutdinov, and Louis-Philippe Morency. Pacs: A dataset for physical audiovisual commonsense reasoning. In European Confer-ence on Computer Vision , pages 292–309. Springer, 2022. 7, 16 [51] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shecht-man, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE conference on computer vision and pattern recogni-tion , pages 586–595, 2018. 20 [52] Kaiwen Zheng, Huayu Chen, Haotian Ye, Haoxiang Wang, Qinsheng Zhang, Kai Jiang, Hang Su, Stefano Ermon, Jun Zhu, and Ming-Yu Liu. Diffusionnft: Online diffusion rein-forcement with forward process, 2026. 1, 2, 4, 5, 14 [53] Yifan Zhong, Chengdong Ma, Xiaoyuan Zhang, Ziran Yang, Haojun Chen, Qingfu Zhang, Siyuan Qi, and Yaodong Yang. Panacea: Pareto alignment via preference adaptation for llms. pages 75522–75558, 2024. 3, 10 [54] Eckart Zitzler and Lothar Thiele. Multiobjective evolution-ary algorithms: a comparative case study and the strength pareto approach. IEEE transactions on Evolutionary Com-putation , 3(4):257–271, 2002. 19 
+
+13 Appendix 
+
+This supplementary material provides additional details, extended evaluations, and broader context for our frame-work. Section A comprehensively details our implemen-tation, including architecture modifications, conditioning mechanisms, preference sampling strategies, and training hyperparameters across the text-to-image (T2I), image-to-image (I2I), and text-to-video (T2V) settings. It also de-scribes the specific reward functions (Section A.4) utilized in our training pipeline. Section B presents supplementary experimental results, including hypervolume comparisons, an ablation of loss scalarization formulations, and our de-tailed evaluation protocol. Finally, we discuss the limita-tions of our approach (Section C). 
+
+## A. Implementation Details 
+
+A.1. Implementation of Text-to-Image Generation 
+
+We build our text-to-image policy on Stable Diffusion 3.5 Medium [10], freezing the VAE and text encoders to adapt only the transformer backbone via LoRA and our preference-conditioning modules [14, 39]. The model is conditioned on an explicit preference vector ω ∈ RM ,where M is the number of reward objectives. 
+
+Reference, current, and old policies. Training maintains three policies: a trainable current policy θ, an exponential moving average (EMA) old policy θold for implicit veloc-ity construction, and a frozen reference policy θref for KL regularization. The EMA update is defined as: 
+
+θold ← λθ old + (1 − λ)θ
+
+Backbone and trainable parameters. We instantiate a preference-conditioned variant of the SD3.5 transformer by copying the pretrained transformer weights into a modi-fied architecture. To maintain parameter efficiency, the base transformer weights remain frozen. We fine-tune the model through Low-Rank Adaptation (LoRA) [39] and lightweight preference-conditioning modules. Specifically, LoRA is injected into all attention linear projections, query, key, value, and output, for both the primary feature and supplementary context streams. Our default hybrid condi-tioning mechanism combines timestep-embedding injection with shared image-stream block modulation, with negligi-ble parameter overhead beyond LoRA and the lightweight preference-conditioning modules. We further explain in de-tail the conditioning mechanism we presented in the Abla-tion Studies, the hybrid and the token conditioning, in the two paragraphs below. 
+
+Shared Residual Preference Conditioning. Our default conditioning mechanism for SD3.5 combines a global pref-erence signal through the timestep embedding with a shared residual modulation applied to the image stream across transformer blocks. For timestep-embedding injection, we use a two-layer MLP whose output is added directly to the shared timestep embedding; no explicit scalar gate is used, and near-identity initialization is obtained by small initialization of the last linear layer with weights sampled from N (0 , 1e−3) and zero bias. In addition to timestep conditioning, we apply preference-conditioned block mod-ulation inside the transformer blocks on the image stream; in the residual variant, the modulation is injected after the feed-forward residual and multiplied by the block’s native 
+
+gate mlp . Together, these two pathways provide both a global conditioning signal through the shared timestep em-bedding and a shared residual modulation direction reused across transformer blocks in the image stream. 
+
+Token-conditioning ablation. For the ablation experi-ments, we implement a token-based conditioning variant. In this version, the preference vector is projected into a small set of learned preference tokens that are pre-pended to the text encoder hidden states before the SD3.5 context projection. Concretely, a learnable matrix of base tokens 
+
+Ebase ∈ RNt×dc is combined with an MLP projection of the preference vector: 
+
+Pω = Ebase + ftoken (ω), (14) where Pω ∈ RNt×dc and dc is the joint-attention context dimension. These preference tokens are concatenated with the original text context and therefore participate in cross-attention throughout all transformer blocks. The base to-ken matrix Ebase is initialized from a zero-mean Gaussian with a standard deviation of 0.01 . The final layer of the token projector is initialized near zero with Gaussian stan-dard deviation 1e−3 so that conditioning strength increases smoothly during training. In the ablation code, the number of preference tokens Nt is configurable. 
+
+Sampling and optimization setup. We summarize the main SD3.5 text-to-image hyperparameters in Table 1. Un-less noted otherwise, all text-to-image experiments use this configuration, including the sampling setup, optimizer set-tings, repeated samples per prompt, and optimization co-efficients. For the main conditioned photorealism-versus-sketch setup, we initialize from a warm-start checkpoint trained on PickScore [21] and CLIPScore [17] with the orig-inal DiffusionNFT [52] setup, which enables stable high-quality generation already at guidance scale 1.0.
+
+A.2. Implementation of Image-to-Image Tasks 
+
+Backbone and trainable parameters. For instruction-based image editing, like in SD3, the VAE, text en-coders, and base transformer weights remain entirely frozen throughout training. The model is adapted exclusively 14 Table 1. Hyperparameters for the main SD3.5 text-to-image experiments. 
+
+Category Value 
+
+Backbone Stable Diffusion 3.5 Medium Trainable parameters LoRA adapters + preference-conditioning modules LoRA rank 32 Warm start CLIPScore + PickScore training 6 epochs Training epochs 9Resolution 512 × 512 
+
+Training denoising steps 25 Evaluation denoising steps 40 Sampler DPM2 Guidance scale 1.0 Noise level 0.7 Repeated samples per prompt 24 Preference subgroups per prompt 2Optimizer AdamW Learning rate 3 × 10 −4
+
+Adam β1, β 2 (0 .9, 0.999) 
+
+Weight decay 10 −4
+
+Adam ϵ 10 −8
+
+Gradient clipping 1.0 Advantage clipping ϵclip 5KL coefficient λKL 0.01 Implicit velocity coefficient β 0.1 Mixed precision fp16 through LoRA injected into the transformer’s attention lay-ers, alongside a lightweight preference projector used for context modulation. 
+
+Preference conditioning. We condition FLUXKontext [23] in the transformer modulation space. Concretely, the preference vector is mapped by a lightweight projector to a modulation vector of dimension 2d, which is split into scale and shift terms and added to the AdaLN parameters of the context stream inside the dual-stream transformer blocks. The image stream is not directly modulated, and the single-stream blocks are left unchanged. This design follows the same general principle as KontinuousKontext, which projects an external control signal into the model’s modulation space, but here the scalar edit-strength control is replaced by a multi-dimensional preference vector. 
+
+Algorithm. Algorithm 1 details the full training proce-dure of our ParetoSlider framework. To clearly delin-eate our contributions, the base DiffusionNFT optimiza-tion steps are written in black, while our multi-objective ParetoSlider additions, including preference sampling, per-channel group normalization, and scalarized losses, are highlighted in blue. 
+
+A.3. Preference Sampling 
+
+During training, we sample K images per conditioning sig-nal and preference vector ω. For text-to-image and text-to-video tasks, this conditioning signal is a text prompt, while for image-to-image tasks, it is a fixed pair of a source image and an edit instruction. To sample ω, we draw from a symmetric Dirichlet distri-bution, Dir(1 , . . . , 1) . However, because a continuous dis-tribution has zero probability of sampling the exact bound-aries of the simplex, we explicitly force the selection of these critical regions. With a fixed probability, we over-ride the interior sample with either a vertex (a one-hot vector) or an edge (a Dir(1 , 1) mixture over exactly two randomly chosen objectives when M > 2). This struc-tured sampling guarantees comprehensive coverage of the entire multi-objective trade-off space. Finally, to maintain synchronization across distributed workers, the preference sampling is strictly deterministic for a given prompt and training step. 
+
+A.4. Reward Functions 
+
+Text-to-Image. For text-to-image post-training, we de-rive our training reward signals from off-the-shelf reward 15 Table 2. Hyperparameters for the main FLUXKontext image-editing experiments. 
+
+Category Value 
+
+Backbone FLUX.1-Kontext-dev Trainable parameters LoRA adapters + preference projector Conditioning method AdaLN context LoRA rank 64 LoRA alpha 128 Training epochs 12 Resolution 384 × 384 
+
+Training denoising steps 10 Evaluation denoising steps 15 Sampler DPM2 Guidance scale 2.5 Noise level 0.7 Repeated samples per prompt 24 Preference subgroups per prompt 4Optimizer AdamW Learning rate 3 × 10 −4
+
+Adam β1, β 2 (0 .9, 0.999) 
+
+Weight decay 10 −4
+
+Adam ϵ 10 −8
+
+Gradient clipping 1.0 Advantage clipping ϵclip 5KL coefficient λKL 0.01 Implicit velocity coefficient β 0.1 Mixed precision bf16 models. We categorize our evaluators into three types: First, to measure general image-text alignment and qual-ity, we utilize PickScore [21] and CLIPScore [17]. Sec-ond, for abstract stylistic attributes, such as watercolor, an-imation etc., we prompt Vision-Language Models (VLMs) like Qwen2.5-VL [2] and UnifiedReward-2.0 [44]. Finally, for highly structured styles like sketch rendering, we em-ploy a custom metric: it integrates domain classification confidence (via a PACS-style classifier [50]) with Sobel-based edge statistics to penalize background texture while favoring sparse line structures, high edge contrast, and ideal stroke thickness. Our main ablations focus on a two-objective photorealism-versus-sketch setting, which provides aparticularly clear trade-off because improving one objec-tive often degrades the other. We train with the PickScore [21] reward using the prompt: “A photorealistic, high quality, 4K, camera-captured snapshot of [prompt].” and the structured sketch reward. To ensure the robustness of the quantitative evaluation in Fig. 7 and avoid potential over-optimization artifacts, we validate our Pareto frontiers using a diverse set of evaluation metrics distinct from those guiding the training process. Specifically, we use Qwen2.5-VL [2] for the sketch style and CLIPScore [17] for photorealism. The use of other metrics than those used during training, tests whether the learned controllable frontier reflects genuine behavioral change rather than overfitting to the specific reward used during optimization. For the CLIP-based photorealism evaluations, we ap-pend a prefix to the base prompt: “A photorealistic, high quality, 4K, camera-captured snapshot of [prompt].” For the Qwen VLM sketch evaluations, we query the model with the following zero-shot evaluation template in C. 
+
+Image-to-Image. For instruction-based image editing, the fundamental multi-objective trade-off lies between exe-cuting the requested edit (instruction adherence) and main-taining the fidelity of the unedited regions of the source image (preservation). To map this Pareto frontier, we op-timize continuous reward channels that explicitly measure both properties. To quantify these attributes during training, we em-ploy Qwen2.5-VL-based editing rewards [2] that can as-sess both the success of the edit. The model is queried with both the source and edited images using the evaluation prompt presented in C. To measure preservation we employ 16 Table 3. Hyperparameters for the main LTX-2 text-to-video experiments. 
+
+Category Value 
+
+Backbone LTX-2 (19B parameters) Text encoder Gemma 3 12B IT [41] Trainable parameters LoRA adapters + preference tokens Conditioning method Shared block-residual (gated by native FF gate) LoRA rank / alpha 32 / 32 Preference projector Sinusoidal PE → MLP ( 2M →768 →3840 , 4 layers, ReLU) Training prompts 1,000 Resolution 512 × 512 
+
+Number of frames 41 Frame rate 25 fps Training denoising steps 20 Evaluation denoising steps 50 Guidance scale (evaluation) 4.0 Timestep sampling Shifted logit-normal Repeated samples per prompt 24 Preference subgroups per prompt 2Timesteps per sample 5Optimizer AdamW Learning rate 3 × 10 −4
+
+Adam β1, β 2 (0 .9, 0.999) 
+
+Weight decay 10 −4
+
+Adam ϵ 10 −8
+
+Gradient clipping 1.0 Advantage clipping ϵclip 5KL coefficient λKL 0.1 Implicit velocity coefficient β 0.1 EMA decay 0.9 Mixed precision bf16 
+
+> Table 4. Example samples from our FFHQ-based image-editing dataset. Each sample contains an edit instruction, a task type, and the source caption from which the instruction was derived.
+
+## Instruction Task type Source caption 
+
+## Convert this photograph into a street graffiti mural style transfer a photography of a man and woman taking a selfie Change the hair color to silver hair changes a photography of a man talking to an-other man in a room Place this person in a vintage Parisian cafe background a photography of a woman with a blue umbrella smiling 
+
+CLIP image-to-image cosine similarity reward between the source and edited images: Similarity CLIP = ϕ(xedit ) · ϕ(xsrc )
+
+∥ϕ(xedit )∥∥ ϕ(xsrc )∥
+
+where ϕ represents the CLIP visual encoder. This heavily penalizes unnecessary modifications to the background or unrelated elements. 17 Algorithm 1 ParetoSlider Fine-tuning (Extensions made to DiffusionNFT are in blue) 
+
+Require: Policy vθ (preference-conditioned), reference vref , prompt dataset D.
+
+Require: Reward functions r1, . . . , r M , Group size K, clip ϵclip , step size β, inner epochs N . 
+
+> 1:
+
+while not converged do  
+
+> 2:
+
+// 1. Sampling & Multi-Objective Scoring  
+
+> 3:
+
+Sample batch of prompts C ∼ D  
+
+> 4:
+
+for each prompt c ∈ C do  
+
+> 5:
+
+Sample preference: ω(c) ∼ p(ω) // Structured vertex/edge/interior  
+
+> 6:
+
+Generate K samples: {x0,ω (c,i )}Ki=1 ∼ πθ (· | c, ω (c)) 
+
+> 7:
+
+Evaluate rewards: r(c,i ) 
+
+> m,ω
+
+= rm(x(c,i )0,ω , c ) for each m = 1 , . . . , M  
+
+> 8:
+
+end for  
+
+> 9:
+
+// 2. Late-Scalarization: Per-Channel Group Normalization  
+
+> 10:
+
+for each prompt c ∈ C do  
+
+> 11:
+
+for objective m = 1 , . . . , M do  
+
+> 12:
+
+μm,ω ← mean( {rm,ω (c, ·)}), σm,ω ← std( {rm,ω (c, ·)}) 
+
+> 13:
+
+Am,ω (c,i ) ← (rm,ω (c,i ) − μm,ω ) / (σm,ω + ϵ) for each i 
+
+> 14:
+
+end for  
+
+> 15:
+
+end for  
+
+> 16:
+
+// 3. Policy Update  
+
+> 17:
+
+θold ← θ // Snapshot for implicit velocities  
+
+> 18:
+
+for epoch = 1 , . . . , N do  
+
+> 19:
+
+for each sample (c, i ) do  
+
+> 20:
+
+// a. Per-objective interpolation weights  
+
+> 21:
+
+for m = 1 , . . . , M do  
+
+> 22:
+
+ρm,ω (c,i ) ← 0.5 + 0 .5 · clip( Am,ω (c,i )/ϵ clip , −1, 1)  
+
+> 23:
+
+end for  
+
+> 24:
+
+// b. Flow matching with implicit velocity steering  
+
+> 25:
+
+Sample t ∼ U (0 , 1) , ξ ∼ N (0, I) 
+
+> 26:
+
+xt ← (1 − t) x0,ω (c,i ) + t ξ , v ← ξ − x0,ω (c,i ) 
+
+> 27:
+
+v+ ← (1 − β) vθold (xt, c, ω (c), t ) + β v θ (xt, c, ω (c), t ) 
+
+> 28:
+
+v− ← (1 + β) vθold (xt, c, ω (c), t ) − β v θ (xt, c, ω (c), t ) 
+
+> 29:
+
+// c. Per-objective losses, scalarized by preference  
+
+> 30:
+
+for m = 1 , . . . , M do  
+
+> 31:
+
+Lm ← ρm,ω (c,i )∥v+ − v∥22 + (1 − ρm,ω (c,i ))∥v− − v∥22 
+
+> 32:
+
+end for  
+
+> 33:
+
+Lpolicy ← PMm=1 ω(c) 
+
+> m
+
+·L m 
+
+> 34:
+
+Ltotal ← L policy + λKL ∥vθ (xt, c, ω (c), t ) − vref (xt, c, t )∥22 
+
+> 35:
+
+θ ← θ − η ∇θ Ltotal  
+
+> 36:
+
+end for  
+
+> 37:
+
+end for  
+
+> 38:
+
+θold ← EMA( θold , θ ) 
+
+> 39:
+
+end while 
+
+Finally, to ensure the recovered controllable frontier re-flects genuine editing capabilities rather than exploitation of the training rewards, our robustness evaluations rely on an orthogonal, held-out evaluator. Specifically, we utilize VI-EScore [22] (Visual Instruction-guided Explainable Score) powered by GPT-4o [18]. 
+
+Text-to-Video. For text-to-video post-training, we de-fine two competing style objectives using UnifiedReward-2.0 [44], a Qwen2.5-VL-based 7B [2] vision-language model. Eight frames are uniformly sampled from each gen-erated video and passed as images to the VLM together with a rubric-style prompt that evaluates both style confor-mity and content alignment on a 0–5 integer scale, which is then normalized to a continuous [0 , 1] score. Both re-wards share the same underlying model and only the eval-uation prompt differs. The photorealism reward evaluates whether the sampled frames resemble real camera footage. 18 Table 5. Example prompts from the text-to-video training corpus. 
+
+Prompt 
+
+A sleek spaceship drifting silently through an asteroid field with distant stars in the background. A street food vendor flipping crispy crepes on a hot griddle at a bustling night market. A traceur performing a wall flip off a brick building in slow motion.  
+
+> Figure 10. Robust Pareto-front comparison of baseline methods on text-to-image generation under alternative evaluation metrics.
+
+The animation reward evaluates whether the frames exhibit the stylistic hallmarks of 3D animated films. Together, these two objectives define a clear stylistic trade-off: improv-ing photorealism typically degrades the animation score and vice versa, making them a natural pair for evaluating con-trollable multi-objective video generation. 
+
+## B. Experiments 
+
+Evaluation protocol. All quantitative results are com-puted on 100 prompts randomly sampled from the test set. For ParetoSlider, we evaluate 5 preference vectors chosen to provide a representative and computationally feasible cov-erage of the trade-off frontier. For the Fixed-Weights base-line, we train 5 separate DiffusionNFT models, each with a different fixed reward weighting, using the same hyperpa-rameters, initialization checkpoint, and training duration of 9 epochs as ParetoSlider. FlowMulti is trained for 300 steps following the recommendation in the original paper. For the Prompt Rewriting baseline, we use Gemini 3 to gener-ate 3 rewritten prompts per test prompt: one emphasizing photorealism, one emphasizing sketch, and one requesting a balanced blend of the two, using the templates shown in Table 8. Similarly, for the image-to-image editing task, the rewrites emphasize prompt adherence, source preservation, or a balanced blend (see Table 9). To emphasize the robustness of our method to different reward model scoring we present additional plots demon-strating that are method consistently outperforms all base-lines as shown in Figures 10, 11, 12. 
+
+Hypervolume Comparison. Tables 6 and 7 report the Hypervolume (HV) indicator [54], the standard quality met-
+
+> Figure 11. Robustness of conditioning architectures under alterna-tive evaluation metrics.
+> Figure 12. Robustness of scalarization strategies under alternative evaluation metrics.
+
+ric for multi-objective optimization. HV measures the vol-ume dominated by a solution set relative to a reference point, capturing both convergence to the Pareto front and spread across it in a single scalar. We set to the origin (0 , 0) 
+
+point as our reference, after applying global min-max nor-malization to the reward scores across all methods. Since only non-dominated (Pareto-optimal) points contribute to the hypervolume, this metric inherently penalizes methods whose operating points are strictly dominated by those of other methods. This effect is reflected in the “Non Dom.” column of our tables, which denotes the number of valid non-dominated points retained by each method. To com-pute these points, we follow the definitions from the Pre-liminaries section of our main paper. 
+
+B.1. Qualitative Results 
+
+Figures 14 and 15 show qualitative results of our contin-uous preference control framework. In both cases, the model smoothly adjusts the output according to the speci-fied preference, demonstrating controllable transitions be-tween competing objectives. In the last row of Figure 14, we observe that the colors gradually become more satu-rated, notably the color of the dress transforms from a muted 19 Table 6. Hypervolume on the Realistic vs. Sketch setting (T2I). Qwen2.5-VL score for sketch and CLIPScore for photorealism. 
+
+Method HV ↑ Non Dom. ↑ Pts. 
+
+ParetoSlider 0.870 5 5Prompt Rewriting 0.827 2 3FlowMulti ckpt300 0.683 1 1Fixed-Weights 0.435 2 5 
+
+> Table 7. Hypervolume on the Instruction Adherence vs. Preser-vation setting (I2I). VIEScore used for both instruction adherence and preservation.
+
+Method HV ↑ Non Dom. ↑ Pts 
+
+ParetoSlider 0.574 5 5Text-CFG 0.561 3 4Image-CFG 0.395 1 4Prompt Rewriting 0.459 3 3Fixed-Weights 0.516 4 5
+
+> “An easter bunny on a spring day in a field holding a basket of easter eggs”
+> Qwen SigLIP
+> Figure 13. Different sketch reward models results.
+
+gray to a saturated pink. Similarly, in the first row of Figure 15, we observe that higher preservation reward allows for very light edits, while higher editing reward alters the entire scene. To strongly demonstrate the robustness of our learned Pareto frontiers, we compute the hypervolume across two distinct sets of evaluation metrics for each task. Text-to-Image is evaluated with UnifiedReward2.0 [44] and a com-bination of Qwen2.5-VL [2] and CLIPScore [17], while Image-to-Image is evaluated using VIEScore [22] as well as a combination of CLIP Directional score [12] and LPIPS [51]. Consistent with the visual findings in Fig. 7 of the main paper, our ParetoSlider achieves the highest HV, outper-forming all baselines across all metric sets in both the text-to-image and image-to-image settings. 
+
+B.2. The Effect of Reward Models 
+
+The reward model has a direct impact on the model learned during post-training. Since each reward captures a differ-ent notion of what constitutes a “good” image, optimizing against different rewards can lead to systematically different generations, even under the same prompt and model archi-tecture. In practice, this means that reward choice affects not only the final score, but also the style, edit strength, re-alism, and semantic emphasis of the produced outputs. Figure 13 presents qualitative examples demonstrating this effect. Keeping the prompt and preference fixed, we compare outputs obtained using Qwen2.5-VL and SigLIP classifier for sketch score. 
+
+B.3. Editing Comparison With KontinousKontext 
+
+## C. Limitations 
+
+ParetoSlider inherits a fundamental dependency on the quality of the reward models used during training. If a re-ward model fails to capture the true target objective, for in-stance, a sketch reward that responds to gray scale images rather than the genuine sketch style, we will not be able to recover the Pareto front and might optimize the wrong ob-jective. In the multi-reward setting this risk is compounded: a single poorly specified reward can distort the entire trade-off surface. This highlights the importance of careful re-ward design and validation, particularly for abstract or sub-jective objectives where proxy rewards are hardest to spec-ify. 20 “a firefighter holding a dalmatian puppy” 
+
+“an astronaut floating above Earth” 
+
+Photorealistic ←−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→ Digital Art 
+
+“a glass of orange juice next to a stack of pancakes” 
+
+“a grand piano in an empty concert hall” 
+
+Photorealistic ←−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→ Sketch 
+
+“a living room with a sofa, a coffee table, a TV, and a window” 
+
+“a studio headshot of a ballerina” 
+
+Muted Pallette ←−−−−−−−−−−−−−−−−−−−−−−−−→ Saturated Pallette 
+
+Figure 14. Our results for continuous preference control in text-to-image generation. 
+
+21 Disney Pixar Style 
+
+Pixel Art 
+
+Lego Mini-Figure 
+
+Anime Character 
+
+Claymation Character 
+
+Change the sofa to red 
+
+Stylize as a geometric low-poly 3D render 
+
+Input Image Preservation ←−−−−−−−−−−−−−−−−−−→ Instruction Adherence 
+
+Figure 15. Our results for continuous preference control in image editing. Rows 1-5 were trained on the FFHQ editing data, rows 6-7 were trained on the EditScore [29] data. 22 Table 8. Example prompt rewrites used for the Prompt Rewriting baseline in the photorealism-versus-sketch setting. For each original prompt, Gemini 3 produces a photorealistic rewrite, a sketch rewrite, and a balanced rewrite. 
+
+Original prompt Photorealistic rewrite Sketch rewrite Balanced rewrite 
+
+a young male cyborg with white hair sitting down on a throne in a dystopian world, epic Young male cyborg, white hair, sitting on a throne, dystopian world, epic, pho-torealistic, cinematic lighting, high detail, 8k, sharp focus. Sketch of a young male cy-borg with white hair sitting on a throne in a dystopian world, highly detailed, epic composi-tion. A young male cyborg with white hair sitting on a throne in a dystopian world, epic, equally blended photorealistic and sketch styles. a charcoal sketch of a city skyline Photorealistic city skyline, high resolution, sharp focus, cinematic lighting, architec-tural detail. City skyline, charcoal sketch. City skyline, 50% photoreal-istic and 50% charcoal sketch. enigmatic black square building on top of a pur-ple hill, smoke stacks Photorealistic, enigmatic black square building, purple hill summit, smoke stacks, cinematic lighting, high detail, 8k resolution. Sketch of an enigmatic black square building with smoke stacks on top of a purple hill. Enigmatic black square build-ing on top of a purple hill with smoke stacks, equally blended photorealistic and sketch styles. 
+
+> Table 9. Example instruction rewrites used for the Prompt Rewriting baseline in the Instruction Adherence vs. Image Preservation setting for image editing. For each original instruction, Gemini 3 produces a rewrite emphasizing prompt adherence, a rewrite emphasizing image preservation, and a balanced rewrite.
+
+Original instruction Adherence rewrite Preservation rewrite Balanced rewrite 
+
+Change the background to a tropical beach at sunset Completely transform the background into a vibrant tropical beach at sunset, ensuring the change is bold and unmistakably clear. Subtly update the background to a tropical beach at sunset while strictly preserving the original image’s content and structure. Change the background to a tropical beach at sunset while maintaining the original sub-ject and composition. Restyle this portrait with a gothic Victorian theme Boldly and unmistakably restyle this portrait with an intense, fully-realized gothic Victorian theme. Subtly restyle this portrait with a gothic Victorian theme while strictly preserving the original content, structure, and visual identity. Restyle this portrait with a gothic Victorian theme while preserving the original per-son’s likeness, pose, and the image’s overall structure. turn this portrait into pointillist style Transform this portrait into a bold, unmistakable pointillist style with clearly visible dots throughout. Gently apply a pointillist style to this portrait while strictly preserving its original con-tent, structure, and visual identity. Apply a pointillist style to this portrait while maintaining the original subject’s features and overall composition. 
+
+23 “A white horse galloping along a sandy beach.” 
+
+“A fluffy kitten batting at a ball of yarn.” 
+
+Closeup ←−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→ Wideshot 
+
+“A campfire crackling in the woods.” 
+
+“An owl blinking on a branch.” 
+
+Day ←−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→ Night 
+
+“A golden retriever running through a grassy field.” 
+
+“A sea turtle gliding through clear blue water.” 
+
+Realistic ←−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→ Sketch 
+
+Figure 16. Additional qualitative results on text-to-video generation. 
+
+24 ‘‘You are judging sampled frames from a generated video against a caption. Caption: ‘‘A photorealistic video of [prompt].’’ Task: Give ONE integer score from 0 to 5 based on BOTH content alignment and photorealistic style. Be strict. Do not hallucinate details. Step 1) Style checks (pass/fail): - Looks like real camera footage (not illustration, not cartoon, not 3D render). - Realistic lighting and shadows consistent across frames. - Realistic textures/materials (skin, fabric, metal, wood, etc. look natural if present). - No painterly brush strokes, no heavy outlines, no flat shading. - Temporal consistency: style is uniform across all frames. Step 2) Content checks (pass/fail): - Main subject(s) in [prompt] clearly present. - Key attributes from [prompt] present (count, colors, distinctive parts). - Key relationships/actions from [prompt] correct (if any). Scoring rule: 5: All style checks pass AND all content checks pass; frames are clear and detailed. 4: Style passes AND content mostly correct with only minor issues. 3: Either (A) style passes but content has clear mistakes, or (B) content correct but one style check fails. 2: Multiple content mistakes and/or multiple style failures, but some intent visible. 1: Very weak match; most requirements unmet. 0: Totally wrong or unusable frames. Response format: output ONLY the single digit 0 1 2 3 4 or 5.’’ 
+
+25 ‘‘You are judging sampled frames from a generated video against a caption. Caption: ‘‘Pixar-style 3D animation of [prompt]. Stylized, expressive characters with smooth rendering.’’ Task: Output ONE integer score 0 to 5 for BOTH content alignment and demanded Pixar animation style. Be strict. Do not guess unseen details. Step 1) Style checks (pass/fail): -3D-rendered appearance with smooth, clean surfaces (not photorealistic, not flat 2D). - Stylized proportions: exaggerated or cartoon-like features (large eyes, rounded shapes). - Soft, diffuse lighting typical of Pixar/animated films (no harsh real-world shadows). - Vibrant but natural-looking colors with clean CG material quality (not oversaturated or blown-out). - No photorealistic textures, no painterly brush strokes, no anime/cel-shading. - Temporal consistency: 3D animated style is uniform across all frames. Step 2) Quality checks (pass/fail): - No visual glitches, color banding, oversaturation, or distorted geometry. - Faces and bodies are well-formed (no melted or deformed features). Step 3) Content checks (pass/fail): -Main subject(s) in [prompt] present and recognizable. - Key attributes and relationships in [prompt] correct (if any). Scoring rule: 5: All style, quality, and content checks pass; crisp and readable. 4: Style and quality pass AND content mostly correct (minor missing attribute/detail). 3: Either (A) style+quality pass but content has clear mistakes, or (B) content correct but 1 style/quality check fails. 2: Partial match; multiple failures but some intent visible. 1: Very weak match. 0: Totally wrong or unusable frames. Response format: output ONLY the single digit 0 1 2 3 4 or 5.’’ 
+
+‘‘You are presented with a generated image and its associated text caption. Your task is to evaluate how much the image resembles a hand-drawn sketch. Consider: visible line work, pencil/ink stroke quality, plain backgrounds, and artistic simplification. Rate the sketchiness on a scale from 1 to 5: 1: No sketch qualities - fully rendered or photorealistic image 2: Mostly rendered with slight sketch-like elements 3: Mixed style - some sketch qualities but also rendered areas 4: Mostly sketch-like with strong line work and minimal rendering 5: Pure sketch - clear hand-drawn line work with no photorealistic rendering Output your evaluation using the format below: Sketch Score (1-5): X’’ 
+
+‘‘You are a professional digital artist. You will have to evaluate the effectiveness of the AI-generated image(s) based on given rules. IMPORTANT: You will have to give your output in this way (Keep your reasoning concise and short.): { "reasoning" :"...", "score" : [...], }
+
+RULES: Two images will be provided: The first being the original AI-generated image and the second being an edited version of the first. The objective is to evaluate how successfully the editing instruction has been executed in the second image. Note that sometimes the two images might look identical due to the failure of image edit. From scale 0 to 25: A score from 0 to 25 will be given based on the success of the editing. (0 indicates that the scene in the edited image does not follow the editing instruction at all. 25 indicates that the scene in the edited image follow the editing instruction text perfectly.) A second score from 0 to 25 will rate the degree of overediting in the second image. (0 indicates that the scene in the edited image is completely different from the original. 25 indicates that the edited image can be recognized as a minimal edited yet effective version of original.) Put the score in a list such that output score = [score1, score2], where ‘score1’ evaluates the editing success and ‘score2’ evaluates the degree of overediting. Editing instruction: [instruction]’’ 
+
+26

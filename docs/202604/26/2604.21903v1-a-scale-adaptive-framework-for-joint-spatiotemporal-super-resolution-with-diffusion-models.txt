@@ -1,0 +1,658 @@
+Title: A Scale-Adaptive Framework for Joint Spatiotemporal Super-Resolution with Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2604.21903v1
+
+Published Time: Fri, 24 Apr 2026 01:15:49 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# A Scale-Adaptive Framework for Joint Spatiotemporal Super-Resolution with Diffusion Models 
+
+Max Defez 
+
+Faculty of Geosciences and Environment University of Lausanne Lausanne, VD, Switzerland 
+
+max.defez@unil.ch 
+
+Filippo Quarenghi 
+
+Faculty of Geosciences and Environment University of Lausanne Lausanne, VD, Switzerland 
+
+Mathieu Vrac 
+
+Laboratory for Climate and Environmental Sciences Gif-sur-Yvette, France 
+
+Stephan Mandt 
+
+Department of Computer Science University of California Irvine, California, United States of America 
+
+Tom Beucler 
+
+Faculty of Geosciences and Environment University of Lausanne Lausanne, VD, Switzerland April 24, 2026 
+
+## Abstract 
+
+Deep-learning video super-resolution has progressed rapidly, but climate applications typically super-resolve (increase resolution) either space or time, and joint spatiotemporal models are often designed for a single pair of super-resolution (SR) factors (upscaling spatial and temporal ratio between the low-resolution sequence and the high-resolution sequence), limiting transfer across spatial resolutions and temporal cadences (frame rates). We present a scale-adaptive framework that reuses the same architecture across factors by decomposing spatiotemporal SR into a deterministic prediction of the conditional mean, with attention, and a residual conditional diffusion model, with an optional mass-conservation (same precipitation amount in inputs and outputs) transform to preserve aggregated totals. Assuming that larger SR factors primarily increase underdetermination (hence required context and residual uncertainty) rather than changing the conditional-mean structure, scale adaptivity is achieved by retuning three factor-dependent hyperparameters before retraining: the diffusion noise schedule amplitude 𝛽 (larger for larger factors to increase diversity), the temporal context length 𝐿 (set to maintain comparable attention horizons across cadences) and optionally a third, the mass-conservation function 𝑓 (tapered to limit the amplification of extremes for large factors). Demonstrated on reanalysis precipitation over France (Coméphore), the same architecture spans super-resolution factors from 1 to 25 in space and 1 to 6 in time, yielding a reusable architecture and tuning recipe for joint spatiotemporal super-resolution across scales. 
+
+Keywords super-resolution · scale-adaptative · attention · denoising diffusion probabilistic modeling · precipitation 
+
+## 1 Impact statement 
+
+We propose a ready-to-use diffusion-based video super-resolution architecture that reuses the same model design across spatial and temporal refinement settings, requiring only 3 retuned hyperparameters before retraining. This enables reuse across environmental datasets without redesigning the architecture. Demonstrated on precipitation, a challenging 
+
+> arXiv:2604.21903v1 [cs.LG] 23 Apr 2026
+
+A preprint - April 24, 2026 
+
+zero-inflated, heavy-tailed variable, the model generates realistic ensembles across scales, supporting climate-impact applications such as downscaling. 
+
+## 2 Introduction: Spatiotemporal Super-Resolution as Conditional Generative Modeling 
+
+Video Super-Resolution (VSR) aims to recover high-fidelity, high-resolution (HR) frame sequences from their low-resolution (LR) counterparts by exploiting spatiotemporal correlations to resolve details. While data-driven methods, namely deep learning algorithms ranging from deterministic regression models (e.g., transformers, recurrent neural networks) to generative models (e.g., diffusion models), have dominated the state-of-the-art VSR in computer vision, the adoption of data-driven VSR for climate science remains rare ([1], [2], [3]). A central barrier is scale adaptivity. Most deep-learning VSR models are designed and trained for a single super-resolution setting (e.g., ×4) and a fixed combination of spatial grid and temporal cadence. This rigidity is particularly limiting in atmospheric science, where products from satellites, radar mosaics, gauges, and reanalyses come with heterogeneous resolutions and sampling frequencies. As a result, practitioners often fully redesign model architectures for each new dataset or target resolution, making pipelines problem-specific and computationally costly. We address this gap in architecture design by focusing on the spatiotemporal super-resolution of precipitation data. Precipitation is a particularly challenging testbed due to its high intermittency, non-Gaussian statistics, and complex multiscale interactions ([ 4 ]). Accurate spatiotemporal VSR in this context is not merely about aesthetic enhancement; it is essential for resolving localized extreme events and temporal interactions for impact models (e.g., flash flood forecasting) as demonstrated by [5] and [6]. Research in precipitation nowcasting provided foundational VSR architectures to model spatiotemporal atmospheric dynamics. Early deep learning approaches, such as the ConvLSTM network by [ 7], demonstrated that neural networks modeling sequences could effectively capture the temporal evolution of rain fields. However, these early deterministic methods share a fundamental limitation: by optimizing errors at the pixel level (e.g., Mean Squared Error), they smooth out high-frequency details and lead to a systematic underestimation of extremes. To address this spectral bias, precipitation nowcasting shifted toward generative models capable of modeling the stochasticity inherent in fine-scale weather systems. [ 8] introduced a foundational recurrent conditional Generative Adversarial Network (cGAN) specifically designed to super-resolve time-evolving atmospheric fields. Building on this, [9 ] recently demonstrated the utility of cGANs for generating consistently evolving global rain fields. However, despite their ability to recover high-frequency textures, GANs remain prone to training instabilities and mode collapse, often failing to capture the full probability distribution of the data [10]. Recent progress therefore increasingly relies on probabilistic diffusion models. This transition is again paralleled in the nowcasting literature, where [ 11 ] introduced DiffCast to separate deterministic motion trends from stochastic residuals. This decomposition, separating bulk advection from fine-scale texture, is equally critical for spatiotemporal super-resolution, as demonstrated by the success of the SpatioTemporal Video Diffusion (STVD) architecture from [ 12 ]. Despite these advances, diffusion-based VSR architectures, including STVD, are typically tuned for fixed grids and cadences, limiting transfer across SR factors (𝑆, 𝑇 ). Our contribution is a modeling principle for architectural reuse: we decompose joint spatiotemporal SR into (i) a deterministic predictor of the conditional mean and (ii) a diffusion model of stochastic residuals. We assume that increasing SR factors mainly increases underdetermination (and thus the required temporal context and residual uncertainty) without fundamentally changing the conditional-mean structure. Accordingly, for each (𝑆, 𝑇 ) we train a separate instance with shared architecture and training procedure (but not shared weights), and retune only two factor-dependent hyperparameters (attention context length and diffusion noise schedule) to calibrate context and residual variance, rather than redesigning the architecture. This yields a model that is approximately scale-adaptive, although each pair still requires independent training and separate weights. 
+
+## 3 Methodology 
+
+3.1 Problem Definition and Notation 
+
+To explore the design space of spatiotemporal SR factors, we consider pairs (𝑆, 𝑇 ) ∈ N∗2, where 𝑆 and 𝑇 denote the spatial and temporal SR factors, respectively, and use this sweep to guide hyperparameter choices. Let 𝐻 and 𝑊 denote the HR frame height and width, in our case 𝐻 = 𝑊 = 100 . An HR observation is a nonnegative frame in R𝐻 ×𝑊  
+
+> +
+
+. We index frames by time 𝑡 ∈ T and tile 𝑙 ∈ L , and denote the corresponding HR frame by 𝑦 𝑡 ,𝑙 ∈ R𝐻 ×𝑊  
+
+> +
+
+.2A preprint - April 24, 2026 
+
+In our experiments, we adopt a “perfect-model setting” in which LR frames are a deterministic coarsening of HR frames, computed by averaging over non-overlapping 𝑇 temporal blocks and 𝑆 × 𝑆 spatial blocks (see Appendix 8 for the formal averaging operator). In practice, this setup is rarely observed, although it can be approximated using preprocessing techniques such as bias correction. The resulting LR frame is denoted 𝑥 𝑡 ,𝑙 ∈ R(𝐻 /𝑆 ) × ( 𝑊 /𝑆 )+ . Leveraging temporal autocorrelation, the input is a LR sequence of length 𝐿 ending at 𝑡 , i.e., 𝑥 𝑡 ,𝑙 (𝐿 ) ≡  𝑥 𝑡 − ( 𝐿 −1)𝑇 ,𝑙 , . . . , 𝑥 𝑡 ,𝑙  ∈
+
+ R(𝐻 /𝑆 ) × ( 𝑊 /𝑆 )+
+
+ 𝐿 . We also condition on a static auxiliary field 𝑀 𝑙 (tile topography), it is the only additional input used in the model. Given an LR sequence ending at time 𝑡 , our model predicts the corresponding HR block without future information:   ˆ𝑦 𝑡 ,𝑙 , . . . , ˆ𝑦 𝑡 +𝑇 −1,𝑙  = Φ 𝑆,𝑇 
+
+𝑥 𝑡 ,𝑙 (𝐿 ), 𝑀 𝑙 
+
+, where Φ𝑆,𝑇 is the SR mapping for factors (𝑆, 𝑇 ); our goal is to develop a versatile architecture that can learn Φ𝑆,𝑇 for any (𝑆, 𝑇 ). The overall architecture is identical for all (𝑆, 𝑇 ), except the 2-3 hyperparameters described in Section 3.3. However, each (𝑆, 𝑇 ) has its own model instance with specific weights learned from data at the corresponding resolution. 
+
+3.2 A Residual Diffusion Architecture for Scale-Adaptive Super-Resolution 
+
+To motivate a generative approach, consider (𝑆, 𝑇 ) = (25 , 6): the model must reconstruct 𝑇 = 6 HR frames of size 
+
+𝐻 × 𝑊 = 100 × 100 from a single LR frame of size (𝐻 /𝑆 ) × ( 𝑊 /𝑆 ) = 4 × 4, i.e., infer 6 × 25 2 = 3,750 HR pixels per LR pixel. This mapping is highly non-injective, so we model a conditional distribution rather than a single point estimate, allowing for multiple plausible scenarios. To stabilize learning, we sample stochastic outputs as residual refinements around a deterministic mean prediction, rather than generating videos from scratch. Accordingly, we use a two-stage architecture, loosely inspired by [ 12 ] and [ 13 ]: a deterministic U-Net predicts a mean HR block, which conditions a diffusion model that samples residual videos. Both components include spatiotemporal attention and an optional mass-conservation transform to preserve LR-aggregated totals. Conditioning  
+
+> Mass Conservation Function
+> Training Inference
+> Scenario 1
+> mostly deterministic
+> Scenario 2
+> under determined
+> Similar mid-res videos
+> Deterministic Mean Predictor
+> Low-res input video
+> Residual Generator Diffusion Model
+> Noise Scheduler
+> Given a (S,T) parameters pair
+> Trained Model 2
+> Diverse ensemble of high-res videos
+> Trained Model 1
+> Finetune for each (S,T) pair
+
+Figure 1: Scale-adaptive spatiotemporal VSR: a deterministic U-Net 𝑈 det predicts a coarse mean field, followed by an optional mass-conservation transform and a residual diffusion head 𝑈 dif that generates target-resolution videos conditioned on the mean. Scale adaptivity is achieved by tuning the attention horizon 𝐿 and the noise schedule 𝛽 
+
+(increased for larger SR factors to promote video diversity) 
+
+3.2.1 Deterministic Mean Predictor: U-Net with Spatiotemporal Attention and Mass Conservation 
+
+For each (𝑆, 𝑇 ), we train a deterministic U-Net 𝑈 det to predict a mean HR sequence 𝐷 𝑡 ,𝑙 ∈ ( R𝐻 ×𝑊  
+
+> +
+
+)𝑇 from the LR context 𝑥 𝑡 ,𝑙 (𝐿 ) and static topography 𝑀 𝑙 . Each LR frame in 𝑥 𝑡 ,𝑙 (𝐿 ) is bicubically interpolated to an 𝐻 × 𝑊 frame, yielding BI (𝑥 𝑡 ,𝑙 (𝐿 )) ; concatenating these 𝐿 frames with 𝑀 𝑙 as an extra channel gives an (𝐿 +1)-channel input, and the network outputs 𝑇 channels at the same resolution. Starting from the U-Net of [ 14 ], we augment each encoder stage with factorized self-attention. Temporal attention operates at fixed spatial locations: for each (𝑖, 𝑗 ), we compute multi-head self-attention over  𝑥 𝑡 − ( 𝐿 −1)𝑇 ,𝑙 𝑖, 𝑗 , . . . , 𝑥 𝑡 ,𝑙 𝑖, 𝑗 
+
+ like [15 ]. We also use windowed spatial self-attention within each frame, where attention is calculated over a (2𝑛 +1) × ( 2𝑛 +1)
+
+3A preprint - April 24, 2026 
+
+neighborhood for each location, with window sizes decreasing with depth. With 4 encoder stages and the bottleneck, we set the window size tuple to 𝑁 = (𝑛 1, 𝑛 2, 𝑛 3, 𝑛 4, 𝑛 𝑏 ) = (3, 3, 1, 1, 1) and use 4 heads for both temporal and spatial attention. Optionally, we enforce mass conservation between the LR input and the predicted HR sequence via frame-level rescaling introduced by [ 16 ]. Let ˜𝐷 𝑡 ,𝑙 = 𝐹  𝑈 det ([ BI (𝑥 𝑡 ,𝑙 (𝐿 )) , 𝑀 𝑙 ])  be a nonnegative intermediate prediction obtained by applying a nonnegative function 𝐹 element-wise (see Section 3.3.2 for more details). We scale the 𝑇 predicted HR frames so that their total mass matches the LR aggregate: 
+
+(𝐷 𝑡 +𝑘,𝑙 )𝑖, 𝑗 = ( ˜𝐷 𝑡 +𝑘,𝑙 )𝑖, 𝑗 
+
+𝑆 2𝑇 Í𝐻 /𝑆 −1
+
+> 𝑝 =0
+
+Í𝑊 /𝑆 −1 
+
+> 𝑞 =0
+
+𝑥 𝑡 ,𝑙 𝑝,𝑞 
+
+Í𝑇 −1
+
+> 𝑘 ′=0
+
+Í𝐻 −1
+
+> 𝑖 ′=0
+
+Í𝑊 −1 
+
+> 𝑗 ′=0
+
+( ˜𝐷 𝑡 +𝑘 ′ ,𝑙 )𝑖 ′ , 𝑗 ′
+
+, 𝑘 = 0, . . . , 𝑇 − 1, (1) where the numerator is the LR-implied total mass over the corresponding 𝑇 -frame HR sequence (Appendix 8). We denote this optional step by 𝐷 𝑡 ,𝑙 = MC  𝐹  𝑈 det ([ BI (𝑥 𝑡 ,𝑙 (𝐿 )) , 𝑀 𝑙 ])  , 𝑥 𝑡 ,𝑙 ; the choice of 𝐹 is treated as a factor-dependent hyperparameter (Section 3.3.2). See Appendix 9.1 for architectural details. For this first deterministic step, our scale-adaptivity principle is to use a shared architecture across SR factors except for the attention window length 𝐿 and mass-conservation function 𝐹 , while allowing for different weights. 
+
+3.2.2 Stochastic Residuals: Scale-Dependent Uncertainty via Residual Diffusion 
+
+Given the deterministic mean prediction 𝐷 𝑡 ,𝑙 , we model the remaining fine-scale uncertainty with a conditional diffusion model of residuals 𝑟 𝑡 ,𝑙 ≡ 𝑦 𝑡 ,𝑙 − 𝐷 𝑡 ,𝑙 , the final model prediction is then ˆ𝑦 𝑡 ,𝑙 = 𝐷 𝑡 ,𝑙 + ˆ𝑟 𝑡 ,𝑙 . The scale-adaptivity principle in this second step is architectural reuse, we keep the same residual-diffusion architecture across SR factors and express increased underdetermination mainly as increased residual uncertainty by calibrating the noise schedule (𝛽 𝑗 ) 𝑗 ,rather than through fundamental architectural changes. This relies on the assumptions that (i) the conditional-mean structure learned by 𝑈 det is relatively stable across (𝑆, 𝑇 ), (ii) changing (𝑆, 𝑇 ) primarily affects the amplitude of residual uncertainty (spread) more than its qualitative structure, and (iii) task-level calibration via (𝛽 𝑗 ) 𝑗 is sufficient. We implement the residual generator as a denoising diffusion probabilistic model from [ 17 ] with 𝐽 = 1000 steps. During training, we sample 𝑗 ∼ U{ 1, . . . , 𝐽 }, add Gaussian noise to the true residual 𝑟 𝑡 ,𝑙 according to 𝛽 𝑗 (Appendix 9), and train a diffusion U-Net 𝑈 dif to predict the “velocity” (a weighted sum of the noise and the original data, see Appendix 10) using an ℓ2 loss [18] which set the training loss to : 
+
+L = E𝑥,𝑦, 𝑗, 𝜖 
+
+" 𝑇 ∑︁ 
+
+> 𝑡 =1
+
+𝑣 𝑡 ,𝑙 ( 𝑗 ) − ˆ𝑣 𝑡 ,𝑙 ( 𝑗 ) 22
+
+#
+
+with 𝑥, 𝑦 ∼ Dataset , 𝑗 ∼ U [ 1, 𝑁 ], 𝜖 ∼ N ( 0, 𝐼 ) (2) The diffusion U-Net takes as input the deterministic mean 𝐷 𝑡 ,𝑙 , the bicubically interpolated frame to downscale BI (𝑥 𝑡 ,𝑙 ),the noised residual, and a learned 128-dimensional embedding of 𝑗 . It uses the same windowed spatial self-attention as the deterministic U-Net but also adds cross-attention on the whole bicubic interpolation’s output BI (𝑥 𝑡 ,𝑙 (𝐿 )) .At inference time, we draw ˆ𝑟 𝑡 ,𝑙 (𝐽 ) ∼ N ( 0, 𝐼 ) and apply the learned reverse process for 𝑗 = 𝐽, . . . , 1 with the same conditioning to obtain ˆ𝑟 𝑡 ,𝑙 (0), then reconstruct ˆ𝑦 𝑡 ,𝑙 = 𝐷 𝑡 ,𝑙 + ˆ𝑟 𝑡 ,𝑙 (0) (see Appendix 9.4). If enabled, we apply the same mass-conservation step as in Eq. (1) using the same 𝐹 . Training and sampling pseudocode is given in Appendix 9.5, and the overall architecture is shown in Appendix 9.6. 
+
+3.3 Tunable Hyperparameters for Scale Adaptivity 
+
+In this section we present the three tunable hyperparameters that enable the model to maintain a form of relevant scale adaptivity: respectively the length of input 𝐿 , the variance scheduler 𝛽 and the mass-conservation function 𝐹 . Each hyperparameter will be optimized for each pair of SR factors. 
+
+3.3.1 Length 𝐿 and Attention Time 𝐴 𝑇 
+
+𝐿 is defined as the number of consecutive frames, including the one to downscale to give the model. We introduce the attention time 𝐴 𝑇 ≡ 𝑇 × 𝐿 which is easier to interpret as it represents the temporal horizon, expressed in hours, up to which the model retains information about past data. However, one will optimize the hyper-parameter 𝐿 for the sake of simplicity, which is clearly equivalent. 
+
+3.3.2 Mass Conservation Function 𝐹 𝐹 is the function that will be applied to the outputs of the deterministic and diffusion U-Nets. More specifically, our final prediction is the output of this function which is why 𝐹 should be positive, increasing and continuous in order to satisfy physical constraints. 4A preprint - April 24, 2026 
+
+Given the mass-conservation equation 1, considering a rapidly increasing function would be equivalent to applying a high-pass filter to the frames, which would lead to an overrepresentation of high precipitation values. Conversely, considering a flat function would be akin to blurring the image by predicting mid precipitation values everywhere. Thus, 𝐹 serves as a tool for handling model calibration, which can be assessed using the Probability Integral Transform Deviation (PITD), see Appendix 11.5. 
+
+3.3.3 Variance Scheduler 𝛽 
+
+For the sake of simplicity, the variance scheduler defined by the sequence (𝛽 𝑗 ) 𝑗 ∈ [ 1,𝐽 ] will be characterized by the tuple 
+
+(𝛽 𝑚𝑖𝑛 , 𝛽 𝑚𝑎𝑥 ), such that ∀ 𝑗, 𝛽 𝑗 = 𝛽 𝑚𝑖𝑛 + 𝑗 𝐽 (𝛽 𝑚𝑎𝑥 − 𝛽 𝑚𝑖𝑛 ).We fix 𝛽 𝑚𝑖𝑛 to a small, standard value ( 10 −4 as suggested by [ 17 ]) to ensure a gentle corruption of clean inputs, and focus the optimization on 𝛽 𝑚𝑎𝑥 , which primarily controls the overall noise amount and has a stronger influence on generation quality. 
+
+## 4 Application: Super-Resolution of Observed Precipitation across Spatiotemporal Factors 
+
+The aim of this paper is to assess the versatility of this architecture by evaluating it across various super-resolution factors, while allowing only the parameters describe in section 3.3 to change. Each pair of super-resolution factor corresponds to a distinct training instance and therefore to different learned weights. To evaluate the model performance, the following factor pairs (𝑆, 𝑇 ) were used: (1, 3), (10 , 1), (10 , 3) and (25 , 6).The observations were taken from the MétéoFrance dataset Coméphore, a precipitation reanalysis produced by merging radar and rain gauge observations, covering metropolitan France. Its spatial and temporal resolutions are 1 km and one hour. From a spatial perspective, the dataset covers a 1536-by-1536 rectangle representing the area whose northwestern corner is located at (53.670 N, -9.965 E). The training and testing dataset are made of the entire 2023 and 2024 data, respectively. For both datasets, the analysis is restricted to the 400-by-400 square region with its northwestern corner at (49.400 N, -0.971 E). This area was sliced in 4 ×4 square tiles of shape H ×W used for 4-fold cross-validation during training. As shown in Appendix 10, each fold included exactly one tile per row and per column without overlapping to avoid topography overfitting. In this dataset, precipitation could rise to extremely large values such as 200 millimeter per hour. Given these unexpectedly high values considering the location, we decided to deal with outliers. Deleting them was not convenient because it also meant deleting the 𝐿 − 1 samples before and after the outlier, which would have significantly bias the model and decrease the length of the datasets. Thus the outliers were capped at very high but plausible values. [ 19 ]showed precipitation tends to follow a gamma distribution. After fitting this distribution to our training dataset, the outliers were set to the 99 .5𝑡 ℎ percentile which amounted to 55 millimeter per hours. Given that the data are positive, it was especially relevant to apply min-max normalization to precipitation, with the maximum value computed from the training set being 55 because of the previous step. Finally, topography was incorporated into the model input so that it can capture potentially complex relationships, given that links between these two variables have been extensively documented, notably by [ 20 ]. The topographic data are from the GLO-90 Digital Surface Model (DSM) provided by the Copernicus Data Space Ecosystem. Its resolution is initially 90 ×90 squared meter and was downsampled by average pooling to 1 ×1 squared kilometer to make it homogeneous with the (bicubically interpolated) inputs. Topography data were positive and did not include obvious outliers, it was min-max scaled to [0, 1] as well. 
+
+## 5 Training Protocol, Hyperparameter Optimization, and Evaluation 
+
+The training was managed with Adam optimizer from [ 21 ], with an initial learning rate of 10 −4 decreasing to 0 over 80 
+
+epochs (where no significant progress was observed) through a cosine annealing, defined by [ 22 ]. The model trained for 
+
+80 epochs but early stopping is applied if no improvement is observed in the validation loss for more than 8 consecutive epochs, empirically this aspect limited the training most of the time. Due to the high memory cost of spatial and temporal attention, the model is constrained to batch sizes of 12 for our HPC cluster. All the models were run on a NVIDIA A100-PCIE-40GB. For a specific pair (𝑆, 𝑇 ), training a model takes one day, while inference time is proportional to the number of generated scenarios, which was set to 3. Therefore, the overall computation time is varying from 2 to 3 days. Inference is relatively fast, taking only a few minutes to generate multiple scenarios for a batch of 12 samples, which facilitates the practical use of the model once trained. A significant avenue 5A preprint - April 24, 2026 
+
+for improving this work could be to find ways to perform inference more quickly, for example by using architectures from [23], [24] or [25]. 
+
+5.1 Hyperparameter Optimization 
+
+We explain the method used to determine the optimal hyperparameters of interest (𝐿, 𝐹, 𝛽 ) for each pair of factors. 
+
+Length 𝐿 : We select the temporal length 𝐿 using an elbow-based procedure. Starting from small values, 𝐿 is progressively increased and the corresponding validation performance is monitored. The chosen value corresponds to the smallest 𝐿 
+
+beyond which performance gains become marginal, ensuring a trade-off between accuracy and computational cost. 
+
+Mass Conservation Function 𝐹 : We restrict 𝐹 to power functions and introduce a thresholded ReLU 𝑟 𝛼 (𝑥 ) =
+
+𝑚𝑎𝑥 (0, 𝑥 − 𝛼 ), this ReLU is applied before and after any mass-conservation function 𝐹 to suppress negligible precipitation values and keep only the significant and realistic rain. The mass-conservation transform is applied only after the 20 𝑡 ℎ training epoch to avoid early training instabilities. The exponent of 𝐹 is tuned using the PITD: if the model is over-dispersive, the growth rate of F is reduced, and conversely. In cases where the ReLU leads to a zero denominator in Eq. 1, only the ReLU is applied. 
+
+Variance Scheduler 𝛽 : Considering the modeling choices of 𝛽 𝑗 , only the value of 𝛽 𝑚𝑎𝑥 is to be determined. Increasing 
+
+𝛽 𝑚𝑎𝑥 corresponds to injecting more noise into the image and thus increasing the variability in the sampling of scenarios. The value of 𝛽 𝑚𝑎𝑥 is also determined with the PITD such that the entire set of scenarios remains well calibrated and plausible. Indeed, a small value of 𝛽 𝑚𝑎𝑥 will typically lead to a blurred video close to the deterministic prediction, missing to represent high frequencies and extreme values whereas too large values introduce unrealistic high-frequency artifacts. 
+
+5.2 Evaluation Metrics 
+
+We compared six models, three of which were developed in the present article. Three baselines were employed in this study: simple approaches like bicubic and nearest neighbor interpolation and more sophisticated vision model like Enhanced Deep Residual Network (EDSR) from [ 26 ]. We used a pretrained version of the EDSR, we modified the last layer to provide 𝑇 outputs and make it homogeneous with our targets, then we fine-tuned the model with our training data. Concerning our three models, we considered the full architecture, a deterministic-only variant (without diffusion), and a variant in which both temporal and spatial attention mechanisms were ablated. All six models were compared based on 
+
+8 climate and vision metrics, detailed in Appendix 11. 
+
+## 6 Results 
+
+6.1 Example of Video Super-Resolution 
+
+Figure 2 presents an example of video downscaling with super-resolution factors (10 , 3). The first row shows the model inputs, namely the topography and the sequence of low-resolution frames from past to present. In this example 𝐿 is set to 5 so the model takes 5 frames as input. The first column displays the output of the deterministic U-Net, which is inherently smooth and blurry, as it represents the mean prediction. The next three columns correspond to three distinct generated scenarios. Each row represents a timestep, and since the temporal super-resolution factor is set to 3, three rows are shown. The super-resolved frames should be compared to the ground truth provided in the fifth column. Although the scenarios differ from one another, they consistently capture the large-scale evolution of precipitation, correctly indicating a decrease in rainfall at later timesteps which makes the predictions very satisfactory. In particular, the extreme values shown in yellow are well reconstructed by the model, which is naturally not the case for the deterministic model and the two baselines. 
+
+6.2 Quantitative Benchmarking 
+
+The quantitative comparison between models is reported in Table 1 for the pair (10 , 3). The results for the 3 other pairs can be found in Appendix 12. It assess both reconstruction accuracy and the preservation of precipitation structure and extremes. These results are highly satisfactory for several reasons. First, we observe that our final model outperforms significantly the others on nearly all metrics, with the exception of SSIM (which is known to favors smooth images so it makes sense 6A preprint - April 24, 2026 
+
+Figure 2: Qualitative example of spatiotemporal precipitation super-resolution produced by the proposed model. The first row shows the low-resolution input sequence and the topography. The first column corresponds to the deterministic (average) prediction, while each subsequent column displays a high-resolution scenario generated by the diffusion model, illustrating the diversity of plausible outcomes. The color gradient shown in the second plot is the same across all frames, except for topography which has its own.                                                                 
+
+> Architecture MSE ↓MAE ↓99th PE ↓LSD ↓EMD ↓SSIM ↑PITD ↓CRPS ↓
+> Bicubic interpolation 2.97E-3 1.47E-2 6.11E-2 3.12 1.06E-3 8.70E-1 1.12E-1 1.47E-2 Nearest Neighbor 3.05E-3 1.48E-2 6.19E-2 3.27 1.12E-3 7.90E-1 1.09E-1 1.48E-2 EDSR 2.76E-3 1.47E-2 5.67E-2 7.85 1.68E-3 8.63E-1 1.72E-1 1.47E-2 Deterministic 2.81E-3 1.35E-2 5.37E-2 2.76 1.12E-3 8.81E-1 1.65E-1 1.35E-2 Generative (no attention) 5.11E-3 1.76E-2 5.61E-2 7.37 5.49E-3 8.60E-1 5.60E-2 1.22E-2 Full architecture 4.50E-4 1.53E-3 5.12E-3 0.24 6.03E-4 8E-2 7.20E-3 1.07E-3
+
+Table 1: Performance comparison for the pair (10 , 3) between three baseline approaches and three proposed super-resolution models in blue. Models are assessed using eight complementary metrics capturing pixel-level accuracy, structural consistency, and climatological relevance. Best scores per metric are highlighted in green. the bicubic interpolation and the deterministic model performs better). Not only does our final architecture outperforms baselines (usually by a factor x10), it also shows significant improvement compared to the ablated models, which confirms diffusion and past frames information are relevant. More specifically, we notice that the baselines perform worse on LSD and 99th PE, which supports our initial motivation that simple and coarse models struggle to capture the key features of precipitation data: climatic extremes (99th PE) and local-scale variations represented by high spatial frequencies (LSD). These results demonstrate that our final model is highly effective and versatile for tasks involving downscaling. Nevertheless, the diffusion module significantly increases inference time, and slightly increases training time. Given the decent performance of the purely deterministic model, one could reasonably rely on it for applications requiring rapid and computationally cheap predictions. 
+
+6.3 Best Hyperparameters Across Super-Resolution Factors 
+
+We conducted experiments and rigorous hyperparameter search exclusively on the four pairs of SR factors mentioned above. In the Table 2 we present the best hyperparameters for each pair of factors. Considering the attention time 𝐴 𝑇 , we observe that 𝐴 𝑇 slightly increases as 𝑇 increases. This is consistent with expectations because when 𝑇 increases, the task is harder and the model needs more information to perform decent 7A preprint - April 24, 2026 
+
+Spatial SR factor 𝑆 Temporal SR factor 𝑇 Length 𝐴 𝑇 𝛽 𝑚𝑎𝑥 Mass conservation function 1 3 12 1.5E-2 𝑓 : 𝑥 → √𝑥 , Threshold = 1E-2 10 1 10 1E-2 𝑓 : 𝑥 → √𝑥 , Threshold = 1E-2 10 3 15 2.E-2 𝑓 : 𝑥 → 𝑥 , Threshold = 2E-2 25 6 18 3.5E-2 𝑓 : 𝑥 → 𝑥 , Threshold = 4E-2 Table 2: Optimal hyperparameter configurations as a function of the super-resolution factors. Three tuned hyperpa-rameters are reported for each (S, T) setting. Warmer colors indicate higher values or fast-growing function in [0, 1],highlighting scaling behavior with increasing SR factors predictions. We also notice 𝐴 𝑇 is at most slightly greater than 12 which makes sense given that autocorrelation from precipitation is rarely significant beyond half a day. From this table, it is apparent that increasing the SR factors, particularly 𝑇 , leads to a growth in 𝛽 𝑚𝑎𝑥 . This is expected, because a larger 𝑇 (or 𝑆 ) increase the uncertainty and makes the task more difficult as the model must generate more pixels. Increasing 𝛽 𝑚𝑎𝑥 allows the model to generate more diverse scenarios hopefully with some that better matches the ground truth. Finally, this behavior is also observed for 𝐹 , increasing the SR factors results in a function that grows slower (in [0, 1])and limit the generation of extreme values. Indeed, the model tends to generate too many extreme precipitation events, it is helpful to apply this type of function 𝐹 to calibrate the model. We also notice the threshold we apply before the mass conservation function is increasing with the SR factors. Indeed, when the SR factors are high, the model is less likely to predict null predictions even though they represent most of the dataset, which is why we must increase this threshold. 
+
+## 7 Conclusion 
+
+To conclude, we successfully designed a versatile architecture capable of performing super-resolution at any arbitrary (space and time) granularity with minimal retuning. Indeed, our model outperforms the baselines on most of the considered metrics, and the resulting visual predictions are satisfactory, closely aligning with reality from a human-perceptual standpoint. Nonetheless, several avenues for improvement can be envisioned. In particular, the architecture is not fully adaptable, since we allowed three hyperparameters to change. More importantly, the model requires one training instance per pair of super-resolution factors. Future work could aim to design a foundational architecture that shares weights and hyperparameters between factors to allow for seamless super-resolution across granularities. Another interesting direction would be to assess the model’s transferability by evaluating its performance on geographical regions unseen during training. Finally, we performed "perfect" downscaling where inputs are artificially downscaled from targets but this does not fully correspond to real world scenarios. Future work could assess our model’s performance with noisy inputs where preprocessing should be performed, for example bias-correction. 8A preprint - April 24, 2026 
+
+Funding Statement Max Defez, Filippo Quarenghi and Tom Beucler acknowledges support from the Swiss National Science Foundation (SNSF) under Grant No. 10001754 (“RobustSR” project). 
+
+Data Availability Statement The Coméphore dataset used in this project can be found on the French state website 
+
+https://www.data.gouv.fr/datasets/reanalyses-comephore/ . The code used in this project can be found on https://github.com/mdefez/Precipitation_Dowscaling 
+
+Ethical Standards The research meets all ethical guidelines, including adherence to the legal requirements of the study country. 
+
+Supplementary Material An appendix intended for publication has been provided with the submission. 
+
+## References 
+
+[1] Hongying Liu, Zhubo Ruan, Peng Zhao, Chao Dong, Fanhua Shang, Yuanyuan Liu, Linlin Yang, and Radu Timofte. Video super-resolution based on deep learning: a comprehensive survey. Artificial Intelligence Review ,55(8):5981–6035, Dec 2022. [2] Le Zhang, Ao Li, Qibin Hou, Ce Zhu, and Yonina C. Eldar. Deep learning empowered super-resolution: A comprehensive survey and future prospects, 2025. [3] Subhadra Gopalakrishnan and Anustup Choudhury. A ‘deep’ review of video super-resolution. Signal Processing: Image Communication , 129:117175, 2024. [4] Daniel Schertzer and Shaun Lovejoy. Physical modeling and analysis of rain and clouds by anisotropic scaling multiplicative processes. Journal of Geophysical Research: Atmospheres , 92(D8):9693–9714, 1987. [5] Susana Ochoa-Rodriguez, Li-Pen Wang, Auguste Gires, Rui Daniel Pina, Ricardo Reinoso-Rondinel, Guendalina Bruni, Abdellah Ichiba, Santiago Gaitan, Elena Cristiano, Johan van Assel, Stefan Kroll, Damian Murlà-Tuyls, Bruno Tisserand, Daniel Schertzer, Ioulia Tchiguirinskaia, Christian Onof, Patrick Willems, and Marie-Claire ten Veldhuis. Impact of spatial and temporal resolution of rainfall inputs on urban hydrodynamic modelling outputs: A multi-catchment investigation. Journal of Hydrology , 531:389–407, 2015. Hydrologic Applications of Weather Radar. [6] E. Cristiano, M.-C. ten Veldhuis, and N. van de Giesen. Spatial and temporal variability of rainfall and their effects on hydrological response in urban areas – a review. Hydrology and Earth System Sciences , 21(7):3859–3878, 2017. [7] Xingjian Shi, Zhourong Chen, Hao Wang, Dit-Yan Yeung, Wai kin Wong, and Wang chun Woo. Convolutional lstm network: A machine learning approach for precipitation nowcasting, 2015. [8] Jussi Leinonen, Daniele Nerini, and Alexis Berne. Stochastic super-resolution for downscaling time-evolving atmospheric fields with a generative adversarial network. IEEE Transactions on Geoscience and Remote Sensing ,59(9):7211–7223, September 2021. [9] Luca Glawion, Julius Polz, Harald Kunstmann, Benjamin Fersch, and Christian Chwala. Global spatio-temporal era5 precipitation downscaling to km and sub-hourly scale using generative ai. npj Climate and Atmospheric Science , 8(1):219, 2025. [10] E. Tomasi, G. Franch, and M. Cristoforetti. Can ai be enabled to perform dynamical downscaling? a latent diffusion model to mimic kilometer-scale cosmo5.0_clm9 simulations. Geoscientific Model Development , 18(6):2051–2078, 2025. [11] Demin Yu, Xutao Li, Yunming Ye, Baoquan Zhang, Chuyao Luo, Kuai Dai, Rui Wang, and Xunlai Chen. Diffcast: A unified framework via residual diffusion for precipitation nowcasting, 2024. [12] Prakhar Srivastava, Ruihan Yang, Gavin Kerrigan, Gideon Dresdner, Jeremy McGibbon, Christopher Bretherton, and Stephan Mandt. Precipitation downscaling with spatiotemporal video diffusion, 2024. [13] Morteza Mardani, Noah Brenowitz, Yair Cohen, Jaideep Pathak, Chieh-Yu Chen, Cheng-Chin Liu, Arash Vahdat, Mohammad Amin Nabian, Tao Ge, Akshay Subramaniam, Karthik Kashinath, Jan Kautz, and Mike Pritchard. Residual corrective diffusion modeling for km-scale atmospheric downscaling, 2024. [14] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation, 2015. [15] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need, 2023. 9A preprint - April 24, 2026 
+
+[16] Paula Harder, Alex Hernandez-Garcia, Venkatesh Ramesh, Qidong Yang, Prasanna Sattigeri, Daniela Szwarcman, Campbell Watson, and David Rolnick. Hard-constrained deep learning for climate downscaling, 2024. [17] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models, 2020. [18] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models, 2022. [19] Cristian Martinez-Villalobos and J. David Neelin. Why do precipitation intensities tend to follow gamma distributions? Journal of the Atmospheric Sciences , 76(11):3611 – 3631, 2019. [20] Alan Basist, Gerald D. Bell, and Vernon Meentemeyer. Statistical relationships between topography and precipitation patterns. Journal of Climate , 7(9):1305 – 1315, 1994. [21] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization, 2017. [22] Ilya Loshchilov and Frank Hutter. Sgdr: Stochastic gradient descent with warm restarts, 2017. [23] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models, 2022. [24] Zhifeng Kong and Wei Ping. On fast sampling of diffusion probabilistic models, 2021. [25] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models, 2022. [26] Bee Lim, Sanghyun Son, Heewon Kim, Seungjun Nah, and Kyoung Mu Lee. Enhanced deep residual networks for single image super-resolution, 2017. 
+
+## Appendix 8 Deterministic Coarsening by Block Averaging 
+
+We formalize the deterministic HR to LR coarsening used in the perfect-model setting. Let 𝑆 ∈ N∗ be the spatial SR factor and assume 𝑆 divides 𝐻 and 𝑊 . The LR grid has size (𝐻 /𝑆 ) × ( 𝑊 /𝑆 ). Let 𝑛 and 𝑚 index LR pixels (i.e., spatial blocks): 𝑛 selects the 𝑛 -th block in the vertical direction and 𝑚 the 𝑚 -th block in the horizontal direction, with 
+
+𝑛 ∈ ⟦ 0, 𝐻 /𝑆 − 1⟧ and 𝑚 ∈ ⟦ 0, 𝑊 /𝑆 − 1⟧. The LR pixel (𝑛, 𝑚 ) corresponds to the 𝑆 × 𝑆 HR patch with HR indices 
+
+(𝑆𝑛, . . . , 𝑆𝑛 + 𝑆 − 1) × ( 𝑆𝑚, . . . , 𝑆𝑚 + 𝑆 − 1).We define the spatial block-averaging operator 
+
+A𝑆 : R𝐻 ×𝑊  
+
+> +
+
+→ R(𝐻 /𝑆 ) × ( 𝑊 /𝑆 )+ (3) by 
+
+(A 𝑆 𝑦 )𝑛,𝑚 ≡ 1
+
+𝑆 2
+
+> 𝑆 −1
+
+∑︁ 
+
+> 𝑖 =0
+> 𝑆 −1
+
+∑︁ 
+
+> 𝑗 =0
+
+𝑦 𝑆𝑛 +𝑖, 𝑆𝑚 + 𝑗 , 𝑛 ∈ ⟦ 0, 𝐻 /𝑆 − 1⟧, 𝑚 ∈ ⟦ 0, 𝑊 /𝑆 − 1⟧. (4) For temporal coarsening with factor 𝑇 ∈ N∗, we average over 𝑇 consecutive HR frames. We define 
+
+A𝑆,𝑇 :  R𝐻 ×𝑊 
+
+> +
+
+𝑇 → R(𝐻 /𝑆 ) × ( 𝑊 /𝑆 )+ (5) by 
+
+A𝑆,𝑇 
+
+
+
+𝑦 𝑡 ,𝑙 , . . . , 𝑦 𝑡 +𝑇 −1,𝑙 
+
+≡ 1
+
+𝑇  
+
+> 𝑇 −1
+
+∑︁ 
+
+> 𝑘 =0
+
+A𝑆 
+
+
+
+𝑦 𝑡 +𝑘,𝑙 
+
+, (6) where 𝑡 indexes the start of the 𝑇 -step temporal averaging block (and 𝑙 the tile). Thus, in the main text the LR frame 𝑥 𝑡 ,𝑙 is obtained component-wise as 
+
+𝑥 𝑡 ,𝑙 𝑛,𝑚 = 1
+
+𝑇  
+
+> 𝑇 −1
+
+∑︁ 
+
+> 𝑘 =0
+
+1
+
+𝑆 2
+
+> 𝑆 −1
+
+∑︁ 
+
+> 𝑖 =0
+> 𝑆 −1
+
+∑︁ 
+
+> 𝑗 =0
+
+𝑦 𝑡 +𝑘,𝑙 𝑆𝑛 +𝑖, 𝑆𝑚 + 𝑗 , 𝑛 ∈ ⟦ 0, 𝐻 /𝑆 − 1⟧, 𝑚 ∈ ⟦ 0, 𝑊 /𝑆 − 1⟧. (7) 
+
+## 9 Additional Modeling Details 
+
+9.1 Schematic of the Deterministic U-Net Backbone 
+
+In Figure 3, we describe the architecture of the deterministic U-Net, self attention modules are not represented but are used in each layer of the encoder. The diffusion U-Net follows the same architecture except for attention modules as explained in the main text. 10 A preprint - April 24, 2026 16 16                 
+
+> 100**2
+> 32 32
+> 50**2
+> 64 64
+> 25**2
+> 128 128
+> 12**2
+> 256 256
+> 6**2
+> Bottleneck
+> 128 128 128 128
+> 12**2
+> 64 64 64 64
+> 25**2
+> 32 32 32 32
+> 50**2
+> 16 16 16 16
+> 100**2
+> 1
+> 100**2
+> Prediction
+
+Figure 3: Proposed architecture for the deterministic U-Net. The encoder–decoder structure with convolutions, skip connections and attention module enables multiscale spatiotemporal feature extraction and reconstruction. Layer-wise channel shapes and counts are indicated. The U-Net takes a sequence of frames as input but only one was represented for clarity’s sake. 
+
+9.2 Forward process during diffusion 
+
+We describe our forward process with the following equation, where 𝑞 is a gaussian distribution, 𝑟 𝑡 ,𝑙 ( 𝑗 ) is the noised residual at step 𝑗 ∈ [ 1, 𝐽 ]. The amount of noise we add at each step is controlled by the tuple 𝛽 ≡ ( 𝛽 1, ..., 𝛽 𝐽 ) ⊂ [ 0, 1] 𝐽 .Throughout the rest of this section, we will also use 𝛼 𝑗 ≡ 1 − 𝛽 𝑗 and 𝜎 𝑗 ≡√︁ 𝛽 𝑗 . The forward process is given by : 
+
+∀ 𝑗 ∈ [ 1, 𝐽 − 1], 𝑞 (𝑟 𝑡 ,𝑙 ( 𝑗 + 1) | 𝑟 𝑡 ,𝑙 ( 𝑗 )) ≡ N ( 𝑟 𝑡 ,𝑙 ( 𝑗 + 1); √𝛼 𝑗 𝑟 𝑡 ,𝑙 ( 𝑗 ), 𝛽 𝑗 𝐼 ) (8) In fact, given the propriety of the Gaussian noise, the forward process comes down to sampling one Gaussian noise 
+
+𝜖 𝑡 ,𝑙 ∼ N ( 0, 𝐼 ) and adding it to the residuals with increasing intensity : 
+
+𝑟 𝑡 ,𝑙 ( 𝑗 ) =√︁ ¯𝛼 𝑗 𝑟 𝑡 ,𝑙 (0) + √︁ 1 − ¯𝛼 𝑗 𝜖 𝑡 ,𝑙 where ¯𝛼 𝑗 ≡
+
+> 𝑗
+
+Ö
+
+> 𝑠 =1
+
+(1 − 𝛽 𝑠 ) (9) 
+
+9.3 Velocity 
+
+Given the noise and the initial frame, on can define the velocity as follows : 
+
+𝑣 𝑡 ,𝑙 ( 𝑗 ) =√︁ ¯𝛼 𝑗 × 𝜖 𝑡 ,𝑙 −√︁ 1 − ¯𝛼 𝑗 × 𝑟 𝑡 ,𝑙 (0) (10) The diffusion model returns 𝑈 𝑑𝑖 𝑓 (𝑟 𝑡 ,𝑙 ( 𝑗 ), 𝐵𝐼 (𝑥 𝑡 ,𝑙 ), 𝐷 𝑡 ,𝑙 , 𝑗 ) which is then compared, with a 𝐿 2 loss, to the true velocity. We also tried to train the model to predict the noise instead but we observed significantly worse performance. 
+
+9.4 Reverse process during diffusion 
+
+Concerning inference, we sample the residuals from a Gaussian noise ˆ𝑟 𝑡 ,𝑙 (𝐽 ) ∼ N ( 0, 𝐼 ) and we denoise it iteratively by passing it to the U-Net concatenated with the same context as in training, especially the denoising step 𝑗 . The model is trained to predict the velocity ˆ𝑣 𝑡 ,𝑙 ( 𝑗 ) from which we can extract (thanks to Eq. 9 and 10) the predicted noise as follow : 
+
+ˆ𝜖 𝑡 ,𝑙 ( 𝑗 ) =√︁ ¯𝛼 𝑗 × ˆ𝑣 𝑡 ,𝑙 ( 𝑗 ) + √︁ 1 − ¯𝛼 𝑗 × ˆ𝑟 𝑡 ,𝑙 ( 𝑗 ) (11) Given that this predicted noise ˆ𝜖 is very unlikely to be perfectly spotted, we noise the prediction again to make it more realistic and keep the generative approach. Thus, by sampling 𝑧 ∼ N ( 0, 𝐼 ), the denoising process at step 𝑗 follows this equation : 11 A preprint - April 24, 2026 
+
+ˆ𝑟 𝑡 ,𝑙 ( 𝑗 − 1) = 1
+
+√𝛼 𝑗 
+
+ˆ𝑟 𝑡 ,𝑙 ( 𝑗 ) − 𝛽 𝑗 √︁ 
+
+1 − ¯𝛼 𝑗 
+
+ˆ𝜖 𝑡 ,𝑙 ( 𝑗 )
+
+!
+
++ 𝜎 𝑗 𝑧 (12) This way, we recover denoised residuals up to ˆ𝑟 𝑡 ,𝑙 (0) and eventually reconstruct the frames with ˆ𝑦 𝑡𝑙 = 𝐷 𝑡 ′ ,𝑙 + ˆ𝑟 𝑡 ,𝑙 (0).
+
+9.5 Algorithms describing the forward and reverse process Algorithm 1 Training process 
+
+1: while not converged do 
+
+2: Sample 𝑥 𝑡 ,𝑙 (𝐿 ) and 𝑦 𝑡 ,𝑙 ∈ Dataset 
+
+3: 𝐷 𝑡 ,𝑙 = MC  𝐹  𝑈 det ([ BI (𝑥 𝑡 ,𝑙 (𝐿 )) , 𝑀 𝑙 ])  , 𝑥 𝑡 ,𝑙 
+
+4: 𝑟 𝑡 ,𝑙 (0) = 𝑦 𝑡 ,𝑙 − 𝐷 𝑡 ,𝑙 
+
+5: Sample 𝑗 ← U [ 1, 𝐽 ] and 𝜖 ← N ( 0, 𝐼 )
+
+6: 𝑟 𝑡 ,𝑙 ( 𝑗 ) =√︁ ¯𝛼 𝑗 𝑟 𝑡 ,𝑙 (0) + √︁ 1 − ¯𝛼 𝑗 𝜖 
+
+7: ˆ𝑣 𝑡 ,𝑙 = 𝑈 𝑑𝑖 𝑓 (𝑟 𝑡 ,𝑙 ( 𝑗 ), 𝐵𝐼 (𝑥 𝑡 ,𝑙 ), 𝐷 𝑡 ,𝑙 , 𝑗 )
+
+8: 𝑣 𝑡 ,𝑙 ( 𝑗 ) =√︁ ¯𝛼 𝑗 · 𝜖 −√︁ 1 − ¯𝛼 𝑗 · 𝑟 𝑡 ,𝑙 (0)
+
+9: Take gradient descent step on 
+
+∥ ˆ𝑣 𝑡 ,𝑙 − 𝑣 𝑡 ,𝑙 ( 𝑗 )∥ 22
+
+10: end while Algorithm 2 Inference process 
+
+1: Sample 𝑥 𝑡 ,𝑙 (𝐿 ) ∈ Dataset 
+
+2: 𝐷 𝑡 ,𝑙 = MC  𝐹  𝑈 det ([ BI (𝑥 𝑡 ,𝑙 (𝐿 )) , 𝑀 𝑙 ])  , 𝑥 𝑡 ,𝑙 
+
+3: Sample ˆ𝑟 𝑡 ,𝑙 (𝐽 ) ← N ( 0, 𝐼 )
+
+4: for 𝑗 = 𝐽 down to 1 do 
+
+5: ˆ𝑣 𝑡 ,𝑙 = 𝑈 𝑑𝑖 𝑓 ( ˆ𝑟 𝑡 ,𝑙 ( 𝑗 ), 𝐵𝐼 (𝑥 𝑡 ,𝑙 ), 𝐷 𝑡 ,𝑙 , 𝑗 )
+
+6: ˆ𝜖 𝑡 ,𝑙 =√︁ ¯𝛼 𝑗 · ˆ𝑣 𝑡 ,𝑙 ( 𝑗 ) + √︁ 1 − ¯𝛼 𝑗 · ˆ𝑟 𝑡 ,𝑙 ( 𝑗 )
+
+7: 𝑧 ← N ( 0, 𝐼 ) if 𝑗 ≠ 1 else 𝑧 = 0
+
+8: ˆ𝑟 𝑡 ,𝑙 ( 𝑗 − 1) =
+
+> 1√𝛼 𝑗
+
+
+
+ˆ𝑟 𝑡 ,𝑙 ( 𝑗 ) − 𝛽 𝑗 
+
+√1− ¯𝛼 𝑗 
+
+· ˆ𝜖 𝑡 ,𝑙 
+
+
+
++ 𝜎 𝑗 𝑧 
+
+9: end for 
+
+10: ˆ𝑦 𝑡 ,𝑙 = 𝐷 𝑡 ,𝑙 + ˆ𝑟 𝑡 ,𝑙 (0)
+
+12 A preprint - April 24, 2026 
+
+9.6 Overall architecture 
+
+Figure 4: Schematic overview of the proposed super-resolution pipeline for precipitation. The workflow consists of an initial bicubic interpolation, followed by an average prediction module and a diffusion-based generative model for scenario generation. Separate pipelines are shown for training and inference, highlighting their distinct data flows and objectives 13 A preprint - April 24, 2026 
+
+## 10 Geographical slicing 
+
+Figure 5: Spatial partitioning of the study domain into four cross-validation folds. Each fold contains one geographical zone per row and column, ensuring balanced spatial coverage 
+
+## 11 Description of the metrics 
+
+11.1 99th Percentile Error (99th PE) 
+
+To evaluate the model’s capability in capturing extreme events, this metric considers the 99 𝑡 ℎ percentile of the data distribution and computes the absolute deviation between the predicted values and the ground truth. This metric is in 
+
+𝑚𝑚.ℎ −1
+
+99 th PE = |99 th (predicted ) − 99 th (ground truth )| (13) 
+
+11.2 Log-spectral Distance (LSD) 
+
+The log spectral distance was used to assess discrepancies in the frequency domain between predicted and reference images. For each image, a two-dimensional Fast Fourier Transform (2D FFT) was first computed, and the magnitude spectrum was extracted. The 2D spectrum was then mapped into a 1D spectrum followed by a logarithmic scaling of the spectral values. To transform the 2D frequencies (𝑛, 𝑚 ), the new frequency 𝑓 is computed as 𝑓 = √𝑛 2 + 𝑚 2,and its corresponding intensity is given by the arithmetic average of all the intensities whose mappings correspond to a new frequency 𝑓 . The LSD was finally obtained as the root mean square error between the log-spectra of the predicted and reference images. Although uncommon in climate science, this metric was included as models with residual connections are expected to better capture high-frequency variability and therefore perform better according to this metric. This metric has no units. 
+
+11.3 Earth-Moving Distance (EMD) 
+
+The Earth-moving distance is a distribution metric. To compute it, we build the distribution of the prediction and the ground truth, then we compute the minimum cost of building one using the other. This metric is in 𝑚𝑚.ℎ −1 More specifically, if 𝑃 and 𝑄 are respectively the predicted and target distribution, the EMD is computed as the supremum over the 1-Lipschitz continuous functions of the following quantity : EMD (𝑃, 𝑄 ) = sup    
+
+> ∥𝑓 ∥𝐿 ≤1
+
+E𝑥 ∼𝑃 [ 𝑓 (𝑥 )] − E𝑦 ∼𝑄 [ 𝑓 (𝑦 )] (14) 
+
+11.4 Structural Similarity Index Measure (SSIM) 
+
+The Structural Similarity Index (SSIM) is a widely used metric to quantify the perceptual similarity between two images. Unlike simple pixel-wise measures such as MSE, SSIM considers changes in structural information, luminance, and contrast, which better align with human visual perception. Given two image patches 𝑥 and 𝑦 , the SSIM is defined as 14 A preprint - April 24, 2026 
+
+SSIM (𝑥, 𝑦 ) = (2𝜇 𝑥 𝜇 𝑦 + 𝐶 1)( 2𝜎 𝑥 𝑦 + 𝐶 2)(𝜇 2 
+
+> 𝑥
+
++ 𝜇 2 
+
+> 𝑦
+
++ 𝐶 1)( 𝜎 2 
+
+> 𝑥
+
++ 𝜎 2 
+
+> 𝑦
+
++ 𝐶 2) (15) where 𝜇 𝑥 and 𝜇 𝑦 are the mean intensities of 𝑥 and 𝑦 , 𝜎 2 
+
+> 𝑥
+
+and 𝜎 2 
+
+> 𝑦
+
+are the corresponding variances, 𝜎 𝑥 𝑦 is the covariance between 𝑥 and 𝑦 , and 𝐶 1, 𝐶 2 are small constants to stabilize the division. The SSIM value ranges from −1 to 1, with 
+
+1 indicating perfect structural similarity, it is the only "score" of this article, which means the higher the better. To compute the SSIM metric for a video, we simply return the average of each SSIM between a predicted frame and a target frame. Finally, this metric has no unit. 
+
+11.5 Probability Integral Transfort Deviation (PITD) 
+
+The Probability Integral Transform Deviation (PITD) is a metric used to assess the calibration of probabilistic predictions. Given a predictive cumulative distribution function 𝐹 𝑖 for the 𝑖 -th target 𝑦 𝑖 , the probability integral transform is defined as 
+
+𝑢 𝑖 = 𝐹 𝑖 (𝑦 𝑖 ) (16) For a perfectly calibrated model, the values 𝑢 𝑖 across all observations should follow a uniform distribution on the interval 
+
+[0, 1] (see the proof in section 13). The PITD quantifies the deviation of the empirical distribution of 𝑢 𝑖 from this ideal uniform distribution. We compute it with the root-mean-square deviation from the expected uniform order statistics: PITD =
+
+vut 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+
+
+𝑢 𝑖 − 𝑖 − 0.5
+
+𝑁 
+
+2
+
+(17) where 𝑁 is the total number of observations. This metric has no unit. Lower PITD values indicate better calibration, while higher values reveal systematic biases in the predicted probabilities. In particular, two common cases of miscalibration can be observed. The first is the overdispersive case, where the model predominantly predicts extreme values, that is, either very low or very high. Conversely, the model can be underdispersed when it frequently produces values close to the median (this is often the case for interpolation baselines). In our case, we computed one Probability Integral Transform (PIT) 𝐹 𝑋 (𝑌 ), where 𝑋 represents the predictions and 𝑌 
+
+the target, for each observation 𝑦 . We constructed the variable Y from the pixel values of the target image, thus, the distribution of Y simply corresponds to the distribution of the image’s pixels. We did the same thing for 𝑋 but this time by considering all the pixels from the set of every generated scenarios. This decision has far-reaching consequences as it implies that we evaluate our model not on a single scenario (for example if we keep only the best one) but on the entire set of scenarios it generates. This approach is entirely desirable, as it accounts for the inherent uncertainty in the super-resolution task. Indeed, we are not interested in a model that, by sheer luck, produces a single scenario highly faithful to reality among a vast set of completely unrealistic ones. Rather, we prefer a model that generates a set of plausible scenarios, even if none of them is individually perfect. With this modeling, a U-shaped PIT corresponds to an underdispersive model, whereas a bell-shaped PIT indicates an overdispersive one. The figure 6 compares the PIT of three differently calibrated models. 15 A preprint - April 24, 2026 
+
+Figure 6: Illustration of Probability Integral Transform (PIT) behavior for under-dispersive and over-dispersive predictive distributions 
+
+11.6 Continuous Ranked Probability Score (CRPS) 
+
+The Continuous Ranked Probability Score (CRPS) is a metric we use to evaluate the accuracy of probabilistic predictions. It measures the difference between the cumulative distribution function of the prediction and the target. Formally, for a forecast CDF 𝐹 and an observation 𝑦 , the CRPS is defined as CRPS (𝐹, 𝑦 ) =
+
+∫ ∞−∞ 
+
+ 𝐹 (𝑡 ) − 1{𝑡 ≥ 𝑦 }2 𝑑𝑡, (18) where 1{𝑡 ≥ 𝑦 } is the indicator function. In our case, the CRPS is computed with the same modeling as the PIT. Indeed, for a target frame 𝑌 , we compute a CRPS for each pixel then we average it to obtain a "frame" CRPS. To compute the CRPS over the pixel (𝑖, 𝑗 ), we set 𝑦 = 𝑌 𝑖, 𝑗 
+
+and we build the variable 𝑋 such that its distribution corresponds to the distribution of the pixels (𝑖, 𝑗 ) from all the generated scenarios. Then we compute the CDF of 𝑋 and plug it into equation 18. Again, this is coherent since we assess the model’s predictions collectively rather than on a one-by-one basis. Anyway, its unit is 𝑚𝑚.ℎ −1
+
+We can show the CRPS generalizes the mean absolute error to probabilistic predictions. Indeed, for deterministic models, the CRPS coincides with the MAE as explained in Appendix 14. 16 A preprint - April 24, 2026 
+
+## 12 Additional results 
+
+We also benchmarked our model on different setups, each table corresponds respectively to the super-resolution factors (1, 3), (10, 1) and (25, 6). 
+
+Architecture MSE ↓ MAE ↓ 99th PE ↓ LSD ↓ EMD ↓ SSIM ↑ PITD ↓ CRPS ↓
+
+Bicubic interpolation 2.74E-3 1.39E-2 5.30E-2 2.28 1.71E-3 8.90E-1 2.70E-2 1.39E-2 Nearest Neighbor 2.74E-3 1.39E-2 5.30E-2 2.28 1.71E-3 8.90E-1 2.72E-2 1.39E-2 EDSR 2.73E-3 1.35E-2 5.33E-2 2.24 1.76E-3 8.82E-1 2.77E-2 1.35E-2 Deterministic 2.60E-3 1.28E-2 4.90E-2 2.35 1.05E-3 8.95E-1 1.58E-1 1.28E-2 Generative (no attention) 2.71E-3 1.36E-2 5.22E-2 2.27 1.57E-3 7.57E-1 2.83E-2 1.17E-2 Full architecture 4.70E-4 2.30E-3 1.05E-2 3.58E-1 2.17E-4 1.38E-1 2.77E-2 1.90E-3 Architecture MSE ↓ MAE ↓ 99th PE ↓ LSD ↓ EMD ↓ SSIM ↑ PITD ↓ CRPS ↓
+
+Bicubic interpolation 6.45E-4 5.35E-3 2.42E-2 1.55 2.92E-4 9.40E-1 5.10E-2 5.35E-3 Nearest Neighbor 8.67E-4 6.20E-3 2.66E-2 1.32 1.52E-4 9.30E-1 2.20E-2 6.20E-3 EDSR 5.20E-4 5.44E-3 1.63E-2 7.94 1.23E-3 9.42E-1 1.03E-1 5.44E-3 Deterministic 6.08E-4 5.44E-3 2.67E-2 7.14E-1 1.50E-4 9.38E-1 2.31E-2 5.44E-3 Generative (no attention) 8.73E-4 6.29E-3 3.85E-2 4.02E-1 1.01E-3 6.70E-1 8.38E-2 5.21E-3 Full architecture 3.09E-5 2.18E-4 1.37E-3 1.35E-2 3.25E-5 2.39E-2 2.88E-3 1.81E-4 Architecture MSE ↓ MAE ↓ 99th PE ↓ LSD ↓ EMD ↓ SSIM ↑ PITD ↓ CRPS ↓
+
+Bicubic interpolation 4.50E-3 1.98E-2 8.47E-2 4.35 1.37E-3 8.10E-1 2.30E-1 1.98E-2 Nearest Neighbor 4.58E-3 2.00E-2 8.57E-2 4.46 1.28E-3 8.10E-1 1.90E-1 2.00E-2 EDSR 4.38E-3 1.97E-2 8.27E-2 8.02 1.64E-3 8.12E-1 2.26E-1 1.97E-2 Deterministic 4.44-3 1.89E-2 7.97E-2 3.97 1.42E-3 8.26E-1 2.18E-1 1.89E-2 Generative (no attention) 1.03E-2 2.56E-2 1.06E-1 4.02 7.29E-3 8.30E-1 1.80E-2 1.85E-2 Full architecture 3.50E-3 1.00E-2 3.96E-2 1.76 3.70E-3 3.60E-1 7.34E-3 7.50E-3 
+
+Table 3: Performance comparison of all 6 models respectively for the pair (1, 3), (10 , 1) and (25 , 6).From this table, we observe that our model outperforms all others on most metrics, regardless of the pair of SR factors considered. We also notice that, although the model consistently performs best, its advantage becomes less pronounced as the factors increase substantially, up to (25 , 6).
+
+## 13 Proof of the Probability Integral Transform 
+
+Let 𝑋 be a continuous random variable with cumulative distribution function (CDF) 𝐹 𝑋 . Define a new random variable 
+
+𝑌 = 𝐹 𝑋 (𝑋 ).
+
+We want to find the distribution of 𝑌 . The CDF of 𝑌 is 
+
+𝐹 𝑌 (𝑦 ) = 𝑃 (𝑌 ≤ 𝑦 ) = 𝑃 (𝐹 𝑋 (𝑋 ) ≤ 𝑦 )
+
+Since 𝐹 𝑋 is strictly increasing, we can apply its inverse: 
+
+𝐹 𝑌 (𝑦 ) = 𝑃 (𝑋 ≤ 𝐹 −1 
+
+> 𝑋
+
+(𝑦 )) = 𝐹 𝑋 (𝐹 −1 
+
+> 𝑋
+
+(𝑦 )) = 𝑦 
+
+Therefore, the CDF of 𝑌 is 
+
+𝐹 𝑌 (𝑦 ) = 𝑦, 𝑦 ∈ [ 0, 1]
+
+which is exactly the CDF of a uniform distribution on the interval [0, 1].This shows that if 𝑋 is a continuous random variable, then the transformed variable 𝑌 = 𝐹 𝑋 (𝑋 ) follows a uniform distribution on [0, 1].
+
+## 14 Proof of the equivalence between CRPS and MAE when the model is deterministic 
+
+The Continuous Ranked Probability Score (CRPS) for a forecast CDF 𝐹 (𝑡 ) and an observation 𝑦 is defined as: CRPS (𝐹, 𝑦 ) =
+
+∫ ∞−∞ 
+
+ 𝐹 (𝑡 ) − 1{𝑡 ≥ 𝑦 }2 𝑑𝑡 
+
+17 A preprint - April 24, 2026 
+
+where 1{𝑡 ≥ 𝑦 } is the indicator function. For a deterministic prediction 𝑦 0, the forecast CDF becomes a step function: 
+
+𝐹 (𝑡 ) =
+
+0 if 𝑡 < 𝑦 0,
+
+1 if 𝑡 ≥ 𝑦 0.
+
+Plugging this into the CRPS definition: CRPS (𝑦 0, 𝑦 ) =
+
+∫ ∞−∞ 
+
+ 1{𝑡 ≥ 𝑦 0 } − 1{𝑡 ≥ 𝑦 }2 𝑑𝑡 
+
+The difference of the indicator functions is nonzero only on the interval between 𝑦 0 and 𝑦 , and equals ±1 there, and the square sets the value to 1. Therefore, the integral reduces to the length of this interval: CRPS (𝑦 0, 𝑦 ) = |𝑦 0 − 𝑦 |
+
+Hence, for deterministic forecasts, the CRPS is exactly equal to the Mean Absolute Error: CRPS (𝑦 0, 𝑦 ) = MAE (𝑦 0, 𝑦 )
+
+18
