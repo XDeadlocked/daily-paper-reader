@@ -1,0 +1,2631 @@
+Title: How to Guide Your Flow: Few-Step Alignment via Flow Map Reward Guidance
+
+URL Source: https://arxiv.org/pdf/2604.27147v1
+
+Published Time: Fri, 01 May 2026 00:15:14 GMT
+
+Number of Pages: 57
+
+Markdown Content:
+# How to Guide Your Flow: Few-Step Alignment via Flow Map Reward Guidance 
+
+Jerry Y. Huang ∗ , Justin Lin ∗ , Sheel Shah , Kartik Nair , Nicholas M. Boffi 
+
+Carnegie Mellon University In generative modeling, we often wish to produce samples that maximize a user-specified reward such as aesthetic quality or alignment with human preferences, a problem known as guidance . Despite their widespread use, existing guidance methods either require expensive multi-particle, many-step schemes or rely on poorly understood approximations. We reformulate guidance as a deterministic optimal control problem , yielding a hierarchy of algorithms that subsumes existing approaches at the coarsest level. We show that the flow map , an object of significant recent interest for its role in fast inference, arises naturally in the optimal solution. Based on this observation, we propose Flow Map Reward Guidance (FMRG) : a training-free, single-trajectory framework that uses the flow map to both integrate and guide the flow. At text-to-image scale, FMRG matches or surpasses baselines across inverse problems, style transfer, human preferences, and VLM rewards with as few as 3 NFEs , giving at least an order-of-magnitude speedup in comparison to prior state of the art. 
+
+> ∗
+
+Equal contribution. 
+
+Figure 1: We introduce Flow Map Reward Guidance (FMRG) , a training-free, single-trajectory framework for inference-time alignment of flow-based models. FMRG achieves state-of-the-art performance across diverse rewards—including aesthetic enhancement, compositionality, latent-space inverse problems, style transfer, and VLM rewards—with up to a 70 × speedup over prior work. 
+
+1
+
+> arXiv:2604.27147v1 [cs.LG] 29 Apr 2026 FMRG (Ours)
+
+ρ0 ρ1     
+
+> r(x)
+> Xs, 1
+> X0,s (x0)
+> ∇r
+> Xs,t (xus)
+> ∇rXt, 1(xut)
+> x0
+> xus
+> xutxu
+> 1
+> Time t
+> SMC
+
+ρ0 ρ1             
+
+> ∝erρ1
+> Figure 2: Overview. FMRG guides a single generative trajectory by alternating flow map steps, which integrate the base dynamics exactly, with gradient steps that steer toward high reward. This optimization-centric perspective contrasts with methods that explicitly target sampling the exponential reward tilt ˜ρ∝erρ, which typically require many particles with resampling (e.g., SMC) and are often based on diffusion processes requiring many steps. Right: an unguided FLUX sample (orange) and a guided FMRG sample (blue) for the prompt “abstract human form, impressionist strokes, pastel colors, dreamy texture, soft focus,” guided by a human preference aesthetic reward.
+
+# 1 Introduction 
+
+Flow- and diffusion-based [ 1– 3] generative models have emerged as state-of-the-art methods for high-fidelity generation across continuous modalities such as images [ 4], video [ 5], and molecular data [ 6]. In practice, however, we rarely seek arbitrary samples from a learned distribution. Instead, applications in creative generation, molecular design, and inverse problems require samples that satisfy additional criteria, such as high aesthetic quality [ 7], measurement agreement [ 8], physical plausibility [ 9], or alignment with human user intent. These criteria are often encoded as a hand-designed or learned reward function r, and guidance 
+
+methods aim to steer the sampling process toward high-reward samples without additional training [10]. The prevailing theoretical framework for guidance frames the problem as sampling from a reward-tilted 
+
+distribution ˜ρ(x) ∝ er(x)ρ(x), where ρ denotes the distribution induced by a pre-trained generative model [ 11 –13 ]. Despite its mathematical appeal, this target is remarkably difficult to sample from, and recent work has shown that doing so is computationally intractable even for simple reward functions [ 14 ]. Multi-particle methods such as sequential Monte Carlo (SMC) can in principle sample from ˜ρ, but doing so reduces to Monte Carlo estimation in high dimensions, which generically requires a prohibitive number of particles and integration steps [ 15 ]. To get around this difficulty, widely-used methods such as diffusion posterior sampling (DPS) [ 16 ] sidestep the ensemble by using a single particle, but rely on uncontrolled approximations to the tilted score that leave the distribution they actually produce poorly characterized. Overall, reward tilting is an easy problem to write down but a hard problem to solve. Compounding these difficulties, the reward-tilt formulation does not sit naturally with modern deterministic samplers. Its theoretical underpinnings lie in stochastic processes, where reward alignment is typically achieved by augmenting a noising SDE with a score term that transports samples toward ˜ρ [11 , 17 ]. Modern systems such as Stable Diffusion 3 [ 18 ] and FLUX [ 19 ], however, increasingly favor deterministic probability flows, which recent work on flow maps [ 20 – 24 ] further accelerate to just a few sampling steps. Recent efforts have ported tilt-based alignment to this regime by simulating stochastic transitions within an ODE sampler [ 25 ], but such approaches inherit the structure of the stochastic formulation rather than treating 2the deterministic sampler as the primary object. As a result, a principled guidance methodology native to deterministic, few-step, single-trajectory generation does not yet exist. This motivates the central question of our work: 
+
+Is there a principled framework for guiding flow-based generative models with very few function evaluations? 
+
+Here we answer in the affirmative, proposing that the natural tool to formalize such a framework is deterministic 
+
+optimal control. This runs contrary to the typical stochastic optimal control framework used for guidance and finetuning of flows and diffusions, and in particular it strays entirely from the reward tilt formulation of guidance [ 11 , 17 , 26 ]. We show that this departure yields a natural optimization problem whose critical points we characterize in closed form, and which depend only on the present trajectory rather than an intractable average over an ensemble of additional particles. Crucially, the flow map appears explicitly in the optimal feedback, making it the central mathematical object of the solution. Its compositional structure enables a single pre-trained flow map to both integrate the base dynamics and compute an accurate guidance signal along one trajectory, leading to an extremely efficient guidance algorithm. Analyzing the design space of this approach leads to our Flow Map Reward Guidance (FMRG) framework, which to our knowledge is the first guidance methodology native to the few-step, single-particle regime. Together, our main contributions can be summarized as: 
+
+• We formulate guidance as a deterministic optimal control problem, showing that the flow map emerges naturally in the closed-form solution. This yields a tractable single-trajectory guidance algorithm in which a single pre-trained flow map drives both integration and guidance. Our framework subsumes DPS, FlowDPS, FlowChef, and related single-trajectory methods as special cases (Appendix D). 
+
+• We characterize the behavior of FMRG in an analytically-tractable setting, analyze the role of algorithmic interventions such as early stopping and the choice of reward gradient, and connect FMRG to heuristic approaches based on simplistic denoiser-based reward computations. 
+
+• We demonstrate the effectiveness of our approach on FLUX-scale text-to-image models across a wide range of latent-space inverse problems and reward-guided image generation settings, where we surpass baseline performance with as few as 3 NFEs . This represents at least an order of magnitude speedup over competing approaches, and in some cases is up to 70 × more efficient. 
+
+# 2 Theoretical framework 
+
+## 2.1 Flow-based generative models 
+
+We consider a pre-trained flow-based generative model specified by a velocity field b : [0 , 1] × Rd → Rd. Given a target distribution ρ1 ∈ P (Rd) and a Gaussian base ρ0 = N(0 , I ), samples from ρ1 are drawn by numerically integrating the probability flow ordinary differential equation ˙xt = bt(xt), x0 ∼ ρ0, (1) from t = 0 to t = 1, at which point x1 ∼ ρ1. The velocity bt is typically learned from a dataset {xi
+
+> 1
+
+}ni=1 of target samples via flow matching or equivalent objectives based on stochastic interpolants It = αtx0 + βtx1,with α0 = β1 = 1 and α1 = β0 = 0 [1, 2, 27]. 
+
+Flow maps. While generative models based on the probability flow (1) perform well in practice, inference requires solving the differential equation numerically, which typically necessitates 50–100 network evaluations and hence can be computationally expensive. To accelerate inference, significant recent effort has centered around learning the flow map X : [0 , 1] 2 × Rd → Rd [20 , 21 ], which is the solution operator of the probability 3flow (1). By definition, the flow map satisfies the jump condition 
+
+Xs,t (xs) = xt, (2) so that sampling only requires a single function evaluation via x1 = X0,1(x0). Further detail on the flow map formulation is provided in Appendix A, which includes many methods for accelerated generative modeling as special cases, including consistency models [ 22 , 24 , 28 – 30 ], mean flows [ 23 , 31 ], shortcut models [ 32 ], and terminal velocity matching [33]. 
+
+## 2.2 The guidance problem 
+
+Given a pre-trained flow-based model bt and a reward function r : Rd → R, the goal of guidance is to modify the sampling process (1) to produce samples with high reward that “remain close” to the learned distribution 
+
+ρ1 [ 13 ]. In contrast to finetuning methods [ 17 ], which seek a similar goal via an additional training phase, guidance takes place purely at inference and does not require any additional training. 
+
+Reward tilting. The typical theoretical framework for guidance frames the problem as sampling from a “reward-tilted” distribution ˜ρ1(x) ∝ er(x)ρ1(x). Exact sampling from ˜ρ requires augmenting the velocity field by a correction proportional to 
+
+∇xU (x) = ∇x log E
+
+h
+
+er(x1) | xt = x
+
+i
+
+, (3) which arises as the gradient of a value function from stochastic optimal control [ 34 ] (see Appendix B for a self-contained review). The expectation is taken over an auxiliary “memoryless” stochastic process whose time 
+
+t marginals match those of the stochastic interpolant used to train the model [ 11 ]. Computing (3) requires integrating along all stochastic trajectories originating from xt, which is intractable in high dimensions and has motivated SMC-based approaches that maintain finite particle populations and perform resampling [ 9 ]. While principled, such methods sacrifice the efficiency of single-trajectory inference; moreover, while finite sample estimators of the gradient (3) are consistent , they are biased away from the population limit, and can be high variance due to rare samples with high reward [35]. 
+
+## 2.3 An optimal control formulation 
+
+If we commit to guiding a single deterministic trajectory , what is the right problem to solve? We propose to depart from reward tilting entirely and instead formulate guidance as a deterministic optimal control problem that trades off reward maximization against deviation from the base flow: min  
+
+> u
+
+L(u) = min 
+
+> u
+
+Z 10
+
+∥ut∥2
+
+2λ dt − r(xu 
+
+> 1
+
+),
+
+s.t. ˙xut = bt(xut ) + ut, x0 given .
+
+(4) Above, u : [0 , 1] → Rd is a control that modifies the base dynamics bt, and λ ∈ R>0 is an inverse temperature that weights reward maximization against control effort. Larger λ permits more aggressive guidance at the cost of departing further from the base flow, while smaller λ keeps samples close to ρ1.In general, characterizing the optimal control for (4) in closed-form is challenging without restrictive assumptions on the drift bt and the reward r [ 36 ]. To gain insight into its optimizers, the following result gives the necessary conditions for an extreme point. 
+
+Proposition 2.1. Let u∗ 
+
+> t
+
+be an optimal solution of (4), and let x∗ 
+
+> t
+
+denote its trajectory. Then, along x∗ 
+
+> t
+
+,
+
+u∗ 
+
+> t
+
+= λ∇Xu∗ 
+
+> t, 1
+
+(x∗ 
+
+> t
+
+)T∇r
+
+
+
+Xu∗ 
+
+> t, 1
+
+(x∗ 
+
+> t
+
+)
+
+
+
+, (5) 4where Xu∗ 
+
+> s,t
+
+is the flow map for the optimally controlled dynamics ˙xu∗ 
+
+> t
+
+= bt(xu∗ 
+
+> t
+
+) + u∗ 
+
+> t
+
+.
+
+The proof is given in Appendix C.2, and proceeds via a standard application of the Pontryagin Maximum Principle. The guidance term (5) is circular, requiring access to the optimally-guided flow map Xu∗ 
+
+> s,t
+
+to compute the endpoint x∗ 
+
+> 1
+
+= Xu∗ 
+
+> t, 1
+
+(x∗ 
+
+> t
+
+). Unfortunately, this endpoint is precisely what we are trying to compute during inference, making direct application of (5) infeasible in practice. 
+
+## 2.4 A tractable approximation 
+
+To break this circularity, we study the control problem (4) in the small-λ limit. This regime is both analytically tractable and practically meaningful, as it forces the controlled trajectory to stay close to the base flow. Moreover, large λ values can be counterproductive, promoting reward hacking and mode collapse. To carry out this analysis, we first introduce the optimal value function ,
+
+V λt (x) = min 
+
+> u
+
+Z 1
+
+> t
+
+∥uτ ∥2
+
+2λ dτ − r(xu 
+
+> 1
+
+) xut = x
+
+
+
+, (6) which gives the optimal cost starting from state x at time t. The optimal feedback control law has the form 
+
+u∗ 
+
+> t
+
+(x) = −λ∇V λt (x), (7) where the optimal value function solves a Hamilton-Jacobi-Bellman (HJB) equation [ 37 ]. In the limit λ → 0, we can solve this equation exactly, yielding a tractable guidance signal given only a pre-trained flow map. 
+
+Proposition 2.2 (Small-λ expansion) . Under standard regularity assumptions, the following properties hold: (i) The λ → 0 solution is V 0 
+
+> t
+
+(x) = −r(Xt, 1(x)) , where Xt, 1 is the uncontrolled flow map. (ii) The corresponding guidance 
+
+uJt (x) = λ∇Xt, 1(x)T∇r(Xt, 1(x)) , (8) 
+
+approximates the optimal feedback to second order: 
+
+∥u∗ 
+
+> t
+
+(x) − uJt (x)∥ = O(λ2). (9) The proof, given more formally in Appendix C.3, shows that the HJB equation reduces to a transport equation as λ → 0, which we solve exactly via the method of characteristics. In practice, we may wish to use the guidance signal (8) away from the small λ limit. We turn to this extension now. 
+
+A greedy perspective. We now show that (8) also admits a complementary interpretation as a greedy 
+
+approximation of the original optimal control problem for any choice of λ. Specifically, for each t we consider guidance signals that are applied in a small window around the present time, 
+
+Uδt t = {u : [0 , 1] → Rd | uτ = 0 ∀ τ̸ ∈ [t, t + δt ]}. (10) The following result shows that (8) is optimal within this restricted class. 
+
+Proposition 2.3. Consider the restricted problem 
+
+min 
+
+> u∈U δt t
+
+L(u) = min 
+
+> u∈U δt t
+
+Z 10
+
+∥uτ ∥2
+
+2λ dτ − r(xu 
+
+> 1
+
+). (11) 
+
+Then, the optimal guidance signal is given by (8) as δt → 0.
+
+The proof is given in Appendix C.4, and proceeds by Taylor expansion in the width of the interval. Proposi-tion 2.2 and Proposition 2.3 thus arrive at the same guidance signal (8) via complementary arguments: it is the globally optimal control for small λ, as well as the optimal greedy correction for any λ. Together, they justify using (8) in practice beyond the small-λ regime. 5Table 4: Existing methods as special cases of FMRG. Each method can be understood through three design choices: how the endpoint Xt, 1 is approximated, how the base dynamics are integrated, and the guidance weight. Here 
+
+t+ > t denotes the next timestep. 
+
+Method Endpoint Dynamics Jacobian? Weight Guidance at 
+
+FMRG-J (ours) Flow map Flow map Yes λ∆t Every step FMRG-E (ours) Flow map Flow map No λ∆t Every step FlowDPS [38] Euler step Euler step No (1 −t) t+ Every step FlowChef [39] Euler step Euler step No const Every step MPGD [40] Euler + proj. Euler step No t+ ct Every step ReNO [41] One-step gen. — Yes — t = 0 only D-Flow [42] ODE solver — Yes — t = 0 only 
+
+A hierarchy of approximations. An immediate implication of the above results is that standard guidance schemes like DPS [ 16 ] can be more naturally understood as a single-step approximation of the greedy guidance (8), rather than as approximations of the reward-tilt gradient (3) [ 14 ], which we formalize as follows. 
+
+Corollary 2.4 (DPS as a single-step approximation of greedy guidance) . The DPS guidance signal 
+
+uDPS  
+
+> t
+
+(x) = λ  I + (1 − t) ∇bt(x)T∇r ˆx1(x), ˆx1(x) := E[x1 | xt = x] = x + (1 − t) bt(x), (12) 
+
+is obtained from the greedy guidance (8) by replacing the exact flow-map endpoint Xt, 1(x) with the one-step Euler approximation ˆx1(x), and correspondingly approximating the Jacobian ∇Xt, 1(x)T by its one-step Euler form  I + (1 − t) ∇bt(x)T.                 
+
+> Exact-optimal
+> (intractable) u∗
+> t=λ∇Xu∗
+> t, 1(x∗
+> t)T∇r Xu∗
+> t, 1(x∗
+> t)
+> uncontrolled flow map
+> FMRG
+> (ours) ut(x) = λ∇Xt, 1(x)T∇r Xt, 1(x)
+> sub. denoiser estimate
+> DPS uDPS
+> t(x) = λ∇xr ˆx1(x)
+> where ˆ x1=E[x1|xt=x]
+
+Figure 3: Hierarchy of approximations. The exact-optimal control requires the controlled flow map Xu∗ 
+
+> t, 1
+
+. Our approaches leverages the uncontrolled flow map Xt, 1, while DPS further approximates Xt, 1 with a single Euler step. 
+
+The proof is given in Appendix D.1. For the linear interpolant, the posterior mean ˆx1 coincides with a single Euler step of the probability flow, while the exact flow map Xt, 1 corresponds to the limit of an infinite number of Euler steps; Corollary 2.4 thus places DPS at the coarsest level of an approx-imation hierarchy (Figure 3). More broadly, many existing guidance methods, including FlowDPS [ 38 ], FlowChef [ 39 ], and MPGD [ 40 ], fall within this hi-erarchy (Table 4), with each method differing pri-marily in the choice of guidance weight. Similarly, seed-optimization methods such as ReNO [ 41 ] and D-Flow [42] can be viewed as restricting the greedy guidance to t = 0 (see Section 3 for additional de-tails). Appendix D contains a detailed derivation of each reduction. 
+
+## 2.5 On-manifold guidance 
+
+Beyond its appearance in the optimal feedback (8), the Jacobian ∇Xt, 1(xt)T has a second, geometric role: it projects reward gradients onto the tangent space of the data manifold. 
+
+Proposition 2.5 (Tangent space projection) . Suppose the data distribution ρ1 is supported on a smooth manifold M ⊂ Rd. Let x1 = Xt, 1(xt) ∈ M be the endpoint of the flow, and let Tx1 M denote the tangent 
+
+6space at x1. Then, for any v ∈ Rd with v = v∥ + v⊥ where v∥ ∈ Tx1 M and v⊥ ⊥ Tx1 M,
+
+∇Xt, 1(xt)Tv = ∇Xt, 1(xt)Tv∥. (13) The proof is given in Appendix C.6. Proposition 2.5 shows that the Jacobian annihilates components of the reward gradient orthogonal to the data manifold, keeping the controlled trajectory on-manifold by construction (Figure 8, left). While exact manifold structure is an idealization, the intuition extends to settings where data concentrates near a low-dimensional structure, as widely believed for natural images: the Jacobian has small singular values in directions orthogonal to the effective data support. This geometric structure underlies the FMRG-J variant of our algorithm (Section 3), which uses the full Jacobian-projected guidance signal, in contrast to the cheaper FMRG-E variant, which drops the Jacobian for memory efficiency. 
+
+## 2.6 Terminal distribution and early stopping 
+
+Given the characterization in Proposition 2.3, we now ask how this greedy approximation affects the terminal distribution obtained by evolving an ensemble of initial conditions. We address this in the Gaussian setting with a quadratic reward, where we find that all three guidance schemes (3), (5), and (8) become amenable to analytical treatment. While idealized, the resulting calculation allows us to understand the effect of each scheme on the diversity of samples and their rewards. 
+
+Proposition 2.6. Consider a Gaussian base distribution ρ0 = N(0 , I ), a Gaussian target ρ1 = N(μ1, σ 21 I),and a quadratic reward r(x) = −∥ x−a∥2. Then the output distribution in each case is Gaussian with variances 
+
+σ2tilt = σ21
+
+1 + 2 λσ 21
+
+, σ2greedy = σ21 exp( −2πλσ 1) , σ2exact = σ21
+
+(1 + πλσ 1)2 , (14) 
+
+and expected terminal rewards ¯rs := E[r(Xs 
+
+> 1
+
+)] given by 
+
+¯rtilt = − σ21 (1 + 2 λσ 21 ) + ( μ1 − a)2
+
+(1 + 2 λσ 21 )2 , ¯rgreedy = − σ21 + ( μ1 − a)2 e−2πλσ 1 , ¯rexact = − σ21 + ( μ1 − a)2
+
+(1 + πλσ 1)2 . (15) −2 −1 0 1 2 3
+
+x   
+
+> 0
+> 1
+> 2
+> Density
+> Reward r(x)Target ρ1
+> Reward tilt Optimal Greedy Greedy ( tstop = 0 .3)
+
+Figure 5: Terminal distribution. Greedy guidance produces a narrower distribution than reward tilting or the distribution produced by exactly solving the optimal control problem (5). Early stopping can be used to effectively mitigate this mode collapse, and when applied at tstop = 0 .3recovers variance comparable to the reward tilt. 
+
+The proof is given in Appendix C.5. Inspecting (15), greedy guidance achieves the highest expected re-ward for a given λ, followed by exact optimal control and reward tilting. The three schemes exhibit qual-itatively different variance scaling: reward tilting reduces variance as O(1 /(1 + cλ )) , exact optimal control as O 1/(1 + cλ )2, and greedy guidance ex-ponentially (Figure 5). This more aggressive contrac-tion arises because greedy guidance neglects depen-dencies across time, yielding both higher expected reward and lower diversity for a given λ. In our im-age generation experiments, we find that this enables effective reward alignment at extremely low NFEs, though it necessitates careful control of the guidance strength to avoid mode collapse. One effective way to control mode collapse is early stopping, in which we apply guidance only for t ∈
+
+[0 , t stop ] and then integrate the uncontrolled flow to 
+
+t = 1 via Xtstop ,1. Here tstop ∈ (0 , 1] controls how much of the trajectory is guided: smaller values stop guidance earlier (when the sample is still mostly noise), while tstop = 1 corresponds to guiding the entire 7trajectory. In the Gaussian setting, we prove analytically that a suitable tstop (λ) recovers the polynomial scaling of exact optimal control. 
+
+Proposition 2.7 (Variance recovery via early stopping) . Under the setting of Proposition 2.6, there exists a unique tstop (λ) ∈ (0 , 1] for which the terminal variance under greedy guidance on [0 , t stop (λ)] followed by the uncontrolled flow on [tstop (λ), 1] matches σ2exact .
+
+The proof, along with the closed-form variance and the asymptotic behavior of tstop (λ), is given in Appendix C.5 (Figure 5). We find empirically that these observations hold for high-resolution image synthesis at FLUX scale (Section 5; see Appendices E.3 and E.5 for ablations). 
+
+# 3 Algorithmic framework 
+
+We now turn to a practical implementation of the guidance framework developed in Section 2. Substituting the greedy guidance term (8) into the controlled dynamics (4) gives the guided generative process ˙xut = bt(xut ) + λt(xut ) ∇Xt, 1(xut )T∇r(Xt, 1(xut )) , (16) which forms the basis of our Flow Map Reward Guidance (FMRG) methodology. Implementing (16) effectively admits a design space of algorithmic decisions; in this section, we outline the conceptual role of each choice and make practical recommendations for high performance. Our complete procedure is summarized in Algorithms 6 and 7. 
+
+Operator splitting. For efficient inference, we propose an operator splitting [43 ] scheme to decompose (16) into the base flow bt(xt), which we integrate exactly with the pre-trained flow map Xs,t , and the guidance term. Given a temporal grid 0 = t0 < t 1 < . . . < t N = 1 with ∆ tk = tk+1 − tk, each step proceeds as ˜xtk+1 = Xtk ,t k+1 (xtk ),xtk+1 = ˜ xtk+1 + ∆ tk λtk+1 (˜ xtk+1 ) utk+1 (˜ xtk+1 ), (17) where u denotes the guidance signal. 
+
+Multiple gradient steps. Within each time interval [ tk, t k+1 ], we may take multiple gradient steps to better optimize the reward before advancing the flow. To this end, let nopt denote the number of gradient steps per interval. The gradient part of the guidance update then becomes: 
+
+x(j+1) = x(j) + ∆tk 
+
+> nopt
+
+λtk+1 (x(j)) · utk+1 (x(j)),j = 0 , . . . , n opt − 1, (18) where x(0) = ˜xtk+1 and xtk+1 = x(nopt ). These optimization steps may also be run before the first step in (17) for an initial round of seed optimization [41]. 
+
+Gradient options. For the guidance signal u, we consider two primary choices. The first is the gradient (8), which backpropagates through the flow map and gives (16). The second is the Euclidean gradient 
+
+uE (x, t ) = ∇r(Xt, 1(x)) , (19) which avoids backpropagation through the neural network and is commonly leveraged by denoiser-based methods to avoid the memory cost of the network Jacobian [ 38 –40 , 44 ]. By Proposition 2.5, the Jacobian-based guidance projects the reward gradient onto the data-manifold tangent space, while the Euclidean gradient may 8Algorithm 6 FMRG-J (Jacobian) 
+
+Require: Flow map X, reward r, time grid {tk}Nk=0 ,guidance strength λt(x), gradient steps nopt  
+
+> 1:
+
+Sample x0 ∼ ρ0 
+
+> 2:
+
+for k = 0 , . . . , N − 1 do  
+
+> 3:
+
+x ← Xtk ,t k+1 (xtk ) {Flow map step } 
+
+> 4:
+
+for j = 0 , . . . , n opt − 1 do  
+
+> 5:
+
+u ← ∇ Xtk+1 ,1(x)T∇r(Xtk+1 ,1(x))  
+
+> 6:
+
+x ← x + ∆tk 
+
+> nopt
+
+λtk+1 (x) · u 
+
+> 7:
+
+end for  
+
+> 8:
+
+xtk+1 ← x 
+
+> 9:
+
+end for  
+
+> 10:
+
+return x1
+
+Algorithm 7 FMRG-E (Euclidean) 
+
+Require: Flow map X, reward r, time grid {tk}Nk=0 ,guidance strength λt(x), gradient steps nopt  
+
+> 1:
+
+Sample x0 ∼ ρ0 
+
+> 2:
+
+for k = 0 , . . . , N − 1 do  
+
+> 3:
+
+x ← Xtk ,t k+1 (xtk ) {Flow map step } 
+
+> 4:
+
+for j = 0 , . . . , n opt − 1 do  
+
+> 5:
+
+u ← ∇ r(Xtk+1 ,1(x))  
+
+> 6:
+
+x ← x + ∆tk 
+
+> nopt
+
+λtk+1 (x) · u 
+
+> 7:
+
+end for  
+
+> 8:
+
+xtk+1 ← x 
+
+> 9:
+
+end for  
+
+> 10:
+
+return x1
+
+Tx1M
+
+Xt, 1(xt)
+
+v∥
+
+∇r
+
+xJ
+
+> 1
+
+xE 
+
+> 1
+
+⋆ arg max r
+
+reward increases    
+
+> X0,1(x0)
+> FMRG-E
+> FMRG-J
+> xE
+> 1
+> r++
+> xJ
+> 1
+> r+p: “a photo of a bear”
+> r: whitening
+> t= 0 t= 1
+
+Figure 8: Gradient options. (Left) The flow map Jacobian ∇Xt, 1(x)T projects the reward gradient ∇r onto 
+
+Tx1 M, keeping the trajectory on-manifold (blue, FMRG-J), while the Euclidean gradient follows ∇r off-manifold (purple, FMRG-E). (Right) FMRG-E achieves higher reward ( r++) but produces artifacts because it can leave the data manifold, often leading to reward hacking; FMRG-J stays on-manifold and more robustly preserves features in the data ( r+). 
+
+leave the manifold to more directly optimize the reward (Figure 8). These two choices give rise to two variants of our algorithm (Algorithms 6 and 7), which we term FMRG-E (Euclidean) and FMRG-J (Jacobian), respectively. In practice, we find that FMRG-E is effective when the reward landscape is well-aligned with the data manifold, while FMRG-J tends to be more effective for neural-network-based rewards with more complex landscapes (see Section 5.5 for a systematic study). 
+
+Reducing NFEs. Each step of FMRG-E requires evaluating Xtk ,1 to compute the reward gradient and 
+
+Xtk ,t k+1 to advance the flow, for a total of two NFEs per step. In the very low NFE regime, we prefer to allocate this budget to additional guidance updates rather than to accurate intermediate integration. To this end, we reuse the endpoint evaluation via the linear interpolation Xtk ,t k+1 (x) ≈ x + tk+1 −tk
+
+> 1−tk
+
+ Xtk ,1(x) − x,reducing the cost to a single NFE per step. On its own, this linearization would not form a valid sampler, since it discards the nonlinear structure of the learned flow during advancement. However, the reward gradient supplies a consistent correction back toward the data manifold, so the trajectory is kept on track by guidance rather than by accurate free integration. Crucially, we still compute the reward gradient via the full flow map lookahead Xtk+1 ,1, so the learned flow’s nonlinearity is preserved for accurate reward estimation. When we leverage early stopping, we can complete the generation with a single flow map step Xtstop ,1.9Reinitialization. Because greedy optimization depends on the initial noise sample, we may run a small number of independent reinitializations. We find at most 4 suffice even for complex neural-network-based rewards. Each reinitialization triggers a fresh single-trajectory guided run, in contrast to SMC, which maintains many particles with resampling along the trajectory. 
+
+# 4 Related work 
+
+Dynamical measure transport. Flow- [ 1, 2, 45 ] and diffusion-based [ 3 ] generative models have achieved state of the art performance across diverse continuous modalities by learning to transport a simple reference distribution such as a Gaussian to a complex target. More recently, consistency models [ 22 , 24 , 28 , 46 ] and flow maps [ 20 , 21 , 23 , 31 –33 , 47 ] have been introduced to learn to map directly along a dynamical measure transport process, dramatically increasing sampling efficiency. While these models have become increasingly capable, principled guidance methods native to the few-step, single-trajectory regime of flow maps remain underexplored, motivating the present study. 
+
+Guidance. Guidance, or inference-time alignment, adjusts the output of a pre-trained generative model to better match downstream user-specified rewards without additional training [ 13 ]. The prevailing theoretical framework casts guidance as approximate sampling from a reward-tilted distribution, motivating SMC-based approaches that maintain particle populations and perform resampling [ 9 , 26 , 48 ]. While principled, these methods sacrifice the efficiency of single-trajectory inference. An alternative line of work applies guidance heuristically to single trajectories, including DPS [ 16 ], FlowDPS [ 38 ], FlowChef [ 39 ], MPGD [ 40 ], and RB-Modulation [ 44 ]. Our framework provides a principled foundation for this class of methods, subsuming DPS and related single-trajectory approaches as coarse approximations to the greedy guidance signal derived from deterministic optimal control; the full reduction of each method to FMRG is given in Appendix D. More generally, seed optimization methods such as ReNO [ 41 ] and D-Flow [ 42 ] emerge as up-front optimization within the same framework. Most closely related to our approach is flow map trajectory tilting [ 12 ], which uses the flow map to evaluate the reward but steers a multi-particle diffusion process towards the reward tilt. In contrast, FMRG uses the flow map for both integration and guidance along a single deterministic trajectory, achieving up to a 70 × reduction in NFE at matched quality (Section 5). In concurrent work, Diamond Maps [ 49 ] and Meta Flow Maps [ 50 ] design new stochastic flow maps to make reward-tilt sampling more computationally feasible; these approaches require training a new model or a more expensive posterior estimate, as well as multiple Monte Carlo rollouts, whereas we focus on a simpler deterministic setting that uses the existing pre-trained flow map without retraining. 
+
+Reward fine-tuning. An alternative to inference-time guidance is to bake reward alignment into the model via fine-tuning, which requires an additional training phase. This can be formalized as an instance of stochastic optimal control [ 11 , 17 , 26 ], which gives an interpretation of reward tilting guidance as an inference-time approximation to the optimal solution of this control problem. Here we pursue a deterministic optimal control problem and construct an efficient approximate solution to design a guidance signal. Reinforcement learning approaches such as DDPO [ 51 ] and DPOK [ 52 ] treat the sampler as a Markov decision process and optimize model parameters to maximize expected reward, while gradient-based methods such as DRaFT [ 7]backpropagate through the full sampling process. Such approaches can achieve strong reward alignment but require expensive retraining for each new reward model and are prone to over-optimization that degrades base-model quality. In contrast, FMRG achieves reward alignment at inference without modifying the underlying flow, preserving the base model and allowing different rewards to be applied to a single checkpoint. 
+
+# 5 Experiments 
+
+We evaluate FMRG on reward functions of varying complexity, including (i) ℓ2 reconstruction losses for latent-space inverse problems, (ii) neural-network-based human preference rewards, and (iii) vision-language 10 Table 9: Quantitative comparison: Latent-space inverse problems. We report PSNR, SSIM, LPIPS, FID, and KID for super-resolution (4 ×), motion deblurring, and inpainting. Bold indicates best, underline indicates second best. Results are averaged over 1000 images. Best hyperparameters per method are selected via grid search (see Appendix E).                                                                                                                                                                        
+
+> Super-Resolution Motion Deblur Inpainting Method PSNR ↑SSIM ↑LPIPS ↓FID ↓KID ↓PSNR ↑SSIM ↑LPIPS ↓FID ↓KID ↓PSNR ↑SSIM ↑LPIPS ↓FID ↓KID ↓
+> AFHQ  DPS 18.06 .443 .503 59.99 .030 16.68 .407 .547 58.59 .029 17.15 .512 .540 95.30 .036 FlowChef 26.87 .767 .243 43.29 .018 26.75 .749 .250 38.58 .015 24.12 .828 .160 35.10 .013 FlowDPS 27.02 .778 .250 34.58 .013 26.07 .739 .279 36.77 .014 26.11 .798 .239 44.10 .018 FMRG-E (ours) 27.12 .772 .180 25.48 .009 27.26 .771 .177 23.12 .007 26.12 .851 .126 24.73 .008
+> FMRG-J (ours) 27.39 .795 .193 29.51 .012 27.36 .788 .204 24.43 .008 26.71 .842 .158 31.20 .013
+> FFHQ  DPS 18.74 .570 .530 119.30 .054 20.20 .618 .483 127.91 .077 18.93 .623 .486 137.36 .081 FlowChef 26.71 .782 .237 117.04 .106 24.53 .713 .296 109.30 .081 25.41 .830 .164 76.52 .057 FlowDPS 27.70 .818 .205 61.85 .040 26.85 .789 .233 64.55 .042 27.90 .844 .195 73.30 .054 FMRG-E (ours) 27.53 .799 .171 62.63 .042 28.10 .807 .153 38.52 .015 28.66 .883 .103 35.15 .014
+> FMRG-J (ours) 28.23 .832 .154 55.99 .039 28.62 .834 .155 41.33 .022 29.48 .893 .112 43.99 .026
+
+Figure 10: Latent-space inverse problems. (Left) FMRG obtains SoTA performance on super-resolution, motion deblurring, and inpainting at remarkably low NFEs. (Right) LPIPS vs. FID trade-off on AFHQ. FMRG-E achieves notably better performance in the low NFE regime. Full results in Appendix E. 
+
+model rewards for text-to-image generation. For all experiments, we use a flow map distilled via Lagrangian distillation [ 20 ] from Flux.1-Dev [ 53 ]. Inverse problems and style guidance are evaluated at 256 × 256 resolution, while GenEval and VLM guidance are evaluated at 512 × 512 resolution. We find that FMRG achieves competitive or superior sample quality in comparison to strong baselines while requiring up to 10 ×
+
+fewer function evaluations (NFEs) on inverse problems and 70 × fewer on reward-guided generation. The breadth of reward types considered allows us to explore the interplay between the geometry of the reward landscape and the effectiveness of inference-time guidance—from simple reconstruction losses whose optima lie close to the data manifold to complex neural-network rewards whose optima may lie far from it (Section 5.5). 
+
+## 5.1 Latent-space inverse problems 
+
+We compare FMRG-J and FMRG-E against FlowDPS [ 38 ], FlowChef [ 39 ], and DPS [ 16 ]. We consider three latent-space inverse problems: (i) super-resolution with 4 × downsampling to 64 × 64, (ii) motion deblurring with kernel size 61 and intensity 0 .5, and (iii) box inpainting with a 64 × 64 mask. All methods minimize an 
+
+ℓ2 reconstruction loss r(x) = −∥ Ax − y∥2 between the generated image x ∈ Rd and the observation y ∈ Rdo ,where A ∈ Rdo×d denotes the (linear) measurement operator (see Appendix E for details). Table 9 reports the peak performance of each method at best hyperparameters obtained via independent grid 11 Figure 11: Style guidance: hierarchy of methods. Given a style reference (left), we compare unguided FLUX, Jacobian-based methods (FMRG-J, DPS), and Euclidean-based methods (FMRG-E, FlowChef). FMRG-J captures the target style most faithfully while preserving semantic content. DPS fails to incorporate the style, while FlowChef produces artifacts, consistent with our derived approximation hierarchy (Figure 3). 
+
+search. FMRG-E and FMRG-J significantly outperform all baselines on both AFHQ-Dog and FFHQ. Figure 10 compares the NFE–performance trade-off for Euclidean gradient-based methods (FMRG-E, FlowDPS, FlowChef), which avoid backpropagation through the flow map. FMRG-E achieves competitive performance even at very low NFEs (e.g., 3 and 6), matching or outperforming baselines using 2-10 × more NFEs. At higher NFEs, the gap widens further, with FMRG-E and FMRG-J achieving the best results across all distortion and perception metrics (Table 9). This advantage is even more pronounced for unconditional generation (without text prompts), where FlowDPS and FlowChef degrade significantly while FMRG remains robust (see Appendix E). Wall-clock time and VRAM measurements are reported in Appendix E.7. 
+
+## 5.2 Style guidance 
+
+We use style transfer to qualitatively illustrate the approximation hierarchy developed in Section 2. The style reward is computed via the Frobenius norm between the Gram matrices of CLIP ViT-B/16 features extracted from the reference and generated images, following MPGD [ 40 ]. Quantitative results are provided in Table E.15. Figure 11 compares all methods in the hierarchy on this task. Consistent with Proposition 2.5, FMRG-J better preserves image quality while incorporating the target style, whereas FMRG-E more directly optimizes the style reward. Comparing across the hierarchy, both FMRG variants achieve markedly better style transfer than their denoiser-based counterparts: DPS (the denoiser-based approximation of FMRG-J) fails to incorporate the target style, while FlowChef (the denoiser-based approximation of FMRG-E; see Appendix D) exhibits visible artifacts. This is consistent with the theoretical picture put forth in Section 2, as the flow map provides a more accurate reward computation for both gradient types than the single-step denoiser. 12 Figure 12: Reward-guided aesthetic enhancement. FMRG produces visually compelling aesthetic enhancements with as few as 6 NFEs. Additional comparisons in Appendix E.5. 
+
+## 5.3 Reward-guided generation 
+
+We evaluate FMRG on human preference rewards for text-to-image generation. Following Eyring et al. [41] , we use a linear combination of human preference and text-image alignment reward models, including ImageReward [ 54 ], HPSv2 [ 55 ], PickScore [ 56 ], and CLIP, as the guidance objective. Figure 12 shows that FMRG produces visually compelling aesthetic enhancements with as few as 6 NFEs. To quantitatively evaluate these gains, we benchmark on GenEval [ 57 ], an object-focused compositional benchmark. GenEval uses object detection methods that are independent of the reward models used for guidance, providing a disentangled evaluation that measures genuine compositional improvements rather than reward over-optimization [41]. As shown in Table 13, FMRG-J achieves a GenEval score of 0 .80 at NFE 100 and matches FMTT (0 .77) at NFE 20, yielding a 70 × reduction in NFEs (see Figure 14 for the full Pareto frontier). We additionally compare against the base FLUX.1-Dev model [ 53 ], best-of-N reward selection, and seed optimization via ReNO. FMRG-E also achieves strong performance at even lower NFEs. Figure 14 plots GenEval accuracy against NFE for all methods. We find that FMRG-J dominates the Pareto frontier across all NFE budgets. Wall-clock time and VRAM measurements for all methods are reported in Appendix E.7. 
+
+## 5.4 VLM guidance 
+
+Beyond the fixed reward ensembles used above, FMRG can leverage complex vision-language model (VLM) rewards to guide generation toward detailed, compositional prompts that base models struggle to follow. We use a 7B-parameter VLM [ 58 ] that scores prompt-image alignment, representing the most complex reward landscape in our evaluation (see Appendix E.6 for details). Figure 15 shows examples where unguided FLUX generations across multiple seeds fail to capture fine-grained compositional details—such as specific object attributes, spatial relationships, and text rendering—while FMRG-J successfully steers the output toward prompt-faithful images. These results demonstrate the flexibility of FMRG to incorporate large-scale reward 13 Table 13: GenEval accuracy . All methods leverage the same FLUX.1-dev flow map backbone. Bold indicates highest performance. FMRG attains the best performance overall, as well as the best performance at fixed NFE.                                                                           
+
+> Method Overall ↑Single Two Count Colors Position Color Attr. NFE ↓
+> FLUX.1-dev 0.662 .991 .795 .697 .801 .212 .475 50 Flow Map 0.668 .975 .848 .637 .777 .210 .560 8Flow Map + Best-of-N0.758 1.00 .909 .838 .872 .260 .670 128 ReNO 0.716 1.00 .881 .769 .875 .172 .608 58 FMTT 0.771 .988 .929 .850 .862 .310 .690 1400 FMRG-E 0.766 1.00 .927 .828 .856 .297 .685 100 FMRG-J 0.770 .997 .922 .863 .854 .295 .690 20 FMRG-J 0.800 1.00 .947 .884 .902 .292 .772 100
+> Figure 14: GenEval accuracy vs. NFE. FMRG-J dominates the Pareto frontier across all NFE budgets, matching FMTT (0 .77) at NFE 20 with a 70 ×reduction in compute.
+
+models beyond the human preference ensembles used for GenEval. 
+
+## 5.5 Analysis of design choices 
+
+We discuss two key design choices whose empirical behavior is consistent with our theoretical analysis. Full ablations are provided in Appendices E.3 and E.5. 
+
+Early stopping. Our theory predicts that greedy guidance contracts variance exponentially without early stopping, while early stopping can recover the polynomial scaling of exact optimal control (Proposition 2.6). Empirically, the importance of early stopping tracks the susceptibility of the reward to over-optimization. For inverse problems, the ℓ2 loss has a unique optimum at the ground truth, which limits the scope for reward hacking; accordingly, early stopping helps at low NFEs (where each guided step is large) but has diminishing returns at higher NFEs where the greedy approximation is more accurate (Table E.3). For human preference rewards, whose landscapes are more susceptible to adversarial maximization, early stopping at tstop = 0 .25 consistently improves GenEval accuracy at all NFE levels (Table E.18), and without early stopping ( tstop = 1), generation quality degrades due to over-optimization artifacts (Figure E.19). 
+
+Jacobian vs. Euclidean. Our theory predicts that the flow map Jacobian projects reward gradients onto the tangent space of the data manifold (Proposition 2.5), which should matter more when reward optima lie 14 Figure 15: VLM reward guidance. Unguided FLUX generations (top) fail to follow complex compositional prompts. FMRG (bottom) steers generation toward prompt-faithful outputs. 
+
+far from the manifold. Empirically, for the ℓ2 reconstruction loss, whose optima lie close to the data manifold, the Euclidean gradient already produces approximately on-manifold updates without requiring the Jacobian projection; accordingly, FMRG-E offers a better NFE–performance trade-off, achieving strong performance at extremely low NFEs and matching FMRG-J at higher NFEs (Figure 10). For human preference rewards (∼3.4B total parameters), whose optima may lie far from the manifold, FMRG-J leads by 3 .5 points at matched NFE (Table 13) and dominates the Pareto frontier across all NFE budgets (Figure 14). This is consistent with Proposition 2.5, as larger neural-network rewards have more complex landscapes with maxima that may lie off the data manifold, making the Jacobian’s tangent-space projection increasingly important. 
+
+# 6 Conclusion and limitations 
+
+In this work, we introduced Flow Map Reward Guidance (FMRG), a principled framework for guiding flow and flow map-based generative models at inference time. By formulating guidance as deterministic optimal control rather than approximate reward-tilted sampling, we provided a flow map-centric approach to guidance that leads to efficient sampling and high performance in practice. In addition to leading to a novel algorithmic framework, our methodology provides a new lens with which we can understand the performance of existing heuristic approximations for guidance, whose performance has been observed in practice but whose accuracy with respect to reward tilted sampling has been widely drawn into question. More generally, our approach represents a conceptual departure from the standard formulation of guidance and finetuning, and demonstrates the importance of pursuing alternative notions of optimal reward alignment that admit efficient computational realizations. Future work will investigate the suitability of similar approaches for reinforcement learning-based finetuning, where the optimal control (7) can be estimated directly via additional training. 
+
+Limitations. Our approach significantly improves the quality of reward-guided generation for flows, but requires a pre-trained flow map; while these models have enjoyed significant recent interest, high performing large-scale flow maps are still in shorter supply than standard flows. In line with this, performance of 15 our approach will depend on the quality of the pre-trained flow map. From a computational perspective, FMRG-J is higher-performing for complex rewards, but requires backpropagation through the flow map, which consumes approximately 48 GB VRAM at 512px resolution and hence requires appropriate hardware. Despite its lower performance in these settings, FMRG-E runs on a single L40S GPU because it avoids the flow map Jacobian and hence may be more suitable for low-resource settings. Without early stopping, our greedy approach can over-optimize the reward, leading to mode collapse and artifacts. We analyze this formally in Appendix C.5 and provide early stopping as a principled mitigation. 
+
+# Acknowledgements 
+
+We thank Gabe Guo for providing the flow map checkpoint used throughout our experiments. We also thank Carles Domingo-Enrich, Peter Holderrieth, and Stephen Huan for helpful discussions. 
+
+# References 
+
+[1] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. (pages 2, 3, and 10) [2] Michael S Albergo, Nicholas M Boffi, and Eric Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 , 2023. (pages 2, 3, 10, 29, and 36) [3] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-Based Generative Modeling through Stochastic Differential Equations. arXiv:2011.13456 [cs, stat] , February 2021. arXiv: 2011.13456. (pages 2 and 10) [4] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj¨ orn Ommer. High-Resolution Image Synthesis with Latent Diffusion Models. Technical Report arXiv:2112.10752, arXiv, April 2022. arXiv:2112.10752 [cs] type: article. (page 2) [5] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align Your Latents: High-Resolution Video Synthesis With Latent Diffusion Models. pages 22563–22575, 2023. (page 2) [6] Joseph L. Watson, David Juergens, Nathaniel R. Bennett, Brian L. Trippe, Jason Yim, Helen E. Eisenach, Woody Ahern, Andrew J. Borst, Robert J. Ragotte, Lukas F. Milles, Basile I. M. Wicky, Nikita Hanikel, Samuel J. Pellock, Alexis Courbet, William Sheffler, Jue Wang, Preetham Venkatesh, Isaac Sappington, Susana V´ azquez Torres, Anna Lauko, Valentin De Bortoli, Emile Mathieu, Sergey Ovchinnikov, Regina Barzilay, Tommi S. Jaakkola, Frank DiMaio, Minkyung Baek, and David Baker. De novo design of protein structure and function with RFdiffusion. Nature , 620(7976):1089–1100, August 2023. (page 2) [7] Kevin Clark, Paul Vicol, Kevin Swersky, and David J. Fleet. Directly Fine-Tuning Diffusion Models on Differentiable Rewards, June 2024. arXiv:2309.17400 [cs]. (pages 2 and 10) [8] Giannis Daras, Hyungjin Chung, Chieh-Hsin Lai, Yuki Mitsufuji, Jong Chul Ye, Peyman Milanfar, Alexandros G. Dimakis, and Mauricio Delbracio. A Survey on Diffusion Models for Inverse Problems, September 2024. arXiv:2410.00083 [cs]. (page 2) [9] Luhuan Wu, Brian L. Trippe, Christian A. Naesseth, David M. Blei, and John P. Cunningham. Practical and Asymptotically Exact Conditional Sampling in Diffusion Models, June 2023. arXiv:2306.17775 [cs, q-bio, stat]. (pages 2, 4, and 10) [10] Raghav Singhal, Zachary Horvitz, Ryan Teehan, Mengye Ren, Zhou Yu, Kathleen McKeown, and Rajesh Ranganath. A General Framework for Inference-time Scaling and Steering of Diffusion Models, July 2025. arXiv:2501.06848 [cs]. (pages 2, 43, and 44) 16 [11] Carles Domingo-Enrich, Michal Drozdzal, Brian Karrer, and Ricky T. Q. Chen. Adjoint Matching: Fine-tuning Flow and Diffusion Generative Models with Memoryless Stochastic Optimal Control, January 2025. arXiv:2409.08861 [cs]. (pages 2, 3, 4, 10, and 22) [12] Amirmojtaba Sabour, Michael S. Albergo, Carles Domingo-Enrich, Nicholas M. Boffi, Sanja Fidler, Karsten Kreis, and Eric Vanden-Eijnden. Test-time scaling of diffusions with flow maps, November 2025. arXiv:2511.22688 [cs]. (pages 2 and 10) [13] Masatoshi Uehara, Yulai Zhao, Chenyu Wang, Xiner Li, Aviv Regev, Sergey Levine, and Tommaso Biancalani. Inference-Time Alignment in Diffusion Models with Reward-Guided Generation: Tutorial and Review, January 2025. arXiv:2501.09685 [cs]. (pages 2, 4, and 10) [14] Ankur Moitra, Andrej Risteski, and Dhruv Rohatgi. Steering diffusion models with quadratic rewards: a fine-grained analysis, February 2026. arXiv:2602.16570 [cs]. (pages 2 and 6) [15] Pierre Del Moral, Arnaud Doucet, and Ajay Jasra. Sequential Monte Carlo samplers. Journal of the Royal Statistical Society: Series B (Statistical Methodology) , 68(3):411–436, 2006. (page 2) [16] Hyungjin Chung, Jeongsol Kim, Michael T. Mccann, Marc L. Klasky, and Jong Chul Ye. Diffusion Posterior Sampling for General Noisy Inverse Problems, May 2024. arXiv:2209.14687 [stat]. (pages 2, 6, 10, 11, and 35) [17] Masatoshi Uehara, Yulai Zhao, Kevin Black, Ehsan Hajiramezanali, Gabriele Scalia, Nathaniel Lee Diamant, Alex M. Tseng, Tommaso Biancalani, and Sergey Levine. Fine-Tuning of Continuous-Time Diffusion Models as Entropy-Regularized Control, February 2024. arXiv:2402.15194 [cs, stat]. (pages 2, 3, 4, and 10) [18] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas M¨ uller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, Dustin Podell, Tim Dockhorn, Zion English, Kyle Lacey, Alex Goodwin, Yannik Marek, and Robin Rombach. Scaling Rectified Flow Transformers for High-Resolution Image Synthesis, March 2024. arXiv:2403.03206 [cs]. (page 2) [19] Black Forest Labs, Stephen Batifol, Andreas Blattmann, Frederic Boesel, Saksham Consul, Cyril Diagne, Tim Dockhorn, Jack English, Zion English, Patrick Esser, Sumith Kulal, Kyle Lacey, Yam Levi, Cheng Li, Dominik Lorenz, Jonas M¨ uller, Dustin Podell, Robin Rombach, Harry Saini, Axel Sauer, and Luke Smith. FLUX.1 Kontext: Flow Matching for In-Context Image Generation and Editing in Latent Space, June 2025. arXiv:2506.15742 [cs]. (page 2) [20] Nicholas M. Boffi, Michael S. Albergo, and Eric Vanden-Eijnden. How to build a consistency model: Learning flow maps via self-distillation, May 2025. (pages 2, 3, 10, 11, 21, and 39) [21] Nicholas M. Boffi, Michael S. Albergo, and Eric Vanden-Eijnden. Flow map matching with stochastic interpolants: A mathematical framework for consistency models, June 2025. arXiv:2406.07507 [cs]. (pages 2, 3, 10, and 21) [22] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency Models, May 2023. arXiv:2303.01469 [cs, stat]. (pages 2, 4, and 10) [23] Zhengyang Geng, Mingyang Deng, Xingjian Bai, J. Zico Kolter, and Kaiming He. Mean Flows for One-step Generative Modeling, May 2025. arXiv:2505.13447 [cs]. (pages 2, 4, 10, and 21) [24] Dongjun Kim, Chieh-Hsin Lai, Wei-Hsiang Liao, Naoki Murata, Yuhta Takida, Toshimitsu Uesaka, Yutong He, Yuki Mitsufuji, and Stefano Ermon. Consistency Trajectory Models: Learning Probability Flow ODE Trajectory of Diffusion, March 2024. arXiv:2310.02279 [cs, stat]. (pages 2, 4, and 10) 17 [25] Peter Holderrieth, Uriel Singer, Tommi Jaakkola, Ricky T. Q. Chen, Yaron Lipman, and Brian Karrer. GLASS Flows: Transition Sampling for Alignment of Flow and Diffusion Models, September 2025. arXiv:2509.25170 [cs]. (page 2) [26] Masatoshi Uehara, Yulai Zhao, Tommaso Biancalani, and Sergey Levine. Understanding Reinforcement Learning-Based Fine-Tuning of Diffusion Models: A Tutorial and Review, July 2024. arXiv:2407.13734 [cs]. (pages 3 and 10) [27] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. (page 3) [28] Zhengyang Geng, Ashwini Pokle, William Luo, Justin Lin, and J. Zico Kolter. Consistency Models Made Easy, October 2024. arXiv:2406.14548 [cs]. (pages 4 and 10) [29] Liangchen Li and Jiajun He. Bidirectional Consistency Models, September 2024. arXiv:2403.18035 [cs]. (page 4) [30] Cheng Lu and Yang Song. Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models, October 2024. arXiv:2410.11081 [cs] version: 1. (page 4) [31] Zhengyang Geng, Yiyang Lu, Zongze Wu, Eli Shechtman, J. Zico Kolter, and Kaiming He. Improved Mean Flows: On the Challenges of Fastforward Generative Models, December 2025. arXiv:2512.02012 [cs]. (pages 4 and 10) [32] Kevin Frans, Danijar Hafner, Sergey Levine, and Pieter Abbeel. One Step Diffusion via Shortcut Models, October 2024. arXiv:2410.12557 [cs]. (pages 4 and 10) [33] Linqi Zhou, Mathias Parger, Ayaan Haque, and Jiaming Song. Terminal Velocity Matching, November 2025. arXiv:2511.19797 [cs]. (pages 4 and 10) [34] Carles Domingo-Enrich. A Taxonomy of Loss Functions for Stochastic Optimal Control, October 2024. arXiv:2410.00345 [cs]. (page 4) [35] Rapha¨ el Chetrite and Hugo Touchette. Variational and optimal control representations of conditioned and driven processes. Journal of Statistical Mechanics: Theory and Experiment , 2015(12):P12001, December 2015. (page 4) [36] Wendell Fleming and Raymond Rishel. Deterministic and Stochastic Optimal Control . Springer, New York, NY, 1975. (pages 4, 24, and 25) [37] Martino Bardi and Italo Capuzzo-Dolcetta. Optimal Control and Viscosity Solutions of Hamilton-Jacobi-Bellman Equations . Birkh¨ auser, Boston, MA, 1997. (pages 5 and 31) [38] Jeongsol Kim, Bryan Sangwoo Kim, and Jong Chul Ye. FlowDPS: Flow-Driven Posterior Sampling for Inverse Problems, March 2025. arXiv:2503.08136 [cs]. (pages 6, 8, 10, 11, and 36) [39] Maitreya Patel, Song Wen, Dimitris N. Metaxas, and Yezhou Yang. FlowChef: Steering Rectified Flow Models for Controlled Generation. 2025. (pages 6, 8, 10, 11, and 37) [40] Yutong He, Naoki Murata, Chieh-Hsin Lai, Yuhta Takida, Toshimitsu Uesaka, Dongjun Kim, Wei-Hsiang Liao, Yuki Mitsufuji, J. Zico Kolter, Ruslan Salakhutdinov, and Stefano Ermon. Manifold Preserving Guided Diffusion, November 2023. arXiv:2311.16424 [cs]. (pages 6, 8, 10, 12, 38, and 41) [41] Luca Eyring, Shyamgopal Karthik, Karsten Roth, Alexey Dosovitskiy, and Zeynep Akata. ReNO: Enhancing One-step Text-to-Image Models through Reward-based Noise Optimization, October 2024. arXiv:2406.04312 [cs]. (pages 6, 8, 10, 13, 39, 42, and 44) 18 [42] Heli Ben-Hamu, Omri Puny, Itai Gat, Brian Karrer, Uriel Singer, and Yaron Lipman. D-Flow: Differen-tiating through Flows for Controlled Generation, July 2024. arXiv:2402.14017 [cs]. (pages 6, 10, and 39) [43] Gilbert Strang. On the construction and comparison of difference schemes. SIAM Journal on Numerical Analysis , 5(3):506–517, 1968. (page 8) [44] Litu Rout, Yujia Chen, Nataniel Ruiz, Abhishek Kumar, Constantine Caramanis, Sanjay Shakkottai, and Wen-Sheng Chu. RB-Modulation: Training-Free Personalization of Diffusion Models using Stochastic Optimal Control, May 2024. arXiv:2405.17401 [cs]. (pages 8 and 10) [45] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, September 2022. arXiv:2209.03003 [cs]. (page 10) [46] Jonathan Heek, Emiel Hoogeboom, and Tim Salimans. Multistep Consistency Models, November 2024. arXiv:2403.06807 [cs]. (page 10) [47] Amirmojtaba Sabour, Sanja Fidler, and Karsten Kreis. Align Your Flow: Scaling Continuous-Time Flow Map Distillation, June 2025. arXiv:2506.14603 [cs]. (pages 10 and 21) [48] Yinuo Ren, Wenhao Gao, Lexing Ying, Grant M. Rotskoff, and Jiequn Han. DriftLite: Lightweight Drift Control for Inference-Time Scaling of Diffusion Models, September 2025. arXiv:2509.21655 [cs]. (page 10) [49] Peter Holderrieth, Douglas Chen, Luca Eyring, Ishin Shah, Giri Anantharaman, Yutong He, Zeynep Akata, Tommi Jaakkola, Nicholas Matthew Boffi, and Max Simchowitz. Diamond maps: Efficient reward alignment via stochastic flow maps, February 2026. arXiv:2602.05993 [cs]. (page 10) [50] Peter Potaptchik, Adhi Saravanan, Abbas Mammadov, Alvaro Prat, Michael S. Albergo, and Yee Whye Teh. Meta flow maps enable scalable reward alignment, January 2026. arXiv:2601.14430 [cs]. (page 10) [51] Kevin Black, Michael Janner, Yilun Du, Ilya Kos s, and Sergey Levine. Training Diffusion Models with Reinforcement Learning, January 2024. arXiv:2305.13301 [cs]. (page 10) [52] Ying Fan, Olivia Watkins, Yuqing Du, Hao Liu, Moonkyung Ryu, Craig Boutilier, Pieter Abbeel, Mohammad Ghavamzadeh, Kangwook Lee, and Kimin Lee. DPOK: Reinforcement Learning for Fine-tuning Text-to-Image Diffusion Models, November 2023. arXiv:2305.16381 [cs]. (page 10) [53] Black Forest Labs. FLUX.1 [dev]: A 12 billion parameter rectified flow transformer, 2024. Model available on Hugging Face. (pages 11, 13, and 39) [54] Jiazheng Xu, Xiao Liu, Yuchen Wu, Yuxuan Tong, Qinkai Li, Ming Ding, Jie Tang, and Yuxiao Dong. ImageReward: Learning and Evaluating Human Preferences for Text-to-Image Generation, December 2023. arXiv:2304.05977 [cs]. (page 13) [55] Xiaoshi Wu, Yiming Hao, Keqiang Sun, Yixiong Chen, Feng Zhu, Rui Zhao, and Hongsheng Li. Human Preference Score v2: A Complementary Metric for Evaluating Human Preferences in Vision-Language Tasks, 2023. arXiv:2306.09341. (page 13) [56] Yuval Kirstain, Adam Polyak, Uriel Singer, Shahbuland Matiana, Joe Penna, and Omer Levy. Pick-a-Pic: An Open Dataset of User Preferences for Text-to-Image Generation. In Advances in Neural Information Processing Systems , 2023. (page 13) [57] Dhruba Ghosh, Hannaneh Hajishirzi, and Luke Zettlemoyer. GenEval: An Object-Focused Framework for Evaluating Text-to-Image Alignment, 2023. arXiv:2310.11513. (pages 13 and 42) 19 [58] Xiaokun Wang, Peiyu Wang, Jiangbo Pei, Wei Shen, Yi Peng, Yunzhuo Hao, Weijie Qiu, Ai Jian, Tianyidan Xie, Xuchen Song, Yang Liu, and Yahui Zhou. Skywork-VL reward: An effective reward model for multimodal understanding and reasoning. arXiv preprint arXiv:2505.07263 , 2025. (pages 13 and 45) [59] J. L. Doob. Conditional Brownian motion and the boundary limits of harmonic functions. Bulletin de la Soci´ et´ e Math´ ematique de France , 85:431–458, 1957. (page 22) [60] Yunjey Choi, Youngjung Uh, Jaejun Yoo, and Jung-Woo Ha. Stargan v2: Diverse image synthesis for multiple domains. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 8188–8197, 2020. (page 40) [61] Tero Karras, Samuli Laine, and Timo Aila. A style-based generator architecture for generative adversarial networks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 4401–4410, 2019. (page 40) 20 A Background on flow maps 
+
+In this section, we provide some brief further background on flow maps. For complete details, we refer the reader to [ 20 , 21 ]. Given a probability flow ˙xt = bt(xt), the flow map X : [0 , 1] 2 × Rd → Rd is the solution operator satisfying Xs,t (xs) = xt, i.e., Xs,t maps the state at time s to the state at time t along the flow. Equivalently, we may write 
+
+Xs,t (x) = x +
+
+Z ts
+
+bτ (Xs,τ (x)) dτ. (20) The flow map enjoys several fundamental properties: 
+
+Proposition A.1. The flow map satisfies the following: 1. The Semigroup property: for all (s, u, t ) ∈ [0 , 1] 3 and for all x ∈ Rd,
+
+Xs,t (x) = Xu,t (Xs,u (x)) . (21) 
+
+2. The Lagrangian equation: for all (s, t ) ∈ [0 , 1] 2 and for all x ∈ Rd,
+
+∂tXs,t (x) = bt(Xs,t (x)) . (22) 
+
+3. The Eulerian equation: for all (s, t ) ∈ [0 , 1] 2 and for all x ∈ Rd,
+
+∂sXs,t (x) + ∇Xs,t (x) bs(x) = 0 . (23) Following recent work on accelerated sampling [20, 23, 47], we parameterize the flow map as 
+
+Xs,t (x) = x + ( t − s)vs,t (x), (24) where v : [0 , 1] 2 × Rd → Rd is a learned velocity function. On the diagonal s = t, the Lagrangian equation implies 
+
+vt,t (x) = bt(x), (25) i.e., the parameterized velocity recovers the probability flow drift. Equation (25) is known as the tangent condition , and enables us to compare to baselines that are based on a pre-trained flow with a single model. Below, we collect a simple property of the flow map that we will use in later proofs. 
+
+Proposition A.2 (Jacobian evolution) . The Jacobian ∇Xs,t (x) satisfies the variational equation 
+
+ddt ∇Xs,t (x) = ∇bt(Xs,t (x)) ∇Xs,t (x), ∇Xs,s (x) = I. (26) 
+
+Consequently, the transpose ∇Xs,t (x)T satisfies the adjoint equation 
+
+ddt ∇Xs,t (x)T = ∇Xs,t (x)T ∇bt(Xs,t (x)) T, ∇Xs,s (x)T = I. (27) 
+
+Proof. Differentiating the Lagrangian equation (26) with respect to x and permuting derivatives: 
+
+ddt ∇Xs,t (x) = ∇x
+
+bt(Xs,t (x))  = ∇bt(Xs,t (x)) ∇Xs,t (x), (28) where we applied the chain rule. The initial condition ∇Xs,s (x) = I follows from Xs,s (x) = x. The adjoint equation is obtained by transposing and using ( AB )T = BTAT.21 B Background on reward tilting and stochastic optimal control 
+
+We establish the connection between stochastic optimal control (SOC) and the reward-tilted distribution, following the viewpoint of Domingo-Enrich et al. [11] . Let ( Xt)t∈[0 ,1] denote a base generative diffusion (the pre-trained sampler) with dynamics 
+
+dX t = bSDE  
+
+> t
+
+(Xt) dt + ηt dW t, X0 ∼ ρ0, (29) where ηt is a (scalar) diffusion schedule and the SDE drift is related to the probability flow ODE drift bt by 
+
+bSDE  
+
+> t
+
+(x) = bt(x) + η2
+
+> t
+
+2 ∇ log ρt(x), (30) with ∇ log ρt the score of the marginal density at time t. We study the inverse temperature-λ SOC problem min  
+
+> u
+
+E
+
+Z 10
+
+12λ ∥ut(Xut )∥2 dt − r(Xu 
+
+> 1
+
+)
+
+
+
+,
+
+s.t. dX ut =  bSDE  
+
+> t
+
+(Xut ) + ηtut(Xut ) dt + ηt dW t,
+
+(31) where r : Rd → R⩾0 is the terminal reward and u : [0 , 1] × Rd → Rd is the control in Brownian coordinates. 
+
+Doob h-transform. Define the Doob h-function, h : [0 , 1] × Rd → Rd,
+
+ht(x) := Eexp( λr (X1)) Xt = x, (32) where the expectation is taken under the base diffusion (29) (i.e., u ≡ 0). Let 
+
+Vt(x) := − log ht(x). (33) Then the optimally-controlled drift is given by the Doob h-transform [59]: 
+
+b⋆t (x) = bSDE  
+
+> t
+
+(x) + η2 
+
+> t
+
+∇x log ht(x) = bSDE  
+
+> t
+
+(x) − η2 
+
+> t
+
+∇xVt(x), (34) which can be naturally understood as adding to the base process a gradient flow term on the expected cost-to-go. Equivalently, the optimal feedback is 
+
+u∗ 
+
+> t
+
+(x) = ηt∇x log ht(x) = −ηt∇xVt(x). (35) 
+
+Memoryless schedule. Adjoint Matching defines the memoryless condition to mean that the endpoint is independent of the initial condition, X0 ⊥ X1, under the base process (29) [11 ]. For stochastic interpolants with coefficients ( αt, β t), the memoryless diffusion schedule is typically written in terms of the coefficient 
+
+η2
+
+> t
+
+2 = α2 
+
+> t
+
+˙βt
+
+βt
+
+− ˙αtαt, (36) which for the linear interpolant αt = 1 − t and βt = t reduces to η2 
+
+> t
+
+/2 = (1 − t)/t . This choice ensures that the two-time marginals ( Xt, X t′ ) of the base process match those of the interpolant, which by construction implies the memoryless condition. Under the memoryless condition, marginalizing the path measure of the optimally-controlled process implies that the optimal terminal marginal is the reward tilt: 
+
+ρtilt (x) ∝ eλr (x) ρ1(x). (37) This provides the target distribution for tilt guidance, whose drift correction (3) is the gradient of the SOC value function. 22 C Omitted proofs 
+
+In this section, we develop some rigorous approximation theory for the optimal control problem (4). 
+
+## C.1 Setup and regularity assumptions 
+
+We work with the value function associated with the optimal control problem (4): 
+
+V λt (x) := inf 
+
+> u∈L2([ t, 1]; Rd)
+
+Z 1
+
+> t
+
+12λ ∥uτ ∥2 dτ − r(xu 
+
+> 1
+
+)
+
+
+
+, (38) where xu solves the controlled dynamics ˙xτ = bτ (xτ ) + uτ starting from xt = x. Throughout, ∥ · ∥ denotes the Euclidean norm and ∥ · ∥ op the operator norm. We make the following standard regularity assumptions. 
+
+Assumption C.1 (Regularity) . Fix a domain Ω ⊆ Rd containing all relevant trajectories. There exist constants M, K, G, L r > 0 such that for all s ∈ [0 , 1] and z, z ′ ∈ Ω: (i) ∥∇ bs(z)∥op ⩽ M and ∥∇ bs(z) − ∇ bs(z′)∥op ⩽ K∥z − z′∥,(ii) ∥∇ r(z)∥ ⩽ G and ∥∇ r(z) − ∇ r(z′)∥ ⩽ Lr ∥z − z′∥.Under Assumption C.1, we have the following standard flow map Jacobian bounds. 
+
+Lemma C.2 (Jacobian bound) . For t ⩾ s, the flow map Jacobian satisfies 
+
+∥∇ Xs,t (x)∥op ⩽ eM (t−s). (39) 
+
+Proof. By Proposition A.2, the flow map Jacobian satisfies the variational equation (26). Since ddt ∥A(t)∥op ⩽
+
+∥ ˙A(t)∥op for any differentiable matrix-valued function A(t), we have 
+
+ddt ∥∇ Xs,t ∥op ⩽ ddt ∇Xs,t 
+
+> op
+
+= ∥∇ bt(Xs,t )∇Xs,t ∥op ⩽ M ∥∇ Xs,t ∥op . (40) Gr¨ onwall’s inequality with initial condition ∥∇ Xs,s ∥op = 1 yields the result. 
+
+Lemma C.3 (Hessian bound) . For t ⩾ s, the flow map Hessian satisfies 
+
+∥∇ 2Xs,t (x)∥ ⩽ KM
+
+ e2M (t−s) − eM (t−s). (41) 
+
+Proof. Differentiating the variational equation (26) with respect to x:
+
+ddt ∇2Xs,t (x) = ∇2bt(Xs,t (x)) ∇Xs,t (x), ∇Xs,t (x) + ∇bt(Xs,t (x)) ∇2Xs,t (x). (42) By the same reasoning as in Lemma C.2, taking norms, using ∥∇ 2bt∥op ⩽ K from Assumption C.1, and applying the result of Lemma C.2: 
+
+ddt ∥∇ 2Xs,t ∥ ⩽ K∥∇ Xs,t ∥2op + M ∥∇ 2Xs,t ∥ ⩽ Ke 2M (t−s) + M ∥∇ 2Xs,t ∥. (43) Applying Gronwall’s inequality with initial condition ∇2Xs,s = 0: 
+
+∥∇ 2Xs,t ∥ ⩽
+
+Z ts
+
+Ke 2M (τ −s)eM (t−τ ) dτ 
+
+= Ke M (t−s)
+
+Z ts
+
+eM (τ −s) dτ 
+
+= KM
+
+ e2M (t−s) − eM (t−s).
+
+(44) 23 This completes the proof. These simple results will be used later to understand the error in our greedy approximation. 
+
+## C.2 Proof of Proposition 2.1 
+
+Proposition 2.1. Let u∗ 
+
+> t
+
+be an optimal solution of (4), and let x∗ 
+
+> t
+
+denote its trajectory. Then, along x∗ 
+
+> t
+
+,
+
+u∗ 
+
+> t
+
+= λ∇Xu∗ 
+
+> t, 1
+
+(x∗ 
+
+> t
+
+)T∇r
+
+
+
+Xu∗ 
+
+> t, 1
+
+(x∗ 
+
+> t
+
+)
+
+
+
+, (5) 
+
+where Xu∗ 
+
+> s,t
+
+is the flow map for the optimally controlled dynamics ˙xu∗ 
+
+> t
+
+= bt(xu∗ 
+
+> t
+
+) + u∗ 
+
+> t
+
+.Proof. The Lagrangian for the optimal control problem (4) is given by 
+
+L(x, u, p ) = 
+
+Z 10
+
+ ∥ut∥2
+
+2λ(t) + pT 
+
+> t
+
+(bt(xt) + ut − ˙xt)
+
+
+
+dt − r(xu 
+
+> 1
+
+), (45) where p : [0 , 1] → Rd denotes the adjoint variable, or the Lagrange multiplier enforcing the controlled dynamics constraint ˙xut = bt(xut ) + ut(xut ). Taking the first variation with respect to the curves xt, u t, and pt gives the optimality conditions of the Pontryagin Maximum Principle [36], 
+
+δδx : ˙p∗ 
+
+> t
+
+= −∇ bt(x∗ 
+
+> t
+
+)Tp∗ 
+
+> t
+
+, p∗ 
+
+> 1
+
+= −∇ r(x∗
+
+> 1
+
+),δδp : ˙x∗ 
+
+> t
+
+= bt(x∗ 
+
+> t
+
+) + u∗ 
+
+> t
+
+(x∗ 
+
+> t
+
+), x∗ 
+
+> 0
+
+= x0,δδu : u∗ 
+
+> t
+
+= −λ(t)p∗ 
+
+> t
+
+.
+
+(46) The second relation simply enforces the controlled dynamics constraint. The third relation demonstrates a simple scaling relationship between the optimal guidance u∗ 
+
+> t
+
+and the adjoint p∗ 
+
+> t
+
+, reducing the problem to solving for p∗ 
+
+> t
+
+.The adjoint equation ˙pt = −∇ bt(xt)Tpt is a linear ordinary differential equation whose solution we now derive analytically. By the semigroup property (21), for any s < t < 1: 
+
+Xus, 1(xus ) = Xut, 1(Xus,t (xus )) . (47) Taking the Jacobian with respect to xus via the chain rule: 
+
+∇Xus, 1(xus ) = ∇Xut, 1(xut )∇Xus,t (xus ), (48) where xut = Xus,t (xus ). The left-hand side is independent of the intermediate time t, so differentiating both sides with respect to t gives 0 = ddt 
+
+∇Xut, 1(xut ) ∇Xus,t (xus ) + ∇Xut, 1(xut ) ddt 
+
+∇Xus,t (xus ) . (49) By the Jacobian evolution equation (26), the forward Jacobian satisfies ddt [∇Xus,t (xus )] = ∇bt(xut )∇Xus,t (xus ). Here, only the state-dependent part of the dynamics contributes because we treat the (open-loop controller) 
+
+u as independent of x throughout the functional optimization. Substituting and using the invertibility of 
+
+∇Xus,t (which follows because Xs,t is a diffeomorphism): 
+
+ddt 
+
+∇Xut, 1(xut ) = −∇ Xut, 1(xut )∇bt(xut ). (50) 24 Taking the transpose of both sides: 
+
+ddt 
+
+∇Xut, 1(xut )T = −∇ bt(xut )T∇Xut, 1(xut )T. (51) This shows that ∇Xut, 1(xut )T exactly satisfies the adjoint equation, with terminal condition ∇Xu 
+
+> 1,1
+
+= I.Therefore, the solution to the adjoint equation with terminal condition p1 = −∇ r(xu 
+
+> 1
+
+) is 
+
+pt = ∇Xut, 1(xut )Tp1 = −∇ Xut, 1(xut )T∇r(xu 
+
+> 1
+
+). (52) Substituting into the optimality condition u∗ 
+
+> t
+
+= −λ(t)p∗ 
+
+> t
+
+yields the optimal control 
+
+u∗ 
+
+> t
+
+= λ(t)∇Xut, 1(xut )T∇r(xu 
+
+> 1
+
+). (53) This completes the proof. 
+
+## C.3 HJB characterization and small-λ expansion 
+
+By Bellman’s principle of optimality, the value function (38) satisfies the Hamilton–Jacobi–Bellman equa-tion [36] 
+
+∂tV λt (x) + bt(x) · ∇ V λt (x) − λ
+
+2 ∥∇ V λt (x)∥2 = 0 , V λ 
+
+> 1
+
+(x) = −r(x), (54) with optimal feedback u∗ 
+
+> t
+
+(x) = −λ ∇V λt (x). The following result, stated informally as Proposition 2.2 in the main text, shows that greedy guidance corresponds to the λ = 0 limit and is accurate to O(λ2). 
+
+Proposition C.4. Under Assumption C.1, suppose that V λt admits an expansion uniformly for all x ∈ Rd
+
+V λt (x) = V 0 
+
+> t
+
+(x) + λV 1 
+
+> t
+
+(x) + O(λ2). (55) 
+
+Then we have that: (i) The λ = 0 solution is V 0 
+
+> t
+
+(x) = −r(Xt, 1(x)) , and the greedy guidance (8) is uJt (x) = −λ∇V 0 
+
+> t
+
+(x).(ii) The optimal feedback satisfies 
+
+∥u∗ 
+
+> t
+
+(x) − uJt (x)∥ ⩽ C1 λ2 + O(λ3), ∀x ∈ Rd (56) 
+
+for a constant C1 depending on Ω, M , K, G, and Lr .Proof. Setting λ = 0 in (54) yields the transport equation 
+
+∂tV 0 
+
+> t
+
+(x) + bt(x) · ∇ V 0 
+
+> t
+
+(x) = 0 , V 01 (x) = −r(x). (57) We solve this transport equation via the method of characteristics. For any initial point x, consider the characteristic curve γ(τ ) := Xt,τ (x) for τ ∈ [t, 1]. By the chain rule, 
+
+ddτ V 0 
+
+> τ
+
+(γ(τ )) = ∂τ V 0 
+
+> τ
+
+(γ(τ )) + ˙ γ(τ ) · ∇ V 0 
+
+> τ
+
+(γ(τ )) = ∂τ V 0 
+
+> τ
+
+(γ(τ )) + bτ (γ(τ )) · ∇ V 0 
+
+> τ
+
+(γ(τ )) = 0 ,
+
+(58) where the last equality uses (57). Thus V 0 
+
+> τ
+
+(γ(τ )) is constant along characteristics. Setting γ(t) = x and using that V 01 (x) = −r(x) for all x ∈ Rd we have 
+
+V 0 
+
+> t
+
+(x) = V 0 
+
+> t
+
+(γ(t)) = V 01 (γ(1)) = V 01 (Xt, 1(x)) = −r(Xt, 1(x)) . (59) 25 Differentiating via the chain rule gives the gradient: 
+
+∇V 0 
+
+> t
+
+(x) = −∇ Xt, 1(x)⊤ ∇r(Xt, 1(x)) . (60) Thus uJt (x) := −λ∇V 0 
+
+> t
+
+(x) = λ∇Xt, 1(x)⊤∇r(Xt, 1(x)), which is exactly the greedy guidance (8). For part (ii), insert V λt (x) = V 0 
+
+> t
+
+(x) + λV 1 
+
+> t
+
+(x) + O(λ2) into (54). Since ∇V λt (x) = ∇V 0 
+
+> t
+
+(x) + λ∇V 1 
+
+> t
+
+(x) + O(λ2), we have ∥∇ V λt (x)∥2 = ∥∇ V 0 
+
+> t
+
+(x)∥2 + O(λ). Substituting: 0 = ∂tV λt (x) + bt(x) · ∇ V λt (x) − λ
+
+2 ∥∇ V λt (x)∥2
+
+=  ∂tV 0 
+
+> t
+
+(x) + λ∂ tV 1 
+
+> t
+
+(x) + bt(x) ·  ∇V 0 
+
+> t
+
+(x) + λ∇V 1 
+
+> t
+
+(x) − λ
+
+2
+
+ ∥∇ V 0 
+
+> t
+
+(x)∥2 + O(λ) + O(λ2)=  ∂tV 0 
+
+> t
+
+(x) + bt(x) · ∇ V 0 
+
+> t
+
+(x)| {z }
+
+> O(1)
+
++λ  ∂tV 1 
+
+> t
+
+(x) + bt(x) · ∇ V 1 
+
+> t
+
+(x) − 12 ∥∇ V 0 
+
+> t
+
+(x)∥2| {z }
+
+> O(λ)
+
++O(λ2).
+
+(61) Matching orders, the O(1) term recovers (57), while the O(λ) term shows that V 1 
+
+> t
+
+solves 
+
+∂tV 1 
+
+> t
+
+(x) + bt(x) · ∇ V 1 
+
+> t
+
+(x) = 12 ∥∇ V 0 
+
+> t
+
+(x)∥2, V 11 (x) = 0 , ∀x ∈ Rd. (62) The boundary condition on V 1 
+
+> t
+
+(x) follows by observing that V 01 (x) = −r(x) already satisfies the boundary condition for V λt (x). This is an inhomogeneous transport equation, which we solve via Duhamel’s principle. As before, consider the characteristic γ(τ ) := Xt,τ (x) for τ ∈ [t, 1]. By the chain rule, 
+
+ddτ V 1 
+
+> τ
+
+(γ(τ )) = ∂τ V 1 
+
+> τ
+
+(γ(τ )) + ˙ γ(τ ) · ∇ V 1 
+
+> τ
+
+(γ(τ )) = ∂τ V 1 
+
+> τ
+
+(γ(τ )) + bτ (γ(τ )) · ∇ V 1 
+
+> τ
+
+(γ(τ )) = 12 ∥∇ V 0 
+
+> τ
+
+(γ(τ )) ∥2,
+
+(63) where the last equality uses (62). Unlike the homogeneous case, V 1 
+
+> τ
+
+(γ(τ )) is not constant but accumulates the source term. Integrating from t to 1 and using γ(t) = x, γ(τ ) = Xt,τ (x), and V 11 = 0: 
+
+V 11 (Xt, 1(x)) − V 1 
+
+> t
+
+(x) = 
+
+Z 1
+
+> t
+
+12 ∥∇ V 0 
+
+> τ
+
+(Xt,τ (x)) ∥2 dτ 
+
+=⇒ V 1 
+
+> t
+
+(x) = − 12
+
+Z 1
+
+> t
+
+∥∇ V 0 
+
+> τ
+
+(Xt,τ (x)) ∥2 dτ. 
+
+(64) To derive (56), we use u∗ 
+
+> t
+
+(x) = −λ∇V λt (x) and differentiate the expansion: 
+
+u∗ 
+
+> t
+
+(x) = −λ∇V λt (x)= −λ∇ V 0 
+
+> t
+
+(x) + λV 1 
+
+> t
+
+(x) + O(λ2)
+
+= −λ∇V 0 
+
+> t
+
+(x) − λ2∇V 1 
+
+> t
+
+(x) + O(λ3)= uJt (x) − λ2∇V 1 
+
+> t
+
+(x) + O(λ3).
+
+(65) Thus ∥u∗ 
+
+> t
+
+(x) − uJt (x)∥ = λ2∥∇ V 1 
+
+> t
+
+(x)∥ + O(λ3). It remains to show that ∥∇ V 1 
+
+> t
+
+(x)∥ is uniformly bounded. From (60), we have ∇V 0 
+
+> τ
+
+(y) = −∇ Xτ, 1(y)⊤∇r(Xτ, 1(y)), so by Lemma C.2: 
+
+∥∇ V 0 
+
+> τ
+
+(y)∥ ⩽ ∥∇ Xτ, 1(y)∥op ∥∇ r(Xτ, 1(y)) ∥ ⩽ eM (1 −τ )G. (66) Differentiating the integral representation (64) with respect to x via the chain rule: 
+
+∇V 1 
+
+> t
+
+(x) = − 12
+
+Z 1
+
+> t
+
+∇x∥∇ V 0 
+
+> τ
+
+(Xt,τ (x)) ∥2 dτ 
+
+= −
+
+Z 1
+
+> t
+
+∇Xt,τ (x)⊤∇2V 0 
+
+> τ
+
+(Xt,τ (x)) ∇V 0 
+
+> τ
+
+(Xt,τ (x)) dτ. 
+
+(67) 26 Taking norms and using Lemma C.2: 
+
+∥∇ V 1 
+
+> t
+
+(x)∥ ⩽
+
+Z 1
+
+> t
+
+∥∇ Xt,τ (x)∥op ∥∇ 2V 0 
+
+> τ
+
+(Xt,τ (x)) ∥op ∥∇ V 0 
+
+> τ
+
+(Xt,τ (x)) ∥ dτ 
+
+⩽
+
+Z 1
+
+> t
+
+eM (τ −t) · Hτ · eM (1 −τ )G dτ, 
+
+(68) It remains to bound Hτ := sup y∈Ω ∥∇ 2V 0 
+
+> τ
+
+(y)∥op . Differentiating (60) via the product rule: 
+
+∇2V 0 
+
+> τ
+
+(y) = −∇ 2Xτ, 1(y) ∇r(Xτ, 1(y)) − ∇ Xτ, 1(y)⊤∇2r(Xτ, 1(y)) ∇Xτ, 1(y). (69) For the second term, using Lemma C.2 and ∥∇ 2r∥op ⩽ Lr from Assumption C.1: 
+
+∥∇ X⊤
+
+> τ, 1
+
+∇2r ∇Xτ, 1∥op ⩽ ∥∇ Xτ, 1∥2op Lr ⩽ e2M (1 −τ )Lr . (70) For the first term, by Lemma C.3: 
+
+∥∇ 2Xτ, 1 ∇r∥op ⩽ ∥∇ 2Xτ, 1∥ · G ⩽ KG M
+
+ e2M (1 −τ ) − eM (1 −τ ). (71) Combining both terms: 
+
+Hτ ⩽ KG M
+
+ e2M (1 −τ ) − eM (1 −τ ) + Lr e2M (1 −τ ). (72) Substituting back and integrating yields ∥∇ V 1 
+
+> t
+
+(x)∥ ⩽ C′ 
+
+> 1
+
+for a constant C′ 
+
+> 1
+
+depending on M , K, G, and Lr .Therefore: 
+
+∥u∗ 
+
+> t
+
+(x) − uJt (x)∥ = λ2∥∇ V 1 
+
+> t
+
+(x)∥ + O(λ3) ⩽ C′
+
+> 1
+
+λ2 + O(λ3), (73) which gives (56) with C1 = C′
+
+> 1
+
+.
+
+## C.4 Proof of Proposition 2.3 
+
+Before giving the proof, we record an identity relating the controlled and uncontrolled flow maps that we will use to compute first-order perturbations. 
+
+Lemma C.5 (Eulerian perturbation of the flow map) . Let Xs,t denote the flow map for the uncontrolled dynamics ˙xτ = bτ (xτ ), and let Xus,t denote the flow map for the controlled dynamics ˙xuτ = bτ (xuτ ) + uτ (xuτ ).Then for every x ∈ Rd and every (s, t ) ∈ [0 , 1] 2,
+
+Xus,t (x) = Xs,t (x) + 
+
+Z ts
+
+∇Xτ,t (xuτ ) uτ (xuτ ) dτ, (74) 
+
+where xuτ = Xus,τ (x) denotes the controlled trajectory initialized from x at time s.Proof. Define Fs := Xs,t (xus ), the uncontrolled flow map evaluated at the controlled trajectory, and view it as a function of the initial time s. Differentiating and using the Eulerian equation ∂sXs,t (x) + ∇Xs,t (x) bs(x) = 0 from (23), together with the controlled dynamics ˙ xus = bs(xus ) + us(xus ), yields ˙Fs = ∂sXs,t (xus ) + ∇Xs,t (xus ) ˙ xus = ∇Xs,t (xus ) us(xus ). (75) Integrating from s to t and using Ft = xut = Xus,t (x) gives (74). 
+
+Proposition 2.3. Consider the restricted problem 
+
+min 
+
+> u∈U δt t
+
+L(u) = min 
+
+> u∈U δt t
+
+Z 10
+
+∥uτ ∥2
+
+2λ dτ − r(xu 
+
+> 1
+
+). (11) 
+
+Then, the optimal guidance signal is given by (8) as δt → 0.
+
+27 Proof. By definition, u ∈ U δt t is non-zero only on the window [ t, t + δt ]. The control cost on this class is 
+
+Z 10
+
+∥uτ ∥2
+
+2λτ
+
+dτ =
+
+Z t+δt t
+
+∥uτ ∥2
+
+2λτ
+
+dτ = ∥ut∥2
+
+2λt
+
+δt + o(δt ). (76) To relate the terminal reward r(xu 
+
+> 1
+
+) to the control u, we compute the first-order expansion of the terminal point xu 
+
+> 1
+
+in δt . Applying Lemma C.5 with ( s, t ) → (t, 1) and using that u vanishes outside [ t, t + δt ], 
+
+Xut, 1(xt) = Xt, 1(xt) + 
+
+Z t+δt t
+
+∇Xτ, 1(xuτ ) uτ (xuτ ) dτ. (77) The integrand is continuous in τ and equals ∇Xt, 1(xt) ut at τ = t, since the controlled trajectory satisfies 
+
+xut = xt at the initial time. A left Riemann sum approximation on the window of length δt therefore gives 
+
+Xut, 1(xt) = Xt, 1(xt) + ∇Xt, 1(xt) ut δt + o(δt ). (78) Using (78) to Taylor expand the reward, 
+
+r(xu 
+
+> 1
+
+) = r(Xt, 1(xt)) + ∇r(Xt, 1(xt)) T∇Xt, 1(xt) ut δt + o(δt ). (79) Substituting into the objective (11) and retaining leading-order terms in δt ,min 
+
+> ut
+
+∥ut∥2
+
+2λt
+
+− ∇ r(Xt, 1(xt)) T∇Xt, 1(xt) ut. (80) This is a convex quadratic in ut, and setting its gradient to zero gives the optimal control 
+
+u∗ 
+
+> t
+
+= λt ∇Xt, 1(xt)T∇r(Xt, 1(xt)) , (81) which completes the proof. 
+
+## C.5 Gaussian case 
+
+Consider a setting in which the base distribution is a standard Gaussian ρ0 = N(0 , 1), the target is 
+
+ρ1 = N(μ1, σ 21 ), and the reward is quadratic: r(x) = −(x − a)2 for some target location a. This setting admits closed-form solutions for both the reward tilt and the optimal control problem (5). The analysis below also extends to the multivariate case with dense covariance matrices, but we present the scalar setting where the equations are simpler and more illuminating. 
+
+C.5.1 Reward-tilted distribution 
+
+We begin by specializing the reward tilt ρtilt ∝ eλr (x)ρ1(x) (see Appendix B) to the Gaussian target with quadratic reward. 
+
+Proposition C.6 (Reward-tilted distribution) . The reward-tilted distribution ρtilt (x) ∝ eλr (x)ρ1(x) is Gaussian, ρtilt = N (μtilt , σ 2tilt ), with 
+
+σ2tilt = σ21
+
+1 + 2 λσ 21
+
+, μtilt = μ1 + 2 λσ 21 a
+
+1 + 2 λσ 21
+
+. (82) 
+
+Proof. The proof is elementary, and proceeds by completing the square. The log-density is log ρtilt (x) = −λ(x − a)2 − (x − μ1)2
+
+2σ21
+
++ const . (83) 28 Expanding and collecting terms in x:log ρtilt (x) = −
+
+
+
+λ + 12σ21
+
+
+
+x2 + 2 
+
+
+
+λa + μ1
+
+2σ21
+
+
+
+x + const (84) = − 1 + 2 λσ 21
+
+2σ21
+
+
+
+x − 2λaσ 21 + μ1
+
+1 + 2 λσ 21
+
+2
+
++ const . (85) Reading off the Gaussian parameters gives (82). Notably, reward tilting reduces variance (since 1 + 2 λσ 21 > 1) and shifts the mean toward the reward maximum 
+
+a.
+
+C.5.2 Greedy guidance 
+
+As a prerequisite to analyzing greedy guidance, we first derive a closed-form expression for the flow map in the Gaussian setting. 
+
+Lemma C.7 (Flow map for Gaussian targets) . For the linear interpolant It = (1 −t)x0 +tx 1 with x0 ∼ N(0 , 1) 
+
+and x1 ∼ N(μ1, σ 21 ), the flow map is 
+
+Xt, 1(x) = μ1 + Mt(x − tμ 1), Mt := σ1
+
+√Ct
+
+, (86) 
+
+where Ct := (1 − t)2 + t2σ21 . The Jacobian is ∇Xt, 1(x) = Mt, which is state-independent. Proof. The probability flow velocity is given by [2], 
+
+bt(x) = μ1 + ˙Ct
+
+2Ct
+
+(x − tμ 1), (87) ˙Ct = −2(1 − t) + 2 tσ 21 . (88) To find the flow map, we solve ˙xτ = bτ (xτ ) from time t to time 1. Substituting yτ := xτ − τ μ 1 gives the linear ODE ˙ yτ = ˙Cτ 
+
+> 2Cτ
+
+yτ , with solution 
+
+yτ = yt exp 
+
+Z τt
+
+˙Cs
+
+2Cs
+
+ds 
+
+!
+
+= yt exp 
+
+ 12 log Cτ
+
+Ct
+
+
+
+= yt
+
+r Cτ
+
+Ct
+
+. (89) Transforming back to xτ and evaluating at τ = 1 with C1 = σ21 gives (86). Using the flow map, we can now derive the greedy guidance in closed form. 
+
+Proposition C.8 (Gaussian greedy guidance) . The greedy guidance (8) with constant λ is 
+
+ut(x) = −2λM 2 
+
+> t
+
+(x − xM 
+
+> t
+
+), xM 
+
+> t
+
+:= tμ 1 + a − μ1
+
+Mt
+
+. (90) 
+
+Proof. Applying (8) with the flow map from Lemma C.7: 
+
+ut(x) = λM t∇r(Xt, 1(x)) = −2λM t
+
+ Xt, 1(x) − a. (91) Substituting (86) and simplifying gives the result. Since the greedy control is linear in x and the initial distribution is Gaussian, the terminal distribution under guidance is also Gaussian. The following result, summarized as part of Proposition 2.6 in the main text, gives the mean and variance analytically. 29 Proposition C.9 (Terminal distribution under the greedy guidance) . Under the greedy guidance (90), the terminal distribution is N(μgreedy , σ 2greedy ) with the closed-form expressions 
+
+μgreedy = a + ( μ1 − a) e−πλσ 1 , σ2greedy = σ21 e−2πλσ 1 . (92) 
+
+Proof. Expanding the controlled dynamics ˙ xt = bt(xt) + ut(xt) using (87) and (90) gives the linear system ˙xt = ˜Atxt + ft, (93) where ˜At := ˙Ct 
+
+> 2Ct
+
+− 2λM 2 
+
+> t
+
+and ft := μ1(1 − t ˙Ct 
+
+> 2Ct
+
+) + 2 λM 2 
+
+> t
+
+xM 
+
+> t
+
+. Since the dynamics are linear in x and the initial condition is Gaussian, the terminal distribution is Gaussian. For the mean, consider the deviation 
+
+yt := xt − xM 
+
+> t
+
+from the reference trajectory defined in (90). By definition, xM 
+
+> t
+
+is the state at time t of the flow trajectory ending at a at time 1, so that xM 
+
+> t
+
+= X1,t (a). The Lagrangian equation (22) therefore gives ˙xM 
+
+> t
+
+= bt(xM 
+
+> t
+
+). Subtracting the reference from (93) then yields ˙yt = ˙Ct
+
+2Ct
+
+− 2λ σ21
+
+Ct
+
+!
+
+yt. (94) Integrating from 0 to 1 requires the two integrals R 10˙Cs 
+
+> 2Cs
+
+ds and R 10 
+
+> σ21
+> Cs
+
+ds , which we will also use in subsequent proofs. The first is elementary. By the fundamental theorem of calculus, 
+
+Z 10
+
+˙Cs
+
+2Cs
+
+ds = 12 log  C1/C 0
+
+ = 12 log σ21 = log σ1, (95) since C0 = 1 and C1 = σ21 . For the second, the substitution z := s/ (1 − s) gives ds = dz/ (1 + z)2 and 
+
+Cs = (1 + σ21 z2)/(1 + z)2, so that σ21 ds/C s = σ21 dz/ (1 + σ21 z2). As s ranges over [0 , 1], z ranges over [0 , ∞), and Z 10
+
+σ21
+
+Cs
+
+ds = σ21
+
+Z ∞
+
+> 0
+
+dz 
+
+1 + σ21 z2 = σ1 arctan( σ1z) ∞ 
+
+> 0
+
+= πσ 1
+
+2 . (96) Using (95) and (96), we obtain y1 = σ1 e−πλσ 1 y0. Since x0 ∼ N(0 , 1) and xM0 = ( a − μ1)/σ 1, we have 
+
+y0 ∼ N −(a − μ1)/σ 1, 1, so 
+
+y1 ∼ N (μ1 − a) e−πλσ 1 , σ 21 e−2πλσ 1 . (97) Since x1 = a + y1, we obtain (92). We next characterize the effect of early stopping on the greedy terminal variance. Anticipating the exact closed-form variance σ2exact = σ21 /(1 + πλσ 1)2 established in Proposition C.12 below, we show that early stopping can recover the rational-squared scaling of the exact optimal control. 
+
+Proposition C.10 (Greedy variance under early stopping) . Applying greedy guidance only on [0 , t stop ] for 
+
+tstop ∈ (0 , 1] and integrating the uncontrolled flow on [tstop , 1] yields the terminal variance 
+
+σ2greedy (tstop ) = σ21 exp 
+
+
+
+−4λσ 1 arctan 
+
+ σ1tstop 
+
+1 − tstop 
+
+ 
+
+. (98) 
+
+Moreover, there exists a unique tstop (λ) ∈ (0 , 1] , depending continuously on λ, such that σ2greedy (tstop (λ)) = 
+
+σ2exact , with tstop (λ) → 1 as λ → 0 and tstop (λ) ∼ log λ/λ as λ → ∞ .Proof. Truncating the variance integral at t = tstop in Proposition C.9 replaces the upper limit z = ∞
+
+in (96) with zstop = tstop /(1 − tstop ), which evaluates the arctangent at a finite argument and yields (98). The map tstop 7 → σ2greedy (tstop ) is continuous and monotone decreasing, with σ2greedy (0) = σ21 > σ 2exact and 30 σ2greedy (1) = σ21 e−2πλσ 1 ⩽ σ2exact for λ > 0, so the intermediate value theorem yields a unique tstop (λ) with 
+
+σ2greedy (tstop (λ)) = σ2exact . For the asymptotics, setting σ2greedy (tstop ) = σ2exact and taking logarithms gives arctan 
+
+ σ1tstop (λ)1 − tstop (λ)
+
+
+
+= θ(λ), θ(λ) := log(1 + πλσ 1)2λσ 1
+
+, (99) so that tstop (λ) = tan θ(λ)/(σ1 + tan θ(λ)). As λ → 0, log (1 + πλσ 1) = πλσ 1 + O(λ2), so θ(λ) → π/ 2, tan θ(λ) → ∞ , and tstop (λ) → 1. As λ → ∞ , θ(λ) ∼ log (πλσ 1)/(2 λσ 1) → 0, so tan θ(λ) ∼ θ(λ) and 
+
+tstop (λ) ∼ θ(λ)/σ 1 ∼ log λ/λ .
+
+C.5.3 Exact optimal control 
+
+In the Gaussian to Gaussian case with a quadratic reward, since the dynamics are linear and both the reward and control cost are quadratic, (5) is a Linear-Quadratic Regulator (LQR) problem with an analytical solution. 
+
+Proposition C.11. The value function has the quadratic form Vt(x) = 12 Pt(x − xOC  
+
+> t
+
+)2, where Pt satisfies the Riccati equation 
+
+− ˙Pt = ˙Ct
+
+Ct
+
+Pt − λP 2 
+
+> t
+
+, P1 = 2 , (100) 
+
+and the reference trajectory is xOC  
+
+> t
+
+= xM 
+
+> t
+
+given by (90). The optimal control is 
+
+u∗ 
+
+> t
+
+(x) = −λP t(x − xOC  
+
+> t
+
+), (101) 
+
+and the Riccati equation has the explicit solution Pt = 1 /Q t where 
+
+Qt = Ct
+
+ 12σ21
+
++ λ
+
+Z 1
+
+> t
+
+dτ Cτ
+
+
+
+. (102) 
+
+Proof. Since the drift bt is affine in x, the control cost is quadratic, and the terminal cost is quadratic, standard linear-quadratic regulator theory [ 37 ] guarantees that the HJB equation admits a quadratic value function 
+
+Vt(x) = 12 Pt (x − ξt)2, (103) parameterized by a gain Pt and a reference trajectory ξt that are both determined by matching the HJB equation 
+
+−∂tVt(x) = bt(x) ∂xVt(x) − λ 
+
+> 2
+
+(∂xVt(x)) 2, V1(x) = ( x − a)2. (104) Expanding in powers of ( x − ξt), the terminal condition gives ξ1 = a and P1 = 2, the quadratic coefficient gives the Riccati equation 
+
+− ˙Pt = ˙Ct
+
+Ct
+
+Pt − λ P 2 
+
+> t
+
+, (105) which is (100), and the linear coefficient gives the ODE ˙ξt = bt(ξt). The reference trajectory ξt is thus the state at time t of the flow trajectory ending at a, which by the same Lagrangian-equation argument used in Proposition C.9 equals the greedy target xM 
+
+> t
+
+defined in (90). Setting xOC  
+
+> t
+
+:= ξt gives xOC  
+
+> t
+
+= xM 
+
+> t
+
+.To solve the Riccati equation in closed form, substitute Qt := 1 /P t to obtain the linear ODE ˙Qt = ˙Ct 
+
+> Ct
+
+Qt − λ
+
+with Q1 = 1 /2. Writing Qt = Ct qt absorbs the homogeneous part and yields ˙qt = −λ/C t, which integrates to qt = 12σ21
+
++ λ R 1 
+
+> tdτ Cτ
+
+using q1 = Q1/C 1 = 1 /(2 σ21 ). This proves (102), and the optimal control follows from 
+
+u∗ 
+
+> t
+
+(x) = −λ ∂ xVt(x) = −λ P t (x − xOC  
+
+> t
+
+). The exact and greedy solutions contract toward the same target xOC  
+
+> t
+
+= xM 
+
+> t
+
+, differing only in the gain. A computation analogous to the greedy case (Proposition C.9) yields the closed-form terminal distribution under the exact optimal control. 31 Proposition C.12 (Terminal distribution under the exact optimal control) . Under the exact optimal control (101), the terminal distribution is N(μexact , σ 2exact ) with the closed-form expressions 
+
+μexact = a + μ1 − a
+
+1 + πλσ 1
+
+, σ2exact = σ21
+
+(1 + πλσ 1)2 . (106) 
+
+Proof. The exact optimal control (101) is linear in x, so the terminal distribution is Gaussian. The deviation argument proceeds identically to the greedy case in Proposition C.9, with yt := xt − xOC  
+
+> t
+
+and xOC  
+
+> t
+
+= xM
+
+> t
+
+by Proposition C.11, yielding the linear ODE ˙yt = ˙Ct
+
+2Ct
+
+− λP t
+
+!
+
+yt =: ˜A∗ 
+
+> t
+
+yt. (107) The contraction factor eR 10 ˜A∗  
+
+> tdt
+
+= σ1/(1 + πλσ 1) follows from (95) together with 
+
+λ
+
+Z 10
+
+Pt dt = log(1 + πλσ 1), (108) which we now derive. From (102), Pt = 1 /(Ctqt) with qt = 12σ21
+
++ λ R 1 
+
+> tdτ Cτ
+
+, so that ˙qt = −λ/C t and 
+
+λP t = − ˙qt/q t = − ddt log qt. Integrating gives λ R 10 Pt dt = log (q0/q 1), and using q1 = 1 /(2 σ21 ) together with 
+
+q0 = 12σ21
+
++ λ · π/ (2 σ1) = 1+ πλσ 1
+
+> 2σ21
+
+(the integral R 10 dτ /C τ = π/ (2 σ1) is (96) divided by σ21 ) yields (108). Since 
+
+x0 ∼ N(0 , 1) and xOC 0 = xM0 = ( a − μ1)/σ 1 by Proposition C.11, we have y0 ∼ N −(a − μ1)/σ 1, 1, so 
+
+y1 ∼ N
+
+ μ1 − a
+
+1 + πλσ 1
+
+, σ21
+
+(1 + πλσ 1)2
+
+
+
+. (109) Since x1 = a + y1, we obtain (106). 
+
+C.5.4 Comparison of guidance schemes 
+
+We now compare the three guidance schemes using the closed-form terminal distributions established above. With the means and variances of all three terminal distributions in hand (Proposition C.6, Proposition C.9, and Proposition C.12), we can collect the corresponding expected rewards in closed form. 
+
+Corollary C.13 (Closed-form expected terminal rewards) . Under the setting of Propositions C.6, C.9 and C.12, the expected terminal rewards are 
+
+E[r(Xtilt 1 )] = − σ21 (1 + 2 λσ 21 ) + ( μ1 − a)2
+
+(1 + 2 λσ 21 )2 ,
+
+E[r(Xgreedy 1 )] = − σ21 + ( μ1 − a)2 e−2πλσ 1 ,
+
+E[r(Xexact 1 )] = − σ21 + ( μ1 − a)2
+
+(1 + πλσ 1)2 .
+
+(110) 
+
+Proof. For any Gaussian X ∼ N(μ, σ 2), the quadratic reward r(x) = −(x − a)2 has expectation 
+
+E[r(X)] = − Var( X) + ( E[X] − a)2 = − σ2 + ( μ − a)2. (111) Applying this identity to the closed-form means and variances from (82), (92) and (106) yields (110). With these results in hand, we now interpret and compare the three guidance schemes. 32 Controls. Both trajectory-based schemes produce linear-in-x controls that drive trajectories toward a common reference path ending at the reward maximum a:Greedy: uM 
+
+> t
+
+(x) ∝ − M 2
+
+> t
+
+ x − xM
+
+> t
+
+, xM 
+
+> t
+
+:= tμ 1 + a − μ1
+
+Mt
+
+,
+
+Exact OC: uOC  
+
+> t
+
+(x) ∝ − Pt
+
+ x − xOC 
+
+> t
+
+, xOC  
+
+> t
+
+= xM 
+
+> t
+
+.
+
+(112) The greedy and exact controls share the same reference trajectory, differing only in the gain: M 2 
+
+> t
+
+versus Pt.
+
+Variances. The closed-form variances collected from Propositions C.6, C.9 and C.12 are Tilt: σ2tilt = σ21
+
+1 + 2 λσ 21
+
+∼ 1
+
+λ ,
+
+Greedy: σ2greedy = σ21 e−2πλσ 1 ∼ e−2πλσ 1 ,
+
+Exact OC: σ2exact = σ21
+
+(1 + πλσ 1)2 ∼ 1
+
+λ2 ,
+
+(113) where the asymptotics hold as λ → ∞ . Reward tilting concentrates at the polynomial rate O(1 /λ ), exact optimal control at the faster O(1 /λ 2), and greedy guidance contracts exponentially. This exponential scaling arises because greedy guidance applies an instantaneous contraction rate proportional to the gain without accounting for future control effort, while the exact gain Pt is softened by the Riccati equation. Although greedy and exact gains agree to leading order as λ → 0 (cf. Proposition C.4), they diverge substantially for moderate and large λ, with greedy guidance collapsing more aggressively. The practical implication is that λ
+
+must be scaled differently between the frameworks to achieve comparable behavior, a consideration relevant to prevent reward hacking. Figure C.1 illustrates these differences. 
+
+Expected reward. The closed-form expected rewards from Corollary C.13 are Tilt: E[r(Xtilt 1 )] = − σ21 (1 + 2 λσ 21 ) + ( μ1 − a)2
+
+(1 + 2 λσ 21 )2 ∼ − 1
+
+λ ,
+
+Greedy: E[r(Xgreedy 1 )] = −(σ21 + ( μ1 − a)2)e−2πλσ 1 ∼ − e−2πλσ 1 ,
+
+Exact OC: E[r(Xexact 1 )] = − σ21 + ( μ1 − a)2
+
+(1 + πλσ 1)2 ∼ − 1
+
+λ2 ,
+
+(114) where the asymptotics hold as λ → ∞ . Greedy guidance achieves exponentially higher reward (closer to zero) compared to the polynomial rates for exact optimal control and reward tilting. This quantifies the reward-diversity trade-off: greedy guidance achieves higher expected reward at the cost of more aggressive variance reduction. 
+
+Early stopping. One practical strategy to mitigate variance collapse is early stopping : applying guidance only for t ∈ [0 , t stop ] and then following the uncontrolled flow for t ∈ [tstop , 1]. In our numerical experiments in the main text, we found this immensely useful for reducing the effect of reward hacking. This truncates the contraction integral, leading to the closed-form expression in (98). Figure C.2 demonstrates this effect: at early stopping times (e.g., tstop = 0 .3), the greedy guidance maintains variance comparable to the target, while still shifting the mean toward the reward maximum. This provides a tunable trade-off between reward optimization and diversity preservation. 
+
+## C.6 Proof of Proposition 2.5 
+
+Proposition 2.5 (Tangent space projection) . Suppose the data distribution ρ1 is supported on a smooth manifold M ⊂ Rd. Let x1 = Xt, 1(xt) ∈ M be the endpoint of the flow, and let Tx1 M denote the tangent 
+
+33 −2 −1 0 1 2 3
+
+x   
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Density
+> σtilt = 0 .488
+> σgreedy = 0 .427
+> σexact = 0 .432
+
+λ = 0 .1       
+
+> Reward r(x)Target ρ1
+> Reward tilt Greedy Exact LQR
+> −2−10123
+
+x    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2σtilt = 0 .471
+> σgreedy = 0 .338
+> σexact = 0 .359
+
+λ = 0 .25      
+
+> −2−10123
+
+x   
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> σtilt = 0 .447
+> σgreedy = 0 .228
+> σexact = 0 .280
+
+λ = 0 .5     
+
+> −2−10123
+
+x   
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Density
+> σtilt = 0 .426
+> σgreedy = 0 .154
+> σexact = 0 .230
+
+λ = 0 .75      
+
+> −2−10123
+
+x    
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0σtilt = 0 .408
+> σgreedy = 0 .104
+> σexact = 0 .194
+
+λ = 1 .0     
+
+> −2−10123
+
+x   
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> σtilt = 0 .378
+> σgreedy = 0 .047
+> σexact = 0 .149
+
+λ = 1 .5Figure C.1: Effect of guidance strength λ on terminal distributions. We compare the reward-tilted distribution (solid), greedy guidance (dashed), and exact LQR (dotted) for a Gaussian target ρ1 = N(0 , 0.52) with quadratic reward r(x) = −(x − 1.5) 2. As λ increases, greedy guidance exhibits exponential variance collapse, while the exact LQR contracts at the slower rational-squared rate established in Proposition C.12. Both trajectory-based methods concentrate more aggressively than the reward tilt. These results highlight a need to carefully tune λ for trajectory-level guidance, and that its choice requires a different scaling than the temperature parameter in typical exponential reward tilting. 
+
+space at x1. Then, for any v ∈ Rd with v = v∥ + v⊥ where v∥ ∈ Tx1 M and v⊥ ⊥ Tx1 M,
+
+∇Xt, 1(xt)Tv = ∇Xt, 1(xt)Tv∥. (13) 
+
+Proof. We first show that the image of the Jacobian is contained in the tangent space: Im (∇Xt, 1(xt)) ⊆ Tx1 M.Fix an arbitrary direction w ∈ Rd with ∥w∥ = 1 and consider the one-parameter family xt + ϵw for ϵ ∈ R.Since Xt, 1 maps Rd into M, the curve γ(ϵ) := Xt, 1(xt + ϵw ) lies entirely on M and passes through x1 = γ(0). Its tangent vector at ϵ = 0 is therefore an element of the tangent space Tx1 M, by the standard characterization of tangent vectors on a smooth manifold as the velocities of smooth curves through the point. By the chain rule, this tangent vector is 
+
+γ′(0) = ∇Xt, 1(xt) w. (115) Since w was arbitrary and the image Im (∇Xt, 1(xt)) is spanned by {∇ Xt, 1(xt)w : w ∈ Rd}, we conclude Im( ∇Xt, 1(xt)) ⊆ Tx1 M.Now, for any v ∈ Rd and w ∈ Rd:
+
+⟨∇ Xt, 1(xt)Tv, w ⟩ = ⟨v, ∇Xt, 1(xt)w⟩. (116) 34 −2 −1 0 1 2 3
+
+x   
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Density
+> σtilt = 0 .426
+> σgreedy = 0 .427
+> σexact = 0 .375
+
+tstop = 0 .3       
+
+> Reward r(x)Target ρ1
+> Reward tilt Greedy Exact LQR
+> −2−10123
+
+x    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2σtilt = 0 .426
+> σgreedy = 0 .353
+> σexact = 0 .346
+
+tstop = 0 .5     
+
+> −2−10123
+
+x    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6σtilt = 0 .426
+> σgreedy = 0 .262
+> σexact = 0 .320
+
+tstop = 0 .7     
+
+> −2−10123
+
+x   
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Density
+> σtilt = 0 .426
+> σgreedy = 0 .199
+> σexact = 0 .283
+
+tstop = 0 .85      
+
+> −2−10123
+
+x    
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5σtilt = 0 .426
+> σgreedy = 0 .167
+> σexact = 0 .247
+
+tstop = 0 .95      
+
+> −2−10123
+
+x   
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> σtilt = 0 .426
+> σgreedy = 0 .154
+> σexact = 0 .230
+
+tstop = 1 .0Figure C.2: Early stopping prevents variance collapse. Same setup as Figure C.1 with fixed λ = 0 .75, but guidance is applied only until time tstop , after which trajectories follow the uncontrolled flow. At tstop = 0 .3, greedy guidance preserves nearly all the target variance ( σ ≈ 0.43 vs σ1 = 0 .5) while still shifting the mean toward the reward. As tstop → 1, we recover the full-guidance behavior with significant variance collapse. This provides a practical mechanism to tune the reward–diversity trade-off. 
+
+Since ∇Xt, 1(xt)w ∈ Tx1 M for all w, this inner product depends only on the projection of v onto Tx1 M.Writing v = v∥ + v⊥ with v∥ ∈ Tx1 M and v⊥ ⊥ Tx1 M, we have 
+
+⟨v, ∇Xt, 1(xt)w⟩ = ⟨v∥, ∇Xt, 1(xt)w⟩, (117) since the component v⊥ is orthogonal to anything in Tx1 M. Thus ∇Xt, 1(xt)Tv = ∇Xt, 1(xt)Tv∥, completing the proof. 
+
+# D Existing methods as special cases of FMRG 
+
+We now show that the FMRG framework provides a unifying lens through which many existing guidance methods can be understood as special cases or approximations. In Section 2, we showed that DPS arises as a coarse approximation to the greedy guidance (8) by replacing the flow map with a single Euler step. Here, we extend this analysis to several other prominent methods, summarized in Table 4, and provide detailed derivations showing how FlowDPS and FlowChef reduce to FMRG-E with different effective guidance weights. 
+
+## D.1 DPS as a one-step approximation 
+
+We first give a brief review of DPS [ 16 ], which has been motivated as approximating (3) through two primary approximations. First, the expectation over trajectories is replaced by a single deterministic path. Second, 35 the unknown endpoint x1 is replaced by the posterior mean ˆx1 = E[x1 | xt], also called the denoiser . Together, these yield the guidance scheme ˙xt = bt(xt) + λt(xt)∇xt r (ˆ x1(xt)) , ˆx1(xt) = E [x1|xt] , (118) where λ : [0 , 1] × Rd → R is the guidance strength. While (118) has been observed to work well in practice and is efficient, these approximations are heuristic: there is no principled sense in which samples from (118) approximate the reward-tilted distribution ˜ρ1. Here, we prove that the posterior mean (denoiser) used in DPS-style guidance is a one-step approximation to the flow map, establishing that DPS emerges as a coarse approximation to the greedy guidance (8). That is, in the limit that the denoiser approximation is systematically refined, we recover (8). We formalize the connection between the denoiser used in DPS and the flow-map endpoint in the following proposition, which shows that the posterior mean is determined by a single evaluation of the probability-flow velocity, and coincides with the one-step Euler approximation of the flow map under the linear interpolant. 
+
+Proposition D.1 (Denoiser as a one-step flow-map approximation) . Let It = αtx0 + βtx1 be a stochastic interpolant with boundary conditions α0 = β1 = 1 and α1 = β0 = 0 , and let bt(x) = E[ ˙It | It = x] denote the associated probability-flow velocity. Then the posterior mean ˆx1(x) := E[x1 | It = x] admits the closed form 
+
+ˆx1(x) = αt bt(x) − ˙αt xαt ˙βt − ˙αtβt
+
+. (119) 
+
+In particular, for the linear interpolant ( αt = 1 − t, βt = t), the posterior mean reduces to the one-step Euler approximation of the flow map, 
+
+ˆx1(x) = x + (1 − t) bt(x) =: XEuler  
+
+> t, 1
+
+(x). (120) Proposition D.1 makes precise the sense in which DPS-style guidance is a coarse approximation of the greedy guidance (8): both signals backpropagate ∇r through an estimate of the endpoint Xt, 1(xt), but DPS uses the posterior mean, which by (120) coincides with a single Euler step of the pre-trained velocity, while FMRG uses the full flow map, which is the limit of infinitely many Euler steps. The derivation of (119) and (120) is standard (see, e.g., [2]); we include it here for completeness. 
+
+Proof. By definition of the interpolant, ˙It = ˙ αtx0 + ˙βtx1, so that 
+
+bt(x) = E[ ˙It | It = x] = ˙ αt ˆx0(x) + ˙βt ˆx1(x), (121) where ˆx0(x) := E[x0 | It = x] and ˆx1(x) := E[x1 | It = x]. Taking conditional expectations of the interpolant identity It = αtx0 + βtx1 also gives the constraint αt ˆx0(x) + βt ˆx1(x) = x, which eliminates ˆx0 in favor of ˆx1:ˆx0(x) = x − βt ˆx1(x)
+
+αt
+
+. (122) Substituting back into the expression for bt(x) yields 
+
+bt(x) = ˙αt
+
+αt
+
+x +
+
+
+
+˙βt − ˙αt βt
+
+αt
+
+
+
+ˆx1(x), (123) and solving for ˆx1(x) gives (119). For the linear interpolant, ˙αt = −1 and ˙βt = 1, so the denominator in (119) equals αt ˙βt − ˙αtβt = (1 − t) + t = 1, and the numerator simplifies to (1 − t) bt(x) + x, yielding (120). 
+
+## D.2 FlowDPS as an approximation of FMRG-E 
+
+FlowDPS [ 38 ] is a guidance scheme for inverse problems built on top of a pre-trained flow model. We show here that, when rewritten in our convention ( t = 0 noise, t = 1 data, linear interpolant It = (1 − t)x0 + tx 1), it is recovered from FMRG-E by replacing both flow map velocities that appear in the operator-splitting update (17) with the pre-trained instantaneous velocity bt = vt,t .36 FlowDPS formulation. FlowDPS treats the noisy state xt as a convex combination of a data prediction and a noise prediction obtained from Tweedie’s formula: ˆx1 = xt + (1 − t) bt(xt), ˆx0 = xt − t b t(xt), (124) where bt = vt,t is the instantaneous velocity of the pre-trained flow (25). By Proposition D.1, the data prediction ˆx1 = xt + (1 − t) bt(xt) is exactly the one-step Euler estimate of the flow-map endpoint Xt, 1(xt) = 
+
+xt + (1 − t) vt, 1(xt), obtained by freezing the velocity at the current time t. The guided data prediction is obtained by blending the Tweedie estimate with a reward-optimized estimate ˆxopt 1 that is computed via gradient descent on the measurement loss applied to ˆ x1:˜x1 = t ˆx1 + (1 − t) ˆ xopt 1 . (125) Finally, the deterministic FlowDPS update to the next timestep t+ > t recomposes ˜x1 and ˆx0 using the linear interpolant at time t+:
+
+xt+ = t+ ˜x1 + (1 − t+) ˆ x0. (126) 
+
+Reduction to FMRG-E. We now unpack the FlowDPS update (126) to exhibit its relationship with the FMRG-E operator splitting (17). In the unguided case ˆxopt 1 = ˆx1, the update reduces to the standard Euler step xt+ = xt + ∆ t · bt(xt), since tˆx1 + (1 − t) ˆx1 = ˆx1 and t+ ˆx1 + (1 − t+) ˆx0 = xt + ∆ t b t(xt). The guidance correction is therefore the extra term produced by ˆ xopt 1 − ˆx1:
+
+xguided  
+
+> t+
+
+− xunguided  
+
+> t+
+
+= t+(1 − t)(ˆ xopt 1 − ˆx1). (127) For a single gradient step of size η on the FlowDPS measurement loss (with r taken as the negative loss), we have ˆ xopt 1 − ˆx1 = −η ∇ˆx1 r(ˆ x1), so that the full FlowDPS update becomes 
+
+xt+ = xt + ∆ t · bt(xt) − (1 − t) t+ η ∇ˆx1 r(ˆ x1). (128) Comparing term by term with the FMRG-E operator splitting (17), the FlowDPS update (128) is obtained from FMRG-E by two substitutions of the learned flow map by its one-step Euler approximation: the flow-map step velocity vt,t + is replaced with the diagonal velocity vt,t , and the endpoint-lookahead velocity vt+,1 is likewise replaced with vt,t .
+
+## D.3 FlowChef as an approximation of FMRG-E 
+
+FlowChef formulation. FlowChef [ 39 ] uses the same one-step Euler estimate of the flow-map endpoint, ˆx1 = xt + (1 − t) bt(xt), and applies a direct gradient correction to the Euler integration of the base flow (their Theorem 4.3): 
+
+xt+ = xt + ∆ t · bt(xt) − s′ ∇ˆx1 r(ˆ x1), (129) where s′ is a constant guidance scale. The gradient term in (129) is the reward gradient computed at the endpoint estimate ˆx1 rather than at the current state xt. FlowChef obtains this form by a procedure they term 
+
+gradient skipping : their Lemma 4.2 derives the chain-rule expansion ∇xt r( ˆx1) =  I +(1 −t) Jbt (xt)T∇ˆx1 r( ˆx1), where Jbt (xt) denotes the Jacobian of the instantaneous velocity with respect to the state. The Jacobian factor captures how a perturbation at xt propagates forward to ˆx1 through the Euler step, but FlowChef discards this factor entirely and uses only the terminal gradient ∇ˆx1 r(ˆ x1) in the update. 
+
+Reduction to FMRG-E. As with FlowDPS, (129) is obtained from FMRG-E by the same two replacements of flow-map velocities with instantaneous velocities: vt,t + → bt for the stepping term, and vt+,1 → bt for the endpoint lookahead used in the reward gradient. 37 D.4 MPGD as an approximation of FMRG-E 
+
+Manifold Preserving Guided Diffusion (MPGD) [ 40 ] was originally formulated for DDIM-based diffusion models. Below, we cast it to the flow setting and show that it reduces to the same form as FlowDPS and FlowChef. 
+
+MPGD formulation in the diffusion setting. MPGD’s key “shortcut” (their Equations 7–8) updates the Tweedie clean estimate x0|t directly rather than the noisy state xt. Concretely, a single MPGD step takes the form 
+
+x0|t ← x0|t − ct ∇x0|t r(x0|t), (130) 
+
+xt−1 = √¯αt−1 x0|t + p1 − ¯αt−1 ϵθ (xt, t ), (131) where ct is a step size and the Tweedie estimate is x0|t = 1√ ¯αt
+
+ xt − √1 − ¯αt ϵθ (xt, t ). The first line of (130) performs a reward-gradient descent on the clean estimate, and the second line re-noises x0|t back to the previous diffusion step t − 1 using the learned noise prediction ϵθ . MPGD has two variants. The default variant, which we call MPGD without projection, applies the gradient update directly to x0|t. A second variant, MPGD-AE, additionally passes x0|t through an autoencoder D ◦ E before computing the gradient, with the intent of enforcing that the gradient is computed at an on-manifold point. In what follows we focus on the variant without projection, since it provides the cleanest comparison to FMRG-E. 
+
+Casting MPGD to a flow model. We translate the MPGD update to the deterministic flow setting. For the linear interpolant, the Tweedie estimate becomes ˆx1 = xt + (1 − t) bt(xt) and the DDIM renoising reduces to an Euler step of the probability flow. After the reward-gradient update (130), the guided data estimate is ˆxguided 1 = ˆ x1 − ct ∇ˆx1 r(ˆ x1). (132) Recomposing ˆ xguided 1 with the noise prediction ˆ x0 = xt − t b t(xt) at the next timestep t+ yields 
+
+xt+ = t+ ˆxguided 1 + (1 − t+) ˆ x0 = xt + ∆ t · bt(xt)
+
+| {z }
+
+> Euler step
+
+−t+ ct ∇ˆx1 r(ˆ x1). (133) This has the same structure as the FlowDPS and FlowChef updates (128) and (129), with an effective guidance weight wMPGD  
+
+> t
+
+= t+ ct. For a constant MPGD step size ct, the weight grows linearly in t+, in contrast to the FlowDPS weight wt = (1 − t) t+ and the constant FlowChef weight wt = s′.
+
+Relation to FMRG. Like FlowDPS and FlowChef, MPGD without projection makes the same two flow-map approximations, replacing vt,t + with the diagonal velocity bt in the stepping term and vt+,1 with bt
+
+in the endpoint-lookahead term. MPGD-AE addresses the off-manifold issue at the endpoint using an explicit autoencoder projection. FMRG addresses the same issue more naturally. FMRG-E uses the on-manifold flow-map endpoint Xt, 1(xt) instead of the off-manifold denoiser, and FMRG-J further projects reward gradients onto the tangent space via the flow-map Jacobian ∇XT 
+
+> t, 1
+
+(Proposition 2.5). 
+
+## D.5 Summary of approximations 
+
+Recall from (24) that the flow map is parameterized as Xs,t (x) = x + ( t − s) vs,t (x). A single FMRG-E step ((17), Algorithm 7) uses the flow map in two ways: 1. Step : ˜ xt+ = Xt,t + (xt) = xt + ∆ t v t,t + (xt), 2. Lookahead : ˆ x1 = Xt+,1(˜ xt+ ) = ˜ xt+ + (1 − t+) vt+,1(˜ xt+ ). FlowDPS, FlowChef, and MPGD replace both off-diagonal velocities with bt = vt,t :38 1. Euler step : vt,t + → bt, so ˜ xt+ ≈ xt + ∆ t b t(xt), 2. Denoiser : vt+,1 → bt, so ˆ x1 ≈ xt + (1 − t) bt(xt). Both approximations reduce to the same operation: replacing the learned off-diagonal flow map velocity 
+
+vs,t with the instantaneous velocity bt = vt,t ((25)). FMRG avoids this approximation entirely by using a pre-trained flow map, which provides exact trajectory integration and on-manifold endpoint predictions, enabling effective guidance in as few as 3 NFEs. 
+
+Guidance weight. In addition to the flow map approximation, the effective guidance weight wt differs: 
+
+• FlowDPS (deterministic): wt = (1 − t) · t+.
+
+• FlowChef : wt = s′ (constant). 
+
+• MPGD : wt = t+ · ct.
+
+• FMRG-E : wt = λ · ∆t, from the optimal control formulation (Proposition 2.3). 
+
+## D.6 ReNO and D-Flow 
+
+ReNO [ 41 ] and D-Flow [ 42 ] take a different approach than the methods discussed above. Rather than guiding at each step, they optimize the initial noise seed x0 to maximize r(G(x0)), where G denotes the full generative process. In our framework, this corresponds to applying FMRG guidance exclusively at t = 0, recovering the seed-optimization special case noted in Section 3 (where we highlight that taking multiple gradient steps before the first flow step recovers seed optimization). The two methods differ in how they evaluate the terminal gradient ∇x0 r(X0,1(x0)). ReNO uses a one-step generator as a fast approximation to the flow map, while D-Flow backpropagates through a multi-step ODE solver. Both methods are therefore instances of FMRG-J restricted to t = 0 that approximate the flow map X0,1 by different mechanisms, computing ∇X0,1(x0)T∇r(X0,1(x0)) under each respective approximation. The key limitation of this family of approaches is that they cannot correct the trajectory during generation, so that all guidance must be front-loaded into the initial condition. 
+
+# E Experimental details 
+
+## E.1 Flow map model 
+
+All experiments use a flow map distilled from FLUX.1-Dev [ 53 ] via Lagrangian distillation [ 20 ], parameterized as a LoRA adapter (rank 16, alpha 16) trained for 43,000 steps. All methods use FLUX.1’s embedded guidance scale of 3 .5. We follow the convention t = 0 (noise) to t = 1 (data) throughout. 
+
+## E.2 Practical implementation 
+
+We define the key algorithmic parameters that appear in the per-task configurations below. nopt denotes the number of inner gradient steps per guided step (see (18)). tstop ∈ (0 , 1] is the early stopping time: guidance is applied for t ∈ [0 , t stop ], after which the remaining trajectory is completed in a single unguided flow map step Xtstop ,1 (smaller tstop = earlier stopping). η is the step size, which enters through λt as described below. 
+
+Flow map stepping. Each guided step requires evaluating the flow map endpoint Xt, 1(xt) for the reward gradient. As described in Section 3, stepping can use either a separate evaluation Xt,t + (xt) (2 NFEs per step) or reuse the endpoint Xt, 1(xt) for both the reward gradient and stepping (1 NFE per step). We find that reusing the endpoint performs better at low NFEs, where the savings allow more guided steps within the same budget. At higher NFEs, the approximation error accumulates and separate evaluations perform 39 Table E.1: Method parameters for inverse problems. Method Grad. target Velocity nopt Grad. norm Early stop                           
+
+> FMRG-E z0flow map 5No tstop = 0 .67 FMRG-J ztflow map 1Yes No FlowDPS z0instantaneous 5No No FlowChef z0instantaneous 5No No DPS ztinstantaneous 1No No
+
+better. In practice, we use 1 NFE per step for low-NFE configurations and 2 NFEs per step for high-NFE configurations; the specific choice is noted in each task’s configuration table. 
+
+Guidance strength λt. Recall from Algorithms 6–7 that each gradient update takes the form x ← x+ λt ·u,where u is the guidance signal. In practice, we set λt as follows; η is the single tuned constant in each case. 
+
+FMRG-E. We set λt = η · t · (1 − t+), where t+ is the next timestep. This weighting, which downweights the update near the endpoints, works well in practice. 
+
+FMRG-J. We normalize the guidance signal to unit norm and rescale to the flow map velocity magnitude, giving ˜u = ( u/ ∥u∥) · ∥ vt,t + (x)∥, and set λt = η · ∆t. This keeps η invariant to the choice of reward model, which is important in practice since different rewards (e.g., human preference models vs. ℓ2 losses) exhibit vastly different gradient scales. 
+
+## E.3 Latent-space inverse problems 
+
+Reward. The reward is the negative ℓ2 reconstruction loss r(x) = −∥ Ax − y∥2, where A ∈ Rdo×d is the degradation operator and y ∈ Rdo is the observation. Since the generative model operates in a latent space of dimension de < d , we decode the latent via the VAE decoder D : Rde → Rd and apply A in pixel space: 
+
+r(z) = −∥ A D (z) − y∥2. (134) The degradation operators we consider are 4 × average-pooling for super-resolution, a 61 × 61 motion blur kernel with intensity 0 .5 for deblurring, and a centered 64 × 64 binary mask for inpainting. Gaussian noise with σ = 0 .03 is added to all observations. 
+
+Datasets. We evaluate on AFHQ-Dog [ 60 ] and FFHQ [ 61 ], using 1000 images at 256 × 256 resolution for each. Text prompts are “a photo of a dog” for AFHQ and “a photo of a person” for FFHQ. 
+
+Method configurations. Table E.1 summarizes the method-specific parameters. FlowDPS and FlowChef compute gradients with respect to z0 using the instantaneous velocity from the base flow model rather than the flow map. For FMRG-E at NFE ⩽ 30, we reuse the endpoint evaluation Xt, 1 for stepping; at higher NFEs we use separate evaluations for lookahead and stepping (Section 3). 
+
+Hyperparameter selection. Step sizes, number of steps, and nopt are selected via grid search on a held-out set of 50 images, with the best configuration evaluated on 1000 separate images. For FMRG-E and FMRG-J, we fix the number of steps to 50 and 200 respectively, and search only over step sizes. Table E.2 reports the selected hyperparameters for each method and task. 
+
+Early stopping ablation. Table E.3 shows the effect of early stopping on FMRG-E for super-resolution. Early stopping helps at low NFEs but has diminishing returns at higher NFEs. 40 Table E.2: Selected hyperparameters for inverse problems.                                                                                                                                   
+
+> AFHQ FFHQ Task Method NFE ηnopt Steps NFE ηnopt Steps SR
+> DPS 200 10.0 1200 200 50.0 1200 FlowChef 100 1.0 5100 100 1.0 3100 FlowDPS 200 100.0 1200 100 50.0 1100 FMRG-E 100 6550 100 6550 FMRG-J 400 5.0 1200 400 3.0 1200
+> Deblur  DPS 100 10.0 1100 200 200.0 1200 FlowChef 200 3.0 5200 200 3.0 5200 FlowDPS 200 50.0 1200 200 50.0 1200 FMRG-E 100 6550 100 6550 FMRG-J 400 5.0 1200 400 3.0 1200
+> Inpaint  DPS 200 50.0 1200 200 200.0 1200 FlowChef 200 10.0 1200 100 50.0 5100 FlowDPS 200 200.0 1200 200 200.0 1200 FMRG-E 100 6550 100 6550 FMRG-J 400 5.0 1200 400 3.0 1200
+
+Table E.3: Early stopping ablation (inverse problems). LPIPS ↓ / KID ↓ on super-resolution for FMRG-E. 
+
+AFHQ FFHQ NFE No ES ES No ES ES 6 .228 / .010 .231 / .009 .248 / .049 .234 / .047 12 .220 / .011 .204 / .006 .217 / .050 .191 / .043 30 .206 / .015 .184 / .008 .197 / .059 .180 / .046 
+
+Text prompting ablation. We ablate the effect of the text prompt on inverse problem performance. FMRG exhibits minimal degradation when varying or removing the text prompt, indicating robustness to prompt choice. In contrast, FlowDPS and FlowChef degrade noticeably. Figures E.6 and E.7 show full metrics when the text prompt is removed entirely (unconditional generation): the performance gap between FMRG and the baselines widens substantially in this setting, with FlowDPS and FlowChef degrading significantly while FMRG remains robust. 
+
+Full metric plots and qualitative results. Figures E.4 and E.5 show full metrics across NFEs for AFHQ and FFHQ with text-conditional generation. Figures E.8 to E.10, E.12 and E.13 show non-cherry-picked qualitative comparisons on randomly selected images. 
+
+## E.4 Style transfer 
+
+Reward. The style loss is the Frobenius norm between the Gram matrices of CLIP ViT-B/16 layer-2 features extracted from the reference and generated images, following MPGD [40]. 
+
+Implementation. We evaluate all methods (FMRG-J, FMRG-E, FlowChef, FlowDPS, DPS) at different numbers of steps, step sizes, and nopt within a budget of 100 NFEs and report the best configuration for each method. 
+
+Evaluation. We generate 48 text prompts using GPT-4o by providing 16 style reference images and requesting 3 prompts per style at increasing difficulty levels. All methods are evaluated at 256 × 256 resolution. We report CLIP-I (cosine similarity between CLIP image embeddings of the generated image and style 41 Figure E.4: Full AFHQ results across NFEs. FMRG-E and FMRG-J dominate the distortion and perception metrics at every NFE budget, with the gap largest in the low-NFE regime. 
+
+reference) and CLIP-T (cosine similarity between the text prompt embedding and the generated image embedding) in Table E.15. FMRG-J achieves the best CLIP-I (style similarity) and competitive CLIP-T (text alignment). 
+
+## E.5 Reward-guided generation 
+
+Reward ensemble. Following Eyring et al. [41] , we use a weighted linear combination of four human-preference reward models: 
+
+r(x) = 5 .0 · HPSv2( x) + 1 .0 · ImageReward( x) + 0 .01 · CLIP( x) + 0 .05 · PickScore( x). (135) 
+
+Evaluation protocol. The GenEval benchmark [ 57 ] consists of 553 prompts spanning six categories: single object, two objects, counting, colors, position, and color attribution. Object detection uses Mask2Former with a ResNet-50 backbone pretrained on COCO. The overall score is the unweighted mean of per-category accuracies. All methods in Table 13 are evaluated with 4 seeds, with samples aggregated across seeds before computing per-category accuracies. 42 Figure E.5: Full FFHQ results across NFEs. Same pattern as Figure E.4: FMRG variants match or outperform all baselines across metrics at every NFE budget. 
+
+FMRG configurations. Table E.17 reports the full configuration for each result in Table 13. Both variants use early stopping at tstop = 0 .25. FMRG-J at NFE 20 uses flow map reuse (1 NFE per step), while FMRG-J at NFE 100 and FMRG-E use separate evaluations (2 NFEs per step). 
+
+Warmup particle selection. Since FMRG guides a single trajectory via greedy optimal control, its performance depends on the quality of the initial noise sample: an unfavorable initialization may land in a region of the reward landscape from which single-trajectory guidance cannot recover. To mitigate this, we adopt a lightweight warmup procedure. We initialize K = 3 particles from independent noise seeds and run each through approximately half of the total guided steps. We then evaluate the reward at each particle’s predicted endpoint Xt, 1(zt) and select the particle with the highest reward. The remaining guided steps continue from the selected particle only. This combines the exploration benefits of best-of-N initialization with the optimization benefits of trajectory guidance at modest additional cost. We find that K = 3 restarts is sufficient to consistently improve performance. 
+
+Baseline configurations. FMTT [ 10 ]: We re-evaluate on our flow map backbone with 7 particles, 2 clones per particle, 20 sampling steps, lookahead depth 4, and a reward scaling factor of 4 .5, totaling 1400 43 Figure E.6: AFHQ results under unconditional (prompt-free) generation. Removing the text prompt widens the gap between FMRG and the baselines: FlowDPS and FlowChef degrade sharply, while FMRG variants remain robust.                   
+
+> Table E.15: Style transfer with Gram matrix loss. CLIP-I ↑measures style similarity; CLIP-T ↑measures text-prompt alignment. Bold indicates best.
+> Method CLIP-I ↑CLIP-T ↑
+> DPS 0.625 0.262 FlowChef 0.632 0.282 FlowDPS 0.631 0.294 FMRG-E (ours) 0.646 0.290 FMRG-J (ours) 0.649 0.299
+
+NFEs, as reported in Singhal et al. [10] . The reward is the same ensemble used by FMRG. ReNO [ 41 ]: Optimizes the initial noise latent via 50 gradient steps, using 8 sampling steps per reward evaluation and a learning rate of 5 .0, for ∼58 NFEs. ReNO peaks around 50 iterations and degrades with longer optimization. 
+
+Best-of-N : Generates N samples independently with the 4-step flow map (no guidance) and selects the highest-reward sample. The main result uses N =32 (128 NFEs). 
+
+Early stopping ablation. Table E.18 reports the effect of early stopping on FMRG-J for GenEval at NFE 30 and 100 (both without flow map reuse). tstop = 0 .25 consistently outperforms all other levels, corroborating the Gaussian analysis in Appendix C.5. Figure E.19 shows qualitative examples: as tstop decreases from 0 .75 to 0 .25, image quality improves; removing early stopping ( tstop = 1) leads to over-optimization artifacts. 
+
+Additional aesthetic enhancement results. Figures E.20 and E.21 show additional qualitative compar-isons between FMRG and ReNO for reward-guided aesthetic enhancement. 44 Figure E.7: FFHQ results under unconditional (prompt-free) generation. Same pattern as Figure E.6: FMRG is robust to prompt removal while baselines degrade.                   
+
+> Table E.17: Configurations for GenEval results (Table 13). All use K=3 warmup particles.
+> Method NFE ηnopt tstop
+> FMRG-E 100 0.7 30.25 FMRG-J 20 3.0 10.25 FMRG-J 100 5.0 10.25
+
+## E.6 VLM guidance 
+
+For complex compositional prompts (Figure 15), we use Skywork-VL-Reward-7B [ 58 ] as a reward model. Given an image x and text prompt p, the reward is r(x, p ) = σ(logit Yes (x, p ) − logit No (x, p )) , where logit Yes/No 
+
+are the VLM’s last-token logits at the “Yes”/“No” vocabulary positions after the chat-template query “Is 
+
+"{prompt }" a correct caption for the image?” We use FMRG-J with 20 guided steps, step size η = 1 .0, and 4 warmup particles. 
+
+Stochastic renoising. We observe that for some images, VLM-guided generation can produce minor artifacts. We find that injecting a small amount of stochastic noise toward the end of the generation process is effective at reducing these artifacts and sharpening image quality. Concretely, given the current latent xt
+
+and the flow map velocity vt,t + (xt), we decompose the next-step prediction into a clean-sample estimate ˆx1
+
+and a noise estimate ˆ x0 via the linear interpolant: ˆx1 = xt + (1 − t) vt,t + (xt), ˆx0 = xt − t v t,t + (xt). (136) We then form a renoised prior by mixing the estimated noise with fresh Gaussian noise ϵ ∼ N(0 , I ): ˜x0 = (1 − c) ˆ x0 + c ϵ, (137) and reconstruct the current latent using the renoised prior: ˜xt = (1 − t) ˜ x0 + t ˆx1. (138) 45 Table E.18: Early stopping ablation on GenEval (FMRG-J). Best GenEval accuracy across hyperparameters at each tstop . Bold indicates best. 
+
+tstop NFE 30 NFE 100 
+
+1.0 (none) 0.748 0.779 0.75 0.745 0.787 0.50 0.762 0.796 0.25 0.768 0.800 Table E.23: Wall-clock time and VRAM for inverse problems (256px, L40S). 
+
+Method NFE nopt Time/img (s) VRAM (GB) 
+
+FlowChef 30 3 5.10 23.3 FlowDPS 30 3 4.86 23.3 FMRG-E 30 3 4.85 23.3 FMRG-J 30 1 5.68 27.5 FlowChef 200 3 32.19 23.3 FlowDPS 200 3 32.23 23.3 FMRG-E 200 3 27.89 23.3 FMRG-J 200 1 35.62 27.5 
+
+The guided step then proceeds from ˜xt. The constant c ∈ [0 , 1] controls the amount of injected stochasticity. This lightweight procedure adds diversity without significantly altering the guided trajectory, and we find it effective in practice for VLM rewards. 
+
+## E.7 Wall-clock time and VRAM 
+
+We report wall-clock time per image and peak VRAM for all methods in Tables E.22 and E.23. 
+
+Table E.22: Wall-clock time and VRAM for reward-guided generation (512px, H100). 
+
+Method NFE Time/img (s) VRAM (GB) 
+
+FMTT 1400 337.5 73.5 Best-of-N (N =8) 400 41.0 35.9 ReNO (seed optim) 58 21.9 48.2 FMRG-E (ours) 100 ∼34 .5 39.8 FMRG-J (ours) 20 ∼5.5 48.2 FMRG-J (ours) 100 24.8 48.2 
+
+46 Figure E.8: AFHQ 4× super-resolution, randomly selected examples (non-cherry-picked). FMRG variants recover sharper detail than FlowDPS/FlowChef and avoid DPS’s severe blurring artifacts. 
+
+47 Figure E.9: AFHQ motion deblurring, randomly selected examples (non-cherry-picked). FMRG reconstructions are consistent with the degraded observation and preserve fine texture. 
+
+48 Figure E.10: AFHQ box inpainting, randomly selected examples (non-cherry-picked). FMRG fills the masked region with content consistent with the visible context. 
+
+49 Figure E.11: FFHQ 4× super-resolution, randomly selected examples (non-cherry-picked). Same pattern as Figure E.8: FMRG recovers sharper facial detail than the baselines. 
+
+50 Figure E.12: FFHQ motion deblurring, randomly selected examples (non-cherry-picked). FMRG recovers clean facial structure with minimal artifacts. 
+
+51 Figure E.13: FFHQ box inpainting, randomly selected examples (non-cherry-picked). Same pattern as Figure E.10: FMRG fills masked regions with content consistent with the visible face. 
+
+52 Figure E.14: Additional inverse problem qualitative results with ground truth. Six examples each for super-resolution (4 ×), motion deblurring, and inpainting on AFHQ and FFHQ. 
+
+53 Figure E.16: Additional style transfer comparisons. Extended hierarchy comparison across multiple style references. FMRG-J consistently captures the target style while preserving semantic content. 
+
+54 Figure E.19: Effect of early stopping on generation quality. Each row shows a different prompt guided by the reward ensemble with FMRG-J at varying tstop . tstop = 0 .25 consistently yields the best quality; removing early stopping ( tstop = 1) produces over-optimized artifacts. 
+
+55 Figure E.20: Additional aesthetic enhancement comparisons (1/2). At matched low NFE budgets, FMRG produces more dramatic aesthetic enhancements than ReNO. 
+
+56 Figure E.21: Additional aesthetic enhancement comparisons (2/2). At matched low NFE budgets, FMRG produces more dramatic aesthetic enhancements than ReNO. 
+
+57
