@@ -6,203 +6,173 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-02
-- 运行时间：2026-05-02 21:09:28 UTC
+- 最新运行日期：2026-05-03
+- 运行时间：2026-05-03 20:56:44 UTC
 - 运行状态：成功
-- 本次总论文数：61
-- 精读区：50
+- 本次总论文数：51
+- 精读区：40
 - 速读区：11
 
 ### 今日简报（AI）
-今日筛选61篇论文，精读50篇并发现两篇满分机器人研究。机器人策略评估与人类意图学习成为亮点方向。建议关注机器人技术如何更精准理解人类指令。
-- 详情：[/202605/02/README](/202605/02/README)
+今日日报成功覆盖51篇前沿研究，深度精读40篇并高效速读11篇，聚焦机器人视觉语言行动与强化学习。最值得关注的是Vision-Language-Action模型在机器人学中的综述及在线RL引导方法，均获满分评价。建议普通读者优先阅读这两篇高分论文，把握最新技术趋势。
+- 详情：[/202605/03/README](/202605/03/README)
 
 ### 精读区论文标签
-1. [dWorldEval: Scalable Robotic Policy Evaluation via Discrete Diffusion World Model](/202605/02/2604.22152v1-dworldeval-scalable-robotic-policy-evaluation-via-discrete-diffusion-world-model)  
+1. [Vision-Language-Action in Robotics: A Survey of Datasets, Benchmarks, and Data Engines](/202605/03/2604.23001v1-vision-language-action-in-robotics-a-survey-of-datasets-benchmarks-and-data-engines)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：用于可扩展机器人策略评估的离散扩散世界模型
-2. [GazeVLA: Learning Human Intention for Robotic Manipulation](/202605/02/2604.22615v1-gazevla-learning-human-intention-for-robotic-manipulation)  
+   evidence：机器人领域视觉-语言-动作（VLA）的数据集、评测基准与数据引擎综述
+2. [RL Token: Bootstrapping Online RL with Vision-Language-Action Models](/202605/03/2604.23073v1-rl-token-bootstrapping-online-rl-with-vision-language-action-models)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：利用人类意图进行机器人操作的VLA框架
-3. [Agentic World Modeling: Foundations, Capabilities, Laws, and Beyond](/202605/02/2604.22748v1-agentic-world-modeling-foundations-capabilities-laws-and-beyond)  
+   evidence：对预训练视觉-语言-动作（VLA）模型进行在线强化学习微调
+3. [Modular Sensory Stream for Integrating Physical Feedback in Vision-Language-Action Models](/202605/03/2604.23272v1-modular-sensory-stream-for-integrating-physical-feedback-in-vision-language-action-models)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：智能体世界模型的分类与基础
-4. [Vision-Language-Action in Robotics: A Survey of Datasets, Benchmarks, and Data Engines](/202605/02/2604.23001v1-vision-language-action-in-robotics-a-survey-of-datasets-benchmarks-and-data-engines)  
+   evidence：将物理反馈集成到视觉-语言-动作（VLA）模型中进行动作预测
+4. [Tube Diffusion Policy: Reactive Visual-Tactile Policy Learning for Contact-rich Manipulation](/202605/03/2604.23609v1-tube-diffusion-policy-reactive-visual-tactile-policy-learning-for-contact-rich-manipulation)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：VLA数据集、基准测试与评估协议综述
-5. [RL Token: Bootstrapping Online RL with Vision-Language-Action Models](/202605/02/2604.23073v1-rl-token-bootstrapping-online-rl-with-vision-language-action-models)  
+   evidence：用于机器人操作的反应式视触觉扩散策略
+5. [Move-Then-Operate: Behavioral Phasing for Human-Like Robotic Manipulation](/202605/03/2604.23620v1-move-then-operate-behavioral-phasing-for-human-like-robotic-manipulation)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：使用强化学习微调视觉-语言-动作（VLA）模型
-6. [Tube Diffusion Policy: Reactive Visual-Tactile Policy Learning for Contact-rich Manipulation](/202605/02/2604.23609v1-tube-diffusion-policy-reactive-visual-tactile-policy-learning-for-contact-rich-manipulation)  
+   evidence：用于机器人操作的视觉语言动作框架
+6. [Vision-Language-Action Safety: Threats, Challenges, Evaluations, and Mechanisms](/202605/03/2604.23775v1-vision-language-action-safety-threats-challenges-evaluations-and-mechanisms)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：用于反应式视觉-触觉机器人操作的Tube扩散策略
-7. [Move-Then-Operate: Behavioral Phasing for Human-Like Robotic Manipulation](/202605/02/2604.23620v1-move-then-operate-behavioral-phasing-for-human-like-robotic-manipulation)  
+   evidence：关于视觉-语言-动作模型安全与评估的综述
+7. [$M^2$-VLA: Boosting Vision-Language Models for Generalizable Manipulation via Layer Mixture and Meta-Skills](/202605/03/2604.24182v1-m2-vla-boosting-vision-language-models-for-generalizable-manipulation-via-layer-mixture-and-meta-skills)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：用于机器人操作的视觉语言动作框架及RoboTwin2基准
-8. [$M^2$-VLA: Boosting Vision-Language Models for Generalizable Manipulation via Layer Mixture and Meta-Skills](/202605/02/2604.24182v1-m2-vla-boosting-vision-language-models-for-generalizable-manipulation-via-layer-mixture-and-meta-skills)  
+   evidence：通过层混合实现机器人操纵的视觉语言动作模型
+8. [CF-VLA: Efficient Coarse-to-Fine Action Generation for Vision-Language-Action Policies](/202605/03/2604.24622v2-cf-vla-efficient-coarse-to-fine-action-generation-for-vision-language-action-policies)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：用于机器人操控的视觉-语言-动作 (VLA) 模型
-9. [CF-VLA: Efficient Coarse-to-Fine Action Generation for Vision-Language-Action Policies](/202605/02/2604.24622v1-cf-vla-efficient-coarse-to-fine-action-generation-for-vision-language-action-policies)  
+   evidence：使用粗到精公式的视觉语言动作策略高效动作生成
+9. [Libra-VLA: Achieving Learning Equilibrium via Asynchronous Coarse-to-Fine Dual-System](/202605/03/2604.24921v1-libra-vla-achieving-learning-equilibrium-via-asynchronous-coarse-to-fine-dual-system)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：VLA策略的高效粗到细动作生成
-10. [CF-VLA: Efficient Coarse-to-Fine Action Generation for Vision-Language-Action Policies](/202605/02/2604.24622v2-cf-vla-efficient-coarse-to-fine-action-generation-for-vision-language-action-policies)  
+   evidence：用于机器人操作的视觉-语言-动作（VLA）模型
+10. [Unified 4D World Action Modeling from Video Priors with Asynchronous Denoising](/202605/03/2604.26694v1-unified-4d-world-action-modeling-from-video-priors-with-asynchronous-denoising)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：视觉-语言-动作策略的高效动作生成
-11. [Libra-VLA: Achieving Learning Equilibrium via Asynchronous Coarse-to-Fine Dual-System](/202605/02/2604.24921v1-libra-vla-achieving-learning-equilibrium-via-asynchronous-coarse-to-fine-dual-system)  
-   标签：评分：10.0/10、query:sr-0501
-   evidence：用于机器人操作的混合动作空间VLA模型
-12. [A Systematic Post-Train Framework for Video Generation](/202605/02/2604.25427v1-a-systematic-post-train-framework-for-video-generation)  
-   标签：评分：10.0/10、query:sr-0501
-   evidence：视频扩散模型的后训练框架与对齐
-13. [Unified 4D World Action Modeling from Video Priors with Asynchronous Denoising](/202605/02/2604.26694v1-unified-4d-world-action-modeling-from-video-priors-with-asynchronous-denoising)  
-   标签：评分：10.0/10、query:sr-0501
-   evidence：利用扩散先验统一机器人动作执行与视频合成的4D世界模型
-14. [STARRY: Spatial-Temporal Action-Centric World Modeling for Robotic Manipulation](/202605/02/2604.26848v1-starry-spatial-temporal-action-centric-world-modeling-for-robotic-manipulation)  
+   evidence：利用扩散先验统一机器人动作执行与4D视频合成的世界模型
+11. [STARRY: Spatial-Temporal Action-Centric World Modeling for Robotic Manipulation](/202605/03/2604.26848v1-starry-spatial-temporal-action-centric-world-modeling-for-robotic-manipulation)  
    标签：评分：10.0/10、query:sr-0501
    evidence：用于机器人操作的世界模型增强型动作生成策略
-15. [PRTS: A Primitive Reasoning and Tasking System via Contrastive Representations](/202605/02/2604.27472v1-prts-a-primitive-reasoning-and-tasking-system-via-contrastive-representations)  
+12. [PRTS: A Primitive Reasoning and Tasking System via Contrastive Representations](/202605/03/2604.27472v1-prts-a-primitive-reasoning-and-tasking-system-via-contrastive-representations)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：通过目标条件强化学习重构预训练的VLA基础模型
-16. [MotuBrain: An Advanced World Action Model for Robot Control](/202605/02/2604.27792v1-motubrain-an-advanced-world-action-model-for-robot-control)  
+   evidence：使用目标条件强化学习的VLA基础模型用于机器人控制
+13. [ExoActor: Exocentric Video Generation as Generalizable Interactive Humanoid Control](/202605/03/2604.27711v1-exoactor-exocentric-video-generation-as-generalizable-interactive-humanoid-control)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：联合建模视频动力学和机器人动作的统一世界动作模型 (WAM)
-17. [AesRM: Improving Video Aesthetics with Expert-Level Feedback](/202605/02/2604.28078v1-aesrm-improving-video-aesthetics-with-expert-level-feedback)  
+   evidence：用于交互式人形机器人控制的视频生成模型
+14. [MotuBrain: An Advanced World Action Model for Robot Control](/202605/03/2604.27792v1-motubrain-an-advanced-world-action-model-for-robot-control)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：视频生成美学评估基准
-18. [Visual Generation in the New Era: An Evolution from Atomic Mapping to Agentic World Modeling](/202605/02/2604.28185v1-visual-generation-in-the-new-era-an-evolution-from-atomic-mapping-to-agentic-world-modeling)  
+   evidence：视频与动作预测的统一世界动作模型
+15. [Graph World Models: Concepts, Taxonomy, and Future Directions](/202605/03/2604.27895v1-graph-world-models-concepts-taxonomy-and-future-directions)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：从视觉生成到智能体世界模型的演进
-19. [LaST-R1: Reinforcing Action via Adaptive Physical Latent Reasoning for VLA Models](/202605/02/2604.28192v1-last-r1-reinforcing-action-via-adaptive-physical-latent-reasoning-for-vla-models)  
+   evidence：用于智能体表示、预测和规划的图世界模型综述
+16. [Visual Generation in the New Era: An Evolution from Atomic Mapping to Agentic World Modeling](/202605/03/2604.28185v1-visual-generation-in-the-new-era-an-evolution-from-atomic-mapping-to-agentic-world-modeling)  
    标签：评分：10.0/10、query:sr-0501
-   evidence：结合潜空间推理和强化学习的VLA模型用于机器人控制
-20. [CodeGraphVLP: Code-as-Planner Meets Semantic-Graph State for Non-Markovian Vision-Language-Action Models](/202605/02/2604.22238v1-codegraphvlp-code-as-planner-meets-semantic-graph-state-for-non-markovian-vision-language-action-models)  
+   evidence：视觉生成向智能体世界模型演进的分类学和综述。
+17. [LaST-R1: Reinforcing Action via Adaptive Physical Latent Reasoning for VLA Models](/202605/03/2604.28192v1-last-r1-reinforcing-action-via-adaptive-physical-latent-reasoning-for-vla-models)  
+   标签：评分：10.0/10、query:sr-0501
+   evidence：集成潜空间推理与强化学习的VLA框架
+18. [CF-VLA: Efficient Coarse-to-Fine Action Generation for Vision-Language-Action Policies](/202605/03/2604.24622v1-cf-vla-efficient-coarse-to-fine-action-generation-for-vision-language-action-policies)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：视觉语言动作策略的高效动作生成
+19. [DiscreteRTC: Discrete Diffusion Policies are Natural Asynchronous Executors](/202605/03/2604.25050v1-discretertc-discrete-diffusion-policies-are-natural-asynchronous-executors)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：用于异步机器人执行的离散扩散策略
+20. [Lifting Embodied World Models for Planning and Control](/202605/03/2604.26182v1-lifting-embodied-world-models-for-planning-and-control)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：用于高维动作空间规划与控制的世界模型
+21. [Judge, Then Drive: A Critic-Centric Vision Language Action Framework for Autonomous Driving](/202605/03/2604.27366v1-judge-then-drive-a-critic-centric-vision-language-action-framework-for-autonomous-driving)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：以评论家为中心的自动驾驶视觉语言动作框架
+22. [PhyCo: Learning Controllable Physical Priors for Generative Motion](/202605/03/2604.28169v1-phyco-learning-controllable-physical-priors-for-generative-motion)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：使用扩散模型在视频生成中引入物理接地控制
+23. [HERMES++: Toward a Unified Driving World Model for 3D Scene Understanding and Generation](/202605/03/2604.28196v1-hermes-toward-a-unified-driving-world-model-for-3d-scene-understanding-and-generation)  
+   标签：评分：9.5/10、query:sr-0501
+   evidence：用于场景理解与生成的统一驾驶世界模型
+24. [Talker-T2AV: Joint Talking Audio-Video Generation with Autoregressive Diffusion Modeling](/202605/03/2604.23586v1-talker-t2av-joint-talking-audio-video-generation-with-autoregressive-diffusion-modeling)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于机器人操作和规划的非马尔可夫视觉-语言-动作模型
-21. [OccDirector: Language-Guided Behavior and Interaction Generation in 4D Occupancy Space](/202605/02/2604.22240v1-occdirector-language-guided-behavior-and-interaction-generation-in-4d-occupancy-space)  
+   evidence：结合自回归扩散模型的音视频联合生成
+25. [MuSS: A Large-Scale Dataset and Cinematic Narrative Benchmark for Multi-Shot Subject-to-Video Generation](/202605/03/2604.23789v1-muss-a-large-scale-dataset-and-cinematic-narrative-benchmark-for-multi-shot-subject-to-video-generation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于自动驾驶 4D 占用动态生成的生成式世界模型
-22. [Video Analysis and Generation via a Semantic Progress Function](/202605/02/2604.22554v1-video-analysis-and-generation-via-a-semantic-progress-function)  
+   evidence：用于多镜头视频生成的大规模数据集和电影叙事基准
+26. [Latent Inter-Frame Pruning: A Training-Free Method Bridging Traditional Video Compression and Modern Diffusion Transformers for Efficient Generation](/202605/03/2604.23858v1-latent-inter-frame-pruning-a-training-free-method-bridging-traditional-video-compression-and-modern-diffusion-transformers-for-efficient-generation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于视频生成分析的语义进度函数
-23. [RedVLA: Physical Red Teaming for Vision-Language-Action Models](/202605/02/2604.22591v1-redvla-physical-red-teaming-for-vision-language-action-models)  
+   evidence：利用扩散Transformer和剪枝实现高效视频生成
+27. [AsyncShield: A Plug-and-Play Edge Adapter for Asynchronous Cloud-based VLA Navigation](/202605/03/2604.24086v1-asyncshield-a-plug-and-play-edge-adapter-for-asynchronous-cloud-based-vla-navigation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：VLA模型物理安全的红队测试框架
-24. [Modular Sensory Stream for Integrating Physical Feedback in Vision-Language-Action Models](/202605/02/2604.23272v1-modular-sensory-stream-for-integrating-physical-feedback-in-vision-language-action-models)  
+   evidence：用于机器人控制与导航的VLA模型
+28. [Characterizing Vision-Language-Action Models across XPUs: Constraints and Acceleration for On-Robot Deployment](/202605/03/2604.24447v1-characterizing-vision-language-action-models-across-xpus-constraints-and-acceleration-for-on-robot-deployment)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：将物理反馈集成到视觉语言动作 (VLA) 模型中
-25. [PhysLayer: Language-Guided Layered Animation with Depth-Aware Physics](/202605/02/2604.23574v1-physlayer-language-guided-layered-animation-with-depth-aware-physics)  
+   evidence：针对机器人部署和硬件加速的视觉-语言-动作（VLA）模型特性分析
+29. [Learning Human-Intention Priors from Large-Scale Human Demonstrations for Robotic Manipulation](/202605/03/2604.24681v1-learning-human-intention-priors-from-large-scale-human-demonstrations-for-robotic-manipulation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：带物理特性的语言引导图像转视频生成
-26. [Vision-Language-Action Safety: Threats, Challenges, Evaluations, and Mechanisms](/202605/02/2604.23775v1-vision-language-action-safety-threats-challenges-evaluations-and-mechanisms)  
+   evidence：从人类视频中学习机器人操作的分层视觉语言动作框架
+30. [World-R1: Reinforcing 3D Constraints for Text-to-Video Generation](/202605/03/2604.24764v1-world-r1-reinforcing-3d-constraints-for-text-to-video-generation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：关于视觉-语言-动作模型安全性、评估和机制的综述
-27. [MuSS: A Large-Scale Dataset and Cinematic Narrative Benchmark for Multi-Shot Subject-to-Video Generation](/202605/02/2604.23789v1-muss-a-large-scale-dataset-and-cinematic-narrative-benchmark-for-multi-shot-subject-to-video-generation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：多镜头视频生成的大规模数据集和基准
-28. [AsyncShield: A Plug-and-Play Edge Adapter for Asynchronous Cloud-based VLA Navigation](/202605/02/2604.24086v1-asyncshield-a-plug-and-play-edge-adapter-for-asynchronous-cloud-based-vla-navigation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：用于机器人云端VLA导航的异步控制框架
-29. [Characterizing Vision-Language-Action Models across XPUs: Constraints and Acceleration for On-Robot Deployment](/202605/02/2604.24447v1-characterizing-vision-language-action-models-across-xpus-constraints-and-acceleration-for-on-robot-deployment)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：用于机器人控制和部署约束的视觉语言动作模型
-30. [Learning Human-Intention Priors from Large-Scale Human Demonstrations for Robotic Manipulation](/202605/02/2604.24681v1-learning-human-intention-priors-from-large-scale-human-demonstrations-for-robotic-manipulation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：从人类视频中学习机器人操作的分层视觉-语言-动作框架
-31. [SpecRLBench: A Benchmark for Generalization in Specification-Guided Reinforcement Learning](/202605/02/2604.24729v1-specrlbench-a-benchmark-for-generalization-in-specification-guided-reinforcement-learning)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：导航与操作中机器人策略的评测基准
-32. [World-R1: Reinforcing 3D Constraints for Text-to-Video Generation](/202605/02/2604.24764v1-world-r1-reinforcing-3d-constraints-for-text-to-video-generation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：使用强化学习使视频生成符合3D约束
-33. [DiscreteRTC: Discrete Diffusion Policies are Natural Asynchronous Executors](/202605/02/2604.25050v1-discretertc-discrete-diffusion-policies-are-natural-asynchronous-executors)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：用于机器人学习异步执行的离散扩散策略
-34. [ProDrive: Proactive Planning for Autonomous Driving via Ego-Environment Co-Evolution](/202605/02/2604.25329v1-prodrive-proactive-planning-for-autonomous-driving-via-ego-environment-co-evolution)  
+   evidence：使用强化学习和世界模拟数据将视频生成与3D约束对齐。
+31. [ProDrive: Proactive Planning for Autonomous Driving via Ego-Environment Co-Evolution](/202605/03/2604.25329v1-prodrive-proactive-planning-for-autonomous-driving-via-ego-environment-co-evolution)  
    标签：评分：9.0/10、query:sr-0501
    evidence：基于世界模型的自动驾驶主动规划
-35. [HuM-Eval: A Coarse-to-Fine Framework for Human-Centric Video Evaluation](/202605/02/2604.25361v1-hum-eval-a-coarse-to-fine-framework-for-human-centric-video-evaluation)  
+32. [HuM-Eval: A Coarse-to-Fine Framework for Human-Centric Video Evaluation](/202605/03/2604.25361v1-hum-eval-a-coarse-to-fine-framework-for-human-centric-video-evaluation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：针对生成模型的以人为中心的视频评测框架
-36. [Dyna-Style Safety Augmented Reinforcement Learning: Staying Safe in the Face of Uncertainty](/202605/02/2604.25508v1-dyna-style-safety-augmented-reinforcement-learning-staying-safe-in-the-face-of-uncertainty)  
+   evidence：使用VLM的以人为中心的视频评测框架
+33. [A Systematic Post-Train Framework for Video Generation](/202605/03/2604.25427v1-a-systematic-post-train-framework-for-video-generation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：使用学习到的不确定性感知动力学模型的Dyna风格强化学习
-37. [Mutual Forcing: Dual-Mode Self-Evolution for Fast Autoregressive Audio-Video Character Generation](/202605/02/2604.25819v1-mutual-forcing-dual-mode-self-evolution-for-fast-autoregressive-audio-video-character-generation)  
+   evidence：使用RLHF和SFT的视频生成后训练框架
+34. [Mutual Forcing: Dual-Mode Self-Evolution for Fast Autoregressive Audio-Video Character Generation](/202605/03/2604.25819v1-mutual-forcing-dual-mode-self-evolution-for-fast-autoregressive-audio-video-character-generation)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：快速自回归音视频生成框架
-38. [Privileged Foresight Distillation: Zero-Cost Future Correction for World Action Models](/202605/02/2604.25859v1-privileged-foresight-distillation-zero-cost-future-correction-for-world-action-models)  
+   evidence：快速自回归音视频生成与同步
+35. [Privileged Foresight Distillation: Zero-Cost Future Correction for World Action Models](/202605/03/2604.25859v1-privileged-foresight-distillation-zero-cost-future-correction-for-world-action-models)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：预测未来视频和动作的世界动作模型用于机器人操作
-39. [Lifting Embodied World Models for Planning and Control](/202605/02/2604.26182v1-lifting-embodied-world-models-for-planning-and-control)  
+   evidence：预测未来视频和动作的世界动作模型，用于机器人操控
+36. [AGEL-Comp: A Neuro-Symbolic Framework for Compositional Generalization in Interactive Agents](/202605/03/2604.26522v1-agel-comp-a-neuro-symbolic-framework-for-compositional-generalization-in-interactive-agents)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于复杂智能体规划与控制的具身世界模型
-40. [GLM-5V-Turbo: Toward a Native Foundation Model for Multimodal Agents](/202605/02/2604.26752v1-glm-5v-turbo-toward-a-native-foundation-model-for-multimodal-agents)  
+   evidence：因果程序图作为交互式智能体的世界模型
+37. [World2VLM: Distilling World Model Imagination into VLMs for Dynamic Spatial Reasoning](/202605/03/2604.26934v1-world2vlm-distilling-world-model-imagination-into-vlms-for-dynamic-spatial-reasoning)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于多模态智能体的原生基础模型，集成了感知、推理和动作
-41. [World2VLM: Distilling World Model Imagination into VLMs for Dynamic Spatial Reasoning](/202605/02/2604.26934v1-world2vlm-distilling-world-model-imagination-into-vlms-for-dynamic-spatial-reasoning)  
+   evidence：将世界模型的想象力蒸馏到VLM中，用于动态空间推理和运动。
+38. [YOSE: You Only Select Essential Tokens for Efficient DiT-based Video Object Removal](/202605/03/2604.27322v1-yose-you-only-select-essential-tokens-for-efficient-dit-based-video-object-removal)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：将世界模型的想象力蒸馏到VLM中以进行动态空间推理
-42. [Detecting is Easy, Adapting is Hard: Local Expert Growth for Visual Model-Based Reinforcement Learning under Distribution Shift](/202605/02/2604.27411v1-detecting-is-easy-adapting-is-hard-local-expert-growth-for-visual-model-based-reinforcement-learning-under-distribution-shift)  
+   evidence：基于DiT的高效视频生成用于物体移除
+39. [Detecting is Easy, Adapting is Hard: Local Expert Growth for Visual Model-Based Reinforcement Learning under Distribution Shift](/202605/03/2604.27411v1-detecting-is-easy-adapting-is-hard-local-expert-growth-for-visual-model-based-reinforcement-learning-under-distribution-shift)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：分布偏移下的视觉基于模型的强化学习
-43. [RAY-TOLD: Ray-Based Latent Dynamics for Dense Dynamic Obstacle Avoidance with TDMPC](/202605/02/2604.27450v1-ray-told-ray-based-latent-dynamics-for-dense-dynamic-obstacle-avoidance-with-tdmpc)  
+   evidence：分布偏移下的视觉基于模型的强化学习（MBRL）
+40. [A Pattern Language for Resilient Visual Agents](/202605/03/2604.28001v1-a-pattern-language-for-resilient-visual-agents)  
    标签：评分：9.0/10、query:sr-0501
-   evidence：用于机器人规划和强化学习的潜空间动力学模型
-44. [SpaAct: Spatially-Activated Transition Learning with Curriculum Adaptation for Vision-Language Navigation](/202605/02/2604.27620v1-spaact-spatially-activated-transition-learning-with-curriculum-adaptation-for-vision-language-navigation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：将VLM应用于视觉语言导航
-45. [Robot Learning from Human Videos: A Survey](/202605/02/2604.27621v1-robot-learning-from-human-videos-a-survey)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：从人类视频中学习机器人技能的综述
-46. [ExoActor: Exocentric Video Generation as Generalizable Interactive Humanoid Control](/202605/02/2604.27711v1-exoactor-exocentric-video-generation-as-generalizable-interactive-humanoid-control)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：利用视频生成模型进行交互式类人机器人控制
-47. [Graph World Models: Concepts, Taxonomy, and Future Directions](/202605/02/2604.27895v1-graph-world-models-concepts-taxonomy-and-future-directions)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：用于预测和规划的图世界模型综述
-48. [A Pattern Language for Resilient Visual Agents](/202605/02/2604.28001v1-a-pattern-language-for-resilient-visual-agents)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：控制回路中VLA模型的架构模式语言
-49. [PhyCo: Learning Controllable Physical Priors for Generative Motion](/202605/02/2604.28169v1-phyco-learning-controllable-physical-priors-for-generative-motion)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：视频扩散模型和生成运动的可控物理先验
-50. [HERMES++: Toward a Unified Driving World Model for 3D Scene Understanding and Generation](/202605/02/2604.28196v1-hermes-toward-a-unified-driving-world-model-for-3d-scene-understanding-and-generation)  
-   标签：评分：9.0/10、query:sr-0501
-   evidence：用于生成与理解的统一驾驶世界模型
+   evidence：企业控制中视觉语言动作（VLA）模型的架构模式
 
 ### 速读区论文标签
-1. [BridgeACT: Bridging Human Demonstrations to Robot Actions via Unified Tool-Target Affordances](/202605/02/2604.23249v1-bridgeact-bridging-human-demonstrations-to-robot-actions-via-unified-tool-target-affordances)  
-   标签：评分：8.0/10、query:sr-0501
-   evidence：通过示能性将人类演示桥接到机器人动作
-2. [EAD-Net: Emotion-Aware Talking Head Generation with Spatial Refinement and Temporal Coherence](/202605/02/2604.23325v1-ead-net-emotion-aware-talking-head-generation-with-spatial-refinement-and-temporal-coherence)  
-   标签：评分：8.0/10、query:sr-0501
-   evidence：用于说话人视频生成的表情感知扩散模型
-3. [V-GRPO: Online Reinforcement Learning for Denoising Generative Models Is Easier than You Think](/202605/02/2604.23380v1-v-grpo-online-reinforcement-learning-for-denoising-generative-models-is-easier-than-you-think)  
-   标签：评分：8.0/10、query:sr-0501
-   evidence：用于对齐扩散等去噪生成模型的在线强化学习
-4. [Talker-T2AV: Joint Talking Audio-Video Generation with Autoregressive Diffusion Modeling](/202605/02/2604.23586v1-talker-t2av-joint-talking-audio-video-generation-with-autoregressive-diffusion-modeling)  
-   标签：评分：8.0/10、query:sr-0501
-   evidence：结合自回归扩散的联合音视频生成
-5. [GenMatter: Perceiving Physical Objects with Generative Matter Models](/202605/02/2604.22160v1-genmatter-perceiving-physical-objects-with-generative-matter-models)  
+1. [CODA: Coordination via On-Policy Diffusion for Multi-Agent Offline Reinforcement Learning](/202605/03/2604.23308v1-coda-coordination-via-on-policy-diffusion-for-multi-agent-offline-reinforcement-learning)  
+   标签：评分：8.5/10、query:sr-0501
+   evidence：多智能体离线强化学习的扩散轨迹生成器
+2. [IntentVLM: Open-Vocabulary Intention Recognition through Forward-Inverse Modeling with Video-Language Models](/202605/03/2604.24002v1-intentvlm-open-vocabulary-intention-recognition-through-forward-inverse-modeling-with-video-language-models)  
+   标签：评分：8.5/10、query:sr-0501
+   evidence：用于人机交互中人类意图识别的视频语言模型
+3. [Walk With Me: Long-Horizon Social Navigation for Human-Centric Outdoor Assistance](/202605/03/2604.26839v1-walk-with-me-long-horizon-social-navigation-for-human-centric-outdoor-assistance)  
+   标签：评分：8.5/10、query:sr-0501
+   evidence：视觉语言模型将抽象指令转化为机器人导航的目的地
+4. [RAY-TOLD: Ray-Based Latent Dynamics for Dense Dynamic Obstacle Avoidance with TDMPC](/202605/03/2604.27450v1-ray-told-ray-based-latent-dynamics-for-dense-dynamic-obstacle-avoidance-with-tdmpc)  
+   标签：评分：8.5/10、query:sr-0501
+   evidence：结合TDMPC的潜空间动力学模型用于避障
+5. [DLM: Unified Decision Language Models for Offline Multi-Agent Sequential Decision Making](/202605/03/2604.23557v1-dlm-unified-decision-language-models-for-offline-multi-agent-sequential-decision-making)  
+   标签：评分：7.5/10、query:sr-0501
+   evidence：多智能体决策的决策语言模型
+6. [CAPSULE: Control-Theoretic Action Perturbations for Safe Uncertainty-Aware Reinforcement Learning](/202605/03/2604.23576v1-capsule-control-theoretic-action-perturbations-for-safe-uncertainty-aware-reinforcement-learning)  
+   标签：评分：7.5/10、query:sr-0501
+   evidence：用于安全强化学习的概率控制仿射动力学模型
+7. [Featurising Pixels from Dynamic 3D Scenes with Linear In-Context Learners](/202605/03/2604.26488v1-featurising-pixels-from-dynamic-3d-scenes-with-linear-in-context-learners)  
+   标签：评分：7.5/10、query:sr-0501
+   evidence：从视频中学习时空特征描述符以进行像素级推理
+8. [Bridging Reasoning and Action: Hybrid LLM-RL Framework for Efficient Cross-Domain Task-Oriented Dialogue](/202605/03/2604.23345v1-bridging-reasoning-and-action-hybrid-llm-rl-framework-for-efficient-cross-domain-task-oriented-dialogue)  
    标签：评分：7.0/10、query:sr-0501
-   evidence：用于感知物理对象和基于运动的场景解释的生成模型
-6. [An LLM-Driven Closed-Loop Autonomous Learning Framework for Robots Facing Uncovered Tasks in Open Environments](/202605/02/2604.22199v1-an-llm-driven-closed-loop-autonomous-learning-framework-for-robots-facing-uncovered-tasks-in-open-environments)  
-   标签：评分：7.0/10、query:sr-0501
-   evidence：大语言模型驱动的机器人任务处理自主学习框架
-7. [SOLAR-RL: Semi-Online Long-horizon Assignment Reinforcement Learning](/202605/02/2604.22558v1-solar-rl-semi-online-long-horizon-assignment-reinforcement-learning)  
-   标签：评分：7.0/10、query:sr-0501
-   evidence：用于在动态 GUI 任务上训练 MLLM 智能体的半在线强化学习框架
-8. [Learning from the Best: Smoothness-Driven Metrics for Data Quality in Imitation Learning](/202605/02/2604.23000v1-learning-from-the-best-smoothness-driven-metrics-for-data-quality-in-imitation-learning)  
-   标签：评分：7.0/10、query:sr-0501
-   evidence：模仿学习和机器人策略训练的数据质量指标
-9. [SS3D: End2End Self-Supervised 3D from Web Videos](/202605/02/2604.22686v1-ss3d-end2end-self-supervised-3d-from-web-videos)  
-   标签：评分：6.0/10、query:sr-0501
-   evidence：从网络视频中进行自监督3D估计，用于世界建模
-10. [Statistical Analysis of Markovian Generative Modeling](/202605/02/2604.22712v1-statistical-analysis-of-markovian-generative-modeling)  
-   标签：评分：6.0/10、query:sr-0501
-   evidence：基于分数的扩散模型和生成模型的统计分析
-11. [GCImOpt: Learning efficient goal-conditioned policies by imitating optimal trajectories](/202605/02/2604.22724v1-gcimopt-learning-efficient-goal-conditioned-policies-by-imitating-optimal-trajectories)  
-   标签：评分：6.0/10、query:sr-0501
-   evidence：通过模仿最优轨迹学习目标条件策略以进行控制
+   evidence：结合推理与动作的混合LLM-RL框架
+9. [Learning from the Best: Smoothness-Driven Metrics for Data Quality in Imitation Learning](/202605/03/2604.23000v1-learning-from-the-best-smoothness-driven-metrics-for-data-quality-in-imitation-learning)  
+   标签：评分：6.5/10、query:sr-0501
+   evidence：模仿学习和机器人策略的数据质量指标
+10. [Atomic-Probe Governance for Skill Updates in Compositional Robot Policies](/202605/03/2604.26689v1-atomic-probe-governance-for-skill-updates-in-compositional-robot-policies)  
+   标签：评分：6.5/10、query:sr-0501
+   evidence：组合机器人策略中技能更新的基准测试
+11. [Reconstruction by Generation: 3D Multi-Object Scene Reconstruction from Sparse Observations](/202605/03/2604.27106v1-reconstruction-by-generation-3d-multi-object-scene-reconstruction-from-sparse-observations)  
+   标签：评分：6.5/10、query:sr-0501
+   evidence：用于机器人3D场景重建的生成式框架
 
 
 <div class="dpr-home-promo-card">
