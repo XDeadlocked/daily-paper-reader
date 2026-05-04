@@ -1,0 +1,1159 @@
+Title: Dyna-Style Safety Augmented Reinforcement Learning: Staying Safe in the Face of Uncertainty
+
+URL Source: https://arxiv.org/pdf/2604.25508v1
+
+Published Time: Wed, 29 Apr 2026 01:00:03 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Dyna-Style Safety Augmented Reinforcement Learning: Staying Safe in the Face of Uncertainty 
+
+Artur Eisele * 1 Bernd Frauenknecht * 1 Friedrich Solowjow 1 Sebastian Trimpe 1
+
+## Abstract 
+
+Safety remains an open problem in reinforcement learning (RL), especially during training. While safety filters are promising to address safe ex-ploration, they are generally poorly suited for high-dimensional systems with unknown dynam-ics. We propose Dyna-style Safety Augmented Reinforcement Learning (Dyna-SAuR) , a novel algorithm that learns both a scalable safety filter and a control policy using a learned uncertainty-aware dynamics model, while requiring minimal domain knowledge. The filter avoids failures and high uncertainty regions. Thus, better models ex-pand the set of safe and certain states, reducing filter conservatism. We present the effectiveness of Dyna-SAuR on goal-reaching CartPole as well as MuJoCo Walker, reducing failures compared to state-of-the-art methods by 2 orders of magnitude. 
+
+## 1. Introduction 
+
+Exploration safety during training is a substantial challenge in reinforcement learning (RL), making direct learning on hardware impractical for many applications. Safe RL meth-ods typically treat safety as a soft constraint (Achiam et al., 2017; As et al., 2025) or use safety filters from control the-ory (Bansal et al., 2017; Ames et al., 2019; Wabersich et al., 2023). The former ensures safety only in expectation, while the latter requires extensive domain knowledge and strug-gles with high-dimensional problems. While results towards learning safety filters with RL were recently presented (La-vanakul et al., 2024), practical limitations such as access to a simulator and scaling of the method remain. We introduce Dyna-style Safety Augmented Reinforcement Learning (Dyna-SAuR), a model-based reinforcement learn-ing (MBRL) method that concurrently learns a control pol-icy and a safety filter using an uncertainty-aware dynamics 
+
+> *
+
+Equal contribution 1Institute for Data Science in Mechanical Engineering, RWTH Aachen University, Aachen, Germany. Corre-spondence to: Artur Eisele <artur.eisele@dsme.rwth-aachen.de >.
+
+Preprint. April 29, 2026.    
+
+> Model Learning Safety Filter Learning
+> Safe Control Learning and Data Collection
+> Environment
+> Synthetic A
+> Data
+> Data
+> Safety Filter
+
+Figure 1. Dyna-SAuR mechanism. An uncertainty-aware dynam-ics model is used to train a safety filter that avoids both failures and uncertain regions of the model. The filter is used to safely learn a control policy in the environment. The collected data is used to improve the dynamics model, which expands the certain area and reduces conservatism in the next iteration. 
+
+model. Dyna-SAuR enables safe exploration, solely relying on a notion of failure and some initial environment data. 
+
+Main Idea Evaluating safety involves identifying if subse-quent failures occur, which can be assessed using a learned dynamics model in synthetic rollouts without risk. However, the model is reliable only for state-action pairs in which it can accurately represent the dynamics, as illustrated in Figure 1. We train a safety filter to avoid both unsafe and uncertain regions. Deploying the safety filter in the environ-ment enables safe control policy learning within the model’s certain area. As training progresses, environment data im-proves the model, reducing uncertain regions. This gives more room for safe exploration to find better policies. To address the technical challenges of building this architec-ture, we define safety within an uncertain model, present a compact RL formulation of the safety filter learning prob-lem, and provide practical guidelines to scale up. In em-pirical evaluation on goal-reaching CartPole and MuJoCo Walker, Dyna-SAuR matches or exceeds the performance of state-of-the-art safe RL, while reducing failures during training by at least two orders of magnitude. 1
+
+> arXiv:2604.25508v1 [cs.LG] 28 Apr 2026 Safety Augmented Model-Based Reinforcement Learning
+
+## 2. Background 
+
+Introducing the concepts of MBRL and safe learning allows us to clearly specify the challenges of safety filter learning. 
+
+2.1. Model-based Reinforcement Learning 
+
+We consider sequential decision-making in an environment modeled as a discrete-time Markov decision process (MDP) 
+
+M = {S , A, p, r, ρ 0, γ }, with states St ∈ S ⊆ RnS and actions At ∈ A = [ −1, 1] nA . Rewards Rt ∈ R are gen-erated by the reward function r : S × A × S → R, while the environment dynamics p : S × A → ∆( S) propagate the system state, with ∆ indicating a stochastic mapping. Starting from an initial state S0 ∼ ρ0, the goal of RL is to find the optimal policy π∗ : S → A within the set of policies Π that maximizes the sum of rewards discounted by 0 ≤ γ < 1, referred to as return, in expectation 
+
+π∗ = arg max  
+
+> π∈Π
+
+Eπ
+
+" ∞X
+
+> t=0
+
+γtRt+1 
+
+#
+
+. (1) Where needed, we use St, At, and Rt to refer to random variables and distinguish them from their realizations st, at,and rt. Further, the state-action occupancy of a policy πρπ (s, a ) := lim  
+
+> T→∞
+
+1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+Pπ [St = s, A t = a] (2) describes the probability of being in a state-action pair for a policy π interacting with the environment dynamics p.To reduce costly and dangerous data collection in the environment, model-based RL trains dynamics mod-els ˆp(·| St, A t) to approximate the environment dynam-ics (Deisenroth & Rasmussen, 2011; Hafner et al., 2023). In Dyna-style architectures (Sutton, 1991; Janner et al., 2019), 
+
+ˆp is used to simulate interactions for training model-free RL algorithms. However, ˆp is typically unreliable outside the training data distribution. Therefore, models such as the probabilistic ensemble (PE) (Lakshminarayanan et al., 2017) capture epistemic uncertainty, where ensemble dis-agreement indicates prediction inaccuracy. This uncertainty is used to define a sufficiently certain set E ⊆ (S ×A ) where the environment is modeled accurately (Frauenknecht et al., 2024). We follow Frauenknecht et al. (2025) and use the set 
+
+E := {(st, a t) ∈ S × A | H( ˆSt+1 ) ≤ λ1}, (3) where the entropy of the model’s predictive distribution 
+
+H( ˆSt+1 ), indicating uncertainty, is upper bounded by λ1.
+
+2.2. Safe Learning 
+
+We adopt the notion of training time safety (Brunke et al., 2022), minimizing failures during training. Failures are defined as entering a set of failure states SF ⊆ S , such that the complement SS := S \ S F defines the set of safe states 1. However, some safe states inevitably lead to failure. Therefore, we aim to stay within a finite horizon 2 viability kernel SV ⊆ S S that we define inspired by probabilistic viability theory (Massiani et al., 2026; Aubin et al., 2011). 
+
+Definition 2.1. (Finite-Horizon Viability ) A state s is viable if it is in the finite horizon viability kernel 
+
+SV := s ∈ S | ∃ π ∈ Π : 
+
+Pπ [∀t ≤ T, S t ∈ S S | S0 = s] ≥ 1 − δ . (4) That is, there exists a policy such that the system remains within the set of safe states with high probability 1 − δ for a considered finite time horizon T ∈ N when starting from s.States outside SV form the unviability kernel, from which failure is unavoidable with high probability for horizon T .
+
+Definition 2.2. (Viable Action ) For a viable state st ∈ S V,a viable action aV 
+
+> t
+
+preserves viability of the next state. 
+
+Definition 2.3. (Viable Policy ) The set of viable policies 
+
+ΠV consists of all policies that select only viable actions. 
+
+ΠV := π ∈ Π | ∀ s ∈ S V :
+
+Pπ [∀t ≤ T, S t ∈ S S | S0 = s] ≥ 1 − δ . (5) A safety filter κ : Π → ΠV avoids failures during training by projecting the set of policies into the set of viable policies. This is typically achieved by mapping actions of the policy in Π to the closest viable action. For control-affine dynamics 
+
+p, the discriminator between viable and unviable actions is a state-dependent hyperplane w⊤ 
+
+> t
+
+a ≥ bt with a normal vector 
+
+wt ∈ RnA and an offset bt ∈ R (Lavanakul et al., 2024). Thus, the safety filter problem is described by 
+
+aV 
+
+> t
+
+= κπ (st) := arg min  
+
+> a∈A
+
+∥a − π(st)∥2
+
+s.t. w⊤ 
+
+> t
+
+a ≥ bt.
+
+(6) However, obtaining these state-dependent hyperplanes using classical methods (Ames et al., 2019; Bansal et al., 2017) re-quires substantial domain knowledge and scales poorly with the system dimension. Thus, Lavanakul et al. (2024) formu-late the idea of training a filter policy μ(st) that parametrizes the hyperplane via a function h, resulting in the filter 
+
+at =κπμ(st) := arg min  
+
+> a∈A
+
+∥a − π(st)∥2
+
+s.t. w⊤ 
+
+> t
+
+a ≥ bt with (wt, b t) = h(μ(st)) .
+
+(7) This learned filter κπμ : Π → Img( κπμ) with image 
+
+Img( κπμ) ⊆ Π does not necessarily project into ΠV for all μ in the set of filter policies μ ∈ M, but a suitable μ
+
+yielding a valid safety filter needs to be learned. 
+
+> 1Discussion of terminology in Appendix E.2
+> 2Since we consider unbounded process noise, we cannot make infinite horizon statements (Gao et al., 2021).
+
+2Safety Augmented Model-Based Reinforcement Learning 
+
+## 3. Problem Statement 
+
+Dyna-SAuR requires solving two RL problems: the filter policy learning problem μ and the control policy learning problem π. Both of them leverage a learned uncertainty-aware dynamics model ˆp with a sufficiently certain subset 
+
+E defined in (3) and the set of viable policies ΠV(E) ⊆ ΠV
+
+that additionally remain within E. Before defining ΠV(E),we formulate the Filter Policy Learning Problem 3
+
+μ∗ = arg max 
+
+> μ∈M
+
+{Img( κπμ) ⊆ ΠV(E)}. (8) That is, finding a filter policy μ∗ that projects into the largest possible subset of ΠV(E). Projecting into a subset of ΠV(E)
+
+makes κπμ a valid safety filter, while aiming for the largest subset results in the least restrictive valid filter. Given a filter policy μ, we aim to find the control policy π∗
+
+that maximizes the expected return of the filtered policy κπμ,resulting in the Control Policy Learning Problem 
+
+π∗ = arg max 
+
+> π∈Π
+
+Eκπμ
+
+" ∞X
+
+> t=0
+
+γtRt+1 
+
+#
+
+. (9) To address the filter policy learning problem (8) via MBRL in a scalable fashion, we answer the following questions: 
+
+(i) How does viability extend to uncertainty-aware dynam-ics models, i.e., how does ΠV(E) look like? (ii) What is a unique representation of the hyperplane pa-rameters w and b for an efficient action space design? (iii) What is an informative data distribution to learn μ in the face of a finite sampling budget from the model? 
+
+Subsequently, we combine recent results in model-based data generation (Frauenknecht et al., 2025), actor-critic learning (Seo et al., 2025), and filtered policy learning (Be-jarano et al., 2025; Markgraf et al., 2025) to address control policy learning (9). We limit the input to the learning algorithm to some initial data Dˆp,p  
+
+> 0
+
+from the environment and the failure set SF.The remainder of this paper focuses on the key technical contributions for solving (8) , in particular, Section 4 ad-dresses question (i) and Section 5 questions (ii) and (iii) .For a detailed description of the full algorithm, including the solution to (9), we refer to Appendix A. 
+
+## 4. Viability in the Uncertainty-Aware Model 
+
+To prevent failures in the environment, μ is trained exclu-sively using the dynamics model. Thus, we need to address question (i) and extend the viability concepts introduced in Section 2.2 to account not only for safety but also certainty under the model dynamics. Based on the sufficiently certain 
+
+> 3See Appendix E.1 for a more detailed discussion of (8).
+
+Algorithm 1 Dyna-SAuR 
+
+input Dˆp,p  
+
+> 0
+
+, randomly initialized ˆp0, π0 and μ0
+
+for j ∈ { 1, . . . , J } Dyna-SAuR iterations do 
+
+Train dynamics model ˆpj using data from Dˆp,p j−1
+
+(Algorithm 3) 
+
+while Filter evaluation not successful do 
+
+Train filter policy μj using ˆpj and πj−1
+
+(Algorithm 4) Evaluate filter policy μj (Algorithm 5) 
+
+end while 
+
+Train control policy πj using ˆpj and μj and collect environment data Dˆp,p j (Algorithm 6) 
+
+end for output ˆpJ , μ J , π J
+
+subset E, the certain safe set SS(E) comprises state-action pairs where the model is certain and the state is safe 
+
+SS(E) := (st, a t) ∈ S × A | H( ˆSt+1 ) ≤ λ1, s t ∈ S S .
+
+(10) Consequently, the finite-horizon certain viability kernel 
+
+SV(E) := 
+
+n
+
+s ∈ S | ∃ π ∈ Π : 
+
+Pπ
+
+h
+
+∀t ≤ T, ( ˆSt, A t) ∈ S S(E) | S0 = s
+
+i
+
+≥ 1 − δ
+
+o (11) comprises all states from which a policy exists that keeps the model in the certain safe set for a given time horizon with high probability. Finally, the set of certain viable policies 
+
+ΠV(E) := 
+
+n
+
+π ∈ Π | ∀ s ∈ S V(E) : 
+
+Pπ
+
+h
+
+∀t ≤ T, ( ˆSt, A t) ∈ S S(E) | S0 = s
+
+i
+
+≥ 1 − δ
+
+o
+
+.
+
+(12) allows to stay within the certain viability kernel with high probability. Thus, using the model ˆp to train μ restricts the filter learning objective (8) to the subspace ΠV(E) ⊆ ΠV,which becomes less restrictive as E grows. 
+
+## 5. Dyna-SAuR: Dyna-style Safety Augmented Reinforcement Learning 
+
+In the following, we introduce the Dyna-SAuR architecture with a focus on solving the filter policy learning problem (8) using MBRL. In particular, we introduce the MDP for filter policy learning in Section 5.1, present an efficient action space representation in Section 5.2, formulate the learning problem in Section 5.3, and propose practical approxima-tions to make the learning problem scalable in Section 5.4. Algorithm 1 outlines the iterative training process. 4 First, the dynamics model ˆp is trained on initial environment data     
+
+> 4We use iteration index jas a subscript for learnable objects, denoting parameters at convergence after the jth iteration.
+
+3Safety Augmented Model-Based Reinforcement Learning 
+
+Dˆp,p  
+
+> 0
+
+. Second, the filter policy μ is trained exclusively on model-based rollouts from ˆp until passing model-based eval-uation. Third, the control policy π is trained using both model-based data and environment interactions while be-ing filtered through μ. Observed environment transitions are added to Dˆp,p j . Retraining ˆp on this expanded data in iteration j + 1 enlarges E, enabling a less restrictive μ. At each Dyna-SAuR iteration j, both the filter policy μ and the control policy π are retrained from scratch, to avoid local optima (Nikishin et al., 2022). Next, we discuss learning the filter policy μ and refer to Appendix A for a detailed description of the full algorithm. 
+
+5.1. Safety Filter MDP 
+
+Formulating the filter policy objective (8) as an RL prob-lem requires defining the safety filter MDP MSF = S, U, p SF , r SF , ρ SF 0 , γ SF 
+
+, which shares only the state space S with the control MDP M from Section 2.1. We de-fine the space of hyperplane actions U, such that μ : S → U 
+
+with a subsequent bijective transform h that maps ut to wt
+
+and bt. The benefits of this design are discussed in Section 5.2. The dynamics pSF : S ×U → ∆( S) are depicted in Fig-ure 2. They comprise elements of the standard RL problem, namely any control policy π ∈ Π and the environment dy-namics p approximated by the model ˆp, as well as the safety filter components comprising the bijective transformation 
+
+h and the safety filter κ. Further, the safety filter reward function rSF : S × U × S → R needs to reflect the goal of finding a least restrictive projection Π → ΠV(E) formulated in (8) and is discussed in Section 5.3. Since μ trains purely on model-based rollouts, the start state distribution ρSF 0 ⊆ S 
+
+does not need to match ρ0. We define a more informative distribution in Section 5.4. Finally, the discount factor γSF 
+
+influences the time horizon T in (12) as it induces a random stopping time with expectation E[T ] = 11−γSF .
+
+5.2. Efficient Filter Action Space Formulation 
+
+Addressing question (i) , we present a novel, expressive de-sign of U. Lavanakul et al. (2024) propose learning hyper-plane parameters directly as ˜ut = [ w⊤ 
+
+> t
+
+, b t]⊤, which causes several problems. First, this formulation is unbounded with 
+
+˜U = RnA+1 and overparametrized since c w ⊤ 
+
+> t
+
+· a ≥ c b t
+
+yields identical hyperplanes for any c ∈ R. Second, ˜U does not enforce hyperplane intersection with the bounded con-trol action space A. These issues create a large, ambiguous search space that unnecessarily complicates filter learning. Instead, we define the space of hyperplane actions as the unit hyperball in RnA
+
+U := {u ∈ RnA | 0 < ∥u∥2 ≤ 1} , (13) resulting in a bounded search space. Subsequently, we obtain the hyperplane parameters via the bijective function 
+
+## μ
+
+## π
+
+## h
+
+## κπμ p
+
+## st+1 st
+
+## at
+
+## ut
+
+## wt, b t
+
+## aV
+
+> t
+
+# pSF                     
+
+> Figure 2. Safety Filter MDP Dynamics pSF .Given a state stthe control policy πgenerates a control action at. The safety filter κ
+> (7) is parametrized through a hyperplane action utby the filter policy μ, via the bijective transform h, and yields a viable control action aV
+> t. The control MDP dynamics ptransition based on aV
+> t.
+
+h : U → RnA × R that enforces intersection with A.
+
+Theorem 5.1. The function h mapping each u ∈ U to a discriminating hyperplane intersecting A = [ −1, 1] nA is bijective. It is defined as h(ut) = ( wt, b t) with 
+
+wt = ut
+
+∥ut∥2
+
+, and bt = (2 ∥ut∥2 − 1) ∥wt∥1. (14) 
+
+Proof. See Appendix B.1, Theorem B.2 Figure 3 illustrates the transformation. The normal vector 
+
+wt points in the direction of ut, where actions at in the positive direction of wt are classified as viable. The offset 
+
+bt is computed using the distance from the origin to the closest vertex of A along wt, given by ∥wt∥1 as shown in Lemma B.1 in Appendix B.1. We scale this distance by 
+
+(2 ∥ut∥2 − 1) ∈ [−1, 1] by construction in (13) . Thus, ∥ut∥2
+
+indicates restrictiveness: values near 0 classify most actions as viable, while values near 1 classify most as unviable. This design yields a minimal search space for μ, improving the scalability of data-driven safety filter learning. 
+
+5.3. Filter Policy Learning as an RL Problem 
+
+Next, we aim for a general reward function that enforces to stay within SS(E) under dynamics pSF . We define 
+
+rSF (st, u t, s t+1 ) = 
+
+(
+
+1, if st+1 ∈ S S(E),
+
+− 11−γSF , otherwise (15) and terminate, whenever SS(E) is left. As a consequence, the safety filter action value function 
+
+QSF (st, u t) := Eu∼μ,s ∼pSF 
+
+" ∞X
+
+> t=0
+
+γt
+
+> SF
+
+rSF  
+
+> t+1
+
+st, u t
+
+#
+
+(16) 4Safety Augmented Model-Based Reinforcement Learning                 
+
+> u1
+> u2
+> u3
+> 1
+> 1
+> -1
+> -1 h
+> -1
+> -1 1
+> A
+> w·a≥b
+> U1
+> Figure 3. Hyperplane Action Space U.Example mappings between hyperplane actions u∈ U and discriminating hyperplanes in A.Larger ucorrespond to more restrictive hyperplanes.
+
+is bounded with QSF (st, u t) ∈ [− 11−γSF , 11−γSF ] for all state, filter action pairs st, u t. Here, a value of − 11−γSF 
+
+corresponds to failing in the next transition, and 11−γSF 
+
+corresponds to not failing at all. In particular, safety filter action values directly encode an expected time to failure 
+
+Eμ [TF|s] = log γSF 
+
+ 1 − QSF (s, μ (s))(1 − γSF )2
+
+
+
+(17) under μ as derived in Lemma B.3 in Appendix B.2. Thus, maximizing QSF results in enforcing to stay within SS(E)
+
+for as long as possible, which closely reflects (12). To obtain not only a valid but also a least restrictive projec-tion Π → ΠV(E), we leverage the fact that ∥ut∥2 indicates filter restrictiveness, with lower norms corresponding to more viable actions. Thus, maximizing 
+
+μ(st) ← arg max  
+
+> μ∈M
+
+QSF (st, μ (st)) − c∥μ(st)∥2 (18) with regularization term ∥μ(st)∥2 scaled by c, closely re-sembles the original filter policy learning problem (8). 
+
+5.4. Addressing Stochasticity via Data Shaping 
+
+Solving the RL objective (18) in practice is challenging due to the randomness in the dynamics pSF depicted in Figure 2. While the filter components h and κ are deterministic, and the control MDP dynamics p typically introduce only mild stochasticity, allowing any π ∈ Π makes pSF highly stochastic. Thus, areas in S × U need to be heavily sampled to obtain reliable value estimates QSF (st, u t) and train an effective filter policy in these areas. Learning an expres-sive QSF everywhere, akin to Hamilton-Jacobi reachability methods, is infeasible for systems of the considered com-plexity (Wabersich et al., 2023). Instead, we leverage two principles that helped scale dynamic programming to mod-ern deep RL: large-scale, parallelized data generation, and concentrating data and representational capacity on relevant regions of S × U . We use accurate long-horizon rollouts us-ing the model ˆp (Frauenknecht et al., 2025) that can cheaply generate large amounts of data, and actor-critic algorithms tailored for large datasets (Seo et al., 2025). Addressing question (iii) , we next present heuristics for concentrating this sampling budget in meaningful areas of S × U .Generally, RL methods with function approximation mini-mize the mean squared value error (Sutton & Barto, 2018) 
+
+ξ := 
+
+Z
+
+> S
+
+Z
+
+> U
+
+ρ(s, u )  qSF (s, u ) − QSF (s, u )2 du ds (19) where qSF is the true filter action value function and ρ(s, u )
+
+is the state-action distribution used for training. Equa-tion (19) shows that QSF is generally more accurate in high-density regions of ρ(s, u ). This distribution depends on ρSF 0 ,
+
+μ, and pSF . We shape ρ(s, u ) by oversampling informative states in ρSF 0 and finding a suitable representation of pSF .We use three sources for starting states ρSF 0 in model-based rollouts. First, ρSF 0 must naturally include the environment distribution ρ0, approximated from Dˆp,p  
+
+> 0
+
+, to mimic rollouts in the environment. Second, failed rollouts τF that left SS(E)
+
+should be overrepresented, since μ does not yet provide a valid safety filter in these areas and requires more training. Third, rollouts τG yielding high returns concerning the con-trol reward r should be overrepresented, since an overly conservative filter would be especially harmful in these ar-eas. Thus, we want to make sure that the filter policy RL objective (18) converges concerning the regularization loss 
+
+∥ut∥2 and finds a least restrictive projection. This yields 
+
+ρSF 0 = ν1ρ0 + ν2U(TF) + ν3U(TG) (20) with P3 
+
+> i=1
+
+νi = 1 and νi ≥ 0, which is the mixture dis-tribution over ρ0 and uniformly sampling states from the trajectory sets τF ∈ T F and τG ∈ T G.Finally, we need to approximate pSF with respect to the stochasticity induced by π ∈ Π. However, Π is typically a continuous and unbounded search space. Thus, sampling policies at random is unlikely to yield satisfactory results in the face of a finite sampling budget. We, therefore, take another perspective on the problem. The projection 
+
+Π → ΠV(E) into the set of viable policies is identical to projecting the state action occupancy of Π
+
+ρπ∈Π(s, a ) := Eπ∈Πρπ (s, a ). (21) into the state action occupancy of viable policies 
+
+ρπ∈ΠV (E)(s, a ), that has no probability mass outside of 
+
+SS(E). So, if the filter projects from one policy set into another, it also projects the corresponding occupancy 
+
+κπμ : Π → ΠV(E) ⇐⇒ κπμ : ρπ∈Π → ρπ∈ΠV (E). (22) Consequently, it suffices for filter policy learning to ap-proximate ρπ∈Π sufficiently well even if the control action generating process is not an element of Π.5Safety Augmented Model-Based Reinforcement Learning 
+
+We approximate the state action occupancy of Π using a convex combination of two components: the occupancy of the latest control policy πj−1 with exploration noise ϵ scaled by σ2, and the occupancy of pure noise ϵ scaled by σ3:
+
+ρπ∈Π(s, a ) ≈ ν4ρπj−1+σ2ϵ(s, a ) + ν5ρσ3ϵ(s, a ), (23) where ν4 + ν5 = 1 and ν4, ν 5 ≥ 0. We use temporally correlated pink noise ϵ ∼ PN , which provides a favorable trade-off between local and global exploration (Eberhard et al., 2023). This yields a sufficiently diverse approxima-tion of ρπ∈Π for learning a robust filter policy μ, while overrepresenting the current best solution πj−1 to the con-trol policy learning problem (9) making sure μ performs well for greedy control policies. 
+
+## 6. Experiments and Discussion 
+
+We empirically evaluate Dyna-SAuR on a low-dimensional (S ⊆ R4, A ⊆ R) goal-reaching CartPole task for detailed analysis and the high-dimensional ( S ⊆ R17 , A ⊆ R6) Mu-JoCo Walker task to illustrate the scalability of the method. The experiments will show that Dyna-SAuR matches or excels the control performance of state-of-the-art safe RL approaches, while reducing accumulated failures during training by at least two orders of magnitude. We introduce the experimental setup in Section 6.1, discuss control perfor-mance, safety violations, and expansion of the initial data set in Section 6.2, and ablate the design decisions introduced in Section 5 in Section 6.3. 
+
+6.1. Experimental Setup 
+
+The evaluation tasks are depicted in Figure 4. First, goal-reaching CartPole extends the standard task (Towers et al., 2025) by adding constraints to the pole angle θ and the cart position x, depicted in red, while the corresponding veloci-ties ˙x and ˙θ remain unconstrained. The control objective is reaching a goal cart position, marked in blue, which requires the cart to drive to the right while obeying safety constraints. Second, we extend MuJoCo Walker (Todorov et al., 2012), with angle and position constraints on the torso, depicted in red. The objective remains walking as fast as possible. We compare Dyna-SAuR to (a) PPO-Lagrangian (Ray et al., 2019), a state-of-the-art model-free safe RL approach that tries to minimize failures in expectation; (b) DH-RL (La-vanakul et al., 2024), a safe RL method that learns a safety filter policy through interaction with a simulator; and (c) 
+
+Infoprop-Dyna (Frauenknecht et al., 2025), a recent MBRL method that is not aware of safety as a baseline. Dyna-SAuR can be viewed as an extension to DH-RL, as it learns a filter policy with action space U (Section 5.2) from a model, and to Infoprop-Dyna as it extends MBRL to safe RL. We provide the initial dataset Dˆp,p  
+
+> 0
+
+to both Dyna-SAuR and    
+
+> (a) Goal-reaching CartPole with constraints (red) and goal (blue).
+> (b) Walker with constraints (red).
+> Figure 4. Safe Learning Environments with Constraints
+
+Infoprop-Dyna, and pretrain PPO-Lagrangian and DH-RL for the same amount of transitions as stored in Dˆp,p  
+
+> 0
+
+before reporting performance and counting safety violations. Ap-pendix D provides a detailed discussion of the experimental setup, including the generation of Dˆp,p  
+
+> 0
+
+.
+
+6.2. Control Performance and Safety 
+
+Figure 5 reports control returns (top row) and accumulated failures (bottom row) over environment interactions for both tasks. Since each Dyna-SAuR comprises retraining the policy from scratch, only the final evaluation return of each iteration is shown as a green dot to maintain readability. All failures incurred during training are included. Dyna-SAuR shows the strongest control performance of all safe RL approaches on goal-reaching CartPole and performs on par with PPO-Lagrangian on Walker. Infoprop-Dyna consistently outperforms the safe RL approaches concerning control performance, yet it is unaware of safety. Dyna-SAuR reduces the amount of accumulated failures by at least two orders of magnitude compared to the other methods. Figure 6 investigates the exploration behavior of Dyna-SAuR, providing insight to the learning dynamics. The top row compares the initial data set Dˆp,p  
+
+> 0
+
+to trajectories un-der the final filtered policy κπJ 
+
+> μJ
+
+, depicted in Figure 6 in blue and green, respectively. Similarly, the bottom row compares the initial certain set E0 in grey to the final set EJ in pink. For goal-reaching CartPole, we plot the subspace x × θ
+
+that indicates a large disconnect between initial data and the final policy. In particular, the initial data and accurate set are far from the goal state. Consequently, E needed to expand substantially, to learn higher performing policies, which explains the gradual increase in control performance in Figure 5. Since Dyna-SAuR accumulates at most one failure on goal-reaching CartPole, the gradual expansion of 
+
+E yielding less restrictive μ appears to work as intended. Due to the 17-dimensional state space, we perform a prin-cipal component analysis to compare the distributions in Walker. While a substantial difference between initial data and final policy distribution, as well as the initial and final 6Safety Augmented Model-Based Reinforcement Learning             
+
+> Figure 5. Control Return and Accumulated Failures (log scale) over Environment Interactions. Experiments are run for 10 random seeds with solid lines representing the mean and shaded areas the 99% confidence interval. We plot performance after every Dyna-SAuR iteration as a dot, as the agent is retrained from scratch between iterations. All failures during retraining are reported. Dyna-SAuR meets or excels over the control performance of safe RL algorithms (PPO-Lagrangian, DH-RL) while substantially reducing failures. Goal
+> Figure 6. Exploration Throughout Training. Top row: Initial data Dˆp,p
+> 0(blue) vs. Data of the final filtered policy κπJ
+> μJ(green); Bottom row: Initial certain set E0(grey) vs. final certain set EJ
+> (pink). Dyna-SAuR explores the environment beyond initial data in both tasks, while the effect appears more pronounced in CartPole.
+
+certain set, can be observed, the effect is less pronounced than in CartPole. Combined with the strong but stagnant control performance in Figure 5, this suggests that efficiently expanding E in high-dimensional spaces is a limitation of the current approach. 
+
+6.3. Ablation of Filter Policy Design Decisions 
+
+We present ablation results of the design decisions presented in Section 5 for goal-reaching CartPole in Figure 7 with the corresponding results for Walker in Appendix C. First, the predominant importance of formulating the ac-tion filter space as presented in Section 5.2 is illustrated when compared to learning w, b directly as proposed in (Lavanakul et al., 2024), shown in pink. The method is incapable of learning a reliable safety filter that allows for high control returns. Second, Removing the regularization loss on u from the objective (18) introduced in Section 5.3, shown in purple, still yields a good filter but shows weaker control performance. This indicates a valid but restrictive projection into ΠV(E), as expected. Third, removing the heuristics for shaping ρSF 0 presented in Section 5.4 and start-ing from ρ0, instead, yields the blue curve. In this case, we observe an increased amount of failures, indicating the im-portance of overrepresenting TF, and slightly weaker control performance as TG is not represented. 
+
+6.4. Safety Filter Analysis 
+
+Finally, we observe the safety filter κπJ 
+
+> μJ
+
+after the final train-ing iteration J for goal-reaching CartPole in Figure 8. The top row shows the Cartpole at the beginning, in the middle, and at the end of a trajectory in the environment. The bottom row shows μJ in the x × θ subspace, with velocities given below each frame specifying the current state indicated by the black dot. Filtering the 1-dimensional action, namely ap-plying a force in the interval [−1, 1] to the cart, is achieved by reducing the interval. This is visualized via color-coding, where blue and orange indicate that only force to the right or 7Safety Augmented Model-Based Reinforcement Learning       
+
+> Figure 7. Ablation of Dyna-SAuR Design Choices. Removing the action formulation of Section 5.2 substantially impedes perfor-mance and safety. Removing the regularization loss of Section 5.3 and start state distribution of Section 5.4 yields weaker results concerning performance and safety, respectively.
+> Figure 8. Final safety filter κπJ
+> μJin goal-reaching CartPole. The filter is less restrictive around the upper equilibrium and for low velocities, indicated by the comparatively large white areas, and becomes more restrictive as deflections and velocities increase.
+
+left is considered viable, respectively, while white indicates that all actions are considered viable. We observe a clear correlation between the pole angle and the set of viable ac-tions, which aligns with the task dynamics. Further, we see a relatively broad set of viable actions around the upright position at low velocities, which grows more restrictive as deflections and velocities increase. 
+
+## 7. Related Work 
+
+Besides penalizing constraint violations in the reward func-tion (Massiani et al., 2022), safety in RL is frequently ad-dressed through constrained Markov decision processes (CMDPs) (Altman, 2021), where the expected cumulative safety cost is constrained by a budget (Wabersich et al., 2023). While widely adopted (Achiam et al., 2017; Tessler et al., 2019; Ray et al., 2019; Sootla et al., 2022; Bai et al., 2023; Zhang et al., 2020; 2022; As et al., 2025), CMDPs address safety in expectation rather than state-wise. State-wise constrained MDPs (SCMDPs) make stricter state-ments by formulating a cost budget per state (Zhao et al., 2023). Methods addressing state-wise safety of the deployed agent often require minimal prior knowledge (Cheng et al., 2019; Bharadhwaj et al., 2021; Zhang et al., 2023). Con-versely, approaches addressing training-time safety typically rely on strong assumptions, such as known dynamics or prior safe controllers (Berkenkamp et al., 2017; Fisac et al., 2017; Wachi et al., 2018; Wei & Liu, 2022). Recovery RL (Thananjeyan et al., 2020) utilizes prior data to avoid failures but is restricted to stable systems. Viability-based approaches yield rigorous safety filters pro-viding hard state-wise safety guarantees, but often face computational limits or demand substantial domain knowl-edge (Wabersich et al., 2023). Methods based on Hamil-ton–Jacobi reachability, control barrier functions, or Lya-punov functions (Bastani & Li, 2021; Shao et al., 2021; Emam et al., 2022; Choi et al., 2021; Luo & Ma, 2021) generally require nominal models or invariant sets. Data-driven approximations to viability-based safety filters reduce these requirements but face limitations, including the inability to handle discontinuous dynamics (Wang et al., 2023) and the need for unfiltered environment interaction or accurate sampling models (So et al., 2024; Ganai et al., 2023; Lavanakul et al., 2024). To our knowledge, Dyna-SAuR is the first scalable approach to approximate viability-based filters for diverse systems with minimal domain knowledge. 
+
+## 8. Conclusion 
+
+Safe exploration is a fundamental concern in RL, yet tradi-tional safety filters require substantial domain knowledge and struggle with high-dimensional problems. Conversely, RL excels at learning control for high-dimensional systems that are hard to model from first principles. We propose Dyna-SAuR, a scalable, data-driven approach to filter syn-thesis that jointly learns control and filter policies using a learned uncertainty-aware dynamics model. Inspired by viability theory, we present a compact RL formulation that approximates a rigorous safety filter matching the predictive capabilities of the learned dynamics model. Specifically, we formalize viability within a learned model, introduce a novel filter parametrization, and provide scaling guide-lines. Building on the learned model, we limit required do-main knowledge to a notion of failure and an initial dataset. In empirical evaluations, Dyna-SAuR matches or exceeds state-of-the-art safe RL control performance while reducing failures by at least two orders of magnitude. While future work should focus on further improving exploration in high-dimensional spaces, we believe Dyna-SAuR represents a significant step towards safer, more reliable RL agents. 8Safety Augmented Model-Based Reinforcement Learning 
+
+## Acknowledgement 
+
+We thank Lukas Kesper, Devdutt Subhasish, and Pierre-Fran c¸ ois Massiani for the valuable discussions on the work presented in this paper. The authors gratefully acknowl-edge the computing time provided to them at the NHR Center NHR4CES at RWTH Aachen University (project number p0022301). This is funded by the Federal Min-istry of Education and Research, and the state governments participating on the basis of the resolutions of the GWK for national high performance computing at universities (www.nhr-verein.de/unsere-partner). Friedrich Solowjow is supported by the KI-Starter grant by the state of NRW. This work is funded in part under the Excellence Strategy of the Federal Government and the Lander (G:(DE-82)EXS-SF-OPSF854). 
+
+## Impact Statement 
+
+We present Dyna-SAuR, an MBRL algorithm that jointly learns a control policy and a safety filter from an uncertainty-aware model. Addressing exploration safety, Dyna-SAuR contributes to the general applicability of RL methods. There are many potential societal consequences of our work, none of which we feel must be specifically highlighted here. 
+
+## References 
+
+Achiam, J., Held, D., Tamar, A., and Abbeel, P. Constrained policy optimization. In International conference on ma-chine learning , pp. 22–31. PMLR, 2017. Altman, E. Constrained Markov Decision Processes: Stochastic Modeling . Routledge, Boca Raton, 1 edi-tion, December 2021. ISBN 978-1-315-14022-3. doi: 10.1201/9781315140223. Ames, A. D., Coogan, S., Egerstedt, M., Notomista, G., Sreenath, K., and Tabuada, P. Control barrier functions: Theory and applications. In 2019 18th European control conference (ECC) , pp. 3420–3431. Ieee, 2019. As, Y., Sukhija, B., Treven, L., Sferrazza, C., Coros, S., and Krause, A. Actsafe: Active exploration with safety constraints for reinforcement learning. In The Thirteenth International Conference on Learning Representations ,2025. Aubin, J.-P., Bayen, A. M., and Saint-Pierre, P. Viability and Capturability , pp. 43–104. Springer Berlin Heidelberg, Berlin, Heidelberg, 2011. ISBN 978-3-642-16684-6. doi: 10.1007/978-3-642-16684-6 2. Bai, Q., Bedi, A. S., and Aggarwal, V. Achieving zero con-straint violation for constrained reinforcement learning via conservative natural policy gradient primal-dual algo-rithm. In Proceedings of the Thirty-Seventh AAAI Con-ference on Artificial Intelligence and Thirty-Fifth Confer-ence on Innovative Applications of Artificial Intelligence and Thirteenth Symposium on Educational Advances in Artificial Intelligence , AAAI’23/IAAI’23/EAAI’23. AAAI Press, 2023. Bansal, S., Chen, M., Herbert, S., and Tomlin, C. J. Hamilton-jacobi reachability: A brief overview and re-cent advances. In 2017 IEEE 56th Annual Conference on Decision and Control (CDC) , pp. 2242–2253. IEEE, 2017. Bastani, O. and Li, S. Safe reinforcement learning via statistical model predictive shielding. Robotics: Science and Systems XVII , 2021. Bejarano, F. P., Brunke, L., and Schoellig, A. P. Safety filtering while training: Improving the performance and sample efficiency of reinforcement learning agents. IEEE Robotics and Automation Letters , 10(1):788–795, January 2025. Berkenkamp, F., Turchetta, M., Schoellig, A. P., and Krause, A. Safe model-based reinforcement learning with stabil-ity guarantees. In Proceedings of the 31st International Conference on Neural Information Processing Systems ,NIPS’17, pp. 908–919, 2017. Bharadhwaj, H., Kumar, A., Rhinehart, N., Levine, S., Shkurti, F., and Garg, A. Conservative safety critics for exploration. In International Conference on Learning Representations , 2021. Brunke, L., Greeff, M., Hall, A. W., Yuan, Z., Zhou, S., Panerati, J., and Schoellig, A. P. Safe learning in robotics: From learning-based control to safe reinforce-ment learning. Annual Review of Control, Robotics, and Autonomous Systems , 5(Volume 5, 2022):411–444, 2022. Cheng, R., Orosz, G., Murray, R. M., and Burdick, J. W. End-to-end safe reinforcement learning through barrier functions for safety-critical continuous control tasks. In 
+
+Proceedings of the Thirty-Third AAAI Conference on Ar-tificial Intelligence and Thirty-First Innovative Applica-tions of Artificial Intelligence Conference and Ninth AAAI Symposium on Educational Advances in Artificial Intelli-gence , AAAI’19/IAAI’19/EAAI’19. AAAI Press, 2019. Choi, J., Casta ˜neda, F., Tomlin, C. J., and Sreenath, K. Reinforcement learning for safety-critical control under model uncertainty, using control lyapunov functions and control barrier functions. Robotics: Science and Systems (RSS) , 2021. 9Safety Augmented Model-Based Reinforcement Learning 
+
+Deisenroth, M. P. and Rasmussen, C. E. Pilco: a model-based and data-efficient approach to policy search. In 
+
+Proceedings of the 28th International Conference on In-ternational Conference on Machine Learning , ICML’11, pp. 465–472. Omnipress, 2011. Eberhard, O., Hollenstein, J., Pinneri, C., and Martius, G. Pink noise is all you need: Colored noise exploration in deep reinforcement learning. In Proceedings of the Eleventh International Conference on Learning Repre-sentations , 2023. Emam, Y., Notomista, G., Glotfelter, P., Kira, Z., and Egerst-edt, M. Safe reinforcement learning using robust control barrier functions. IEEE Robotics and Automation Letters ,PP:1–8, 01 2022. Fisac, J. F., Akametalu, A. K., Zeilinger, M. N., Kaynama, S., Gillula, J. H., and Tomlin, C. J. A general safety framework for learning-based control in uncertain robotic systems. IEEE Transactions on Automatic Control , 64: 2737–2752, 2017. Frauenknecht, B., Eisele, A., Subhasish, D., Solowjow, F., and Trimpe, S. Trust the model where it trusts itself: model-based actor-critic with uncertainty-aware rollout adaption. In Proceedings of the 41st International Con-ference on Machine Learning , ICML’24, 2024. Frauenknecht, B., Subhasish, D., Solowjow, F., and Trimpe, S. On rollouts in model-based reinforcement learning. 
+
+Int. Conf. on Learning Representations , 2025. Ganai, M., Gong, Z., Yu, C., Herbert, S. L., and Gao, S. Iterative reachability estimation for safe reinforcement learning. In Thirty-seventh Conference on Neural Infor-mation Processing Systems , 2023. Gao, Y., Johansson, K. H., and Xie, L. Computing proba-bilistic controlled invariant sets. IEEE Transactions on Automatic Control , 66(7):3138–3151, 2021. Hafner, D., Pasukonis, J., Ba, J., and Lillicrap, T. Mastering Diverse Domains through World Models. Int. Conf. on Learning Representations , January 2023. Janner, M., Fu, J., Zhang, M., and Levine, S. When to Trust Your Model: Model-Based Policy Optimization. In Wallach, H., Larochelle, H., Beygelzimer, A., Alch ´e-Buc, F. d., Fox, E., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. Lakshminarayanan, B., Pritzel, A., and Blundell, C. Sim-ple and scalable predictive uncertainty estimation using deep ensembles. In Proceedings of the 31st International Conference on Neural Information Processing Systems ,NIPS’17, pp. 6405–6416. Curran Associates Inc., 2017. Lavanakul, W., Choi, J., Sreenath, K., and Tomlin, C. Safety filters for black-box dynamical systems by learning dis-criminating hyperplanes. In Abate, A., Cannon, M., Margellos, K., and Papachristodoulou, A. (eds.), Pro-ceedings of the 6th Annual Learning for Dynamics; Con-trol Conference , volume 242 of Proceedings of Machine Learning Research , pp. 1278–1291. PMLR, 2024. Luo, Y. and Ma, T. Learning barrier certificates: Towards safe reinforcement learning with zero training-time vio-lations. In Beygelzimer, A., Dauphin, Y., Liang, P., and Vaughan, J. W. (eds.), Advances in Neural Information Processing Systems , 2021. Markgraf, H., Sawant, S., Krasowski, H., Sch ¨afer, L., Gros, S., and Althoff, M. Safe Reinforcement Learning us-ing Action Projection: Safeguard the Policy or the Envi-ronment?, 2025. URL https://arxiv.org/abs/ 2509.12833 . Version Number: 1. Massiani, P.-F., Heim, S., Solowjow, F., and Trimpe, S. Safe value functions. IEEE Transactions on Automatic Control ,68(5):2743–2757, 2022. Massiani, P.-F., von Rohr, A., Haverbeck, L., and Trimpe, S. Viability of future actions: Robust safety in reinforce-ment learning via entropy regularization. In Ribeiro, R. P., Pfahringer, B., Japkowicz, N., Larra ˜naga, P., Jorge, A. M., Soares, C., Abreu, P. H., and Gama, J. (eds.), Machine Learning and Knowledge Discovery in Databases. Re-search Track , pp. 129–145, Cham, 2026. Springer Nature Switzerland. Nikishin, E., Schwarzer, M., D’Oro, P., Bacon, P.-L., and Courville, A. The primacy bias in deep reinforcement learning. In International conference on machine learn-ing , pp. 16828–16847. PMLR, 2022. Ray, A., Achiam, J., and Amodei, D. Benchmarking safe exploration in deep reinforcement learning. Preprint, OpenAI, San Francisco, CA, 2019. Seo, Y., Sferrazza, C., Geng, H., Nauman, M., Yin, Z.-H., and Abbeel, P. Fasttd3: Simple, fast, and capable reinforcement learning for humanoid control. 
+
+arXiv:2505.22642 , 2025. Shao, Y., Chen, C., Kousik, S., and Vasudevan, R. Reachability-based trajectory safeguard (rts): A safe and fast reinforcement learning safety layer for continuous control. IEEE Robotics and Automation Letters , PP:1–1, 03 2021. So, O., Serlin, Z., Mann, M., Gonzales, J., Rutledge, K., Roy, N., and Fan, C. How to train your neural control 10 Safety Augmented Model-Based Reinforcement Learning 
+
+barrier function: Learning safety filters for complex input-constrained systems. In 2024 IEEE International Con-ference on Robotics and Automation (ICRA) , pp. 11532– 11539, 2024. Sootla, A., Cowen-Rivers, A. I., Jafferjee, T., Wang, Z., Mguni, D. H., Wang, J., and Ammar, H. Saute RL: Almost surely safe reinforcement learning using state augmentation. In Chaudhuri, K., Jegelka, S., Song, L., Szepesvari, C., Niu, G., and Sabato, S. (eds.), Proceed-ings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learn-ing Research , pp. 20423–20443. PMLR, 17–23 Jul 2022. Sutton, R. S. Dyna, an integrated architecture for learning, planning, and reacting. SIGART Bull. , 1991. Sutton, R. S. and Barto, A. G. Reinforcement Learning: An Introduction . The MIT Press, second edition, 2018. Tessler, C., Mankowitz, D. J., and Mannor, S. Reward con-strained policy optimization. In International Conference on Learning Representations , 2019. Thananjeyan, B., Balakrishna, A., Nair, S., Luo, M., Srini-vasan, K. P., Hwang, M., Gonzalez, J. E., Ibarz, J., Finn, C., and Goldberg, K. Recovery rl: Safe reinforcement learning with learned recovery zones. IEEE Robotics and Automation Letters , 6:4915–4922, 2020. Todorov, E., Erez, T., and Tassa, Y. MuJoCo: A physics engine for model-based control. In 2012 IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems ,pp. 5026–5033, 2012. Towers, M., Kwiatkowski, A., Balis, J. U., Cola, G. D., Deleu, T., Goul ˜ao, M., Andreas, K., Krimmel, M., KG, A., Perez-Vicente, R. D. L., Terry, J. K., Pierr ´e, A., Schul-hoff, S. V., Tai, J. J., Tan, H., and Younis, O. G. Gym-nasium: A standard interface for reinforcement learning environments. In The Thirty-ninth Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track , 2025. Wabersich, K. P., Taylor, A. J., Choi, J. J., Sreenath, K., Tomlin, C. J., Ames, A. D., and Zeilinger, M. N. Data-driven safety filters: Hamilton-jacobi reachability, control barrier functions, and predictive methods for uncertain systems. IEEE Control Systems Magazine , 43(5):137– 177, 2023. Wachi, A., Sui, Y., Yue, Y., and Ono, M. Safe exploration and optimization of constrained mdps using gaussian pro-cesses. Proceedings of the AAAI Conference on Artificial Intelligence , 32(1), Apr. 2018. Wang, Y., Zhan, S. S., Jiao, R., Wang, Z., Jin, W., Yang, Z., Wang, Z., Huang, C., and Zhu, Q. Enforcing hard constraints with soft barriers: safe reinforcement learning in unknown stochastic environments. In Proceedings of the 40th International Conference on Machine Learning ,ICML’23. JMLR.org, 2023. Wei, T. and Liu, C. Safe control with neural network dy-namic models. In Firoozi, R., Mehr, N., Yel, E., Antonova, R., Bohg, J., Schwager, M., and Kochenderfer, M. (eds.), 
+
+Proceedings of The 4th Annual Learning for Dynamics and Control Conference , volume 168 of Proceedings of Machine Learning Research , pp. 739–750. PMLR, 23–24 Jun 2022. Zhang, L., Shen, L., Yang, L., Chen, S., Wang, X., Yuan, B., and Tao, D. Penalized Proximal Policy Optimization for Safe Reinforcement Learning. In Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence , pp. 3744–3750, Vienna, Austria, July 2022. International Joint Conferences on Artificial Intelligence Organization. Zhang, L., Zhang, Q., Shen, L., Yuan, B., Wang, X., and Tao, D. Evaluating model-free reinforcement learn-ing toward safety-critical tasks. In Proceedings of the Thirty-Seventh AAAI Conference on Artificial Intelli-gence and Thirty-Fifth Conference on Innovative Appli-cations of Artificial Intelligence and Thirteenth Sympo-sium on Educational Advances in Artificial Intelligence ,AAAI’23/IAAI’23/EAAI’23. AAAI Press, 2023. Zhang, Y., Vuong, Q., and Ross, K. W. First order con-strained optimization in policy space. In Proceedings of the 34th International Conference on Neural Information Processing Systems , NIPS ’20. Curran Associates Inc., 2020. Zhao, W., He, T., Chen, R., Wei, T., and Liu, C. State-wise safe reinforcement learning: A survey. In International Joint Conference on Artificial Intelligence . IJCAI, 2023. 11 Safety Augmented Model-Based Reinforcement Learning 
+
+## A. Detailed Algorithm Description of Dyna-SAuR 
+
+In this section, we provide a more detailed overview of how the three learning problems depicted in Figure 9 interact with each other. We begin with model learning in Section A.1, then continue with the filter learning problem in Section A.2, and conclude with the (safety-filtered) control learning problem in Section A.3. Algorithm 2 connects all learning problems into the Dyna-SAuR algorithm. 
+
+Algorithm 2 Dyna-SAuR                                       
+
+> input Dˆp,p
+> 0, randomly initialized ˆp0,π0and μ0
+> for j∈ { 1, . . . , J }Dyna-SAuR iterations do
+> Train dynamics model ˆpjusing data from Dˆp,p j−1(Algorithm 3)
+> while Filter evaluation not successful do
+> Train filter policy μjusing ˆpjand πj−1(Algorithm 4) Evaluate filter policy μj(Algorithm 5)
+> end while
+> Train control policy πjusing ˆpjand μjand collect environment data Dˆp,p j(Algorithm 6)
+> end for output ˆpJ, μ J, π J
+
+A.1. Probabilistic Ensemble Model Learning Algorithm 3 Dynamics Model Learning                         
+
+> input Dˆp,p j,ˆpω
+> for model training steps do
+> Sample mini-batch of NModel transitions from Dˆp,p
+> Sample ensemble member ˆpωe with e∼U({1, . . . , E })
+> ωe←arg min ωe −1
+> N
+> Plog ˆ pωe (st+1 |st, a V
+> t)
+> end for output ˆpω
+
+In the beginning of the Dyna-SAuR algorithm ( j = 0 ) and after each control learning phase ( j), we use the model learning buffer Dˆp,p j−1 to train a Probabilistic Ensemble Model (Lakshminarayanan et al., 2017) by minimizing the negative log-likelihood, as described in Algorithm 3. Probabilistic Ensemble Models separate aleatoric and epistemic uncertainty. Aleatoric uncertainty arises from the inherent stochasticity of the system, while epistemic uncertainty is caused by lack of data. Ensemble disagreement is used to approximate epistemic uncertainty and serves as an indicator of prediction inaccuracy. Recent work on probabilistic ensemble models (Frauenknecht et al., 2025) restricts model rollouts to a sufficiently certain set Ej ⊆ (S × A ) in which the environment dynamics are modeled accurately. This set is defined as 
+
+Ej := {(st, a t) ∈ S × A | H( ˆSt+1 ) ≤ λ1}, (24) where the entropy of the model’s predictive distribution, H( ˆSt+1 ), which indicates uncertainty, is upper bounded by λ1. The data used to train the model of iteration j is Dˆp,p j−1 and corresponds to Ej−1.In addition, the accumulated information loss is thresholded for each trajectory ˆτ
+
+ˆτ = (ˆ s0, a 0, ˆs1, . . . , a t−1, ˆsT ) (25) by λ2. This defines sufficiently accurate trajectories of length t′ ∈ 1, . . . , T as 
+
+(ˆ st, a t)t′ 
+
+> t=0
+
+∈ E t′
+
+> t′
+
+X
+
+> t=0
+
+H( ˆSt+1 ) ≤ λ2
+
+ , (26) which we use throughout the paper when referring to model rollouts. The authors of (Frauenknecht et al., 2025) provide heuristics for determining suitable values of λ1 and λ2 based on the training data of the current model. We proceed with filter learning in the current Dyna-SAuR iteration. 12 Safety Augmented Model-Based Reinforcement Learning 
+
+st, a t, s t+1 , r t+1 − ∥ aVt − at∥2
+
+Dπ,p 
+
+ˆst, a t, ˆst+1 , r t+1 − ∥ aVt − at∥2
+
+Dπ, ˆp
+
+Q(st, a t)
+
+QSF (st, u t) Dμ, ˆp
+
+ˆst, u t, ˆst+1 , r SF t+1 
+
+st, a Vt , s t+1 , r t+1 
+
+Dˆp,p 
+
+r(st, a t, s t+1 )
+
+rSF (st, u t, s t+1 )
+
+ˆp(· | st, a t)
+
+p(· | st, a t)
+
+h(ut)
+
+κ(at | wt, b t)
+
+μ(st)
+
+π(st)
+
+st+1 , r t+1 st, rt
+
+st
+
+st at
+
+ut wt, b t
+
+st+1 
+
+ˆst+1 
+
+aVt
+
+Model Learning 
+
+Safety Filter Learning 
+
+Control Learning 
+
+Figure 9. Overview of the three learning problems in Dyna-SAuR and their interactions. During filter learning, the control policy π is fixed. The filter replay buffer Dμ, ˆp is populated using model rollouts ˆst, u t, ˆst+1 , r SF 
+
+> t+1
+
+, where the filter policy μ modifies potentially unsafe actions at into safe actions aVt while exploring the action space. During control learning, the filter μ is fixed. The control policy π
+
+maintains two replay buffers: an environment control buffer Dπ,p and a model control buffer Dπ, ˆp. Model rollouts, in which actions proposed by π are filtered by μ, are used to populate Dπ, ˆp. In parallel, the control policy interacts with the environment, with its actions filtered by μ, to populate Dπ,p . In both cases, the environment reward is penalized by the magnitude of filtering, ∥aVt − at∥2. The unfiltered action at is stored in both control buffers. Transitions from the environment control buffer are additionally used to populate the model learning buffer D ˆp,p , without reward penalization and using the filtered action aVt , as this is the action applied to the true dynamics p.
+
+13 Safety Augmented Model-Based Reinforcement Learning 
+
+Algorithm 4 Filter Policy Learning                                                                                                                                                   
+
+> input ˆpj, π j−1, μ ϕ, μ ¯ϕ, Q SF
+> θ1, Q SF ¯θ1, Q SF
+> θ2, Q SF ¯θ2,Dμ, ˆp=∅
+> Randomly initialize ϕ, θ 1, θ 2and ¯ϕ←ϕ, ¯θ1←θ1,¯θ2←θ2
+> for RO SF model-based rollouts do
+> σ1∼U(σmin , σ max )Sample exploration scale (Seo et al., 2025)
+> β(st)is either πj−1(st) + σ2·ϵβtor σ3·ϵβtwith ϵβt∼PN βChoose between stochastic performance policy or pink noise process as behavior policy
+> ˆs0∼ρSF 0Sample initial state from modified starting state distribution introduced in Section 5.4
+> while t < T and H( ˆSt)< λ 1and Ptt′=0 H( ˆSt′)< λ 2do
+> at∼β(ˆ st)Sample potentially unsafe action from behavior policy
+> ut∼μϕ(ˆ st) + σ1·ϵμtwith ϵμt∼PN μSample filter action exploring with pink noise
+> aV
+> t=κ(at, w t, b t)with (wt, b t) = h(ut)Potentially filter behavior policy according to (7)
+> ˆst+1 ∼ˆp(·| ˆst, a V
+> t)Sample next state via the Infoprop rollout (Frauenknecht et al., 2025)
+> rSF
+> t+1 =rSF (ˆ st, u t,ˆst+1 )Get next reward according to (15)
+> Dμ, ˆp← D μ, ˆp∪ { ˆst, u t,ˆst+1 , r SF
+> t+1 }Store transition in filter replay buffer
+> end while end for for update steps do
+> Sample mini-batch of Ntransitions from Dμ, ˆp
+> y=Pt+n−1
+> k=tγk−trSF
+> k+1 +γnmin i∈{ 1,2}QSF ¯θi(ˆ st+n, μ ¯ϕ(ˆ st+n) + σ4·ϵ)with ϵ∼ N (0 , I )Compute the n-step TD target yθi←arg min θi
+> 1
+> N
+> P(y−QSF
+> θi(ˆ st, u t)) 2Update the Q-functions by minimizing the squared TD error
+> if policy update frequency then
+> ϕ←arg max ϕ1
+> N
+> P(QSF
+> θ1(ˆ st, μ ϕ(ˆ st)−c∥μϕ(ˆ st)∥2)Update policy by maximizing Q-value while penalizing excessive filtering (18)
+> ¯θi←¯τ θ i+ (1 −¯τ)¯θiPolyak averaging
+> ¯ϕ←¯τ ϕ + (1 −¯τ) ¯ϕPolyak averaging
+> end if end for output μϕ
+
+A.2. Filter Learning Problem 
+
+A.2.1. F ILTER POLICY LEARNING 
+
+To learn the filter μj in iteration j of Dyna-SAuR, we require the current model ˆpj and the control policy πj−1 from the previous iteration. The learning procedure for the filter is described in Algorithm 4. We adapt the recent model-free RL algorithm FastTD3 (Seo et al., 2025), which has demonstrated strong performance by fully exploiting parallelization in TD3. FastTD3 employs massively parallelized environments, large batch sizes, n-step returns, multiple exploration noise scales, and a distributional critic. Since the distributional critic improves sample efficiency at the cost of increased wall-clock runtime, we adopt all components of FastTD3 except the distributional critic. This design choice is motivated by the fact that sample complexity is not critical in our setting, as we rely on parallel rollouts from copies of the learned model rather than parallel simulation of the real environment. Each filter learning phase is initialized from scratch, using newly initialized Q-functions QSF  
+
+> θ1
+
+and QSF  
+
+> θ2
+
+, as well as a newly initialized policy μϕ, together with their corresponding target networks QSF ¯θ1 , QSF ¯θ2 , and μ ¯ϕ. The filter replay buffer Dμ, ˆp is also reset at the beginning of each learning phase. In parallel, we perform RO SF parallel model rollouts. For each rollout, a noise scale is sampled uniformly as σ1 ∼
+
+U(σmin , σ max ) (Seo et al., 2025). For each rollout, the behavior policy is chosen with equal probability to be either a pink-noise process or the control policy augmented with pink-noise exploration. Rollouts are terminated if ˆst+1 /∈ S S(Ej−1).Rollouts are truncated if the maximum episode length is reached or if the accumulated information loss is over the threshold as in (26). Following the diagram in Figure 9 and Algorithm Algorithm 4, in each model rollout a potentially unsafe action at
+
+proposed by the behavior policy is sampled to evaluate the exploratory hyperplane action ut. This action is filtered by solving the quadratic program defined in (7) . The resulting filtered action is then applied to the model via an Infoprop rollout (Frauenknecht et al., 2025) to sample the next state ˆst+1 .The reward function provides a positive signal when the filter agent keeps the state within the intersection of the safe and certain sets, and otherwise penalizes the agent according to (15) . The resulting transition is stored in the filter replay buffer. After each step across all model rollouts, the Q-functions and policy are trained using FastTD3. A large mini-batch is sampled to compute the n-step TD target y, which is then used to update the Q-functions by minimizing the squared TD 14 Safety Augmented Model-Based Reinforcement Learning 
+
+error. Delayed policy updates are performed, where we introduce the action regularization term in (18) to penalize excessive filtering. As in FastTD3, Polyak averaging is used for updating the target networks. After a fixed number of steps we start the evaluation of the current filter μj .A.2.2. F ILTER EVALUATION 
+
+Algorithm 5 Filter Evaluation                                                     
+
+> input μj
+> for number of evaluations do
+> β(st)is either πj−1(st) + σ2·ϵβtor σ3·ϵβtwith ϵβt∼PN βChoose between stochastic performance policy or pink noise process as behavior policy
+> ˆs0∼ρEVAL 0(·)Sample initial state
+> while t < T and H( ˆSt)< λ 1and Ptt′=0 H( ˆSt′)< λ 2do
+> at∼β(ˆ st)Sample potentially unsafe action from behavior policy
+> ut=μj(ˆ s)Sample deterministic filter action
+> aV
+> t=κ(at, w t, b t)with (wt, b t) = h(ut)Potentially filter behavior policy according to (7)
+> ˆst+1 ∼ˆp(·| ˆst, a V
+> t)Sample next state via the Infoprop rollout (Frauenknecht et al., 2025)
+> end while end for output TF,TGUpdate starting states
+
+The goal of the filter evaluation is to determine if the RL filter training is finished. To this end, we perform model rollouts using the greedy filter policy μ and evaluate how long the behavior policy, defined as in the previous section, can be kept safe. Each evaluation model rollout is initialized from a starting state sampled from ρEVAL 0 (·), the evaluation starting-state distribution, which is defined as a mixture of the control starting-state distribution ρ0 and states from TG.We compute the average episode length across evaluation rollouts and terminate filter training if this metric does not improve compared to previous evaluations. We adopt this heuristic to make multiple RL filter trainings feasible within a reasonable time frame. In addition to deciding when to end filter training and proceed to control learning, we update the filter starting-state ρSF 0
+
+distribution after each evaluation. Parts of each terminated trajectory are added to the failure set TF, while parts of each truncated trajectory will be added to TG. We utilize the concept of maximum time to failure, which describes the maximum number of steps for which a state in the unviability kernel can be kept safe before it inevitably becomes unsafe. For most systems, this quantity is infeasible to compute exactly. We therefore design a heuristic that approximates the maximum time to failure using an interval defined by two hyperparameters, [MTF early , MTF late ]. This interval is intended to capture the range in which the true maximum time to failure is expected to lie. Given a terminated trajectory τF with terminal time T , we sample MTF num states from 
+
+(ˆ sT −MTF early , . . . , ˆsT −MTF late ) (27) and add them to TF for each failed rollout. The motivation behind this heuristic is to sample training starting states in the vicinity of failure regions of the filter that can still be corrected. By sampling in this manner, we heuristically select states from the viability kernel. From the truncated trajectories τG, we aim to overrepresent those that yield high returns with respect to the control reward r,as an overly conservative safety would be particularly harmful in these regions for the subsequent control policy learning problem. At the same time, to ensure that selected starting states are viable, we apply a heuristic that only selects high-return trajectories whose Q-values, used here as proxies for the expected time to failure, exceed a predefined threshold. After a variable number of training and evaluation rounds, the method proceeds to control policy learning. 
+
+A.3. Control Learning Problem 
+
+At the start of each control policy RL phase, we are given the filter μj from the current iteration and the model ˆpj−1 from the previous iteration. The training procedure for the control policy is described in Algorithm 6. Essentially, this procedure follows the Infoprop algorithm, with FastTD3 serving as the model-free RL backbone. Additionally, we incorporate recent insights from (Bejarano et al., 2025; Markgraf et al., 2025) by penalizing the control agent for deviations from the safety-filtered action, as illustrated in Figure 9. The penalized reward is given by rt − ∥ at − aVt ∥2, where the Euclidean distance measures the deviation between the control agent’s proposed action and the safety-filtered action. 15 Safety Augmented Model-Based Reinforcement Learning 
+
+Algorithm 6 Control Policy Learning and Environment Data Collection 
+
+input p, ˆpj , μ j , π ψ , π ¯ψ , Q ϑ1 , Q ¯ϑ1 , Q ϑ2 , Q ¯ϑ2 , Dπ,p = ∅, Dπ, ˆp = ∅, D ˆp,p j−1
+
+Randomly initialize ψ, ϑ 1, ϑ 2 and ¯ψ ← ψ, ¯ϑ1 ← ϑ1, ¯ϑ2 ← ϑ2
+
+s0 ∼ ρ0
+
+for environment steps do 
+
+at ∼ πψ (st) + σ2 · ϵβt with ϵβt ∼ PN β Sample explorative control action 
+
+ut = μj−1(st) Sample filter policy action 
+
+aV 
+
+> t
+
+= κ(at, w t, b t) with (wt, b t) = h(ut) Filter control action 
+
+st+1 ∼ p(·| st, a V 
+
+> t
+
+) Sample next state of environment by executing filtered action 
+
+rt+1 = r(st, a V 
+
+> t
+
+, s t+1 ) Determine control reward 
+
+D ˆp,p ← D ˆp,p ∪ { st, a V 
+
+> t
+
+, s t+1 , r t+1 } Add filtered action to model learning buffer 
+
+Dπ,p ← D π,p ∪ { st, a t, s t+1 , r t+1 − ∥ aV 
+
+> t
+
+− at∥2} Add unfiltered action to environment control buffer 
+
+if model-based rollout frequency then for number of model-based rollouts do 
+
+σ1 ∼ U(σmin , σ max ) Sample exploration scale (Seo et al., 2025) 
+
+ˆs0 ∼ D π,p 
+
+while t < T and H( ˆSt) < λ 1 and Ptt′=0 H( ˆSt′ ) < λ 2 do 
+
+at ∼ πψ (ˆ st) + σ1 · ϵπt with ϵπt ∼ PN π Sample explorative control action 
+
+ut = μj (ˆ st) Sample deterministic filter action 
+
+aV 
+
+> t
+
+= κ(at, w t, b t) with (wt, b t) = h(ut) Potentially filter behavior policy according to (7) 
+
+ˆst+1 ∼ ˆp(·| ˆst, a V 
+
+> t
+
+) Sample next state via the Infoprop rollout (Frauenknecht et al., 2025) 
+
+rt+1 = r(ˆ st, a V 
+
+> t
+
+, ˆst+1 ) Determine control reward 
+
+Dπ, ˆp ← D π, ˆp ∪ { ˆst, a t, ˆst+1 , r t+1 − ∥ aV 
+
+> t
+
+− at∥2} Add unfiltered action to model control buffer 
+
+end while end for end if for update steps do 
+
+Sample mini-batch of N transitions from Dπ, ˆp ∪ D π,p 
+
+y = rt+1 − ∥ aV 
+
+> t
+
+− at∥2 + γ min i∈{ 1,2} Q ¯ϑi (ˆ st+1 , π ¯ψ (ˆ st+1 ) + σ4 · ϵ) with ϵ ∼ N (0 , I ) Compute the TD target yϑi ← arg min ϑi
+
+> 1
+> N
+
+P(y − Qϑi (ˆ st, a t)) 2 Update the Q-functions by minimizing the squared TD error 
+
+if policy update frequency then 
+
+ψ ← arg max ψ 1
+
+> N
+
+P Qϑ1 (ˆ st, π ψ (ˆ st)) Update policy by maximizing Q-value 
+
+¯ϑi ← ¯τ ϑ i + (1 − ¯τ ) ¯ϑi Polyak averaging 
+
+¯ψ ← ¯τ ψ + (1 − ¯τ ) ¯ψ Polyak averaging 
+
+end if end for end for output πψ , D ˆp,p j
+
+16 Safety Augmented Model-Based Reinforcement Learning 
+
+When applying this penalty, it is important to store the unfiltered action at in both the environment control buffer Dπ,p 
+
+and the model control buffer Dπ, ˆp. The filtered action aVt , which is executed in the environment, is stored in the model learning buffer Dˆp,p . Training is terminated after a fixed number of environment interactions. The Dyna-SAuRtraining loop continues with the next iteration of model learning. 17 Safety Augmented Model-Based Reinforcement Learning 
+
+## B. Proofs 
+
+B.1. Bijection Between Parameter Space and Discriminating Hyperplanes Lemma B.1 (Maximum Offset of a Hypercube Intersecting Hyperplane) . Let w ∈ RnA be a normalized normal vector, i.e., 
+
+∥w∥2 = 1 . A hyperplane {a ∈ A | w⊤a ≥ b} intersects the hypercube A = [ −1, 1] nA only if 
+
+|b| ≤ ∥ w∥1.
+
+Proof. A hyperplane intersects [−1, 1] nA if and only if there exists some a ∈ [−1, 1] nA such that w⊤a = b. Hence, a necessary and sufficient condition is 
+
+|b| ≤ max 
+
+> a∈[−1,1] nA
+
+|w⊤a|.
+
+Since the maximization of a linear function over a hypercube is attained at the vertices, we have 
+
+|b| ≤ max 
+
+> a∈[−1,1] nA
+
+w⊤a =
+
+> nA
+
+X
+
+> i=1
+
+|wi| = ∥w∥1.
+
+Theorem B.2 (Bijection) . The function h mapping each u ∈ U to a discriminating hyperplane intersecting A = [ −1, 1] nA
+
+is bijective. It is defined as h(ut) = ( wt, b t) with 
+
+wt = ut
+
+∥ut∥2
+
+, and bt = (2 · ∥ ut∥2 − 1) ∥wt∥1.
+
+Proof. Injectivity: For any u ∈ U = {u ∈ RnA | ∥ u∥2 ≤ 1}, the hyperplane {a ∈ A | w⊤a = b}, with h(u) = ( w, b )
+
+intersects the action space A = [ −1, 1] nA .
+
+By construction, w is a normalized normal vector with ∥w∥2 = 1 . Since ∥u∥2 ≤ 1, we have 
+
+2∥u∥2 − 1 ∈ [−1, 1] ,
+
+and therefore 
+
+|b| = |2∥u∥2 − 1| ∥ w∥1 ≤ ∥ w∥1.
+
+By Lemma B.1, these conditions are sufficient for the hyperplane to intersect [−1, 1] d. Given u, the construction uniquely determines both the normalized normal vector w and the offset b. Hence, h is injective. 
+
+Surjectivity. Let (w, b ) be a hyperplane intersecting [−1, 1] nA with normalized normal ∥w∥2 = 1 . By Lemma B.1 the absolute offset must be smaller than the maximal offset |b| ≤ ∥ w∥1. Define 
+
+l = 12
+
+ b
+
+∥w∥1
+
++ 1 
+
+
+
+, u = w l. 
+
+Then l = ∥u∥2 ≤ 1 and u ∈ U . Substituting u into h recovers (w, b ) by construction. Hence, h is surjective. Therefore, h is bijective. 
+
+B.2. Expected Time to Failure Lemma B.3 (Expected Time to Failure) . A filter action value function QSF (s, u ) approximating the action values of a filter policy μ(s) for a reward function 
+
+rSF (st, u t, s t+1 ) = 
+
+(
+
+1, if st+1 ∈ S S(E),
+
+− 11−γSF , otherwise encodes the expected time to failure TF under the filter policy μ in the following form: 
+
+Eμ [TF|s] = log γSF 
+
+ 1 − QSF (s, μ (s))(1 − γSF )2
+
+
+
+18 Safety Augmented Model-Based Reinforcement Learning 
+
+Proof. The safety filter return GSF for a trajectory terminating after TF steps is given by 
+
+GSF =
+
+> TF−1
+
+X
+
+> t=0
+
+γt 
+
+> SF
+
+· 1 + γTF
+
+> SF
+
+
+
+− 11 − γSF 
+
+
+
+= 1 − γTF
+
+> SF
+
+1 − γSF 
+
+− γTF
+
+> SF
+
+1 − γSF 
+
+= 1 − 2γTF
+
+> SF
+
+1 − γSF 
+
+.
+
+(28) The state value function V SF (s) = QSF (s, μ (s)) (Sutton & Barto, 2018) encodes the expected return under the policy μQSF (s, μ (s)) = Eμ
+
+GSF | S = s, U = μ(s)
+
+= V SF (s)= Eμ
+
+GSF | s
+
+= Eμ
+
+"
+
+1 − 2γTF
+
+> SF
+
+1 − γSF 
+
+s
+
+#
+
+= 1 − 2γEμ[TF|s]SF 
+
+1 − γSF 
+
+(29) Rearranging (29) yields the desired result. 19 Safety Augmented Model-Based Reinforcement Learning   
+
+> Figure 10. Ablation of Dyna-SAuR design choices for Walker. Removing the starting state distribution introduced in Section 5.4 or the action regularization introduced in Section 5.3 leads to reduced control performance and increased accumulated failures. In contrast, incorrect parameterization of the hyperplane defining action introduced in Section 5.2 prevents effective learning, indicating its central role in the method.
+
+## C. Ablations 
+
+As visualized in Figure 10, the Walker ablation exhibits trends similar to those observed for CartPole with Dyna-SAuR depicted in Figure 7. When removing the efficient action-space parameterization of the safety filter, we observe the highest number of accumulated failures and the lowest return. This indicates that the proposed parameterization reduces the search space and improves the effectiveness of learning safety filters with RL. When the action regularization is removed, the safety filter RL agent more easily learns restrictive safety filters, which leads to a lower final return. When removing the rewards encouraging safe starting states as well as the failure-preventing starting states, i.e., without starting-state distribution shaping, the final return is also reduced. 20 Safety Augmented Model-Based Reinforcement Learning 
+
+## D. Experimental Setup 
+
+D.1. Prior Data 
+
+Since safety without any prior knowledge is an ill-defined problem (As et al., 2025), we assume the availability of some prior data to train an initial dynamics model. In our experiments, this prior data is generated using a stabilizing controller. Each action produced by the prior controller is perturbed with pink noise and every second step replaced by a uniformly sampled action to improve action-space coverage and enable reliable uncertainty estimation. For CartPole, we design a standard equilibrium-stabilizing Linear Quadratic Regulator (LQR). For Walker, we train an RL agent to step forward and maintain balance. We are using a partially trained version of this agent to generate prior data. For CartPole, we use 30,000 environment interactions, while for Walker we use 4,000,000 interactions. Due to the high dimensionality of the Walker environment, this larger dataset is necessary to sufficiently cover a local region of the state–action space and to obtain an adequately accurate initial dynamics model. Nevertheless, as shown in Fig. 6, our method generalizes beyond the initial data distribution and learns a walking gait that is not present in the prior data. 
+
+D.2. Hyperparameters 
+
+All experiments were conducted over 10 random seeds, with hyperparameters chosen to ensure fair and comparable comparisons across methods. For all environments, all episodes are truncated after 500 steps. D.2.1. H YPERPARAMETERS DYNA -SA URThe hyperparameters for Dyna-SAuR are shown in Table 1. D.2.2. H YPERPARAMETERS BASELINE INFOPROP 
+
+As shown in Table 2, we use the standard Infoprop (Frauenknecht et al., 2025) hyperparameters for the baseline. The only exception is that we increase the retraining interval (measured in environment steps) at which the model is retrained. This change is made to keep model training computationally feasible due to the relatively large amount of prior data in the Walker environment, and to match the retraining interval used by the Dynasaur model. D.2.3. H YPERPARAMETERS BENCHMARK PPO-L AGRANGIAN 
+
+As shown in Table 3, we use standard PPO-Lagrangian (Ray et al., 2019) hyperparameters for the benchmark. D.2.4. H YPERPARAMETERS BENCHMARK RL-DH As shown in Table 4, we use standard PPO-Lagrangian (Lavanakul et al., 2024) hyperparameters for the benchmark. 21 Safety Augmented Model-Based Reinforcement Learning  
+
+> Table 1. Hyperparameters for Dyna-SAuR on Walker and CartPole environments.
+
+Hyperparameter Cartpole Walker Model Learning 
+
+Ensemble size E 7 7Number of hidden layers 4 4Number of hidden neurons 200 200 Learning rate 0.0006 0.0006 Weight decay 0.0007 0.0007 Patience for early stopping 10 10 Batch size N Model 256 256 
+
+Safety Filter Learning 
+
+Number of model rollouts RO SF 100 500 Minimal noise scale σmin 0.001 0.001 Maximum noise scale σmax 0.3 0.2 Accurate quantile ζ1 0.99 0.99 Exceptionally accurate quantile ζ2 0.01 0.01 Learning rate 0.0003 0.0003 Buffer size filter buffer Dμ, ˆp 1,000,000 1,000,000 Batch size N 100,000 100,000 Polyak averaging factor ¯τ 0.001 0.001 Policy update frequency 2 2Action regularization factor c 0.1 1Pink noise process scale σ3 0.33 0.33 Policy exploration scale σ2 0.1 0.1 TD3 smoothing scale σ4 0.003 0.003 Discount Factor γSF 0.99 0.99 Factor control starting states ν1 0.05 0.1 Factor failed rollouts ν2 0.3 0.45 Factor high return rollouts ν3 0.65 0.45 Mixing factor ν4 0.5 0.5 Mixing factor ν5 0.5 0.5 Number of evaluation rollouts 2000 1000 Maximum time to failure early MTF early 10 20 Maximum time to failure late MTF late 50 100 Number of states MTF num 10 5
+
+Control Policy Learning 
+
+Number of model rollouts 100 100 Minimal noise scale σmin 0.001 0.001 Maximum noise scale σmax 0.2 0.2 Accurate quantile ζ1 0.99 0.99 Exceptionally accurate quantile ζ2 0.01 0.01 Learning rate 0.0003 0.0003 Polyak averaging factor ¯τ 0.001 0.001 Policy update frequency 2 2Policy exploration scale σ2 0.1 0.1 TD3 smoothing scale σ4 0.003 0.003 Discount Factor γ 0.99 0.99 Number of environment interactions per Dyna-SAuR iteration 40,000 40,000 22 Safety Augmented Model-Based Reinforcement Learning  
+
+> Table 2. Hyperparameters for Infoprop on Walker and CartPole environments.
+
+Hyperparameter Cartpole Walker Model Learning 
+
+Ensemble size E 7 7Number of hidden layers 4 4Number of hidden neurons 200 400 Learning rate 0.001 0.0006 Weight decay 0.0002 0.0007 Patience for early stopping 9 9Retrain interval 40000 40000 
+
+Model Rollouts 
+
+Accurate quantile ζ1 0.99 0.99 Exceptionally accurate quantile ζ2 0.01 0.01 Scaling factor ξ 1 1Rollout interval 250 250 Rollout batch size 100000 100000 
+
+SAC Agent 
+
+Number of hidden neurons 1024 1024 Number of hidden layers 2 2Learning rate 0.005 0.0002 SAC target entropy 0 -7 Target update interval 5 4Update steps G 10 10  
+
+> Table 3. Hyperparameters for PPO-Lagrangian on Walker and CartPole environments.
+
+Hyperparameter Cartpole Walker 
+
+Number of hidden neurons 64 128 Number of hidden layers 2 2Steps per epoch 400 4000 Gamma 0.99 0.99 Lambda 0.97 0.97 Cost gamma 0.97 0.97 Cost lambda 0.97 0.97 Penalty learning rate 0.05 0.05 Target Kullback-Leibler divergence 0.01 0.01 Value function learning rate 0.001 0.001 23 Safety Augmented Model-Based Reinforcement Learning  
+
+> Table 4. Hyperparameters for RL-DH on Walker and CartPole environments.
+
+Hyperparameter Cartpole Walker Safety Filter PPO Agent 
+
+Number of hidden neurons 64 128 Number of hidden layers 2 2Steps per epoch 400 4000 Gamma 0.99 0.99 Lambda 0.97 0.97 Target Kullback-Leibler divergence 0.01 0.01 Value function learning rate 0.001 0.001 Policy learning rate 0.0003 0.0003 Environment Steps for Safety Filter Training 30000 4000000 Clip Ratio 0.2 0.2 
+
+Control PPO Agent 
+
+Number of hidden neurons 64 128 Number of hidden layers 2 2Steps per epoch 400 4000 Gamma 0.99 0.99 Lambda 0.97 0.97 Target Kullback-Leibler divergence 0.01 0.01 Value function learning rate 0.001 0.001 Policy learning rate 0.0003 0.0003 Clip Ratio 0.2 0.2 24 Safety Augmented Model-Based Reinforcement Learning 
+
+## E. Definitions and Terminology 
+
+E.1. Discussion Filter Policy Learning Problem 
+
+We write the filter policy learning problem 
+
+μ∗ = arg max 
+
+> μ∈M
+
+{Img( κπμ) ⊆ ΠV(E)}, (30) as a shorthand notation for finding a filter policy μ∗ ∈ M, such that 
+
+Img( κπμ∗ ) ⊆ ΠV(E) and ∄μ ∈ M with Img( κπμ∗ ) ⊊ Img( κπμ). (31) 
+
+E.2. Safety and Viability 
+
+The term “safe states” is used inconsistently across the safety literature. For instance, (Cheng et al., 2019) employ it to denote what our work terms viable states, whereas (Brunke et al., 2022) use the term consistently with the definition adopted in this work. Figure 11 illustrates the terminology adopted in this work. As engineers, we define unsafe states SF as states the agent must never reach, e.g., the robot has fallen and lies on the ground. Thus, these failure states are typically easy to define. The set of safe states SS is the complement of the set of unsafe states SF. Consequently, some safe states inevitably lead to failure, e.g., a robot stumbling in a way that it cannot recover but does not yet lie on the ground. Therefore, the more informative distinction is between viable states SV that remain in the set of safe states indefinitely, given a suitable control policy, and unviable states SU that are safe but will fail eventually. This distinction is the non-trivial problem Dyna-SAuR addresses. Figure 11 provides a minimal illustrative example of the distinction. The car on the slope is safe but unviable, as it enters SF
+
+under any control sequence, since the engine torque is insufficient to climb the slope. Safe Unsafe Viable Unviable 
+
+Figure 11. Safety vs. viability terminology illustrated by a cart on a sloped track. From an engineering perspective, unsafe states (red) are defined as the undesired states in which the car has crashed; their complement are the safe states (green). At the slope, insufficient torque prevents the cart from returning, so regardless of the control sequence applied, the car inevitably enters the unsafe set in finite time. These states are defined as unviable (orange). Their complement, i.e., states from which a control sequence exists that can keep the system safe, are viable (blue). 
+
+25
