@@ -1,0 +1,1209 @@
+Title: Recovering Hidden Reward in Diffusion-Based Policies
+
+URL Source: https://arxiv.org/pdf/2605.00623v1
+
+Published Time: Mon, 04 May 2026 01:07:01 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Recovering Hidden Reward in Diffusion-Based Policies 
+
+Yanbiao Ji 1 Qiuchang Li 1 Yuting Hu 1 Shaokai Wu 1 Wenyuan Xie 1 Guodong Zhang 1 Qicheng He 1
+
+Deyi Ji 2 Yue Ding 1 Hongtao Lu 1
+
+## Abstract 
+
+This paper introduces E NERGY FLOW , a frame-work that unifies generative action modeling with inverse reinforcement learning by parameterizing a scalar energy function whose gradient is the de-noising field. We establish that under maximum-entropy optimality, the score function learned via denoising score matching recovers the gradient of the expert’s soft Q-function, enabling reward extraction without adversarial training. Formally, we prove that constraining the learned field to be conservative reduces hypothesis complexity and tightens out-of-distribution generalization bounds. We further characterize the identifiability of re-covered rewards and bound how score estimation errors propagate to action preferences. Empir-ically, E NERGY FLOW achieves state-of-the-art imitation performance on various manipulation tasks while providing an effective reward sig-nal for downstream reinforcement learning that outperforms both adversarial IRL methods and likelihood-based alternatives. These results show that the structural constraints required for valid re-ward extraction simultaneously serve as beneficial inductive biases for policy generalization. The code is available at https://github.com/ sotaagi/EnergyFlow .
+
+## 1. Introduction 
+
+Diffusion-based policies (Chi et al., 2023; Zhang et al., 2025b; Reuss et al., 2024) have become a promising paradigm for embodied agents to learn manipulation skills from expert demonstrations. These methods learn to gen-erate actions by iteratively denoising corrupted samples conditioned on the current state. Due to their capacity to model complex, multi-modal distributions, diffusion poli-
+
+> 1
+
+Shanghai Jiao Tong University 2KOKONI 3D, Moxin Tech-nology. Correspondence to: Yue Ding <dingyue@sjtu.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). (a) Diíusion Policy  (b) Our Policy 
+
+Figure 1. Comparison between Diffusion Policy and E NER -
+
+> GY
+
+FLOW . (a) Conventional diffusion policies predict noise 
+
+ϵθ (s, a) for iterative denoising but lack an explicit energy rep-resentation. (b) E NERGY FLOW parameterizes an energy function 
+
+Eθ (s, a) and performs denoising via its gradient ∇Eθ , enabling action generation as well as outputting reward signals. 
+
+cies are particularly well-suited for capturing diverse expert behaviors (Chi et al., 2023). Despite this expressiveness, diffusion policies are typically trained under the behavior cloning (BC) objective (Torabi et al., 2018). They imitate trajectories without explicitly modeling why an action is desirable, i.e. , the underlying intent or task preference that makes some behaviors suc-ceed (Hayes & Shah, 2017). In practice, this can limit robustness and extrapolation. When test-time situations de-viate from the demonstration distribution, matching action likelihood alone may not provide a reliable signal for action selection (Acero & Li, 2024). A natural way to model intent is through reward-based Re-inforcement Learning (RL). For embodied agents, reward-driven behavior has been widely regarded as important in terms of governing complex cognitive abilities such as per-ception, imitation, and learning (Lu et al., 2025). This has motivated combining diffusion policies with reinforce-ment learning, aiming to improve adaptation beyond pure BC (Ada et al., 2024; Ren et al., 2025). However, applying RL in real robotic settings remains challenging, in large part due to the need for careful reward design and tuning (Ye et al., 2024). While inverse reinforcement learning (IRL) methods (Ramachandran & Amir, 2007; Ziebart et al., 2008) can learn rewards from demonstrations, they often bring substantial computational overhead and may suffer from training instabilities (Nijkamp et al., 2022; Du et al., 2021). We propose to exploit the reward signal that is already im-plicit in diffusion-based imitation. Motivated by connec-tions between diffusion models and energy-based model-1
+
+> arXiv:2605.00623v1 [cs.RO] 1 May 2026 Recovering the Hidden Reward in Diffusion-Based Policies
+
+ing (Wang & Du, 2025; Balcerak et al., 2025), we parame-terize a scalar energy function over observation–action pairs and train it through a denoising score matching process. The resulting energy landscape both (i) induces a generative vector field for action sampling via its gradient and (ii) pro-vides a reward signal aligned with the Boltzmann form as in maximum-entropy IRL. Figure 1 compares standard diffu-sion policies, which learn a denoising vector field, with our approach, which also learns the underlying energy function. Our contributions are as follows: • We propose E NERGY FLOW , which parameterizes a scalar energy function Eθ (o, a) and derives the generative vec-tor field from its action-gradient ∇aEθ (o, a). This en-forces integrability by construction and yields complete probability-flow ordinary differential equation (ODE) derivations that connect training and sampling. • We prove that the integrability constraint acts as implicit regularization, reducing hypothesis complexity and tight-ening generalization bounds. We further bound how score matching error propagates to recovered action preferences when using the learned energy as a reward signal. • Through extensive empirical experiments, we show that (i) the learned energy provides an effective shaping signal for downstream RL, with gains attributable to the energy-based extraction method; and (ii) enforcing integrability improves out-of-distribution generalization relative to un-constrained flow policies. 
+
+## 2. Preliminaries 
+
+Denoising Score Matching. Score matching (Hyv ¨arinen, 2005) aims to estimate the score function ∇x log p(x) of a data distribution. Denoising score matching (Vincent, 2011) provides a tractable objective by perturbing data with noise and learning to denoise the corrupted samples. Formally, given a noise-perturbation kernel qσ (˜ x|x0) = 
+
+N (˜ x; x0, σ 2I), the denoising score matching objective is: 
+
+Eqσ (˜ x|x0)p(x0)
+
+∥S θ (˜ x, σ ) − ∇ ˜x log qσ (˜ x|x0)∥2 , (1) which is equivalent to explicit score matching up to a con-stant (Vincent, 2011). Since ∇˜x log qσ (˜ x|x0) = −(˜ x −
+
+x0)/σ 2 = −ε/σ , the objective reduces to predicting the scaled noise direction. 
+
+Score-Based Generative Models. Score-based generative models (Song et al., 2021) extend denoising score match-ing across noise scales. The forward process adds noise according to a schedule σ(t) for t ∈ [0 , T ]:
+
+xt = x0 + σ(t)ε, ε ∼ N (0, I), (2) where σ(t) is monotonically increasing with σ(0) ≈ 0.A noise-conditional score network Sθ (x, t ) is trained to approximate ∇x log pt(x) via the multi-scale objective: 
+
+L(θ) = Et∼U [0 ,T ],x0,ε
+
+"
+
+λ(t) Sθ (xt, t ) + ε
+
+σ(t)
+
+> 2
+
+#
+
+, (3) where λ(t) = σ2(t) ensures uniform contribution across noise levels. Sampling proceeds by integrating the probability-flow ODE from t = T to t ≈ 0:
+
+dx
+
+dt = − 12
+
+d[σ2(t)] 
+
+dt Sθ (x, t ). (4) 
+
+Diffusion-Based Policies. Diffusion-based policies (Chi et al., 2023; Zhang et al., 2025b) represent the policy 
+
+πθ (a|s) as a conditional score-based model. The model learns a noise-conditional score network Sθ (at, s, t ) that approximates ∇at log pt(at|s), trained by minimizing the noise prediction error: 
+
+LBC (θ) = Et, ε
+
+"
+
+λ(t) Sθ (at, s, t ) + ε
+
+σ(t)
+
+> 2
+
+#
+
+, (5) where at = a0 + σ(t)ε. At inference, actions are gener-ated by sampling aT ∼ N (0, σ 2(T )I) and integrating the probability-flow ODE Eq. (4) conditioned on s.
+
+## 3. Theoretical Analysis 
+
+Our goal is to unify generative score matching and inverse reinforcement learning (IRL). In this section, we establish that the score function learned by diffusion models is not merely a sampling mechanism, but an implicit representa-tion of the expert’s reward structure. 
+
+3.1. Equivalence Between Scores and Reward Gradients 
+
+Standard diffusion models estimate the score function 
+
+∇a log pt(a|s) to generate data. We first demonstrate that for an optimal embodied agent, this score function already contains the underlying reward function gradients. 
+
+Assumption 3.1 (Maximum Entropy Optimality) . The ex-pert policy πE (a|s) is optimal with respect to the soft Q-function Q∗(s, a) under the Maximum Entropy princi-ple (Ziebart et al., 2008). The policy takes the form of a Boltzmann distribution: 
+
+πE (a|s) = 1
+
+Z(s) exp 
+
+ Q∗(s, a)
+
+α
+
+
+
+,
+
+and Z(s) = 
+
+Z
+
+exp 
+
+ Q∗(s, a)
+
+α
+
+
+
+da,
+
+(6) where α is the temperature parameter and Q∗(s, a) is the optimal soft action-value function incorporating both imme-diate rewards and future discounted returns. 2Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Remark 3.2 (Scope of the Assumption) . In the sequential MDP setting, the partition function satisfies log Z(s) = 
+
+V ∗(s)/α , where V ∗ is the optimal soft value function. Thus 
+
+log πE (a|s) = ( Q∗(s, a) − V ∗(s)) /α = Asoft (s, a)/α ,where Asoft is the soft advantage. Our analysis recovers the soft advantage (or equivalently, the soft Q-function up to state-dependent terms) from demonstrations. Under this assumption, the relationship between the data distribution and the soft Q-function is linear in log-space. By taking the gradient with respect to the action a, we eliminate the intractable partition function Z(s), establishing a direct link between the score and the Q-function gradient. 
+
+Theorem 3.3 (Score-Reward Equivalence) . Let S∗(a, s) := 
+
+∇a log πE (a|s) be the true score function of the expert policy. Under Assumption 3.1, the gradient of the expert’s soft Q-function is proportional to the score: 
+
+∇aQ∗(s, a) = α · S ∗(a, s). (7) 
+
+Consequently, if a parameterized energy function Eϕ(a, s)
+
+is trained such that −∇ aEϕ ≈ S ∗, then Eϕ recovers the soft Q-function up to a state-dependent constant: 
+
+Eϕ(a, s) = − Q∗(s, a)
+
+α + c(s). (8) 
+
+Proof. Taking the logarithm of Eq. (6) yields 
+
+log πE (a|s) = 1 
+
+> α
+
+Q∗(s, a) − log Z(s). Since Z(s)
+
+depends only on state s, ∇a log Z(s) = 0 . Differentiating both sides with respect to a immediately yields Eq. (7) .Integrating both sides with respect to a along any path yields Eq. (8), where c(s) is the integration constant. 
+
+Corollary 3.4 (Connection to Soft Advantage) . Under As-sumption 3.1, the learned energy satisfies: 
+
+Eϕ(a, s) = − Asoft (s, a)
+
+α + c′(s), (9) 
+
+where Asoft (s, a) = Q∗(s, a)−V ∗(s) is the soft advantage and c′(s) = c(s) + V ∗(s)/α .
+
+This theorem suggests that score matching can substitute for the unstable min-max optimization typical of adversarial IRL. However, Eq. (7) only holds if the learned score field is actually the gradient of a scalar function . This leads to a need for proper structural constraints. 
+
+3.2. Enforcing Conservative Field 
+
+While Theorem 3.3 establishes that a reward gradient is a score, the converse is not automatically true for approxi-mated functions. A generic neural network outputting a vector field may not be the gradient of any scalar field. 
+
+Definition 3.5 (Conservative Vector Field) . A vector field 
+
+V : Rd → Rd is conservative (or integrable) if there ex-ists a scalar potential Ψ such that V = ∇Ψ. A necessary condition is that the Jacobian is symmetric ( ∇ × V = 0 ), implying path independence. If a learned score field Sϕ is not conservative, the im-plied “reward” becomes ill-defined. Specifically, a non-conservative field induces cyclic preferences (e.g., a1 ≻
+
+a2 ≻ a3 ≻ a1), violating the transitivity axiom of rational decision-making (Jiang et al., 2011). To prevent this, we must strictly restrict our hypothesis space to conservative fields. This is achieved by parameterizing a scalar energy network Eϕ and defining the score as Sϕ = −∇ aEϕ.Beyond ensuring theoretical validity, this restriction acts as a powerful inductive bias for generalization. 
+
+Theorem 3.6 (Complexity Reduction via Conservative Con-straints) . Let ϕ : Rin → Rk be a neural feature repre-sentation with bounded feature norm sup x ∥ϕ(x)∥2 ≤ B,bounded Jacobian Frobenius norm sup x ∥Jϕ(x)∥F ≤ L,and bounded weight matrix norm sup ∥W ∥ ≤ Λ for the linear map. Let Func be the class of arbitrary linear vector fields over ϕ, and Fcons be the class of conservative vec-tor fields (gradients of potentials over ϕ). The Empirical Rademacher complexity of the conservative class is strictly tighter with respect to the output dimension d:
+
+ˆRS (Func ) ≤ ΛB√d
+
+√n , ˆRS (Fcons ) ≤ ΛL
+
+√n . (10) 
+
+For high-dimensional action spaces where d is large, pro-vided the representation is smooth ( L ≪ B√d), we have 
+
+ˆRS (Fcons ) ≪ ˆRS (Func ).
+
+□ Proof in Appendix A.1. Remark 3.7 (Applicability to Deep Architectures) . While Theorem 3.6 formally bounds the final linear readout, its assumptions are satisfied by deep neural networks under standard Lipschitz constraints. For a deep network ϕ, the Jacobian norm L is bounded by the product of the spectral norms of individual weight matrices (Bartlett et al., 2017). In practice, training techniques such as weight decay and spectral normalization strictly control these norms to prevent exploding gradients, ensuring finite Λ and L.
+
+3.3. OOD Generalization 
+
+By enforcing a conservative field, we also impose a global structural constraint: the learned field must remain the gradi-ent of a scalar potential even in unseen regions. This forces the model to extrapolate the shape of the energy landscape rather than fitting arbitrary vector directions, effectively coupling the prediction errors across dimensions. 
+
+Lemma 3.8 (OOD Generalization) . Let DS be the source training distribution and DT be a target (OOD) distribu-tion. Let h∗ ∈ F cons be the ground truth conservative field. Assume that all hypotheses in Fcons and Func are uniformly 
+
+3Recovering the Hidden Reward in Diffusion-Based Policies 
+
+bounded by M > 0 (i.e., sup x ∥f (x)∥2 ≤ M for all f in the hypothesis class). For any learned hypothesis f , let the risk be RD (f ) = Ex∼D [∥f (x) − h∗(x)∥2]. The risk on the target domain for the conservative estimator satisfies, with probability at least 1 − δ:
+
+RDT ( ˆfcons ) ≤ ˆRS ( ˆfcons )+ 12 dH∆H(DS , DT ) + O
+
+ M ΛL
+
+√n
+
+
+
+, (11) 
+
+whereas for the unconstrained estimator ˆfunc , the complexity term scales with O(M ΛB√d/ √n). Here, dH∆H is the discrepancy distance between domains and ˆRS denotes the empirical source risk. 
+
+□ Proof in Appendix A.2. 
+
+Lemma 3.8 implies that as the dimensionality d of the action space increases, the upper bound on the OOD error for unconstrained fields grows with √d, while the bound for conservative fields remains controlled by the smoothness L.
+
+3.4. Identifiability and Within-State Reward Shaping 
+
+Having established that we can recover a valid reward gra-dient ∇aQ∗, we must determine if this uniquely identifies the Q-function. Integrating Eq. (7) with respect to a yields: 
+
+Q∗(s, a) = −αE ϕ(a, s) + c(s), (12) where c(s) is an unknown state-dependent integration con-stant. This represents a fundamental limit of learning from demonstrations: we observe which actions are preferred at 
+
+a state, but not how good the state is globally. 
+
+Proposition 3.9 (Within-State Action Ranking) . The learned energy provides exact within-state action rankings: 1. Within-state ranking is exact. For any fixed state s, the action with lowest energy is the expert’s most preferred action: arg min a Eϕ(a, s) = arg max a Q∗(s, a).2. Cross-state comparison is ambiguous. The difference 
+
+Eϕ(a, s) − Eϕ(a′, s′) includes the unknown quantity 
+
+c(s) − c(s′).
+
+□ Proof in Appendix A.3. Remark 3.10 (State Ambiguity) . The recovered reward 
+
+ˆr(s, a) = −αE ϕ(a, s) differs from the true soft Q-function by a state-dependent offset c(s). In the specific case where 
+
+c(s) takes the form required by potential-based reward shap-ing (PBRS) (Ng et al., 1999), i.e. , it can be expressed as a potential difference γΦ( s′) − Φ( s) over transitions, the optimal policy is provably preserved. In general, however, a state-only offset does not satisfy the PBRS form and may alter the optimal policy in sequential settings. Nevertheless, 
+
+Algorithm 1 ENERGY FLOW Training 
+
+Require: Expert dataset D = {(si, ai)}, energy network 
+
+Eϕ, noise schedule σ(t) = σ1−t/T  
+
+> min
+
+σt/T  
+
+> max
+> 1:
+
+for each training iteration do  
+
+> 2:
+
+Sample batch (s, a) ∼ D  
+
+> 3:
+
+Sample t ∼ U [0 , T ], ε ∼ N (0, I) 
+
+> 4:
+
+Form noisy action at = a + σ(t)ε 
+
+> 5:
+
+Compute Sϕ(at, s, t ) = −∇ at Eϕ(at, s, t ) via au-todiff  
+
+> 6:
+
+Compute loss L = σ2(t)∥S ϕ(at, s, t ) + ε/σ (t)∥2 
+
+> 7:
+
+Update ϕ by gradient descent on L 
+
+> 8:
+
+end for 
+
+for within-state action selection (which is the primary use case for our shaping signal in downstream RL), the offset 
+
+c(s) is irrelevant since it cancels when comparing actions at the same state. Our centered shaping strategy (§4) explicitly removes this offset by subtracting a state-dependent base-line, ensuring the shaping signal reflects only the relative action preferences. 
+
+3.5. Robustness to Estimation Error 
+
+Since score matching is approximate, we bound the impact of score estimation error η on the recovered preferences. 
+
+Theorem 3.11 (Lipschitz Continuity of Preferences) . As-sume the learned score satisfies ∥S ϕ(a, s)−S ∗(a, s)∥2 ≤ η
+
+uniformly. Let ∆E(a, a′) = E(a, s)−E(a′, s) be the rela-tive preference between two actions at the same state. Then: 
+
+|∆Eϕ(a, a′) − ∆E∗(a, a′)| ≤ η · ∥ a − a′∥2. (13) 
+
+□ Proof in Appendix A.4. Remark 3.12 (On the Lipschitz Assumption) . The uniform bound ∥S ϕ(a, s) − S ∗(a, s)∥2 ≤ η is mild and typically satisfied in practice. Neural networks with bounded weights and Lipschitz activation functions are inherently Lipschitz continuous (Gouk et al., 2021). This result confirms that our method degrades gracefully. Small errors in the score field translate to bounded errors in action ranking, scaling linearly with the distance be-tween actions. In the context of downstream RL, this means that for actions within a bounded action space of diameter diam (A), the maximum reward estimation error per step is 
+
+α · ϵ · diam (A), which remains controlled as long as score matching is accurate. 
+
+## 4. Methodology 
+
+Architecture The theoretical constraints identified in Sec. 3 directly lead to our architectural choices. To sat-isfy the conservative field requirement (§3.2), we do not 4Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Algorithm 2 ENERGY FLOW Action Generation 
+
+Require: State s, trained Eϕ, steps K, endpoint γ = 10 −3 
+
+> 1:
+
+Sample aT ∼ N (0, σ 2(T )I) 
+
+> 2:
+
+∆t ← (T − γ)/K  
+
+> 3:
+
+for k = 0 , . . . , K − 1 do  
+
+> 4:
+
+tk ← T − k∆t 
+
+> 5:
+
+gk ← 12  
+
+> d[σ2(tk)]
+> dt
+
+∇aEϕ(ak, s, t k) 
+
+> 6:
+
+ak+1 ← ak − ∆t · gk 
+
+> 7:
+
+end for  
+
+> 8:
+
+return Action aK , Energy Eϕ(aK , s, γ )
+
+directly regress the vector-valued score. Instead, we param-eterize a scalar energy function Eϕ : A × S × [0 , T ] → R
+
+and obtain the score via automatic differentiation: 
+
+Sϕ(a, s, t ) := −∇ aEϕ(a, s, t ). (14) By construction, ∇a × S ϕ ≡ 0, ensuring that learned prefer-ences remain transitive and physically realizable. Detailed network implementation can be found in Appendix C.1. 
+
+Training Paradigm We estimate the energy landscape using denoising score matching. Following the variance-exploding formulation with noise schedule σ(t) =
+
+σ1−t/T  
+
+> min
+
+σt/T  
+
+> max
+
+(where σmin = 0 .01 , σmax = 10 .0, T = 1 .0), we minimize: 
+
+L(ϕ) = Et, a0,ε
+
+"
+
+σ2(t) −∇ at Eϕ(at, s, t ) + ε
+
+σ(t)
+
+> 2
+
+#
+
+,
+
+(15) where at = a0+σ(t)ε, with t ∼ U [0 , T ], (s, a0) ∼ D , ε ∼N (0, I), and λ(t) = σ2(t) ensures uniform contribution across noise levels. As t → 0, minimizing this objective is equivalent to recovering the maximum-entropy reward gradient (Theorem 3.3). 
+
+Reward Extraction While Proposition 3.9 states that the raw energy Eϕ preserves within-state action rankings, the arbitrary offset c(s) introduces high variance when Eϕ is used as a reward signal in downstream RL. To mitigate this, we introduce centered shaping :
+
+˜rϕ(a, s) := −
+
+Eϕ(a, s, ϵ ) − Ea′∼N (0,I)[ Eϕ(a′, s, γ ) ] 
+
+| {z }
+
+> State-dependent Baseline
+
+ ,
+
+(16) where γ = 10 −3 is the ODE endpoint. By subtracting the expected energy under a reference distribution, we effec-tively normalize the state-dependent offset, centering the reward at every state. This ensures the shaping signal re-flects only relative action preferences at a given state. The baseline is approximated via Monte Carlo sampling with M = 16 samples from N (0, I) (Actions are stan-RoboMimic MetaWorld   
+
+> Figure 2. Evaluation tasks. We test on manipulation tasks span-ning varying difficulty on RoboMimic and Meta-World.
+
+dardized to approximately unit variance; see §5.1). Un-like methods that require stochastic trace estimation (e.g., Hutchinson’s estimator for CNF log-likelihoods) (Grath-wohl et al., 2019), our baseline computation is deterministic for a fixed set of reference samples, yielding a low-variance reward signal for policy gradient updates. 
+
+## 5. Experiments 
+
+We design our experimental evaluation to address following research questions: RQ1: Does explicit energy parameteri-zation preserve strong behavior cloning performance? RQ2: 
+
+Can the energy-parameterized policy transfer to real-world robotic manipulation tasks? RQ3: Can the learned energy serve as an effective reward signal for downstream reinforce-ment learning? RQ4: Does integrability improve robustness under distribution shift, as predicted by Lemma 3.8? RQ5: 
+
+How sensitive is E NERGY FLOW to hyperparameters? RQ6: 
+
+Does E NERGY FLOW achieve competitive inference speed compared to existing methods? 
+
+5.1. Experimental Setup Simulation Benchmarks. We evaluate our ap-proach on two widely used manipulation bench-marks RoboMimic (Mandlekar et al., 2021) and Meta-World (McLean et al., 2025). Specifically, we evaluate on five RoboMimic tasks (Lift, Can, Square, Trans-port, ToolHang) and five Meta-World tasks (ButtonPress, DrawerOpen, Assembly, BinPicking, Hammer). Figure 2 illustrates the complete task suite. These environments span a range of difficulty levels, from simple pick-and-place operations to complex multi-stage manipulation requiring precise coordination. Detailed task descriptions are pro-vided in Appendix D.1. Following standard practice (Zhao et al., 2023; Chi et al., 2023), all actions are standardized to zero mean and unit variance using statistics computed from the training demonstrations. 
+
+Baselines. We compare E NERGY FLOW against a com-prehensive set of baselines spanning three categories. We include autoregressive policies : LSTM-GMM (Dalal et al., 2023), which combines recurrent temporal modeling with Gaussian mixture outputs for multimodal action predic-5Recovering the Hidden Reward in Diffusion-Based Policies Bottle Drawer 
+
+Figure 3. Real-world evaluation tasks. We evaluate on two contact-rich manipulation tasks: Bottle (top), where the robot must grasp a bottle and place it into a cardboard box, and Drawer (bottom), where the robot must pull the drawer open. 
+
+tion; generative policies : Diffusion Policy (Chi et al., 2023), which learns action distributions through iterative denoising, and Flow Policy (Zhang et al., 2025b), which employs continuous normalizing flows for density esti-mation; energy-based methods : Implicit BC (IBC) (Flo-rence et al., 2021), which parameterizes policies implic-itly through energy minimization and EBT-Policy (Davies et al., 2025), which combines energy-based modeling with transformer architectures; inverse reinforcement learning methods : EBIL (Liu et al., 2021), NEAR (Diwan et al., 2025), and IQ-Learn (Garg et al., 2021), which recover reward functions from demonstrations through different ad-versarial or information-theoretic objectives. The detailed implementation of these baselines are in C.5. 
+
+5.2. Imitation Learning Performance (RQ1) 
+
+Tables 1 and 2 report success rates on RoboMimic and Meta-World benchmarks respectively. On RoboMimic, E N-
+
+ERGY FLOW achieves the highest average success rate of 93.8%, outperforming Diffusion Policy (91.2%) and Flow Policy (89.6%). The improvements are particularly large on challenging tasks: E NERGY FLOW achieves 84.2% on Tool-Hang compared to 77.2% for Diffusion Policy. On Meta-World, E NERGY FLOW similarly leads with 92.5% average success, demonstrating consistent performance across di-verse manipulation scenarios. Demonstrations of these tasks can be found in Appendix E.1. Notably, E NERGY FLOW 
+
+also outperforms existing energy-based approaches. These results indicates that our conservative parameterization and flow-matching training objective can further enhance energy-based policy representation. 
+
+5.3. Real Robot Deployment (RQ2) 
+
+To validate real-world applicability, we deploy E NER -
+
+GY FLOW on a physical robot platform and evaluate whether the learned energy-parameterized policy can transfer ef-fectively to contact-rich manipulation scenarios. Specifi-
+
+Table 1. Success rates (%) on RoboMimic tasks (ph). Mean ± std over 3 seeds. Bold : best, underline: second best.                                                             
+
+> Method Lift Can Square Transport ToolHang Avg. LSTM-GMM 97.8 ±1.7 71.4 ±8.4 64.3 ±2.3 65.6 ±4.9 46.0 ±6.0 69.0 Diffusion Policy 100.0 ±0.0 99.2 ±0.2 93.5 ±0.6 85.9 ±1.5 77.2 ±1.2 91.2 Flow Policy 99.6 ±0.4 98.4 ±0.8 91.8 ±1.2 83.6 ±2.0 74.8 ±2.4 89.6 EBT Policy 96.2 ±1.6 88.6 ±3.2 78.4 ±3.8 72.4 ±4.2 58.6 ±4.8 78.8 EBIL 92.4 ±3.2 76.8 ±5.4 58.2 ±6.2 48.6 ±5.8 32.4 ±6.4 61.7 NEAR 93.6 ±2.8 78.4 ±4.8 71.4 ±5.6 52.2 ±5.4 36.8 ±5.8 66.5 IQ-Learn 95.2 ±2.2 82.6 ±4.2 68.8 ±4.8 58.4 ±4.6 44.2 ±5.2 69.8 Implicit BC 70.9 ±20.8 30.8 ±2.6 10.2 ±0.1 0.0 ±0.0 0.0 ±0.0 22.4 Ours 100.0 ±0.0 100.0 ±0.0 95.3 ±0.5 89.4 ±1.6 84.2 ±1.4 93.8
+
+Table 2. Success rates (%) on Meta-World tasks. Mean ± std over 5 seeds. Bold : best, underline: second best. 
+
+Method Button Drawer Assembly Bin Hammer Avg. LSTM-GMM 80.2 ±4.2 74.6 ±4.6 48.4 ±5.8 66.8 ±5.2 70.6 ±4.8 68.1 Diffusion Policy 100.0 ±0.0 93.6 ±1.6 76.4 ±3.4 89.6 ±2.2 94.0 ±1.8 90.7 Flow Policy 100.0 ±0.0 92.8 ±1.8 74.8 ±3.6 87.6 ±2.4 92.2 ±2.0 89.5 EBT-Policy 84.2 ±3.4 81.6 ±3.8 62.4 ±4.8 75.8 ±4.2 85.0 ±3.6 77.8 EBIL 74.6 ±5.4 68.2 ±5.8 38.6 ±6.6 58.4 ±6.0 64.8 ±5.6 60.9 NEAR 76.8 ±5.0 70.4 ±5.4 42.2 ±6.2 61.6 ±5.6 67.0 ±5.2 63.6 IQ-Learn 76.4 ±4.2 72.8 ±4.6 52.6 ±5.4 66.2 ±5.0 76.5 ±4.4 68.9 Implicit BC 28.4 ±8.2 24.6 ±7.4 12.8 ±5.6 18.2 ±6.8 26.0 ±7.8 22.0 Ours 100.0 ±0.0 94.2 ±1.4 82.6 ±2.8 90.9 ±1.9 94.6 ±1.5 92.5 
+
+cally, we conduct experiments using AGIBOT G1 robot 1
+
+equipped with 7-DoF arms and parallel-jaw gripper. Vi-sual observations are captured by a single RGB camera mounted fixed at head. We evaluate on two manipulation tasks Bottle and Drawer with 20 expert demonstration trajectories. Our E NERGY FLOW obtained 100% success rate on both tasks, with 3 initial position change, each with 20 rollouts. One success trajectory of E NERGY FLOW for each task is shown in Figure 3. Qualitatively, we observe that E NERGY FLOW produces smoother trajectories with fewer hesitations near contact points. More details about the real robot experiment are in Appendix E.2. 
+
+5.4. Reward Quality (RQ3) 
+
+A central advantage of our framework is that the learned energy function serves as reward signal for reinforcement learning, enabling policy training without access to ground-
+
+> 1
+
+https://www.agibot.com/products/G1 
+
+6Recovering the Hidden Reward in Diffusion-Based Policies 
+
+truth environment rewards. We evaluate this by training Soft Actor-Critic (SAC) (Haarnoja et al., 2018) agents for 200k environment steps on RoboMimic Square and Transport. Detailed protocols are provided in Appendix C.6. 0.0 0.5 1.0 1.5 2.0     
+
+> Environment Steps (x10 6)
+> 0
+> 25
+> 50
+> 75
+> 100
+> Success Rate (%)  Square
+> 0.0 0.5 1.0 1.5 2.0
+> Environment Steps (x10 6)
+> 0
+> 25
+> 50
+> 75
+> 100
+> Success Rate (%)  Transport
+> Oracle
+> Centered Energy+Sparse
+> Sparse
+> Energy
+> Centered Energy
+
+Figure 4. SAC training using different reward signals. We compare our energy-based rewards against sparse task signals and oracle dense rewards. 
+
+Figure 4 compares our centered shaping with sparse task re-wards, raw energy rewards, and oracle dense rewards. With sparse rewards, the agent gets no signal until it succeeds by chance, which makes early training slow and noisy. Raw energy rewards are dense, but they do not reliably push the agent toward the goal: maximizing likelihood under demon-strations can encourage staying in common states instead of making progress, leading to early plateaus. Our centered formulation (Eq. 16) fixes this by basing reward on state transitions rather than state density, so the learned energy di-rectly encourages forward progress and achieves near-oracle success on both tasks. Notably, Centered Energy+Sparse 
+
+performs best, suggesting that the energy reward provides step-by-step guidance, while the sparse reward ensures the policy still optimizes for task completion. 
+
+5.5. Out-of-Distribution Generalization (RQ4) 
+
+To validate Lemma 3.8, which posits that conservative fields generalize better to novel states, we evaluate performance under increasing initial position perturbations (levels 0, S, M, L; see Appendix C.7). As shown in Figure 5, while all methods can achieve high performance in-distribution, E N-
+
+> ERGY
+
+FLOW demonstrates superior stability as perturbation magnitude increases. Across these tasks, E NERGY FLOW 
+
+outperforms Diffusion and Flow Policy baselines at medium and large perturbation levels, maintaining robust success rates where unconstrained models degrade. These results confirm that the curl-free constraint acts as a powerful geo-metric regularizer, preventing the learning of latent artifacts and improving extrapolation in tasks with spatial variability. 
+
+5.6. Reward Extraction Sensitivity (RQ5) 
+
+Table 3 analyzes sensitivity to the time parameter γ used for energy evaluation. Performance remains robust across three orders of magnitude ( γ ∈ [10 −4, 10 −2]). Degradation 
+
+Table 3. Sensitivity to reward extraction time γ. Success rate (%) on RoboMimic Square after 200K SAC steps. 
+
+γ 10 −4 10 −3 10 −2 10 −1 0.5
+
+Success (%) 94.2 ±2.6 95.3 ±2.4 88.4 ±1.8 78.4 ±3.4 72.6 ±4.8 
+
+Table 4. Inference comparison on RoboMimic Square. Latency measured for 10Hz control on NVIDIA A100. Method Success (%) ↑ Latency (ms) ↓ Exposes Scalar Implicit BC (50 Langevin) 10.2 ±3.2 52.4 ✔                      
+
+> Implicit BC (10 Langevin) 0.0 ±0.0 12.8 ✔
+> Diffusion Policy (100 DDPM) 93.5 ±3.2 32.4 ✘
+> Diffusion Policy (20 DDIM) 90.4 ±4.6 9.1 ✘
+> Flow Policy 91.8 ±1.4 8.2 ✘
+> ENERGY FLOW (K= 10 )94.0 ±1.8 9.8 ✔
+> ENERGY FLOW (K= 20 )95.3 ±0.8 11.4 ✔
+
+occurs only at larger values ( γ ≥ 0.1) where the noised distribution diverges significantly from the data distribution, thereby weakening the approximation of the score function. 
+
+5.7. Inference Efficiency (RQ6) 
+
+Table 4 demonstrates that E NERGY FLOW achieves a favor-able balance of speed and utility. unlike Implicit BC, which requires computationally expensive Langevin sampling for high performance, E NERGY FLOW attains superior success rates with latency comparable to the non-energy-based Flow Policy. This confirms that E NERGY FLOW provides the benefits of an explicit energy function without the runtime prohibitive costs typically associated with EBMs. 
+
+## 6. Related Work 
+
+6.1. Generative Models for Behavior Cloning 
+
+Behavior cloning learns policies by directly mimicking ex-pert demonstrations, with recent advances leveraging ex-pressive generative models to capture multi-modal action distributions (Schaal, 1996; Wolf et al., 2025; Urain et al., 2026). Diffusion Policy (Chi et al., 2023) demonstrated that diffusion-based action generation significantly outperforms prior methods on contact-rich manipulation. Subsequent works have extended this framework to 3D visual manipu-lation (Ze et al., 2024), hierarchical planning (Chen et al., 2024), and language-conditioned policies (Wen et al., 2025). To address computational overhead, efficient variants based on consistency distillation (Prasad et al., 2024) and flow matching (Zhang et al., 2025a; Jiang et al., 2025) have been proposed. While these policies excel at modeling complex distributions, they remain limited to imitating trajectories without capturing underlying intent, limiting generalization to out-of-distribution states (Gao et al., 2024; Zare et al., 2024). Our work adds an integrability constraint via explicit energy parameterization, complementing these efficiency-focused approaches while enabling reward extraction. 7Recovering the Hidden Reward in Diffusion-Based Policies 0 S M L                   
+
+> Perturbation
+> 0
+> 50
+> 100
+> Success Rate (%)  Lift
+> 0SML
+> Perturbation
+> 0
+> 50
+> 100
+> Can
+> 0SML
+> Perturbation
+> 0
+> 50
+> 100
+> Square
+> 0SML
+> Perturbation
+> 0
+> 50
+> 100
+> Transport
+> 0SML
+> Perturbation
+> 0
+> 50
+> 100
+> ToolHang
+> LSTM-GMM IQ-Learn Diffusion Policy FlowPolicy Ours
+> Figure 5. OOD generalization on RoboMimic. Success rate vs. initial position perturbation magnitude. E NERGY FLOW degrades more gracefully than baselines, with the gap widening at larger perturbations. Shaded regions indicate 95% confidence intervals.
+
+6.2. Inverse Reinforcement Learning 
+
+Unlike behavior cloning, IRL seeks to recover the latent reward behind expert behavior. Classical methods such as maximum-entropy IRL (Ziebart et al., 2008) and Bayesian formulations (Ramachandran & Amir, 2007) suffered from computational intractability due to repeated policy optimiza-tion. Adversarial methods address this by casting reward learning as occupancy measure matching: GAIL (Ho & Er-mon, 2016) and AIRL (Fu et al., 2017) enable scalable IRL through adversarial updates but inherit training instability and mode collapse issues (Chirra et al., 2025; Wang et al., 2017). Energy-Based Models offer an alternative, directly parameterizing reward as a scalar energy (Song & Kingma, 2021; Du & Mordatch, 2019). While EBMs avoid adversar-ial dynamics, they require approximating intractable parti-tion functions via expensive MCMC sampling, which scales poorly to high-dimensional action spaces. Recent works bridge generative modeling and IRL by replacing adver-sarial discriminators with diffusion models (Wang et al., 2024; Lai et al., 2024; Wan et al., 2025). However, these approaches treat diffusion as a drop-in discriminator replace-ment rather than exploiting the deeper connection between denoising and energy landscapes. 
+
+6.3. Energy-Based Imitation Learning 
+
+Energy-based formulations perform expert imitation as learning a scalar function whose minima correspond to expert-like actions or trajectories. In this view, energy can play two distinct roles in imitation learning: (i) an implicit 
+
+policy parameterization used directly for action selection, or (ii) a learned surrogate reward that is subsequently opti-mized by RL (Li et al., 2025). On the policy side, Implicit Behavioral Cloning (IBC) learns an energy over state-action pairs and predicts actions by minimizing this energy without explicit likelihood mod-eling (Florence et al., 2021). Subsequent work improves training stability through contrastive objectives and refined negative-sampling schemes (Singh et al., 2024; Antonelo et al., 2025), while EBT-Policy scales this paradigm with transformer-based energy functions and iterative inference, achieving strong robustness with fewer inference steps than diffusion policies (Davies et al., 2025). However, these methods treat the learned energy as a decision score rather than an identifiable reward , and inference relies on itera-tive optimization whose dynamics need not correspond to a well-defined potential. On the reward-learning side, maximum-entropy inverse op-timal control can be interpreted through an energy perspec-tive, where costs define an unnormalized trajectory distribu-tion (Ziebart et al., 2008; Fu et al., 2017; Finn et al., 2016). EBIL (Liu et al., 2021) makes this connection explicit and proposes a two-stage pipeline: first estimate the expert en-ergy via score matching, then treats the recovered energy as a reward for downstream maximum-entropy RL. Related ap-proaches such as NEAR (Diwan et al., 2025) similarly learn energy-based rewards and then perform policy optimization. While these methods can yield explainable reward signals, they do not leverage the deeper structural link between de-noising dynamics and conservative energy landscapes for 
+
+simultaneous policy learning and reward recovery. 
+
+## 7. Conclusion 
+
+We propose E NERGY FLOW , a framework that bridges diffusion-based imitation learning and inverse reinforce-ment learning through energy-based parameterization. Our theoretical analysis establishes three key results: (1) the score function of an optimal policy encodes the gradient of its soft Q-function, enabling reward recovery via score matching without adversarial optimization; (2) constraining the learned vector field to be conservative, provably reduces hypothesis complexity and improves generalization; and (3) score estimation errors translate to bounded errors in action preferences, avoiding degradation under approximate learning. Our empirical findings validate these theoretical insights. E NERGY FLOW matches or exceeds state-of-the-art diffusion policies on standard benchmarks while simultane-ously exposing a scalar energy that serves as an effective re-ward signal for policy refinement. Notably, the conservative constraint yields substantial out-of-distribution robustness without sacrificing in-distribution performance. 8Recovering the Hidden Reward in Diffusion-Based Policies 
+
+## 8. Impact Statement 
+
+This paper presents work whose goal is to advance the field of machine learning. There are many potential societal consequences of our work, none of which we feel must be specifically highlighted here. 
+
+## References 
+
+Acero, F. and Li, Z. Distilling reinforcement learning poli-cies for interpretable robot locomotion: Gradient boosting machines and symbolic regression. In IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems, IROS 2024, Abu Dhabi, United Arab Emirates, October 14-18, 2024 , pp. 6840–6847. IEEE, 2024. doi: 10.1109/ IROS58592.2024.10802433. URL https://doi. org/10.1109/IROS58592.2024.10802433 .Ada, S. E., ¨Oztop, E., and Ugur, E. Diffusion policies for out-of-distribution generalization in offline reinforcement learning. IEEE Robotics Autom. Lett. , 9(4):3116–3123, 2024. doi: 10.1109/LRA.2024.3363530. URL https: //doi.org/10.1109/lra.2024.3363530 .Antonelo, E. A., Couto, G. C. K., and M ¨oller, C. Explor-ing multimodal implicit behavior learning for vehicle navigation in simulated cities. CoRR , abs/2509.15400, 2025. doi: 10.48550/ARXIV.2509.15400. URL https: //doi.org/10.48550/arXiv.2509.15400 .Balcerak, M., Amiranashvili, T., Terpin, A., Shit, S., Bo-gensperger, L., Kaltenbach, S., Koumoutsakos, P., and Menze, B. Energy matching: Unifying flow match-ing and energy-based models for generative modeling. In The Thirty-ninth Annual Conference on Neural In-formation Processing Systems , 2025. URL https: //openreview.net/forum?id=WYSCCw7mCe .Bartlett, P. L., Foster, D. J., and Telgarsky, M. J. Spectrally-normalized margin bounds for neural networks. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 30. Cur-ran Associates, Inc., 2017. Ben-David, S., Blitzer, J., Crammer, K., Kulesza, A., Pereira, F., and Vaughan, J. W. A theory of learning from different domains. Machine Learning , 79(1):151–175, 2010. doi: 10.1007/s10994-009-5152-4. URL https: //doi.org/10.1007/s10994-009-5152-4 .Chen, C., Deng, F., Kawaguchi, K., Gulcehre, C., and Ahn, S. Simple hierarchical planning with diffusion. In The Twelfth International Conference on Learning Represen-tations, ICLR 2024, Vienna, Austria, May 7-11, 2024 .OpenReview.net, 2024. URL https://openreview. net/forum?id=kXHEBK9uAY .Chi, C., Feng, S., Du, Y., Xu, Z., Cousineau, E., Burchfiel, B., and Song, S. Diffusion policy: Visuomotor policy learning via action diffusion. In Bekris, K. E., Hauser, K., Herbert, S. L., and Yu, J. (eds.), Robotics: Science and Systems XIX, Daegu, Republic of Korea, July 10-14, 2023 ,2023. doi: 10.15607/RSS.2023.XIX.026. URL https: //doi.org/10.15607/RSS.2023.XIX.026 .Chirra, S. R., Teoh, J., Paruchuri, P., and Varakantham, P. On discovering algorithms for adversarial imitation learning, 2025. URL https://arxiv.org/abs/ 2510.00922 .Dalal, M., Mandlekar, A., Garrett, C. R., Handa, A., Salakhutdinov, R., and Fox, D. Imitating task and motion planning with visuomotor transformers. In Tan, J., Tou-ssaint, M., and Darvish, K. (eds.), Conference on Robot Learning, CoRL 2023, 6-9 November 2023, Atlanta, GA, USA , volume 229 of Proceedings of Machine Learning Research , pp. 2565–2593. PMLR, 2023. Davies, T., Huang, Y., Gladstone, A., Liu, Y., Chen, X., Ji, H., Liu, H., and Hu, L. Ebt-policy: Energy unlocks emergent physical reasoning capabilities, 2025. URL 
+
+https://arxiv.org/abs/2510.27545 .Diwan, A. A., Urain, J., Kober, J., and Peters, J. Noise-conditioned energy-based annealed rewards (NEAR): A generative framework for imitation learning from ob-servation. In The Thirteenth International Conference on Learning Representations , 2025. URL https:// openreview.net/forum?id=DL9txImSzm .Du, Y. and Mordatch, I. Implicit generation and modeling with energy based models. In Wallach, H. M., Larochelle, H., Beygelzimer, A., d’Alch ´e-Buc, F., Fox, E. B., and Garnett, R. (eds.), Advances in Neural Information Pro-cessing Systems 32: Annual Conference on Neural Infor-mation Processing Systems 2019, NeurIPS 2019, Decem-ber 8-14, 2019, Vancouver, BC, Canada , pp. 3603–3613, 2019. Du, Y., Li, S., Tenenbaum, J. B., and Mordatch, I. Improved contrastive divergence training of energy-based models. In Meila, M. and Zhang, T. (eds.), Proceedings of the 38th International Conference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event , volume 139 of 
+
+Proceedings of Machine Learning Research , pp. 2837– 2848. PMLR, 2021. URL http://proceedings. mlr.press/v139/du21b.html .Finn, C., Levine, S., and Abbeel, P. Guided cost learning: deep inverse optimal control via policy optimization. In 
+
+Proceedings of the 33rd International Conference on In-ternational Conference on Machine Learning - Volume 48 , ICML’16, pp. 49–58. JMLR.org, 2016. 9Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Florence, P., Lynch, C., Zeng, A., Ramirez, O. A., Wahid, A., Downs, L., Wong, A., Lee, J., Mordatch, I., and Tompson, J. Implicit behavioral cloning. In 5th Annual Conference on Robot Learning , 2021. URL https: //openreview.net/forum?id=rif3a5NAxU6 .Fu, J., Luo, K., and Levine, S. Learning robust rewards with adversarial inverse reinforcement learning. CoRR ,abs/1710.11248, 2017. URL http://arxiv.org/ abs/1710.11248 .Gao, G. J., Li, T., and Figueroa, N. Out-of-distribution recovery with object-centric keypoint inverse policy for visuomotor imitation learning. CoRR , abs/2411.03294, 2024. doi: 10.48550/ARXIV.2411.03294. URL https: //doi.org/10.48550/arXiv.2411.03294 .Garg, D., Chakraborty, S., Cundy, C., Song, J., and Ermon, S. IQ-learn: Inverse soft-q learning for imitation. In Beygelzimer, A., Dauphin, Y., Liang, P., and Vaughan, J. W. (eds.), Advances in Neural Information Processing Systems , 2021. URL https://openreview.net/ forum?id=Aeo-xqtb5p .Gouk, H., Frank, E., Pfahringer, B., and Cree, M. J. Reg-ularisation of neural networks by enforcing Lipschitz continuity. Machine Learning , 110(2):393–416, 2021. doi: 10.1007/s10994-020-05929-w. URL https:// doi.org/10.1007/s10994-020-05929-w .Grathwohl, W., Chen, R. T. Q., Bettencourt, J., Sutskever, I., and Duvenaud, D. FFJORD: free-form continuous dynamics for scalable reversible generative models. In 
+
+7th International Conference on Learning Representa-tions, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 .OpenReview.net, 2019. URL https://openreview. net/forum?id=rJxgknCcK7 .Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In Dy, J. and Krause, A. (eds.), Proceedings of the 35th International Confer-ence on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pp. 1861–1870. PMLR, 10–15 Jul 2018. URL https://proceedings.mlr. press/v80/haarnoja18b.html .Hayes, B. and Shah, J. A. Improving robot controller transparency through autonomous policy explanation. In Proceedings of the 2017 ACM/IEEE International Conference on Human-Robot Interaction , HRI ’17, pp. 303–312, New York, NY, USA, 2017. Association for Computing Machinery. ISBN 9781450343367. doi: 10. 1145/2909824.3020233. URL https://doi.org/ 10.1145/2909824.3020233 .He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learning for image recognition, 2015. URL https:// arxiv.org/abs/1512.03385 .Ho, J. and Ermon, S. Generative adversarial imitation learn-ing. In Lee, D. D., Sugiyama, M., von Luxburg, U., Guyon, I., and Garnett, R. (eds.), Advances in Neural In-formation Processing Systems 29: Annual Conference on Neural Information Processing Systems 2016, December 5-10, 2016, Barcelona, Spain , pp. 4565–4573, 2016. Hyv ¨arinen, A. Estimation of non-normalized statistical models by score matching. J. Mach. Learn. Res. , 6:695– 709, 2005. URL https://jmlr.org/papers/ v6/hyvarinen05a.html .Jiang, S., Fang, X., Roy, N., Lozano-P ´erez, T., Kaelbling, L. P., and Ancha, S. Streaming flow policy: Simplify-ing diffusion/flow-matching policies by treating action trajectories as flow trajectories. CoRR , abs/2505.21851, 2025. doi: 10.48550/ARXIV.2505.21851. URL https: //doi.org/10.48550/arXiv.2505.21851 .Jiang, X., Lim, L.-H., Yao, Y., and Ye, Y. Statistical rank-ing and combinatorial hodge theory. Mathematical Pro-gramming , 127(1):203–244, March 2011. ISSN 1436-4646. doi: 10.1007/s10107-010-0419-x. URL https: //doi.org/10.1007/s10107-010-0419-x .Lai, C., Wang, H., Hsieh, P., Wang, Y. F., Chen, M., and Sun, S. Diffusion-reward adversarial imitation learning. In Globersons, A., Mackey, L., Belgrave, D., Fan, A., Pa-quet, U., Tomczak, J. M., and Zhang, C. (eds.), Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. Li, Y., Shao, X., Zhang, J., Wang, H., Brunswic, L. M., Zhou, K., Dong, J., Guo, K., Li, X., Chen, Z., Wang, J., and Hao, J. Generative models in decision making: A survey, 2025. URL https://arxiv.org/abs/ 2502.17100 .Liu, M., He, T., Xu, M., and Zhang, W. Energy-based imi-tation learning. In Proceedings of the 20th International Conference on Autonomous Agents and MultiAgent Sys-tems , AAMAS ’21, pp. 809–817, Richland, SC, 2021. International Foundation for Autonomous Agents and Multiagent Systems. ISBN 9781450383073. Lu, R., Shao, Z., Ding, Y., Chen, R., Wu, D., Su, H., Yang, T., Zhang, F., Wang, J., Shi, Y., Jiang, Z.-P., Ding, H., and Zhang, H.-T. Discovery of the reward func-tion for embodied reinforcement learning agents. Na-ture Communications , 16(1):11064, 2025. ISSN 2041-1723. doi: 10.1038/s41467-025-66009-y. URL https: //doi.org/10.1038/s41467-025-66009-y .10 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Mandlekar, A., Xu, D., Wong, J., Nasiriany, S., Wang, C., Kulkarni, R., Fei-Fei, L., Savarese, S., Zhu, Y., and Mart ´ın-Mart ´ın, R. What matters in learning from of-fline human demonstrations for robot manipulation. In 
+
+Conference on Robot Learning (CoRL) , 2021. McLean, R., Chatzaroulas, E., McCutcheon, L., R ¨oder, F., Yu, T., He, Z., Zentner, K., Julian, R., Terry, J. K., Woun-gang, I., Farsad, N., and Castro, P. S. Meta-world+: An improved, standardized, RL benchmark. In The Thirty-ninth Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track ,2025. URL https://openreview.net/forum? id=1de3azE606 .Ng, A. Y., Harada, D., and Russell, S. J. Policy invariance under reward transformations: Theory and application to reward shaping. In Proceedings of the Sixteenth Inter-national Conference on Machine Learning , ICML ’99, pp. 278–287, San Francisco, CA, USA, 1999. Morgan Kaufmann Publishers Inc. ISBN 1558606122. Nijkamp, E., Gao, R., Sountsov, P., Vasudevan, S., Pang, B., Zhu, S., and Wu, Y. N. MCMC should mix: Learning energy-based model with neural transport latent space MCMC. In The Tenth International Conference on Learn-ing Representations, ICLR 2022, Virtual Event, April 25-29, 2022 . OpenReview.net, 2022. URL https: //openreview.net/forum?id=4C93Qvn-tz .Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., Desmaison, A., K ¨opf, A., Yang, E., DeVito, Z., Rai-son, M., Tejani, A., Chilamkurthy, S., Steiner, B., Fang, L., Bai, J., and Chintala, S. PyTorch: an imperative style, high-performance deep learning library . Curran Associates Inc., Red Hook, NY, USA, 2019. Pomponi, V., Franceschi, P., Baraldo, S., Roveda, L., Avram, O., Gambardella, L. M., and Valente, A. Dynamimic-gen: A data generation framework for robot learning of dynamic tasks, 2025. URL https://arxiv.org/ abs/2511.16223 .Prasad, A., Lin, K., Wu, J., Zhou, L., and Bohg, J. Consis-tency policy: Accelerated visuomotor policies via con-sistency distillation. In Kulic, D., Venture, G., Bekris, K. E., and Coronado, E. (eds.), Robotics: Science and Systems XX, Delft, The Netherlands, July 15-19, 2024 ,2024. doi: 10.15607/RSS.2024.XX.071. URL https: //doi.org/10.15607/RSS.2024.XX.071 .Ramachandran, D. and Amir, E. Bayesian inverse rein-forcement learning. In Veloso, M. M. (ed.), IJCAI 2007, Proceedings of the 20th International Joint Conference on Artificial Intelligence, Hyderabad, India, January 6-12, 2007 , pp. 2586–2591, 2007. URL http://ijcai. org/Proceedings/07/Papers/416.pdf .Ren, A. Z., Lidard, J., Ankile, L. L., Simeonov, A., Agrawal, P., Majumdar, A., Burchfiel, B., Dai, H., and Simchowitz, M. Diffusion policy policy optimization. In The Thir-teenth International Conference on Learning Representa-tions, ICLR 2025, Singapore, April 24-28, 2025 . OpenRe-view.net, 2025. URL https://openreview.net/ forum?id=mEpqHvbD2h .Reuss, M., Yagmurlu, ¨O. E., Wenzel, F., and Lioutikov, R. Multimodal diffusion transformer: Learning versatile behavior from multimodal goals. In Kulic, D., Venture, G., Bekris, K. E., and Coronado, E. (eds.), Robotics: Science and Systems XX, Delft, The Netherlands, July 15-19, 2024 , 2024. doi: 10.15607/RSS.2024.XX.121. URL https://doi.org/10.15607/RSS.2024. XX.121 .Schaal, S. Learning from demonstration. In Mozer, M., Jordan, M., and Petsche, T. (eds.), Advances in Neural Information Processing Systems , volume 9. MIT Press, 1996. URL https://proceedings.neurips. cc/paper_files/paper/1996/file/ 68d13cf26c4b4f4f932e3eff990093ba-Paper. pdf .Singh, S., Tu, S., and Sindhwani, V. Revisiting energy based models as policies: Ranking noise contrastive estimation and interpolating energy models. Transac-tions on Machine Learning Research , 2024. ISSN 2835-8856. URL https://openreview.net/forum? id=JmKAYb7I00 .Song, Y. and Kingma, D. P. How to train your energy-based models. CoRR , abs/2101.03288, 2021. URL https: //arxiv.org/abs/2101.03288 .Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Er-mon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. In 9th Interna-tional Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenRe-view.net, 2021. URL https://openreview.net/ forum?id=PxTIG12RRHS .Torabi, F., Warnell, G., and Stone, P. Behavioral cloning from observation. In Lang, J. (ed.), Proceedings of the Twenty-Seventh International Joint Conference on Arti-ficial Intelligence, IJCAI 2018, July 13-19, 2018, Stock-holm, Sweden , pp. 4950–4957. ijcai.org, 2018. doi: 10.24963/IJCAI.2018/687. URL https://doi.org/ 10.24963/ijcai.2018/687 .11 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Urain, J., Mandlekar, A., Du, Y., Muhammad “Mahi” Shafi-ullah, N., Xu, D., Fragkiadaki, K., Chalvatzaki, G., and Peters, J. A survey on deep generative models for robot learning from multimodal demonstrations. IEEE Trans-actions on Robotics , 42:60–79, 2026. doi: 10.1109/TRO. 2025.3631816. Vincent, P. A connection between score matching and denoising autoencoders. Neural Computation , 23(7): 1661–1674, 07 2011. ISSN 0899-7667. doi: 10. 1162/NECO a 00142. URL https://doi.org/10. 1162/NECO_a_00142 .Wan, Z., Wu, J., Yu, X., Zhang, C., Lei, M., An, B., and Tsang, I. W. FM-IRL: flow-matching for reward model-ing and policy regularization in reinforcement learning. 
+
+CoRR , abs/2510.09222, 2025. doi: 10.48550/ARXIV. 2510.09222. URL https://doi.org/10.48550/ arXiv.2510.09222 .Wang, B., Wu, G., Pang, T., Zhang, Y., and Yin, Y. Diffail: Diffusion adversarial imitation learning. In Wooldridge, M. J., Dy, J. G., and Natarajan, S. (eds.), 
+
+Thirty-Eighth AAAI Conference on Artificial Intelligence, AAAI 2024, Thirty-Sixth Conference on Innovative Appli-cations of Artificial Intelligence, IAAI 2024, Fourteenth Symposium on Educational Advances in Artificial Intelli-gence, EAAI 2014, February 20-27, 2024, Vancouver, Canada , pp. 15447–15455. AAAI Press, 2024. doi: 10.1609/AAAI.V38I14.29470. URL https://doi. org/10.1609/aaai.v38i14.29470 .Wang, R. and Du, Y. Equilibrium matching: Generative modeling with implicit energy-based models, 2025. URL 
+
+https://arxiv.org/abs/2510.02300 .Wang, Z., Merel, J., Reed, S. E., de Freitas, N., Wayne, G., and Heess, N. Robust imitation of diverse behaviors. In Guyon, I., von Luxburg, U., Bengio, S., Wallach, H. M., Fergus, R., Vishwanathan, S. V. N., and Garnett, R. (eds.), 
+
+Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA , pp. 5320–5329, 2017. Wen, J., Zhu, Y., Li, J., Tang, Z., Shen, C., and Feng, F. Dexvla: Vision-language model with plug-in diffusion expert for general robot control. CoRR , abs/2502.05855, 2025. doi: 10.48550/ARXIV.2502.05855. URL https: //doi.org/10.48550/arXiv.2502.05855 .Wolf, R., Shi, Y., Liu, S., and Rayyes, R. Dif-fusion models for robotic manipulation: A survey. 
+
+CoRR , abs/2504.08438, 2025. doi: 10.48550/ARXIV. 2504.08438. URL https://doi.org/10.48550/ arXiv.2504.08438 .Ye, W., Zhang, Y., Weng, H., Gu, X., Wang, S., Zhang, T., Wang, M., Abbeel, P., and Gao, Y. Reinforcement learning with foundation priors: Let embodied agent ef-ficiently learn on its own. In 8th Annual Conference on Robot Learning , 2024. URL https://openreview. net/forum?id=dsxmR6lYlg .Zare, M., Kebria, P. M., Khosravi, A., and Nahavandi, S. A survey of imitation learning: Algorithms, recent devel-opments, and challenges. IEEE Trans. Cybern. , 54(12): 7173–7186, 2024. doi: 10.1109/TCYB.2024.3395626. URL https://doi.org/10.1109/TCYB.2024. 3395626 .Ze, Y., Zhang, G., Zhang, K., Hu, C., Wang, M., and Xu, H. 3d diffusion policy: Generalizable visuomotor policy learning via simple 3d representations. In Kulic, D., Ven-ture, G., Bekris, K. E., and Coronado, E. (eds.), Robotics: Science and Systems XX, Delft, The Netherlands, July 15-19, 2024 , 2024. doi: 10.15607/RSS.2024.XX.067. URL https://doi.org/10.15607/RSS.2024. XX.067 .Zhang, Q., Liu, Z., Fan, H., Liu, G., Zeng, B., and Liu, S. Flowpolicy: Enabling fast and robust 3d flow-based policy via consistency flow matching for robot manipula-tion. In Walsh, T., Shah, J., and Kolter, Z. (eds.), AAAI-25, Sponsored by the Association for the Advancement of Artificial Intelligence, February 25 - March 4, 2025, Philadelphia, PA, USA , pp. 14754–14762. AAAI Press, 2025a. doi: 10.1609/AAAI.V39I14.33617. URL https: //doi.org/10.1609/aaai.v39i14.33617 .Zhang, Q., Liu, Z., Fan, H., Liu, G., Zeng, B., and Liu, S. Flowpolicy: Enabling fast and robust 3d flow-based policy via consistency flow matching for robot manipula-tion. In Walsh, T., Shah, J., and Kolter, Z. (eds.), AAAI-25, Sponsored by the Association for the Advancement of Arti-ficial Intelligence, February 25 - March 4, 2025, Philadel-phia, PA, USA , pp. 14754–14762. AAAI Press, 2025b. doi: 10.1609/AAAI.V39I14.33617. URL https:// doi.org/10.1609/aaai.v39i14.33617 .Zhao, T. Z., Kumar, V., Levine, S., and Finn, C. Learn-ing Fine-Grained Bimanual Manipulation with Low-Cost Hardware. In Proceedings of Robotics: Science and Systems , Daegu, Republic of Korea, July 2023. doi: 10.15607/RSS.2023.XIX.016. Ziebart, B. D., Maas, A. L., Bagnell, J. A., and Dey, A. K. Maximum entropy inverse reinforcement learning. In Fox, D. and Gomes, C. P. (eds.), Proceedings of the Twenty-Third AAAI Conference on Artificial Intelligence, AAAI 2008, Chicago, Illinois, USA, July 13-17, 2008 , pp. 1433– 1438. AAAI Press, 2008. 12 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+## A. Proofs 
+
+A.1. Proof of Theorem 3.6 Theorem 3.6 (Complexity Reduction via Conservative Constraints). Let ϕ : Rin → Rk be a neural feature representation with bounded feature norm sup x ∥ϕ(x)∥2 ≤ B and bounded Jacobian Frobenius norm sup x ∥Jϕ(x)∥F ≤ L. Let Func be the class of arbitrary linear vector fields over ϕ, and Fcons be the class of conservative vector fields (gradients of potentials over ϕ). The Empirical Rademacher complexity of the conservative class is strictly tighter with respect to the output dimension d:
+
+ˆRS (Func ) ≤ ΛB√d
+
+√n , (17) 
+
+ˆRS (Fcons ) ≤ ΛL
+
+√n . (18) 
+
+For high-dimensional action spaces where d is large, provided the representation is smooth ( L ≪ B√d), we have 
+
+ˆRS (Fcons ) ≪ ˆRS (Func ).Proof. Let D = {x1, . . . , xn} be the dataset. The empirical Rademacher complexity is given by: 
+
+ˆRD (F) = 1
+
+n Eσ
+
+"
+
+sup  
+
+> f∈F
+> n
+
+X
+
+> i=1
+
+⟨σi, f (xi)⟩
+
+#
+
+, (19) where σi are independent Rademacher vectors in Rd such that E[σi] = 0 and ∥σi∥2 = d.
+
+Analysis of Unconstrained Fields. The unconstrained class consists of functions f (x) = W ϕ(x) where W ∈ Rd×k
+
+and ∥W ∥F ≤ Λ.
+
+n ˆRD (Func ) = Eσ
+
+"
+
+sup   
+
+> ∥W∥F≤Λ
+> n
+
+X
+
+> i=1
+
+⟨σi, W ϕ(xi)⟩
+
+#
+
+= Eσ
+
+"
+
+sup   
+
+> ∥W∥F≤Λ
+
+*
+
+W ,
+
+> n
+
+X
+
+> i=1
+
+σiϕ(xi)⊤
+
++
+
+> F
+
+#
+
+.
+
+By the Cauchy-Schwarz inequality for the Frobenius inner product, the supremum is attained when W is aligned with the random sum. Thus: 
+
+n ˆRD (Func ) ≤ Λ · Eσ
+
+" nX
+
+> i=1
+
+σiϕ(xi)⊤
+
+> F
+
+#
+
+.
+
+Using Jensen’s inequality and noting that cross-terms E[⟨σi, σj ⟩] = 0 for i̸ = j vanish due to independence: 
+
+E
+
+> n
+
+X
+
+> i=1
+
+σiϕ(xi)⊤
+
+> F
+
+≤
+
+vuut nX
+
+> i=1
+
+Eσ [∥σi∥2∥ϕ(xi)∥2]=
+
+vuut nX
+
+> i=1
+
+d · ∥ ϕ(xi)∥2
+
+≤ √n · d · B2 = B√nd. 
+
+Substituting this back yields the unconstrained bound: 
+
+ˆRS (Func ) ≤ ΛB√d
+
+√n . (20) 13 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Analysis of Conservative Fields. The conservative class consists of functions f (x) = Jϕ(x)⊤w (gradients of E(x) = 
+
+w⊤ϕ(x)), where w ∈ Rk and ∥w∥2 ≤ Λ.
+
+n ˆRS (Fcons ) = Eσ
+
+"
+
+sup 
+
+> ∥w∥2≤Λ
+> n
+
+X
+
+> i=1
+
+⟨σi, J ϕ(xi)⊤w⟩
+
+#
+
+= Eσ
+
+"
+
+sup 
+
+> ∥w∥2≤Λ
+
+*
+
+w,
+
+> n
+
+X
+
+> i=1
+
+Jϕ(xi)σi
+
++# 
+
+.
+
+By Cauchy-Schwarz inequality in Euclidean space: 
+
+n ˆRS (Fcons ) ≤ Λ · Eσ
+
+" nX
+
+> i=1
+
+Jϕ(xi)σi
+
+> 2
+
+#
+
+.
+
+Again applying Jensen’s inequality and independence of σi:
+
+E
+
+> n
+
+X
+
+> i=1
+
+Jϕ(xi)σi
+
+> 2
+
+≤
+
+vuut nX
+
+> i=1
+
+Eσ
+
+σ⊤ 
+
+> i
+
+Jϕ(xi)⊤Jϕ(xi)σi
+
+.
+
+Using the property that for Rademacher vectors E[σ⊤Aσ ] = Tr (A), we have: 
+
+E[σ⊤ 
+
+> i
+
+Jϕ(xi)⊤Jϕ(xi)σi] = Tr (Jϕ(xi)⊤Jϕ(xi)) = ∥Jϕ(xi)∥2 
+
+> F
+
+≤ L2.
+
+Thus: 
+
+n ˆRS (Fcons ) ≤ Λ√nL 2 = Λ L√n. 
+
+Yielding the conservative bound: 
+
+ˆRS (Fcons ) ≤ ΛL
+
+√n . (21) Comparing Eq. (20) and Eq. (21) , the unconstrained complexity scales explicitly with √d (the square root of the output dimension). In contrast, the conservative complexity scales with L (the smoothness of the representation). Since neural network representations generally learn smooth manifolds where the tangent space volume (captured by 
+
+L) grows significantly slower than the ambient dimension d, the conservative constraint provides a structurally superior generalization guarantee. 
+
+A.2. Proof of Lemma 3.8 Lemma 3.8 (OOD Generalization). Let DS be the source training distribution and DT be a target (OOD) distribution. Let 
+
+h∗ ∈ F cons be the ground truth conservative field. Assume that all hypotheses in Fcons and Func are uniformly bounded by 
+
+M > 0. For any learned hypothesis f , let the risk be RD (f ) = Ex∼D [∥f (x) − h∗(x)∥2]. The risk on the target domain for the conservative estimator satisfies, with probability at least 1 − δ:
+
+RDT ( ˆfcons ) ≤ ˆRS ( ˆfcons ) + 12 dH∆H(DS , DT ) + O
+
+ M ΛL
+
+√n
+
+
+
+,
+
+whereas for the unconstrained estimator ˆfunc , the complexity term scales with O(M ΛB√d/ √n).Proof. The proof relies on combining the standard generalization bounds based on Rademacher complexity with the domain adaptation theory introduced by Ben-David et al. (2010). For any hypothesis h in a hypothesis class H, the relationship between the risk on the target distribution RDT (h) and the source distribution RDS (h) is bounded by the discrepancy between the domains. Specifically: 
+
+RDT (h) ≤ R DS (h) + 12 dH∆H(DS , DT ) + λ, (22) 14 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+where dH∆H is the discrepancy distance and λ is the combined error of the ideal joint hypothesis. Since we assume the ground truth h∗ belongs to the conservative class Fcons , the ideal error λ is negligible for the conservative estimator. Eq. (22) relates the true population risks. However, learning algorithms minimize the empirical source risk ˆRS (h) on a dataset of size n. Standard learning theory bounds the true source risk as: 
+
+RDS (h) ≤ ˆRS (h) + 2 RS (ℓ ◦ H ) + 
+
+r log(1 /δ )2n , (23) where RS (ℓ ◦ H ) is the Rademacher complexity of the loss composed with the hypothesis class. The risk is defined using the squared L2 loss: ℓ(f (x), h ∗(x)) = ∥f (x) − h∗(x)∥22. The squared loss is not globally Lipschitz, but under the boundedness assumption ( ∥f (x)∥2 ≤ M and ∥h∗(x)∥2 ≤ M for all x), the loss is restricted to a bounded domain where: 
+
+|ℓ(y1) − ℓ(y2)| = |y21 − y22 | = |y1 + y2|| y1 − y2| ≤ 2M |y1 − y2|.
+
+Thus, on the bounded domain, the squared loss is Lipschitz with constant 2M . By Talagrand’s contraction lemma: 
+
+RS (ℓ ◦ H ) ≤ 2M · RS (H).
+
+We now substitute the specific Rademacher complexity bounds derived in Theorem 3.6. 
+
+Case A: Unconstrained Vector Fields ( Func ). Theorem 3.6 gives ˆRS (Func ) ≤ ΛB√d√n . Substituting into Eq. (23): GenGap ( ˆfunc ) ∈ O M ΛB√d
+
+√n
+
+!
+
+. (24) 
+
+Case B: Conservative Vector Fields ( Fcons ). Theorem 3.6 gives the tighter bound ˆRS (Fcons ) ≤ ΛL√n . Substituting into Eq. (23): GenGap ( ˆfcons ) ∈ O 
+
+ M ΛL
+
+√n
+
+
+
+. (25) Combining the domain adaptation bound (Eq. (22) ) with the complexity-based generalization gap, for the conservative estimator: 
+
+RDT ( ˆfcons ) ≤ ˆRS ( ˆfcons ) + GenGap ( ˆfcons ) + 12 dH∆H(DS , DT ) (26) 
+
+= ˆRS ( ˆfcons ) + 12 dH∆H(DS , DT ) + O
+
+ M ΛL
+
+√n
+
+
+
+. (27) For the unconstrained estimator, the complexity term scales with √d. Thus, as d → ∞ , the bound for the unconstrained field diverges, while the conservative bound remains controlled by the smoothness parameter L.
+
+A.3. Proof of Proposition 3.9 Proposition 3.9 (Within-State Action Ranking). The learned energy provides exact within-state action rankings: 1. Within-state ranking is exact: For any fixed state s, arg min a Eϕ(a, s) = arg max a Q∗(s, a).2. Cross-state comparison is ambiguous: The difference Eϕ(a, s)−Eϕ(a′, s′) includes the unknown quantity c(s)−c(s′).Proof. From Theorem 3.3, the learned energy satisfies: 
+
+Eϕ(a, s) = − Q∗(s, a)
+
+α + c(s), (28) where c(s) is a state-dependent constant arising from integration. 15 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Within-state ranking. For a fixed state s, consider any two actions a1, a2 ∈ A. The energy difference is: 
+
+Eϕ(a1, s) − Eϕ(a2, s) = 
+
+
+
+− Q∗(s, a1)
+
+α + c(s)
+
+
+
+−
+
+
+
+− Q∗(s, a2)
+
+α + c(s)
+
+
+
+(29) 
+
+= − 1
+
+α (Q∗(s, a1) − Q∗(s, a2)) . (30) The state-dependent constant c(s) cancels. Since α > 0:
+
+Eϕ(a1, s) < E ϕ(a2, s) ⇐⇒ Q∗(s, a1) > Q ∗(s, a2).
+
+Therefore, arg min a Eϕ(a, s) = arg max a Q∗(s, a).
+
+Cross-state ambiguity. For two different states s̸ = s′ and actions a, a′:
+
+Eϕ(a, s) − Eϕ(a′, s′) = − Q∗(s, a)
+
+α + c(s) + Q∗(s′, a′)
+
+α − c(s′) (31) 
+
+= − 1
+
+α (Q∗(s, a) − Q∗(s′, a′)) + ( c(s) − c(s′)) 
+
+| {z }
+
+> unknown
+
+. (32) The term c(s) − c(s′) cannot be determined from observations of expert behavior, as demonstrations reveal only which actions are preferred at each state, not the relative value of different states. 
+
+A.4. Proof of Theorem 3.11 Theorem 3.11 (Lipschitz Continuity of Preferences). Assume the learned score satisfies ∥S ϕ(a, s) − S ∗(a, s)∥2 ≤ ϵ
+
+uniformly. Let ∆E(a, a′) = E(a, s) − E(a′, s) be the relative preference between two actions at the same state. Then: 
+
+|∆Eϕ(a, a′) − ∆E∗(a, a′)| ≤ ϵ · ∥ a − a′∥2.
+
+Proof. For an energy-based model with p(a|s) ∝ exp( −E(a, s)) , the score function is: 
+
+S∗(a, s) = ∇a log p(a|s) = −∇ aE∗(a, s). (33) Similarly, for the learned model: ∇aEϕ(a, s) = −S ϕ(a, s).Define the quantity of interest: 
+
+δ = |∆Eϕ(a, a′) − ∆E∗(a, a′)| . (34) By the fundamental theorem of calculus for line integrals, the difference in a scalar potential between two points equals the line integral of its gradient. Let γ(t) = a′ + t(a − a′) for t ∈ [0 , 1] be the straight-line path from a′ to a. Then: 
+
+E(a, s) − E(a′, s) = 
+
+Z 10
+
+∇aE(γ(t), s) · (a − a′) dt. (35) Substituting ∇aE = −S :
+
+E(a, s) − E(a′, s) = 
+
+Z 10
+
+−S (γ(t), s) · (a − a′) dt. (36) Therefore: 
+
+δ =
+
+Z 10
+
+(S∗(γ(t), s) − S ϕ(γ(t), s)) · (a − a′) dt (37) 
+
+≤
+
+Z 10
+
+|(S∗(γ(t), s) − S ϕ(γ(t), s)) · (a − a′)| dt. (38) 16 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+Applying the Cauchy-Schwarz inequality: 
+
+δ ≤
+
+Z 10
+
+∥S ∗(γ(t), s) − S ϕ(γ(t), s)∥2 · ∥ a − a′∥2 dt. (39) Using the uniform error bound ∥S ϕ − S ∗∥2 ≤ ϵ:
+
+δ ≤
+
+Z 10
+
+ϵ · ∥ a − a′∥2 dt (40) 
+
+= ϵ · ∥ a − a′∥2. (41) Thus, |∆Eϕ(a, a′) − ∆E∗(a, a′)| ≤ ϵ · ∥ a − a′∥2.
+
+## B. Baselines 
+
+To rigorously evaluate the efficacy of E NERGY FLOW , we compare against a diverse suite of baselines categorized by their underlying modeling paradigm. These methods represent the current state-of-the-art in imitation learning (IL) and inverse reinforcement learning (IRL): 
+
+Explicit Autoregressive Policies. We include LSTM-GMM (Dalal et al., 2023), a classic baseline that couples a Long Short-Term Memory (LSTM) network with a Gaussian Mixture Model (GMM) output head. This method explicitly maximizes the log-likelihood of expert actions. It serves as a benchmark for recurrent architectures that handle temporal dependencies but are constrained by the parametric assumptions of GMMs when modeling highly discontinuous action manifolds. 
+
+Generative Policies. To assess performance against modern generative modeling techniques, we compare against: • Diffusion Policy (DP) (Chi et al., 2023): A state-of-the-art behavior cloning method that represents the policy as a conditional denoising diffusion probabilistic model. DP learns the gradient of the data distribution (score function) to iteratively denoise random noise into expert actions, offering superior stability and multimodal coverage compared to GANs. • Flow Policy (Zhang et al., 2025b): A method utilizing continuous normalizing flows to learn complex action distribu-tions via a sequence of invertible transformations. This baseline provides exact likelihood estimation and serves as a representative for bijective generative models. 
+
+Energy-Based Models (EBMs). We benchmark against methods that parameterize the policy implicitly via an energy function E(s, a):• Implicit BC (IBC) (Florence et al., 2021): A non-parametric approach that learns an energy landscape where expert actions correspond to energy minima. IBC is particularly effective at capturing sharp discontinuities in the action space but relies on inference-time optimization (e.g., Langevin dynamics or CEM). • EBT-Policy (Davies et al., 2025): An extension of EBMs that incorporates Transformer architectures. This baseline tests the importance of attention mechanisms in energy-based formulations for capturing long-horizon temporal dependencies. 
+
+Inverse Reinforcement Learning (IRL). Finally, we compare against methods that infer a reward function from demonstra-tions rather than cloning actions directly. We select EBIL (Liu et al., 2021), NEAR (Diwan et al., 2025), and IQ-Learn (Garg et al., 2021). These methods circumvent the instability of traditional adversarial training (e.g., GAIL) by deriving non-adversarial objectives. Specifically, IQ-Learn leverages the relationship between soft Q-learning and policy updates to recover rewards without a minimax game, serving as a strong baseline for sample-efficient reward recovery. 
+
+## C. Additional Implementation Details 
+
+C.1. E NERGY FLOW Implementation 
+
+In this section, we detail the network architecture, training hyperparameters, and inference procedures for E NERGY FLOW .Our implementation relies on the PyTorch (Paszke et al., 2019) framework. 17 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+C.2. Network Architecture 
+
+We adapt the 1D Conditional U-Net backbone from Diffusion Policy (Chi et al., 2023) to serve as our energy function parameterization. Unlike standard diffusion policies that directly regress the score (noise) field, our network approximates the scalar energy field Eϕ(a, s, t ), from which the score is derived via gradients. 
+
+State and Time Encoding. Since our setting involves low-dimensional state inputs (e.g., joint angles, velocities, object poses) without visual observations: • State Conditioning: The observation sequence s ∈ RTobs ×Ds is flattened and projected via a 2-layer MLP (Hidden dim: 128, Activation: Mish) into a conditioning vector cstate .• Time Embedding: The diffusion timestep t is encoded using sinusoidal positional embeddings followed by a linear projection to match the channel dimensions of the U-Net blocks. 
+
+Energy Backbone ( Eϕ). The core network takes the noisy action sequence at ∈ RTp×Da as input. • Structure: The backbone is a 1D Temporal U-Net consisting of down-sampling and up-sampling blocks with kernel size 5. Each block utilizes residual connections and Group Normalization (groups=8). • Conditioning: The state embedding cstate and time embedding are injected into every convolutional block via Feature-wise Linear Modulation (FiLM), ensuring the energy landscape is globally conditioned on the current agent state. 
+
+Modifications for Energy Parameterization. To satisfy the theoretical requirement that our score field be a conservative vector field ( ∇ × S = 0 ), we modify the standard Diffusion Policy architecture in two ways: 1. Scalar Output Head: Standard implementations output a tensor of shape [B, T p, D a] representing the noise. We replace the final output projection. The final feature map of the U-Net (shape [B, C, T p]) is aggregated via 
+
+GlobalAveragePooling1D to capture global temporal dependencies. This is passed through a 3-layer MLP (256 → 128 → 1) to produce the single scalar energy value E ∈ R.2. C2 Differentiable Activations: The standard ReLU activation is non-differentiable at zero. Since our training objective (Eq. (15) ) involves the derivative of the score (which is the second derivative of the energy), the network must be twice-differentiable ( C2). We replace all ReLU activations with Mish . This ensures a smooth gradient flow during the double-backpropagation required for score matching. 
+
+C.3. Differentiable Training Infrastructure 
+
+Training necessitates computing the gradient of the network output with respect to its inputs during the forward pass (to obtain the score ∇aE). 
+
+Graph Construction. We utilize PyTorch’s automatic differentiation engine. For a batch of action sequences at and states 
+
+s:
+
+Sϕ = −∇ at Eϕ(at, s, t ). (42) We invoke torch.autograd.grad with create graph=True . This constructs a computational graph of the gradient operation itself, allowing the optimizer to backpropagate the Score Matching loss through the gradient computation to update the network parameters ϕ.
+
+Spectral Normalization. To encourage Lipschitz continuity, which stabilizes the energy magnitudes and prevents the ”energy exploding” problem common in EBM training, we apply Spectral Normalization to the linear layers in the scalar output head. 
+
+C.4. Hyperparameters 
+
+We train E NERGY FLOW using the AdamW optimizer with the hyperparameters detailed in Table 5. 18 Recovering the Hidden Reward in Diffusion-Based Policies                          
+
+> Table 5. Hyperparameters for E NERGY FLOW Training and Inference.
+> Parameter Value
+> Architecture
+> Backbone 1D Conditional U-Net Input State Condition Downsampling channels [64 ,128 ,256]
+> Activation Function Mish Pooling Global Average Pooling
+> Training
+> Optimizer AdamW Learning Rate 1.0×10 −4
+> Weight Decay 1.0×10 −6
+> Batch Size 256 LR Scheduler Cosine Decay (warmup=500 steps) Gradient Clipping Norm = 1.0 Noise Schedule Geometric
+> Inference
+> ODE Solver Euler Method Steps ( K)20 Prediction Horizon ( Tp)16 Observation Horizon ( To)2
+
+C.5. Baseline Implementation 
+
+To ensure a fair evaluation, we standardize the observation encoders across all baselines. All methods utilize the same MLP-based state encoders and temporal position embeddings described in §C.1. Unless otherwise noted, we tune the hyperparameters of each baseline using a grid search over learning rates {10 −3, 10 −4, 10 −5} and batch sizes {128 , 256 }.C.5.1. A UTOREGRESSIVE AND GENERATIVE POLICIES 
+
+LSTM-GMM (Dalal et al., 2023). We implement the LSTM-GMM policy using a standard recurrent backbone. The network consists of a 2-layer LSTM with 256 hidden units. The output head projects the hidden state to the parameters of a Gaussian Mixture Model (GMM) with K = 5 components, predicting means μ, scales σ, and mixing coefficients π. The model is trained via Negative Log-Likelihood (NLL) maximization. During inference, we sample actions from the GMM component with the highest probability. 
+
+Diffusion Policy (Chi et al., 2023). To isolate the efficacy of our energy-based formulation from architectural benefits, we implement the Diffusion Policy baseline using the exact same 1D Conditional U-Net backbone as our method (see §C.1). However, instead of a scalar energy head, the baseline retains the standard vector output head to regress the noise 
+
+ϵ ∈ RTp×Da .• Training: We use the DDPM objective with T = 100 diffusion steps and a squared error loss on the noise prediction. • Inference: We use the DDIM scheduler with 20 denoising steps to match the inference budget of our method. 
+
+Flow Policy (Zhang et al., 2025b). We parameterize the conditional policy using a RealNVP-based Normalizing Flow. The architecture consists of a sequence of 4 coupling layers. Each coupling layer uses a 2-layer MLP (256 hidden units, ReLU activations) as the scale and translation network. The base distribution is a standard isotropic Gaussian. The model is conditioned on the state embedding by concatenating it to the input of the coupling layer MLPs. Training minimizes the negative log-likelihood of the expert actions. C.5.2. E NERGY -B ASED METHODS 
+
+Implicit BC (IBC) (Florence et al., 2021). We implement IBC using a discontinuous energy parameterization. The energy function is an MLP with 3 layers of 512 hidden units and ReLU activations. Unlike our method, IBC does not enforce differentiability for the inference procedure; instead, it relies on derivative-free optimization. 19 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+• Training: We use the InfoNCE-style loss with negative samples drawn from a uniform distribution over the action bounds. • Inference: We employ the Derivative-Free Optimizer (DFO) proposed in the original paper (Autoregressive derivative-free search) to find the energy minimum. 
+
+EBT-Policy (Davies et al., 2025). Following the official implementation, we use a Transformer-based architecture to parameterize the energy function. The model processes the state and action sequence as tokens. We use a 4-layer Transformer Encoder with 4 attention heads and an embedding dimension of 128. The model is trained using Noise Contrastive Estimation (NCE). Inference is performed using Langevin Dynamics for K = 100 steps with a step size of 0.01 .C.5.3. I NVERSE REINFORCEMENT LEARNING (IRL) For IRL baselines, which recover a reward function to train a policy, we use Soft Actor-Critic (SAC) as the underlying RL optimizer. The details can be found in Appendix C.6.1. 
+
+IQ-Learn (Garg et al., 2021). We implement IQ-Learn (Implicit Q-Learning), which avoids adversarial training by learning a Q-function that implicitly represents both the reward and the policy. We use a clipped double-Q architecture (MLP with sizes [256, 256]). The policy is defined as π(a|s) ∝ exp( Q(s, a) − V (s)) .
+
+EBIL (Liu et al., 2021). Energy-Based Imitation Learning (EBIL) is trained using an adversarial setup. We use an MLP-based energy function Eψ (s, a) as the discriminator/reward. The policy is optimized to maximize the cumulative energy values via SAC, while the energy function is updated to assign lower energy to expert data and higher energy to policy samples using a partition function approximation. 
+
+NEAR (Diwan et al., 2025). We implement NEAR with its proposed NCSN neural network with ELU activations. The NCSN noise scale was defined as a geometric sequence with σ1 = 20 , σL = 0 .01 , and L = 50. The exponentially moving average (EMA) of the weights of the energy network during training is tracked and used during inference to enchance stability in the sample quality. 
+
+C.6. RL Implementation 
+
+C.6.1. S OFT ACTOR -C RITIC ALGORITHM 
+
+We use Soft Actor-Critic (SAC) (Haarnoja et al., 2018) as the off-policy RL optimizer in Sec 5. SAC learns a stochastic policy πϕ(a | s) together with two action-value functions Qθ1 (s, a) and Qθ2 (s, a) (clipped double-Q) and their target networks. The policy outputs a diagonal Gaussian distribution, sampled via the reparameterization trick, followed by a tanh 
+
+squashing function to enforce bounded actions; the squashed outputs are then linearly rescaled to the environment’s valid ranges. Given a data batch (st, at, st+1 , d t) with dt ∈ { 0, 1} is the success indicator, SAC minimizes the soft Bellman error. Let 
+
+at+1 ∼ πϕ(· | st+1 ). The target is 
+
+yt = r(st, at, st+1 ) + γ(1 − dt)
+
+
+
+min  
+
+> i∈{ 1,2}
+
+Q¯θi (st+1 , at+1 ) − α log πϕ(at+1 | st+1 )
+
+
+
+, (43) where γ is the discount factor, α is the entropy temperature, and Q¯θi are target critics. Each critic is updated by 
+
+LQ(θi) = E
+
+h
+
+(Qθi (st, at) − yt)2i
+
+. (44) The actor objective is 
+
+Lπ (ϕ) = E
+
+
+
+α log πϕ(at | st) − min  
+
+> i∈{ 1,2}
+
+Qθi (st, at)
+
+
+
+, (45) with at ∼ πϕ(· | st). We use automatic entropy tuning with target entropy Htgt = − dim( a). Target networks are updated by Polyak averaging ¯θi ← τ θ i + (1 − τ )¯θi.20 Recovering the Hidden Reward in Diffusion-Based Policies 
+
+C.6.2. E XPERIENCE REPLAY BUFFER 
+
+We use experience replay to stabilize SAC training. The replay buffer Dagent contains transitions collected under the current policy. Dagent is a FIFO buffer with a fixed capacity; once full, the oldest transitions are overwritten. We sample uniformly from Dagent for SAC actor/critic updates. We use the environment-provided termination signal and store it as dt. with time-limit truncation as timeouts. 
+
+C.7. OOD Perturbation Implementation 
+
+We adopt the out-of-distribution (OOD) perturbation protocols from Pomponi et al. (2025). The S and M perturbation levels correspond to the D0 and D1 datasets, respectively, which feature progressively larger perturbations to the initial positions of objects that the agent must contact. The L perturbation level ( D3 dataset) extends this protocol by additionally perturbing the positions of target positions or objects. 
+
+## D. Experiment Tasks 
+
+D.1. Simulation Tasks RoboMimic Tasks In the Can task, the robot needs to lift a soda can from one box and put it into another box. In the 
+
+Lift task, the robot needs to lift a cube above a certain height. In the Square task, the robot needs to fit the square nut onto the square peg. The Transport task entails the collaborative effort of two robot arms to transfer a hammer from a closed container on one table to a bin on another table. One arm is responsible for retrieving and passing the hammer, while the other arm cleans the bin and receives the passed hammer. In Tool Hang , the robot needs to insert the hook into the base to assemble a frame and then hang a wrench on the hook. 
+
+Meta-World Tasks ButtonPress and DrawerOpen evaluate the agent’s ability to interact with articulated objects, requiring the robot to apply force to a switch or manipulate a constrained joint mechanism, respectively. BinPicking 
+
+tests robust grasping and retrieval from a confined volume. Assembly requires aligning a circular nut with a matching peg under tight tolerances, while Hammer involves tool use, where the agent must grasp a hammer and accurately drive a nail into a target surface. 
+
+## E. Additional Experiment Details 
+
+E.1. Simulation Task Demonstration 
+
+E.1.1. R OBO MIMIC TASKS 
+
+Figure 6 illustrates the successful execution of each task on RoboMimic benchmark, with our E NERGY FLOW policy. E.1.2. M ETA -W ORLD TASKS 
+
+Figure 7 illustrates the successful execution of each task on Meta-World benchmark, with our E NERGY FLOW policy. 
+
+E.2. Real Robot Experiment 
+
+For each task, we collect 10 teleoperated demonstrations. Following (Chi et al., 2023), we augment training data with random crops. During inference, we take a static center crop with the same size. The policy operates at 10Hz, receiving 
+
+226 × 226 RGB images and outputting 8-dimensional actions (7 joint velocities + gripper command). We use a ResNet-18 encoder (He et al., 2015) pretrained on ImageNet as our visual backbone, consistent with prior work (Chi et al., 2023; Zhao et al., 2023). 21 Recovering the Hidden Reward in Diffusion-Based Policies Lift Can Square Transport ToolHang 
+
+Figure 6. RoboMimic task demonstrations. Each row visualizes a rollout sequence for a different task. 
+
+22 Recovering the Hidden Reward in Diffusion-Based Policies ButtonPress DrawerOpen Assembly BinPicking Hammer 
+
+Figure 7. Meta-World task demonstrations. Meta-World task demonstrations. Each row visualizes a rollout sequence for a different task. 
+
+23

@@ -1,0 +1,504 @@
+Title: Thinking in Text and Images: Interleaved Vision--Language Reasoning Traces for Long-Horizon Robot Manipulation
+
+URL Source: https://arxiv.org/pdf/2605.00438v1
+
+Published Time: Mon, 04 May 2026 00:33:19 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Thinking in Text and Images: Interleaved Vision–Language Reasoning Traces for Long-Horizon Robot Manipulation 
+
+Jinkun Liu 
+
+Tsinghua University 
+
+Haohan Chi 
+
+Tsinghua University 
+
+Lingfeng Zhang 
+
+Tsinghua University 
+
+Yifan Xie 
+
+Tsinghua University 
+
+YuAn Wang 
+
+Beijing Institute of Technology 
+
+Long Chen 
+
+Xiaomi Group 
+
+Hangjun Ye 
+
+Xiaomi Group 
+
+Xiaoshuai Hao 
+
+Xiaomi Group 
+
+Wenbo Ding 
+
+Tsinghua University 
+
+Abstract 
+
+Long-horizon robotic manipulation requires plans that are both logically coherent and geometrically grounded. Existing Vision-Language-Action policies usually hide planning in latent states or expose only one modality: text-only chain-of-thought encodes causal order but misses spatial constraints, while visual predic-tion provides geometric cues but often remains local and semantically undercon-strained. We introduce Interleaved Vision–Language Reasoning (IVLR), a pol-icy framework built around IVLR-Trace, an explicit intermediate representation that alternates textual subgoals with visual keyframes over the full task horizon. At test time, a single native multimodal transformer self-generates this global semantic-geometric trace from the initial observation and instruction, caches it, and conditions a closed-loop action decoder on the trace, original instruction, and current observation. Because standard robot datasets lack such traces, we con-struct pseudo-supervision by temporally segmenting demonstrations and caption-ing each stage with a vision-language model. Across simulated benchmarks for long-horizon manipulation and visual distribution shift, IVLR reaches 95.5% av-erage success on LIBERO, including 92.4% on LIBERO-Long, and 59.4% overall success on SimplerEnv-WidowX. Ablations show that both modalities are neces-sary: without traces, LIBERO-Long success drops to 37.7%; text-only and vision-only traces reach 62.0% and 68.4%, while the full interleaved trace reaches 92.4%. Stress tests with execution perturbations and masked trace content show moderate degradation, suggesting that the trace can tolerate local corruption and moderate execution drift, but remains limited under stale or incorrect global plans. Our re-sults position interleaved vision-language traces as a scalable representation for explicit multimodal reasoning in robot policies, while identifying static, fully ob-served environments and initial planning latency as current limitations. 
+
+1 Introduction 
+
+Long-horizon robotic manipulation is not only a problem of choosing the next motor command. A robot must preserve the causal order of a task while grounding each abstract subgoal in the geometry of the current scene. In a task such as placing a mug before manipulating a second object, the policy must remember which object matters first, where it should be placed, and how the scene should 
+
+> Preprint.
+> arXiv:2605.00438v1 [cs.AI] 1 May 2026
+
+Interleaved Vision -Language Reasoning Trace 
+
+for Robotic Control  
+
+> Phase 1:
+> Reasoning
+> Phase
+> Phase 2:
+> Execution
+> Phase
+> Stage 1
+> Pick white
+> mug
+> Stage 2
+> Place
+> white mug
+> Initial
+> Observation
+> Task
+> Instruction
+
+# +   
+
+> Stage 3
+> Pick yellow
+> mug
+> Stage 4
+> Place
+> yellow mug
+> Interleaved Vision -Language Reasoning Trace
+> Current
+> Observation
+
+# +
+
+> Task
+> Instruction
+
+Standard End -to -End VLA    
+
+> Unimodal Short -Term Prediction
+> (a) Prior Methods
+> (b) IVLR Trace (Ours)
+
+𝑜 ! ℒ Short -term     
+
+> Image or Local text
+> stag eand Action
+
+𝑎 !:!#$
+
+𝑜 !"#
+
+> Current
+> Observation
+
+𝑜 !
+
+𝑎 !:!#$
+
+> Action
+
+ℒ
+
+> Task Failure
+> (Spatial Ambiguity) (Causal Drift)
+
+Figure 1: Interleaved reasoning traces for long-horizon control. Standard end-to-end VLA policies often predict actions or short local futures directly from the current observation and instruction. IVLR first generates a full-horizon IVLR-Trace composed of textual subgoals and visual keyframes, then uses the cached trace together with the current observation and instruction for closed-loop action decoding. 
+
+evolve after each intermediate interaction. These two requirements, causal coherence and geometric grounding, are difficult to satisfy with a purely reactive observation-language action mapping. Recent Vision-Language-Action (VLA) policies have made rapid progress by scaling robot data and foundation-model backbones [3, 33, 11, 2, 18, 19]. However, most policies still keep their long-horizon reasoning implicit in hidden states. This design is effective for many short-horizon tasks, but it gives the learner no explicit structure for representing intermediate task state, causal dependencies, or recoverable plans. As a result, when the instruction spans multiple stages, direct policies can become temporally myopic: they may greedily execute a visually salient later step or fail to maintain the state needed for a distant goal. Explicit reasoning methods expose part of this hidden process, but usually through a single modal-ity. Textual chain-of-thought and hierarchical language plans provide a useful scaffold for causal decomposition [1, 29, 31, 15], yet language alone does not specify the spatial pose, contact geome-try, or target placement needed by a low-level controller. Visual prediction and world-model policies provide geometric cues [9, 4, 6], but local future frames can be semantically ambiguous: a plausible image need not be the correct step in the user’s intended causal sequence. This complementarity motivates a representation that carries both modalities over the whole task. We propose Interleaved Vision–Language Reasoning (IVLR), centered on IVLR-Trace, an explicit semantic-geometric intermediate representation for long-horizon VLA control. A trace is a sequence of stages z = [( c(1) , k (1) ), . . . , (c(N ), k (N ))] , where each textual subgoal c(i) records the causal role of a stage and each visual keyframe k(i) anchors the intended spatial state. Unlike a single caption, a text-only plan, or a one-step future prediction, IVLR-Trace is a full-horizon storyboard. It makes the robot policy’s intermediate reasoning visible, supervised, and directly ablatable. We instantiate this representation in a single native multimodal transformer. At the beginning of an episode, the model generates the complete trace from the initial observation and instruction. During execution, the generated trace is cached as context; at every control step, the action decoder receives the current observation, original instruction, and cached trace. The policy is therefore not an open-loop replay of generated keyframes: it remains closed-loop with respect to the live observation, while using the trace as long-horizon semantic-geometric context. We do not impose an explicit stage pointer; instead, the current observation conditions which parts of the cached trace are relevant. Standard robot demonstrations do not contain such interleaved reasoning traces. To obtain super-vision, we retrofit demonstrations with pseudo-traces. We first segment each trajectory into stages using the Universal Visual Decomposer [30], select the final frame of each segment as the visual 2keyframe, and then use a vision-language model to caption each stage. This pipeline is not intended to produce perfect symbolic plans. It provides scalable pseudo-supervision that lets us study whether full-horizon interleaved traces are useful for policy learning. Our experiments focus on simulated manipulation benchmarks where long-horizon structure and visual distribution shift can be controlled. On LIBERO [16], IVLR achieves 95.5% average success and 92.4% on LIBERO-Long, outperforming the compared VLA and CoT baselines most clearly in the long-horizon suite. On SimplerEnv-WidowX [14], it obtains 59.4% overall success, compared with 42.7% for SpatialVLA. Ablations show that the interleaving matters: on LIBERO-Long, remov-ing traces gives 37.7%, text-only traces give 62.0%, visual-only traces give 68.4%, and the full trace gives 92.4%. Controlled stress tests further show that performance degrades moderately under 2 cm execution perturbations and 30% trace masking, while remaining far above the no-trace baseline. 
+
+Contributions. First, we formulate long-horizon VLA control with an explicit IVLR-Trace, a full-horizon sequence of textual subgoals and visual keyframes that represents semantic logic and geometric grounding in a single intermediate structure. Second, we instantiate this representation in a native multimodal transformer that generates the trace once and then conditions closed-loop action decoding on the cached trace, original instruction, and current observation. Third, we introduce a scalable pseudo-trace construction pipeline that retrofits unstructured robot demonstrations with staged vision-language supervision. Finally, we show on simulated manipulation benchmarks that interleaved traces substantially improve long-horizon success, that both text and visual components are necessary, and that the trace-conditioned policy remains functional under controlled execution perturbations and trace corruptions. 
+
+2 Related Work 
+
+Vision-language-action policies. VLA models aim to bind visual perception, language instruc-tions, and motor actions in a single policy. RT-1 and RT-2 showed that transformer-based robot policies can benefit from large-scale data and web-scale semantic knowledge [3, 33]. OpenVLA, Octo, π0, FAST, and related systems further improve openness, data mixture, action modeling, and execution speed [11, 18, 2, 19, 12]. These policies typically predict actions directly, or compress task context into latent activations. IVLR instead exposes a full-horizon reasoning state before execution and makes it available as cached context for closed-loop control. Table 1 previews the conceptual distinction. IVLR should not be viewed as merely adding visual tokens to CoT: its specific design choice is to generate a full-horizon semantic-geometric storyboard before execution and then reuse it as cached context for closed-loop control. 
+
+Table 1: Conceptual comparison with related reasoning and VLA families.                    
+
+> Method family Horizon Representation Grounding Execution
+> Text CoT / SayCan-style Global or hierarchical Text plans or rationales Indirect visual grounding Planner–policy coupling Visual prediction / world models Local or receding Future frames or latent states Strong visual, weak semantic Recomputed or local CoT-VLA Local or receding Visual tokens Intermediate perceptual cues Action-conditioned dVLA / UniVLA / EO-1 Local or receding Visual/Textual tokens Varies by model Unified generation
+> IVLR (ours) Full horizon before execution Text subgoals + RGB keyframes Generated RGB anchors Cached trace + closed-loop action
+
+Textual reasoning for robots. Language-based robot planners decompose instructions into exe-cutable subgoals, code, affordance-scored actions, or chain-of-thought rationales [1, 10, 22, 29, 31, 15]. Their strength is causal abstraction: text can name objects, describe order, and explain in-tent. Their weakness is that text does not by itself resolve the detailed geometry of manipulation. IVLR-Trace keeps this causal scaffold but pairs every stage with a visual keyframe, giving the action decoder a spatial anchor rather than a purely linguistic instruction. 3Visual prediction and world models. Visual predictive policies and world-model VLAs learn to imagine future observations or latent dynamics [9, 4, 6]. These methods are naturally grounded in geometry and can represent contact-relevant scene changes. However, much of this prediction is local or receding-horizon, and visual futures without language can drift toward plausible but task-incorrect states. In long-horizon manipulation, this ambiguity matters because a visually feasible future may correspond to the wrong subgoal order. IVLR differs by generating a full-horizon inter-leaving of semantic captions and RGB keyframes, so the predicted visual states are constrained by the intended task sequence rather than only by short-term visual plausibility. 
+
+Unified multimodal generation. Native multimodal models such as Chameleon, Transfusion, and Show-o/Show-o2 unify understanding and generation across text and images in a single trans-former [5, 32, 26, 27]. Robotics work has begun to adapt this idea to action generation, including UniVLA, dVLA, EO-1, and related unified policies [24, 25, 20]. The unified formulation is use-ful for IVLR because the same model can express language tokens, visual keyframes, and action-conditioned context without handing off between separate planners and controllers. Our contribution is not the unified backbone itself. We use such a backbone to study a specific robot reasoning rep-resentation: a full-horizon interleaved trace that is generated before execution and then cached for closed-loop action decoding. 
+
+Relation to concurrent structured VLA reasoning. Several recent systems expose intermediate reasoning or perceptual tokens. CoT-VLA emphasizes visual chain-of-thought for action reason-ing [31]; dVLA and UniVLA unify multimodal and action token streams [25, 24]; EO-1 studies interleaved vision-text-action pretraining [20]; MolmoAct uses depth-aware perception tokens and editable spatial plans [13]. Table 1 abstracts these systems by design axis rather than ranking them by capability. IVLR is distinguished along four dimensions: it generates a full-horizon trace rather than only local intermediate cues; it interleaves text subgoals with RGB visual keyframes rather than relying only on text, depth, points, or action tokens; it uses a single native transformer with a flow-matching visual head; and it caches the resulting semantic-geometric trace as context for closed-loop execution. This positions IVLR-Trace as an explicit representation for VLA reasoning rather than only a new action decoder or tokenization scheme. 
+
+3 Method 
+
+3.1 Problem formulation 
+
+We consider image-observation language-conditioned manipulation, where the full environment state is not directly observed. In the experiments studied here, however, the task-relevant workspace is assumed to be visible in the initial observation. At timestep t, the robot observes ot ∈ O , executes a continuous action at ∈ A , and is conditioned on an instruction I. A standard VLA policy learns a direct mapping πθ (at | ot−h:t, I), implicitly marginalizing over any planning structure needed for the task. We introduce an explicit latent variable z, the IVLR-Trace, generated from the initial observation and instruction: 
+
+z =
+
+[
+
+(c(1) , k (1) ), (c(2) , k (2) ), . . . , (c(N ), k (N ))
+
+]
+
+. (1) We call each pair (c(i), k (i)) a semantic-geometric primitive: the caption specifies the causal role of the stage, while the keyframe specifies the expected visual state that makes the stage actionable. The policy factorizes reasoning and execution as 
+
+PΘ(z, a 1: T | o0, I) = PΘ(z | o0, I)
+
+> T
+
+∏
+
+> t=1
+
+PΘ(at | ot, I, z ). (2) This factorization makes the intermediate plan explicit while keeping action prediction closed-loop in ot. Although the trace already summarizes the instruction, we also keep the original instruction in the execution context to avoid losing task-level semantics when a generated trace is incomplete. 4VAE Encoder                   
+
+> Observation Images
+> Semantic
+> Layers Projector
+> Feature Fusion
+> Task Instructions
+> Put both the white mug and
+> the white and yellow mug
+> onto plates
+> Text Tokenizer
+> Embedding Layer
+> Generated IVLR Trace
+> Generated IVLR Trace
+
+Unified Vision -Language -Action Backbone                                     
+
+> Stage 1:Pick up the
+> white mug firstly
+> Stage N:Then place
+> the white and yellow
+> mug finally
+> Intermediate Stages …
+> Action Decoder
+> End effector
+> Action
+> [Δ𝑥 ,Δ𝑦 ,Δ𝑧 ,
+> Δθ ,Δψ ,Δϕ ,0/1]
+> Causal Attention With All Tokens
+> Text Token
+> Image Token
+> Action Token
+> (a) .Phase I:Reasoning Phase (t =0)(b) .Phase II :Execution Phase (t >0)
+> Generated IVLR Trace
+
+…
+
+…
+
+> LLM Head FM Head
+
+Figure 2: Unified reasoning and execution architecture. The same multimodal transformer first generates a full IVLR-Trace from the initial observation and instruction. Textual subgoals are decoded by the language head and visual keyframes by a flow-matching visual head. During execution, the generated trace is cached and the action decoder predicts continuous actions from the current observation, instruction, and trace context. 
+
+3.2 Unified multimodal architecture 
+
+We initialize from Show-o2 1.5B, a native multimodal transformer [27], and adapt it to heteroge-neous text, vision, and action representations. 
+
+Text. Instructions and stage captions are represented with the language tokenizer and decoded au-toregressively by the language head. 
+
+Vision. Observations and keyframes are compressed with a Wan2.1 VAE [23]. A visual frame I is encoded as continuous latents x = Flatten( E(I)) ∈ RL×d. For generated keyframes, the model uses a flow-matching head to predict the vector field vΘ that transports noise to the target visual latent. 
+
+Action. We introduce a learnable [ACT] token. During execution, its hidden state attends to the current observation, instruction, and cached trace, and a lightweight MLP predicts the continuous control: 
+
+at = MLP( h[ACT] (ot, I, z )) + μact , (3) where μact denotes dataset action statistics used for normalization. 
+
+3.3 Reasoning and execution 
+
+At t = 0 , the model generates a hypothesized global trace. It alternates between text decoding for 
+
+c(i) and flow-matching visual generation for k(i). For visual generation, the model samples initial noise and solves the ordinary differential equation dx τ /dτ = vΘ(τ, x τ , C), where C is the preceding multimodal context. The resulting latent is decoded to an RGB keyframe. Once the trace is generated, it is cached. At every execution timestep, the model receives the live observation ot, original instruction I, and cached trace z, then predicts continuous actions using Eq. 3. We rely on learned implicit alignment rather than a hand-coded stage pointer: the action 5Iterative Backward Segmentation          
+
+> based on Monotonicity Breaks
+> stage 1 stage 2 stage 3 stage 4
+> Staged Video Clips
+> Horizontal Flip
+> (Agent View)
+> Task Desc.+Staged Videos +
+> Constraints
+> dataset: libero_...,
+> episode_index: ...,
+> task_description: put the
+> white mug on the left plate and
+> put the yellow and white mug on
+> the right plate ,
+> model_output: {
+> stage1: The gripper moves
+> downward from ..., follwed by
+> moving...,
+> stage2 ：The gripper moves
+> leftwards from..., then moves...,
+> ...
+> stage4: The gripper moves
+> right...,
+
+Long-Horizon Task Decomposition and VLM Annotation Pipeline    
+
+> Input Sequence
+> & Encoding
+> Raw Long-Horizon
+> Videos
+> Visual
+> Embeddings
+> Pre-trained Visual
+> Encoder
+> (VIP)
+> Universal Visual Decomposer (UVD) Preprocessing
+> & Staging VLM Annotation
+> Structured Json
+> Annotation
+
+Figure 3: Pseudo-trace construction. Because standard robot datasets do not contain IVLR-Trace annotations, we segment demonstrations into stages with UVD, choose segment endpoints as keyframes, and caption each stage with a VLM (Qwen3-VL in our implementation) to obtain pseudo-supervision. 
+
+token attends to the full cached trace and live observation, allowing the model to select trace content compatible with the current state. We do not claim this alignment is perfectly interpretable; the perturbation and corruption studies in Section 4.4 serve as indirect tests of whether this mechanism remains functional under moderate drift. 
+
+3.4 Pseudo-trace construction 
+
+Training requires traces paired with demonstrations, but common robot datasets provide trajectories and instructions rather than staged multimodal reasoning. We therefore construct pseudo-traces au-tomatically. Given a demonstration, we apply the Universal Visual Decomposer (UVD) [30] to iden-tify stage boundaries from changes in visual embedding progress. The last frame of each segment becomes k(i). We then feed the segment and task context to a VLM, Qwen3-VL in our implementa-tion [28], to produce a structured caption c(i) describing the relevant gripper-object interaction and spatial relation. Random manual inspection is used as a sanity check, but we treat these labels as pseudo-supervision rather than ground truth symbolic annotations; Appendix A gives the annotation schema and filtering rules. 
+
+3.5 Training objective 
+
+Training mixes reasoning samples (o0, I, z pseudo ) and action samples (ot, I, z pseudo , a t). Reasoning samples supervise text and visual trace generation. Action samples supervise the continuous action decoder conditioned on trace context. To reduce over-reliance on perfect traces, we apply random trace noise and dynamic context masking during training. Since we do not ablate this training strategy separately, the stress tests in Section 4.4 evaluate the robustness of the resulting policy rather than isolating the causal effect of masking or noise injection. The total objective is 
+
+Ltotal = Ltext + λLflow + γLaction . (4) 
+
+Ltext is next-token cross entropy on captions and text tokens. Lflow is the flow-matching loss for visual keyframes: 
+
+Lflow = Eτ,x 0,x 1,C
+
+[
+
+∥vΘ(τ, x τ , C) − (x1 − x0)∥22
+
+]
+
+, (5) where x1 = E(k(i)). Laction = ∥ˆat − at∥1 is the L1 action loss. 
+
+3.6 Efficiency setup 
+
+The Show-o2-initialized model has 1.5B parameters. Generating the full trace takes approximately 10 seconds on a single NVIDIA H20 GPU. After the trace is cached, execution runs at 10 Hz with action chunking. Joint training uses 16 NVIDIA H200 GPUs; LIBERO training takes about 4 hours 6for 40K steps, and SimplerEnv training takes about 6 hours for 60K steps. This explicit reasoning design therefore trades an upfront thinking cost for higher long-horizon coherence during execution. 
+
+4 Experiments: When do interleaved traces help? 
+
+We organize experiments around four questions. Does a full trace improve long-horizon control? Are text and visual components both necessary? Does the policy remain functional when execution or trace content is perturbed? What latency and compute trade-off does explicit reasoning introduce? Unless otherwise stated, all IVLR results use self-generated traces at test time. Pseudo-traces con-structed from demonstrations are used only as training supervision and are never provided as oracle plans during evaluation. 
+
+4.1 Benchmarks LIBERO. LIBERO contains four simulated manipulation suites that test spatial generalization, object variation, goal variation, and long-horizon sequential manipulation [16]. We emphasize LIBERO-Long because it directly stresses causal ordering across multiple subgoals. 
+
+SimplerEnv-WidowX. SimplerEnv evaluates robot policies in simulation environments designed to reflect visual distribution shifts such as lighting, background, and viewpoint variation [14]. We use it as a proxy for visual robustness under domain shift, not as a substitute for real-robot validation.                                                
+
+> Table 2: Success rates on LIBERO. IVLR achieves the highest average among the compared methods and the strongest result on LIBERO-Long. Method Spatial Object Goal Long Average DP* [7] 78.3% 92.5% 68.3% 50.5% 72.4% Octo [18] 78.9% 85.7% 84.6% 51.1% 75.1% OpenVLA [11] 84.9% 88.4% 79.2% 53.7% 76.5% SpatialVLA [21] 88.2% 89.9% 78.6% 55.5% 78.1% CoT-VLA [31] 87.5% 91.6% 87.6% 69.0% 81.1%
+> π0-FAST [19] 96.4% 96.8% 88.6% 60.2% 85.5% VLA-0 [8] 97.0% 97.8% 96.2% 87.6% 94.7%
+> IVLR (ours) 97.8% 95.8% 97.0% 92.4% 95.5% Table 3: Success rates on SimplerEnv-WidowX. The overall success for IVLR is 59.4%.
+
+Spoon Carrot Stack Eggplant Model Grasp Success Grasp Success Grasp Success Grasp Success Success RT-1-X [33] 16.7% 0.0% 20.8% 4.2% 8.3% 0.0% 0.0% 0.0% 1.1% Octo-Base [18] 34.7% 12.5% 52.8% 8.3% 31.9% 0.0% 66.7% 43.1% 16.0% Octo-Small [18] 77.8% 47.2% 27.8% 9.7% 40.3% 4.2% 87.5% 56.9% 29.5% OpenVLA [11] 4.1% 0.0% 33.3% 0.0% 12.5% 0.0% 8.3% 4.1% 1.0% RoboVLMs [17] 70.8% 45.8% 33.3% 20.8% 54.2% 4.2% 91.7% 79.2% 37.5% SpatialVLA [21] 20.8% 16.7% 29.2% 25.0% 62.5% 29.2% 100% 100% 42.7% 
+
+IVLR (ours) 75.0% 70.8% 54.2% 45.8% 79.2% 33.3% 95.8% 91.7% 59.4% 
+
+4.2 Main results 
+
+The main results establish where IVLR helps; the ablations isolate why it helps; the stress tests probe whether the trace interface remains usable when its assumptions are moderately violated. Table 2 shows the main LIBERO results. IVLR reaches 95.5% average success. The largest differ-ence appears on LIBERO-Long: IVLR achieves 92.4%, compared with 69.0% for CoT-VLA and 787.6% for VLA-0. The result supports the central hypothesis that a full-horizon semantic-geometric trace is especially useful when tasks require maintaining causal order across multiple stages. We avoid claiming dominance on every suite: for example, π0-FAST is slightly higher on Object. The gain is concentrated on the Long suite rather than uniformly across all suites, which is consistent with the intended role of IVLR-Trace as a long-horizon reasoning interface. Table 3 reports SimplerEnv-WidowX. IVLR obtains 59.4% overall success, improving over Spa-tialVLA’s 42.7%. This result is evidence for robustness under simulated visual distribution shift, not evidence of completed real-robot deployment. We leave physical robot validation to future work. Appendix D provides qualitative traces and execution trajectories. The generated keyframes are not used as an open-loop replay target; they act as visual anchors that make intended intermediate states available to the action decoder. 
+
+4.3 Trace ablations                           
+
+> Table 4: Trace ablations on LIBERO. The no-trace variant removes both trace generation and trace condition-ing; text-only, vision-only, and full IVLR isolate the contribution of each trace modality.
+> Variant Spatial Object Goal Long Avg. w/o Trace 81.2% 82.9% 72.4% 37.7% 68.6% Text-Only Trace 82.5% 88.1% 81.4% 62.0% 78.5% Vision-Only Trace 88.9% 91.2% 85.5% 68.4% 83.5%
+> Full IVLR 97.8% 95.8% 97.0% 92.4% 95.5%
+
+Table 4 isolates the trace interface. Removing traces reduces LIBERO-Long success to 37.7%. Text-only traces improve the long-horizon result to 62.0%, showing that language helps encode order but still lacks spatial anchors. Vision-only traces reach 68.4%, indicating that visual anchors help, but geometry alone does not preserve the complete semantic sequence. The full interleaved trace reaches 92.4%, indicating that the two modalities are complementary rather than interchangeable. Appendix D illustrates the same pattern qualitatively. The no-trace variant uses the same Show-o2 1.5B initialization, observation encoder, action decoder, action chunking, training data, and action loss as IVLR, but removes both trace generation and trace conditioning. 
+
+4.4 Robustness under controlled stress tests                                 
+
+> Table 5: Controlled stress tests on LIBERO. Execution perturbation applies one random 2 cm end-effector displacement per episode after trace generation and before subsequent closed-loop recovery. Text masking masks 30% of textual trace tokens; visual masking masks 30% of keyframes. Stage order is preserved in both masking settings. Setting Spatial Object Goal Long Avg. Base 97.8% 95.8% 97.0% 92.4% 95.5% 2 cm perturbation 94.2% 92.5% 93.6% 88.2% 92.1% Absolute drop 3.6% 3.3% 3.4% 4.2% 3.4% Text mask 30% 94.5% 92.0% 93.5% 88.6% 92.2% Visual mask 30% 91.2% 90.5% 91.8% 86.4% 90.0%
+
+The cached trace raises two robustness questions: what happens when execution drifts away from the imagined trace, and what happens when the trace itself is incomplete? Table 5 evaluates the first case by applying one random end-effector displacement of approximately 2 cm after trace generation in each episode. Average success decreases from 95.5% to 92.1%, and LIBERO-Long decreases from 92.4% to 88.2%. This is a moderate degradation rather than a collapse, suggesting that closed-loop observation conditioning can recover from small execution slips. 8The same table evaluates trace corruption by randomly masking 30% of textual trace tokens or 30% of visual keyframes at inference time while preserving the remaining stage order. Text masking reduces average success to 92.2%; visual masking reduces it to 90.0%. The larger drop under visual masking indicates that visual anchors are particularly important for precise manipulation. These results evaluate the robustness of the trained trace-conditioned policy; they do not isolate the causal contribution of the masking/noise training strategy, which would require a separate training ablation. These stress tests do not prove robustness to arbitrary plan errors, object removal, or dynamic environment changes. They show that the trace interface tolerates local missing content and moderate execution perturbations in the evaluated simulated settings. 
+
+4.5 Latency, compute, and failure modes 
+
+The explicit reasoning phase introduces a real trade-off. On a single H20 GPU, full trace generation takes about 10 seconds before execution begins. Once cached, action decoding runs at 10 Hz. This is suitable for studying long-horizon reasoning in static tabletop settings, but the upfront delay is a limitation for dynamic human-shared environments. A possible future optimization is asynchronous plan-while-acting, where the first stage is generated quickly and later trace stages are generated while the robot executes earlier ones; we do not evaluate that strategy here. Observed failure modes differ from the dominant no-trace failures. Standard direct policies often fail by causal drift, such as selecting the wrong object or executing a later subgoal too early. IVLR reduces this failure pattern, but it can still fail under severe occlusion, object slip or other large physical stochasticity, scene changes after planning, and unobserved targets at t = 0 ; Appendix C summarizes these cases. These failures indicate that IVLR mainly reduces causal-drift failures, but does not solve perception failure, stale plans, or partial observability. 
+
+5 Discussion and limitations 
+
+The results support a representation-level conclusion: exposing a full-horizon interleaved trace makes long-horizon VLA reasoning more controllable than leaving all intermediate structure in la-tent activations. The trace is not merely a plan and not merely a memory. It is a semantic-geometric interface that lets the policy condition each closed-loop action on both the live observation and a structured description of intended future states. The scope is deliberately limited. We evaluate in simulated manipulation benchmarks, including SimplerEnv as a proxy for visual distribution shift, but we do not claim real-robot deployment. The method assumes a static, fully observed workspace when the trace is generated. The current stress tests cover missing local trace content and moderate execution displacement, but not adversarially wrong stage order, object removal, or scene changes that invalidate the global trace. If the scene changes after planning, if targets are initially unobserved, or if another agent intervenes, the cached trace may become stale. Future work should extend IVLR with sliding-window replanning or self-triggered replanning, enabling the trace to be revised in dynamic scenes, along with uncertainty-aware trace revision and real-robot validation. The method also pays an upfront latency cost. The current implementation spends about 10 sec-onds generating a complete trace before acting, although subsequent execution runs at 10 Hz. This trade-off is acceptable for some static long-horizon manipulation settings and problematic for fast-changing scenes. Reducing or hiding this cost through pipelined generation is an important direction, but it is not part of the present empirical claims. 
+
+Impact statement 
+
+This work studies explicit multimodal reasoning representations for robot policies. Potential ben-efits include more inspectable robot decision processes and better long-horizon manipulation in structured environments. Potential risks arise if trace-conditioned policies are deployed without real-time safety monitors, because generated visual anchors can become stale when environments change. The present system is evaluated in simulation and should not be treated as sufficient for uncontrolled physical deployment without hardware validation, safety constraints, and interruption mechanisms. 9References 
+
+[1] Michael Ahn, Anthony Brohan, Noah Brown, Yevgen Chebotar, Omar Cortes, Byron David, Chelsea Finn, Chuyuan Fu, Keerthana Gopalakrishnan, Karol Hausman, et al. Do as i can, not as i say: Grounding language in robotic affordances. arXiv preprint arXiv:2204.01691 , 2022. [2] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [3] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. [4] Jun Cen, Chaohui Yu, Hangjie Yuan, Yuming Jiang, Siteng Huang, Jiayan Guo, Xin Li, Yibing Song, Hao Luo, Fan Wang, et al. Worldvla: Towards autoregressive action world model. arXiv preprint arXiv:2506.21539 , 2025. [5] Chameleon Team. Chameleon: Mixed-modal early-fusion foundation models. arXiv preprint arXiv:2405.09818 , 2024. [6] Jiayi Chen, Wenxuan Song, Pengxiang Ding, Ziyang Zhou, Han Zhao, Feilong Tang, Donglin Wang, and Haoang Li. Unified diffusion vla: Vision-language-action model via joint discrete denoising diffusion process. arXiv preprint arXiv:2511.01718 , 2025. [7] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+The International Journal of Robotics Research , 44(10–11):1684–1704, 2025. [8] Ankit Goyal, Hugo Hadfield, Xuning Yang, Valts Blukis, and Fabio Ramos. Vla-0: Building state-of-the-art vlas with zero modification. arXiv preprint arXiv:2510.13054 , 2025. [9] Yucheng Hu, Yanjiang Guo, Pengchao Wang, Xiaoyu Chen, Yen-Jen Wang, Jianke Zhang, Koushil Sreenath, Chaochao Lu, and Jianyu Chen. Video prediction policy: A generalist robot policy with predictive visual representations. arXiv preprint arXiv:2412.14803 , 2024. [10] Wenlong Huang, Fei Xia, Dhruv Shah, Danny Driess, Andy Zeng, Yao Lu, Pete Florence, Igor Mordatch, Sergey Levine, Karol Hausman, et al. Grounded decoding: Guiding text genera-tion with grounded models for embodied agents. Advances in Neural Information Processing Systems , 36:59636–59661, 2023. [11] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [12] Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [13] Jason Lee, Jiafei Duan, Haoquan Fang, Yuquan Deng, Shuo Liu, Boyang Li, Bohan Fang, Jieyu Zhang, Yi Ru Wang, Sangho Lee, et al. Molmoact: Action reasoning models that can reason in space. arXiv preprint arXiv:2508.07917 , 2025. [14] Xuanlin Li, Kyle Hsu, Jiayuan Gu, Karl Pertsch, Oier Mees, Homer Rich Walke, Chuyuan Fu, Ishikaa Lunawat, Isabel Sieh, Sean Kirmani, et al. Evaluating real-world robot manipulation policies in simulation. arXiv preprint arXiv:2405.05941 , 2024. [15] Fanqi Lin, Ruiqian Nai, Yingdong Hu, Jiacheng You, Junming Zhao, and Yang Gao. Onet-wovla: A unified vision-language-action model with adaptive reasoning. arXiv preprint arXiv:2505.11917 , 2025. [16] Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. 10 [17] Huaping Liu, Xinghang Li, Peiyan Li, Minghuan Liu, Dong Wang, Jirong Liu, Bingyi Kang, Xiao Ma, Tao Kong, and Hanbo Zhang. Towards generalist robot policies: What matters in building vision-language-action models. Manuscript , 2025. [18] Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, et al. Octo: An open-source generalist robot policy. arXiv preprint arXiv:2405.12213 , 2024. [19] Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier Mees, Chelsea Finn, and Sergey Levine. Fast: Efficient action tokenization for vision-language-action models. arXiv preprint arXiv:2501.09747 , 2025. [20] Delin Qu, Haoming Song, Qizhi Chen, Zhaoqing Chen, Xianqiang Gao, Xinyi Ye, Qi Lv, Modi Shi, Guanghui Ren, Cheng Ruan, et al. Eo-1: Interleaved vision-text-action pretraining for general robot control. arXiv preprint arXiv:2508.21112 , 2025. [21] Delin Qu, Haoming Song, Qizhi Chen, Yuanqi Yao, Xinyi Ye, Yan Ding, Zhigang Wang, Ji-aYuan Gu, Bin Zhao, Dong Wang, et al. Spatialvla: Exploring spatial representations for vision-language-action model. arXiv preprint arXiv:2501.15830 , 2025. [22] Austin Stone, Ted Xiao, Yao Lu, Keerthana Gopalakrishnan, Kuang-Huei Lee, Quan Vuong, Paul Wohlhart, Sean Kirmani, Brianna Zitkovich, Fei Xia, et al. Open-world object manipula-tion using pre-trained vision-language models. arXiv preprint arXiv:2303.00905 , 2023. [23] Wan Team, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [24] Yuqi Wang, Xinghang Li, Wenxuan Wang, Junbo Zhang, Yingyan Li, Yuntao Chen, Xin-long Wang, and Zhaoxiang Zhang. Unified vision-language-action model. arXiv preprint arXiv:2506.19850 , 2025. [25] Junjie Wen, Minjie Zhu, Jiaming Liu, Zhiyuan Liu, Yicun Yang, Linfeng Zhang, Shanghang Zhang, Yichen Zhu, and Yi Xu. dvla: Diffusion vision-language-action model with multimodal chain-of-thought. arXiv preprint arXiv:2509.25681 , 2025. [26] Jinheng Xie, Weijia Mao, Zechen Bai, David Junhao Zhang, Weihao Wang, Kevin Qinghong Lin, Yuchao Gu, Zhijie Chen, Zhenheng Yang, and Mike Zheng Shou. Show-o: One single transformer to unify multimodal understanding and generation. In International Conference on Learning Representations , 2025. [27] Jinheng Xie, Zhenheng Yang, and Mike Zheng Shou. Show-o2: Improved native unified mul-timodal models. arXiv preprint arXiv:2506.15564 , 2025. [28] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [29] Michał Zawalski, William Chen, Karl Pertsch, Oier Mees, Chelsea Finn, and Sergey Levine. Robotic control via embodied chain-of-thought reasoning. arXiv preprint arXiv:2407.08693 ,2024. [30] Zichen Zhang, Yunshuang Li, Osbert Bastani, Abhishek Gupta, Dinesh Jayaraman, Yecheng Ja-son Ma, and Luca Weihs. Universal visual decomposer: Long-horizon manipulation made easy. In IEEE International Conference on Robotics and Automation , pages 6973–6980. IEEE, 2024. [31] Qingqing Zhao, Yao Lu, Moo Jin Kim, Zipeng Fu, Zhuoyang Zhang, Yecheng Wu, Zhaoshuo Li, Qianli Ma, Song Han, Chelsea Finn, et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 1702–1713, 2025. [32] Chunting Zhou, Lili Yu, Arun Babu, Kushal Tirumala, Michihiro Yasunaga, Leonid Shamis, Jacob Kahn, Xuezhe Ma, Luke Zettlemoyer, and Omer Levy. Transfusion: Predict the next to-ken and diffuse images with one multi-modal model. In International Conference on Learning Representations , 2025. 11 [33] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models trans-fer web knowledge to robotic control. In Conference on Robot Learning , pages 2165–2183. PMLR, 2023. 
+
+A Pseudo-trace annotation details 
+
+The pseudo-trace pipeline takes a demonstration video and task instruction as input and returns an ordered list of stages. UVD produces temporal boundaries over the demonstration; for each segment, we use the final frame as the visual keyframe because it is the first stable observation after the segment’s interaction has completed. The VLM annotator receives the instruction, the ordered segment frames, and the selected keyframe index, then outputs a structured JSON record. 
+
+Annotation prompt template. The VLM is instructed to act as a robotics video annotator: given the task instruction and one segmented clip, describe the manipulation stage in one concise caption, identify the relevant objects, and state the gripper-object interaction or spatial relation that makes the stage complete. The prompt asks the model to avoid speculation about unseen objects and to output only valid JSON. 
+
+JSON schema. Each annotation uses the following fields: 
+
+{"stage_id": integer, "caption": string, "objects": [string], "gripper_action": string, "spatial_relation": string, "keyframe_index": integer }
+
+Captions are allowed to be gripper-centric when the gripper action is necessary for defining the stage, but they must also mention the task-relevant object or spatial relation. 
+
+Filtering and inspection. We reject annotations that are not valid JSON, have empty captions, duplicate adjacent stages without a state change, refer to objects not visible in the segment or not relevant to the instruction, or describe only camera motion/background changes. Camera-view nor-malization, including horizontal flipping when required by the dataset view convention, is applied before VLM captioning and recorded as preprocessing metadata. Random manual inspection is used as a sanity check for segmentation boundaries, object names, and whether captions describe object state rather than only low-level motion. These labels remain pseudo-supervision rather than ground-truth symbolic annotations. 
+
+Accepted and rejected patterns. Accepted captions describe completed stage states, such as “grasp the mug by its handle” or “place the object inside the target container.” Rejected captions include empty or purely visual descriptions such as “the camera view changes,” duplicated adja-cent captions with no new interaction, or object hallucinations inconsistent with the instruction and segment frames. 
+
+B Implementation and evaluation details 
+
+The model is initialized from Show-o2 1.5B and trained with AdamW. We use β = (0 .9, 0.95) ,
+
+ϵ = 10 −8, optimizer weight decay 10 −8, gradient accumulation of 1, and gradient clipping/max gradient norm of 1.0. The maximum training budget is 100 epochs or 100K optimization steps, with 5K warmup steps, save interval 5K, evaluation interval 100, and logging frequency 10. The scheduler is cosine decay with minimum learning rate 10 −6.Learning rates are module-specific: base learning rate 2.5 × 10 −5, Show-o2 backbone/interface learning rate 1.0 × 10 −5, and action model learning rate 1.0 × 10 −4. Loss scaling uses 1.0 for 12 VLA/action training and 0.1 for VLM/reasoning supervision. No modules are frozen in the reported setting. For compute, joint training uses 16 NVIDIA H200 GPUs. The LIBERO runs reported in the main text use about 40K steps and take approximately 4 hours; the SimplerEnv runs use about 60K steps and take approximately 6 hours. At evaluation time, all IVLR entries use self-generated traces. Baseline numbers in the comparison tables follow the cited papers or benchmark reports unless otherwise noted. We report aggregate success rates over the standard evaluation episodes used by each benchmark; we do not report multi-seed confidence intervals due to compute constraints. 
+
+C Failure mode summary 
+
+Representative failures fall into four categories. Severe occlusion prevents the live observation from matching the visual anchors, so IVLR can fail for the same perceptual reason as direct VLA policies. Object slip and other large physical stochasticity can move the scene outside the recovery range assumed by the cached keyframes. Scene changes after planning make the trace stale, while direct VLA policies may still react locally but lack global task order. Finally, unobserved targets at t = 0 
+
+cannot be represented by valid initial keyframes and require search or replanning beyond the current setup. 
+
+D Qualitative examples Task : Put the white mug on the plate and put the chocolate pudding to the right of the plate   
+
+> Initial Observation Generated IVLR -Trace
+> The gripper
+> moves from
+> the right
+> side of …
+> The gripper
+> moves
+> downward to
+> grasp …
+> The gripper
+> lowers the
+> white
+> mug …
+> The gripper
+> moves
+> upward to
+> release …
+> The gripper
+> moves to the
+> right to
+> place …
+
+(a) With IVLR -Trace 
+
+(b) Without IVLR -Trace 
+
+Execution Trajectory Visualization  
+
+> Figure 4: Effect of explicit trace conditioning. With a trace, the policy follows the intended causal order. Without the trace, the policy can greedily select a later visually salient object and fail the long-horizon task.
+
+13 Stage 1/6: The gripper 
+
+descends from above and 
+
+moves downward to align 
+
+directly above the black 
+
+bowl on the countertop, 
+
+then moves slightly to the 
+
+right to position itself over 
+
+the bowl. 
+
+Stage 2/6: The gripper 
+
+moves downward to grasp 
+
+the black bowl, then lifts it 
+
+u p w a r d w h i l e r o t a t i n g 
+
+s l i g h t l y t o t h e r i g h t , 
+
+p r e p a r i n g t o m o v e i t 
+
+toward the drawer. 
+
+Stage 3/6: The gripper 
+
+moves horizontally to the 
+
+ri ght , approachi ng t he 
+
+o p e n d r a w e r , t h e n 
+
+descends vertically to align 
+
+the bowl with the drawer's 
+
+opening. 
+
+Stage 4/6: The gripper 
+
+moves downward to lower 
+
+the bowl into the drawer, 
+
+then slightly adjusts its 
+
+position to ensure the bowl 
+
+i s c e n t e r e d w i t h i n t h e 
+
+drawer space. 
+
+Stage 5/6: The gripper lifts 
+
+the bowl upward slightly, 
+
+then moves horizontally to 
+
+the left to reposition itself 
+
+above the drawer handle, 
+
+preparing to close it. 
+
+Stage 6/6: The gripper 
+
+moves horizontally to the 
+
+left to grasp the drawer 
+
+h a n d l e , t h e n p u l l s t h e 
+
+drawer closed by moving it 
+
+b a c k w a r d a n d s l i g h t l y 
+
+downward. 
+
+Task description: put the 
+
+black bowl in the bottom 
+
+drawer of the cabinet and 
+
+close it. Figure 5: Qualitative trace on LIBERO-Long. The generated trace captures critical state transitions as interleaved captions and visual keyframes. 
+
+14
