@@ -1,0 +1,2405 @@
+Title: OGPO: Sample Efficient Full-Finetuning of Generative Control Policies
+
+URL Source: https://arxiv.org/pdf/2605.03065v1
+
+Published Time: Wed, 06 May 2026 00:10:59 GMT
+
+Number of Pages: 50
+
+Markdown Content:
+# OGPO : Sample Efficient Full-Finetuning of Generative Control Policies 
+
+Sarvesh Patil a,$ , Mitsuhiko Nakamoto b,$ , Manan Agarwal a,‡ , Shashwat Saxena a,‡ , Jesse Zhang c,‡ ,Giri Anantharaman a, Cleah Winston c, Chaoyi Pan a, Douglas Chen a, Nai-Chieh Huang a,Zeynep Temel a, Oliver Kroemer a, Abhishek Gupta cd , Sergey Levine b,Hongkai Dai d,† , Paarth Shah d,† , Max Simchowitz a,† ,
+
+> $
+
+Project lead. ‡Equal Contribution. †Equal advising.  
+
+> a
+
+Carnegie Mellon University b University of California, Berkeley c University of Washington  
+
+> d
+
+Toyota Research Institute 
+
+Figure 1: OGPO enables sample-efficient full-policy finetuning of generative control policies. Left: A GCP induces a denoising MDP inside each environment step. OGPO severs the bi-level MDP at the executed action and uses an off-policy critic as a terminal reward for PPO-style optimization over purely computational denoising trajectories. 
+
+Middle: This off-policy policy extraction substantially improves sample efficiency on challenging manipulation tasks compared to prior GCP finetuning methods. Right: Unlike steering, residual learning, or behavior-cloning extraction, 
+
+OGPO updates the full generative process using both positive and negative advantage gradients computed via Q-functions, allowing the policy to move toward high-value actions while clustering around multiple high success modes. 
+
+> a
+
+{sarveshp, mananaga, ssaxena2, dchen3, chaoyip, naichieh, giria, msimchow}@andrew.cmu.edu 
+
+> b
+
+{nakamoto, svlevine}@eecs.berkeley.edu 
+
+> c
+
+{jessezha, cleahw, abhgupta}@cs.washington.edu 
+
+> d
+
+{hongkai.dai,paarth.shaah}tri.global 
+
+Code: TBD 
+
+Abstract 
+
+Generative control policies (GCPs), such as diffusion- and flow-based control policies, have emerged as effective parameterizations for robot learning. This work introduces Off-policy Generative Pol-icy Optimization ( OGPO ), a sample-efficient algorithm for finetuning GCPs that maintains off-policy critic networks to maximize data reuse and propagate policy gradients through the full generative process of the policy via a modified PPO objective, using critics as the terminal reward. OGPO 
+
+achieves state-of-the-art performance on manipulation tasks spanning multi-task settings, high-precision insertion, and dexterous control. To our knowledge, it is also the only method that can fine-tune poorly-initialized behavior cloning policies to near full task-success with no expert data in the online replay buffer , and does so with few task-specific hyperparameter tuning . Through extensive empirical investigations, we demonstrate the OGPO drastically outperforms methods alternatives on policy steering and learning residual corrections, and identify the key mechanisms behind its performance. 
+
+> arXiv:2605.03065v1 [cs.LG] 4 May 2026 Off-Policy Generative Policy Optimization
+
+# 1 Introduction 
+
+Autonomous acquisition of new skills is an important challenge for modern robot manipulation. While imitation learning via behavior cloning (BC) from human demonstration can enable a robot to learn behaviors across several contexts, performance is typically brittle to subtle changes in tasks and environ-ments. These models rarely exhibit high success rates zero-shot in the diversity of settings encountered in deployment. While this fragility can be remedied through additional data collection, a natural ques-tion to ask is - can the robustness of pre-trained imitation learning policies be bolstered autonomously without requiring considerably more manual data collection? To this end, there has been a strong interest in finetuning pre-trained robotic policies via reinforce-ment learning (RL), to autonomously improve behavior via self-collected experience. Of particular rel-evance is the problem of finetuning Generative Control Policies (GCPs) - the parametrization of control policies by expressive generative models, such as diffusion or flow models [Chi et al., 2023, Black et al., 2024, Pan et al., 2025 ]. These policies have been extremely effective for modern robotic applications 
+
+[Zhang and Gienger, 2024, Wolf et al., 2025 ].Current methodology for GCP finetuning succumbs to tradeoffs between data efficiency and the extent of policy improvement during training. Approaches focused on sample efficiency combine off-policy critic learning, enabling strong experience reuse, with either targeted partial finetuning of the GCP , such as steering the initial generation noise or learning residual corrections, or instead use behavior cloning to imitate high-return actions. These approaches learn quickly when the base policy has strong coverage of optimal actions, but struggle with exploring new behavior. On the other hand, methods focused on eliciting maximum final task performance [Lei et al., 2025, Ren et al., 2024, McAllister et al., 2025 ] use on-policy policy gradient updates, which drive aggressive policy improvement at the expense of significantly compromised sample efficiency. In this work, we propose a new algorithm - OGPO for full-finetuning of expressive GCPs, providing both sample-efficient and expressive policy updates via data-efficient off-policy reinforcement learning. Following [Ren et al., 2024, Black et al., 2023 ] OGPO views GCP optimization as a bi-level MDP , with a nested inner denoising MDP over the action generation steps of a GCP , and an outer environment dynam-ics MDP over actions actually executed in the environment. Importantly, in real-robotics tasks, collecting trajectories from the environment MDP is expensive, while generating action trajectories through the denoising MDP is purely computational and therefore cheap. While direct policy optimization in the unrolled bi-level MDP can be very (environment-)sample inefficient [Ren et al., 2024, Zhang et al., 2025b ], OGPO leverages the asymmetry of sample costs to perform decoupled policy optimization. OGPO performs sample-efficient off-policy Temporal Difference (TD)-learning to learn a Q function in the environment dynamics MDP over expensive environment samples, while using data-inefficient, but stable on-policy RL updates to extract policies from the inner denoising MDP over cheap GCP samples. Doing so allows for an off-policy policy optimization algorithm that is data-efficient (due to TD-learning in the environment dynamics MDP), while being expressive (due to on-policy RL finetuning in the denoising MDP) Through careful empirical study, we show that OGPO is able to achieve both stable and expressive updates for finetuning GCPs in challenging robotics tasks. Based on empirical analysis of the shortcom-ings, we further propose OGPO+ , an empirically optimized variant that incorporates improvements in test-time optimization such as Best-of-N planning via Q-functions and policy distillation from successful trajectories obtained via online RL. These improvements allow OGPO+ to achieve state-of-the-art per-formance on a set of contact-rich simulation environments with varying horizons, degrees of freedom, and precision requirements, while requiring minimal hyperparameter tuning. Surprisingly, we show that OGPO+ is able to fine-tune policies with zero expert data in the policy replay buffer. This is a fun-damentally new capability that points towards the future possibility of finetuning models with minimal human data collected in a task-specific manner on deployment. We perform a careful set of analyses 
+
+> 2
+
+Off-Policy Generative Policy Optimization 
+
+to understand the impact of the decoupled optimization central to OGPO , and the impact of the design decision made in OGPO+ - showing the efficacy of full-policy finetuning of GCPs under the right design choices. 
+
+# 2 Preliminaries 
+
+We formulate our algorithm as a Markov Decision Process (MDP) MENV := ( S, A, P0, P, R, γ), with states 
+
+s ∈ S, actions a ∈ A, initial state distribution P0, transition probabilities P, reward R, and discount factor γ ∈ (0, 1 ). At each timestep t, the agent (e.g., robot) observes the state st ∈ S, takes an action 
+
+at ∼ π(at | st ) ∈ A, transitions to the next state st+1 according to st+1 ∼ P(st+1 | st , at ) while receiving a reward R(st , at ).1 For the MDP MENV , we let Eπ (resp. Pπ) denote the expectation (resp. probability distribution) over trajectories (s0, a0, . . . , sT , aT ) with length T + 1, with initial state distribution s0 ∼ P0
+
+and transition operator P. We train a policy to optimize the cumulative discounted return J(πθ ) = 
+
+Eπθ
+
+P  
+
+> t≥0
+
+γt R(st , at ). We also recall the Q-function 
+
+Qπ(s, a) := Eπ[
+
+X
+
+> t≥0
+
+γt R(st , at ) | (st , at ) = ( s, a)] (2.1) and value function V π(s) := Ea∼π(s)[Qπ(s, a)] . We apply action chunking [Zhao et al., 2023 ], where sequences of actions at:t+h−1 are predicted and executed in open-loop. For simplicity, we treat each action chunk as a single action in MENV , thereby preserving to the standard MDP notation. Thus, for the rest of the paper, at refers to an entire action-chunk , and rewards are adjusted appropriately (see Appendix A.1). 
+
+On-Policy Policy Gradient Methods. Policy gradient (PG) methods (e.g., REINFORCE [Williams, 1992 ])improve policy performance by approximating the gradient of this objective w.r.t. the policy parameters: 
+
+∇θ J(πθ ) = Eπθ
+
+X
+
+> t≥0
+
+∇θ log πθ (at | st ) rt (st , at )
+
+
+
+, (2.2) where rt (st , at ) := P 
+
+> τ≥t
+
+γτR(sτ, aτ) is the discounted future return from time t, and ∇θ log πθ (at |st )
+
+denotes the gradient of the logarithm of the likelihood of (at | st ). Myriad improvements exist to reduce variance of gradient estimation and accelerate training stability; following [Ren et al., 2024, Zhang et al., 2025b ], we build on the PPO algorithm [Schulman et al., 2017 ]. PG methods are called on-policy 
+
+because they optimize over the current policy distribution, limiting data re-use and sample efficiency. 
+
+Off-Policy Reinforcement Learning. Off-policy RL methods maintain a long horizon replay buffer 
+
+Droll = {(st , at , st+1, rt , dt )} consisting of past states st , actions at , subsequent states st+1 from the en-vironment transitions, the observed rewards rt , and the done signal dt . The buffer is used to train an ensemble of M critic networks Qφi : S × A → R, with parameters φ1, . . . , φM , such that Qφi (st , at )
+
+evaluates the expected cumulative return Qπ ¯θ (st , at ) of action at at state st under a current target policy 
+
+π ¯θ . The critic networks are updated in parallel using the temporal difference loss, which enforces the Bellman consistency equation defined by Q-functions: 
+
+Lcritic (φ) = E
+
+
+
+Qφ (st , at ) −
+
+
+
+rt + γ · Qtarg (st+1, at+1)
+
+ 2
+
+, (2.3)    
+
+> 1In practice, algorithms may be given incomplete or redundant state observation (e.g., via pixel measurements), in which case we can replace swith an observation o. This may violate the Markovian condition in the MDP , but still leads to well-posed algorithms.
+
+3Off-Policy Generative Policy Optimization 
+
+where above the expectation E is taken over (st , at , rt , st+1 ∼ B ) sampled from the replay buffer B,and each at+1 is sampled independently from the current target policy π ¯θ (· | st+1). To avoid overesti-mation bias, we set Qtarg (s, a) = 1
+
+> M
+
+P 
+
+> i
+
+Qi to be a mean over critic networks, described in the Appendix (Appendix A.1). [Fujimoto et al., 2018, Chen et al., 2021 ].Importantly, (2.3) enables data collected by policies from previous training epochs, thereby increasing sample efficiency. 
+
+Generative Control Policies. Current robotic control policies use generative models as parameteriza-tions of control policies. Following [Pan et al., 2025 ], we call these generative control policies (GCPs). GCPs represent a stochastic policy πθ (· | s) as a series of iterative computation steps, defined by a map-ping ¯ πθ : S × A× N. Given a state st , the policy first samples at,K ∼ ¯πθ (· | at,k = ;, k = K, st ) where k is a GCP timestep. Next, we sample at,k−1 ∼ ¯πθ (· | at,k, k, st ) which leads to is an action at,0 . We compactly denote the distribution of this action given the observation as at,0 ∼ πθ (· | st ), turning the GCP into a standard policy. Our iteration conventions are decreasing in K, those in diffusion models. Following the same conventions, we also refer to the index k as the “denoising step.” 
+
+Flow-Based GCPs. We focus on a popular class of GCPs: flow-based control policies [Black et al., 2024 ]. As discussed in Appendix C, our methods and baselines can also be instantiated with Diffusion-based policies [Chi et al., 2023 ] and other controller parameterizations [Pertsch et al., 2025, Frans et al., 2024, Pan et al., 2025 ] . Flow policies are pretrained using the flow-matching objective: given training pairs (s, a), we sample noise z ∼ N(0, I). With a continuous noise index τ ∈ [0, 1 ], we define an interpolated action a(τ) = τ + ( 1 − τ)z, and optimize a velocity field vθ (a(τ), τ; s) by minimizing 
+
+E(s,a,τ)∥vθ (a(τ), τ; s) − (a − z)∥2 [Albergo et al., 2023, Lipman et al., 2022 ] . Inference is performed by discretizing an ordinary differential equation (ODE) which reverses the noising process at,k−1 :=
+
+at,k + 1 
+
+> K
+
+vθ (at,k, k/K, s), with at,0 ∼ N(0, I).
+
+# 3 Off-Policy Generative Policy Optimization 
+
+We propose Off-Policy Generative Policy Optimization, OGPO , an off-policy full-policy finetuning method for generative control policies. We begin by introducing the basic algorithm, and then describe an im-proved variant, OGPO+ . We provide summary pseudocode in Algorithm 1, and defer full implementa-tion details to Appendix B. 
+
+Background: Off-Policy Policy Extraction. Given a replay buffer B = {(s, a, s′, r)}, traditional off-policy RL methods consist of two steps: (1) fitting Q- functions via a TD-update Eq. (2.3), (2) performing policy extraction by choosing actions that maximize the target Q function Qtarg as a surrogate of future return: 
+
+θ ∈ arg max 
+
+> θ
+
+Ea∼πθ (s)(Qtarg (s, a)) . (3.1) The replay buffer facilitates off-policy data-reuse for training Qtarg (typically via (2.3)), driving sample efficiency, whereas (3.1) can be computed purely computationally. A historically popular approach to optimize this objective for simple policy parametrization, like Gaussian policies, is the so-called repa-rameterization trick [Kingma and Welling, 2013, Figurnov et al., 2018 ], where a stochastic policy is rendered as πθ (s; w) for a noise w drawn from a fixed (non-learned) distribution. From here, Eq. (3.1) is written as an expectation over w, the algorithm directly differentiates Qtarg (s, πθ (s, w)) with respect to θ under samples w. In principle, the same can be done for GCPs such as flow-policies, sampling an initial noise at,K and backpropagating through the inference chain (Figure 4, center). However, as 
+
+> 4Off-Policy Generative Policy Optimization
+
+we show experimentally (Appendix H.1), doing so leads to an exploding gradient problem as we dif-ferentiate through the multiple flow steps. Moreover, it requires differentiating ∇aQtarg , which can be inaccurate in contact-rich tasks [Suh et al., 2022 ].
+
+OGPO : On-Policy PPO for Off-Policy Policy Extraction. OGPO is designed for applications, such as robotic manipulation, where environment interactions are more costly than computation, and where action gradients with respect to Qtarg are noisy or inaccurate [Suh et al., 2022 ]. We maintain off-policy critic learning that facilitates data reuse, and propose a fully parallelizable zero-order optimizer that solves Eq. (3.1), avoiding backpropagation through the denoising chain and differentiation with respect to the target network.    
+
+> Figure 2: We recall the bi-level MDP from [Ren et al., 2024 ], which embeds action-level trajectories into the environmental dynamics.
+
+OGPO truncates this MDP at the end of each denoising trajectory, using Q-values as a terminal, action-trajectory-level reward. This enables off-policy policy extraction via on-policy policy optimiza-tion. 
+
+Our starting point is the bi-level MDP formulation adopted from [Ren et al., 2024 ] (Figure 2). Fol-lowing [Black et al., 2023 ], we view sequences at,K:0 = ( at,K , . . . , at,0 ) as trajectories in an denoising 
+
+MDP , where time is indexed by denoising step k, and state and action at step k are at,k and at,k−1,respectively. Ren et al. [2024 ] embeds this action-level MDP into the environment-level MDP MENV , re-sulting in an bi-level MDP where states are ¯ st,k = ( st , at,k), the actions are at,k−1 , and the indices (t, k)
+
+are lexicographically increasing in t and decreasing in k. Figure 2 depicts this bi-level MDP: transitions within each gray block occur within the denoising-level MDP , and between gray blocks are transitions in MENV ; see Appendix D for further details. The DPPO algorithm proposed by [Ren et al., 2024 ] then applies on-policy PPO at the level of this bi-level MDP . Whilst avoiding the aforementioned pathologies associated with backpropagation, this method gives up the sample efficiency afforded by off-policy critic learning. Our key insight is that denoising-trajectories can be generated purely computationally from policy inference, as they occur in the “imagination” of the GCP . We can then use critic learning to sever the bi-level MDP just before environment-MDP state transitions (red line, Figure 2), enabling zero-order optimization applied only to the denoising-level MDP . As compared to backpropagation approaches to solving Eq. (3.1), our approach avoids (i) backpropagation through time and (ii) differentiating through the Q-function. Moreover, as compared to pure on-policy zero order optimization through the bi-level MDP [Ren et al., 2024 ], our zero-order updates are (i) performed purely computationally, in the “imag-ination” of the denoising process (ii) fully parallelized across large batch sizes (iii) used to optimize a critic network, facilitating full reuse of environment-level trajectories. Moreover, (iv) the problem horizon of the denoising-level MDP scales only with the denoising steps K, and not K × (task horizon). Concretely, we apply the PPO algorithm [Schulman et al., 2017 ], a zero-order policy gradient method, to optimize over the denoising MDP . Given state st , denoising trajectory at,K:0 , and baseline value estimate 
+
+> 5
+
+Off-Policy Generative Policy Optimization 
+
+ˆV , we apply the standard PPO loss only to the denoising trajectory at,K:0 :
+
+ℓPPO (θ ; st , at,K:0 , ˆ μ) := min (ωθ ˆA, clip (ωθ , 1 − ε, 1 + ε) ˆA)
+
+ωθ :=
+
+> K
+
+Y
+
+> k=1
+
+πθ (at,k−1 | st , at,k)
+
+π ¯θ (at,k−1 | st , at,k) , ˆ A = Qtarg (st , at,0 ) − ˆV . (3.2) IGP IGP IGP       
+
+> Positive Gradients Only
+> (BC Loss)
+> IGP IGP IGP
+> Positive Gradients
+> BPTT
+> If If
+> Negative Gradients
+> IGP IGP IGP
+> Steering
+> Residual Policy
+
+Figure 3: Visual depiction of the different off-policy RL algorithms. (left) DSRL trains an initial noise steering policy, while EXPO trains a residual policy to modify the final GCP action. (center) QC drives policy improve-ment via supervised finetuning (SFT) of Best-of-N actions ranked via the critic, while BPTT backpropagates the gradients sequentially through the entire GCP . (right) OGPO uses an ensemble of critics to compute ˆ AG (Eq. (3.2)) that update the GCP via Annealed Importance Sampling, thereby directly conditioning the log-likelihoods over the GCP chain. 
+
+Multiple Denoising-Trajectory Sampling. Because denoising-trajectories are generated computation-ally, they can be resampled fully in parallel from any given state st in the replay buffer. Moreover, Qtarg 
+
+can be evaluated without taking a single transition step in the environment. Taking advantage of this, we evaluate our PPO loss over an average of a batch of parallel-sampled trajectories, purely in the “imagination” of the GCP . By analogy to policy optimization in large language models (LLMs), we can think of a state st in the buffer as a “context” and the denoising trajectory at,K:0 as a “response”. We draw inspiration from the GRPO algorithm [Shao et al., 2024 ] in LLM post-training, where multiple responses are sampled in parallel from a given prompt, and gradients are averaged together to reduce gradient variance. 2 In OGPO , at each update, we sample Nbatch states (s(i))1≤i≤Nbatch from our replay buffer, and sample Ngroup denoising trajectories (a(i, j) 
+
+> K:0
+
+)1≤ j≤Ngroup drawn i.i.d. from π ¯θ (· | s(i)) per state. We then update via the loss ˆLPPO (θ ) = 1
+
+Ntot 
+
+X
+
+> i
+
+X
+
+> j
+
+ℓPPO (θ ; s(i), a(i, j) 
+
+> K:0
+
+, ˆ V (i)). (3.3) Eq. (3.3) averages both over the states s(i) 
+
+> t
+
+from the buffer (“prompts”), and denoising-trajectories gen-erated in parallel from each given state (“responses”). This yields a normalization factor of Ntot :=
+
+Nbatch · Ngroup . Moreover, parallel sampling facilitates estimating the value baseline via a direct Monte-Carlo approximation ˆ V (i) ← 1
+
+> Ngroup
+
+P 
+
+> j
+
+Qtarg (s(i), a(i, j) 
+
+> 0
+
+), obviating the need to learn a separate value-prediction network. 
+
+Debiasing Noise Injection for Flow Policies. We instantiate OGPO for flow-based policies. To evalu-ate the likelihood ωθ in Eq. (3.2), we must ensure the denoising-level action likelihoods ak−1, t | akt , st
+
+are non-singular. ReinFlow [Zhang et al., 2025b ] modifies the bi-level PPO algorithm of [Ren et al., 2024 ] for flow-based policies, achieving this by adding additional Gaussian noise to each flow step. For given choice of noise levels σ2 
+
+> k
+
+, this yields the following inference procedure: 
+
+ak−1 ∼ ¯πFLOW (· | ak, k, s) := N(vθ (ak, kK , s), σ2 
+
+> k
+
+I) (3.4) 
+
+> 2
+
+GRPO includes an additional variance normalization term, which we omit. 
+
+6Off-Policy Generative Policy Optimization 
+
+In OGPO , we observe that naively adding noise can degrade policy performance by changing the marginal distributions of actions at,k generated during denoising (Figure 21). We therefore introduce a correc-tion proposed by Albergo et al. [2023 ] which (in the infinite step limit) ensures the per-denoising-step marginal distributions of noise-augmented actions match those of standard flow sampling; see also Liu et al. [2025 ]. See Appendix E.3 for details. 
+
+Algorithm 1 OGPO (Abbreviated)  
+
+> 1:
+
+for each environment step until done do  
+
+> 2:
+
+Execute at ∼ π ¯θ (· | st ), and update buffer B ← (st , at , rt , st+1, done ).
+
+% Standard Critic Update  
+
+> 3:
+
+Update critic networks φ1, . . . , φM using empirical TD Error (2.3) over B ∼ D roll .
+
+% Actor Update via Multiple Denoising Trajectories  
+
+> 4:
+
+for i = 1, . . . , Nbatch do  
+
+> 5:
+
+Sample state s(i) from B, and action trajectories a(i, j) 
+
+> K:0
+
+∼ π ¯θ (· | s(i)) for 1 ≤ j ≤ Ngroup . 
+
+> 6:
+
+Estimate value baselines via ˆ V (i) ← 1
+
+> Ngroup
+
+P 
+
+> j
+
+Qtarg (s(i), a(i, j) 
+
+> 0
+
+) 
+
+> 7:
+
+end for  
+
+> 8:
+
+Update actor using aggregated PPO loss (3.3) 
+
+% EMA parameters  
+
+> 9:
+
+Update target parameters ¯θ ← (1 − τ) ¯θ + τθ , ¯φi ← (1 − τ) ¯φi + τφ i . Set Qtarg = 1
+
+> N
+
+P 
+
+> i
+
+Q ¯φi . 
+
+> 10:
+
+end for 
+
+OGPO : Core Insights 
+
+• Off-Policy Q-learning for On-Policy GCP Extraction. OGPO severs the bi-level MDP at environ-ment transitions, using Qtarg as a terminal reward for the GCP’s denoising MDP .• 0 th -order optimization. PPO-style zeroth order optimization over denoising trajectories avoids first order backpropagation through Qtarg and the GCP chain. This simplifies RL-finetuning in high-Lipschitz tasks. • Debiased noise injection. SDE-augmented flow steps yield non-singular likelihoods for the PPO ratio ωθ , with the stochastic interpolant correction ensuring marginal distributions match standard ODE inference. All Nbatch × Ngroup trajectories are sampled and scored in parallel. 
+
+# 4 Improving OGPO by Mitigating Critic Over-exploitation 
+
+In this section, we identify a major limitation of OGPO : over-exploitation of learned critics due to highly expressive policy updates (Section 4.1) . We then introduce three modular modifications to OGPO which overcomes this tendency, and which are mutually compatible: • OGPO+ (Section 4.2), which combines OGPO with behavior cloning regularization on success-only 
+
+trajectories • OGPO+CA (Section 4.3), which uses a conservative advantage for policy extraction, thereby dras-tically mitigating the “dip” in offline-to-online adaptation 
+
+• OGPO+ χ2 (Section 4.4), which adds in an additional χ2 regularization term to a slowly-updated policy, and mitigates critic over-exploitation on pixel-based domains. 
+
+> 7
+
+Off-Policy Generative Policy Optimization 0.0 0.5 1.0 1.5 2.0    
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO tool_hang-ph-low_dim
+> eval_sde/success
+> eval_sde/length 0
+> 200
+> 400
+> 600
+> eval_sde/length
+
+(a) 0.0 0.5 1.0 1.5 2.0     
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO+ tool_hang-ph-low_dim
+> eval_sde/success
+> eval_sde/length 0
+> 200
+> 400
+> 600
+> eval_sde/length
+
+(b) 0.0 0.5 1.0 1.5 2.0     
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO-CA tool_hang-ph-low_dim
+> eval_sde/success
+> eval_sde/length 0
+> 200
+> 400
+> 600
+> eval_sde/length
+
+(c) 0.0 0.5 1.0 1.5 2.0   
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO transport-mh-low_dim
+> eval_sde/success
+> eval_sde/length
+> 300
+> 400
+> 500
+> 600
+> 700
+> eval_sde/length
+
+(d) 0.0 0.5 1.0 1.5 2.0     
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO+ transport-mh-low_dim
+> eval_sde/success
+> eval_sde/length 400
+> 500
+> 600
+> 700
+> eval_sde/length
+
+(e) 0.0 0.5 1.0 1.5 2.0    
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> OGPO-CA transport-mh-low_dim
+> eval_sde/success
+> eval_sde/length
+> 400
+> 500
+> 600
+> eval_sde/length
+
+(f) 
+
+Figure 4: The above plots show the full training comparison between (a) Vanilla OGPO , (b) OGPO+ , and (c) 
+
+OGPO+CA , on state-based R OBOMIMIC tasks. The red axis shows success rate and the blue axis shows the mean length of successful trajectories.By aggressively maximizing sparse reward, OGPO optimizes for both task success rate, and completion in few steps . Without further regularization, the two can be in tension, causing a sharp initial decrease in the length of the policy rollouts, subsequent oscillations in success rates (T OOLHANG , (a) a high-precision task) or plateaus in performance (T RANSPORT , (d) a long-horizon task) . By adding a success buffer, 
+
+OGPO+ bias the policy learning objective to favor task success (b, e)). OGPO+CA mitigates the effect of outliers in the critic estimation, thereby fitting the “dip” between offline BC and online training (c, f). 
+
+For a practitioner, we recommend using OGPO+CA for state-based RL, and OGPO+ χ2 for pixel-based RL. In addition to these modifications, we optionally incorporate Q-variance reduction that aver-ages the TD targets over Nvr actions sampled from the reference actor, thereby improve critic accuracy: 
+
+Lcritic,vr (φ) = E
+
+
+
+Qφ (st , at ) −
+
+
+
+rt + γ · 1
+
+Nvr 
+
+Nvr X
+
+i=1
+
+Qtarg (st+1, a(i)
+
+t+1)
+
+ 2
+
+, a(i)
+
+t+1i.i.d 
+
+∼ π ¯θ (· | st+1). (4.1) We find that Eq. (4.1) always yields some improvement, but this benefit is most pronounced in pixel-based environments ; it makes a marginal difference in state-based settings on pre-training from full data. 
+
+Experimental Setup: To identify improved design choices, we consider experiments on the state-based and image-based R OBOMIMIC tasks, which are described in greater detail in Section 5.1. For state-based runs, we use all state-information directly; for image based runs, we pass image observations using a frozen PaliGemma VLM backbone from the pre-trained π0.5 VLA [Intelligence et al., 2025 ].Further details are given in Appendix I. 
+
+4.1 Vanilla OGPO Over-exploits Imperfectly Learned Critics 
+
+Recall that OGPO makes PPO-style updates to the denoising MDP . The combination of the expressive gen-erative policies and PPO updates on the full-denoising trajectory risks causing OGPO to over-optimize the critic, overfitting to advantages which are poorly estimated. 
+
+8Off-Policy Generative Policy Optimization 
+
+Success-Speed Tradeoff. The typical “sparse-reward” manipulation setting assigns reward of −1 each time step a task remains uncompleted. Thus, minimizing cumulative reward introduces a tension be-tween completion rate and completion speed . As a result, OGPO may attempt to finish tasks too quickly, causing success rates to drop, harming future exploration training stability. This success-speed tradeoff is visible in Figure 4a, where we see average task length rapidly improves, but success rate plateaus. Anecdotally, we found that the variance-reduced critic update Eq. (4.1) did not improve this tradeoff. 
+
+Overexploitation is Exacerbated in Pixel-Based RL. We observe that vanilla OGPO has more se-vere exploitation in pixel-based settings. We consider a R OBOMIMIC SQUARE environment described above, where pixels are feautrized using a frozen PaliGemma VLM backbone π0.5 To isolate the effects 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4                     
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval_sde/success
+> square-mh-image ablation
+> actor /critic =state /state
+> actor /critic =pixel /state
+> actor /critic =pixel /pixel
+
+Figure 5: On ablating actor and critic ob-servation modalities, we observe that vanilla 
+
+OGPO fails to improve policy performance from image-based critics. 
+
+of pixels, we compare four variants: (1) state-based actor /state-based critic; (2) pixel-based actor /state-based critic (3) pixel-based actor /pixel-based (4) state-based actor /pixel-based critic. We plot variants (1-3) in Figure 5, and omit (4) due to collapsing runs. We that the policy trains effectively for both state-based critic runs (1)&(2), but fails on (3)&(4), suggesting that pixel-based critics pre-vent learning. We hypothesize that such critics learn less ac-curately due to the richer observation space, making them more susceptible to exploitation via OGPO. Anecdotally, we found that the variance-reduced critic update made mod-est but very limited improvements to the pixel-based critics, suggesting the need for further interventions. 
+
+4.2 OGPO+ : Regularizing OGPO With Behavior Cloning of Successful Trajectories 
+
+To remedy critic overexploitation, these challenges, OGPO+ incorporates a regularization term applied only to actions from successful trajectories. This biases policy improvement toward replicating only the actions that led to success [Oh et al., 2018 ]. Specifically, we maintain a success buffer Dsucc ⊆ D roll 
+
+containing transitions from episodes that achieve task success. During training, we sample mini-batches from Dsucc and compute 
+
+LBC (θ ) = E(ssucc   
+
+> t,asucc
+> t,0 )∼D succ
+
+
+
+BCLOSS ( ¯πθ (· | ssucc  
+
+> t
+
+), asucc  
+
+> t,0
+
+)
+
+
+
+(4.2) where B CLOSS is the appropriate behavior cloning objective (e.g., denoising score matching for diffusion policies, or flow matching loss for flow policies). Success-imitations grounds the policy toward known good actions, while the PPO objective more aggressively explores improvements. For OGPO+ , the total policy loss combines both terms: 
+
+LTotal (θ ) = LPPO (θ ) + λBC LBC (θ ). (4.3) 
+
+(Optional) Best-of-N Inference. In many domains, such as language modeling, evaluating the quality of an action, or “verification” is learned more quickly and accurately than “generation” of good actions. This verification-generation gap [Setlur et al., 2025 ] motivates the popular practice of Best-of-
+
+N sampling [Brown et al., 2024 ], where one generates multiple proposal actions, and selects the best using a learned verifier. Best-of-N sampling has seen widespread adoption in RL training of robotics policies 
+
+9Off-Policy Generative Policy Optimization 0.0 0.5 1.0 1.5 2.0 
+
+Steps 1e6 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  rate
+
+tool_hang-ph-low_dim   
+
+> OGPO OGPO-BoN OGPO+
+
+Figure 6: We perform a small sweep of ab-lations adding Best-of-N (BoN) Inference and Success Buffer on R OBOMIMIC TOOLHANG .
+
+[Mark et al., 2024, Dong et al., 2025, Li et al., 2025 ], using the target critic as verifier. In, OGPO+ we do the same with a slightly modified critic QBON described in Appendix A.1. We remark that, due to the aggressive policy extraction, Best-of-
+
+N inference yields only marginal additional performance; the success buffer, as described above, is crucial. Thus, we recommend omitting Best-of-N when inference cost is con-strained. 
+
+aBoN, t := arg max {Qtarg (st , a(i)
+
+t,0 ) : a(1)
+
+t,0 , . . . , a(N )
+
+t,0 i.i.d 
+
+∼ πθEMA (· | st )}.(4.4) 
+
+4.3 OGPO+CA : Mitigating the Offline-to-Online Performance Dip via Conservative Advantages 1250 1000 750 500 250 0                        
+
+> Qestimate
+> 600
+> 500
+> 400
+> 300
+> 200
+> 100
+> 0
+> MC  return
+> min(Q)
+> 1250 1000 750 500 250 0
+> Qestimate
+> mean(Q)
+> 1250 1000 750 500 250 0
+> Qestimate
+> max(Q)
+> early (25% success) mid (75% success) late (91% success) y=x
+
+(a) OGPO 1000 800 600 400 200 0                         
+
+> Qestimate
+> 600
+> 500
+> 400
+> 300
+> 200
+> 100
+> 0
+> MC  return
+> min(Q)
+> 1000 800 600 400 200 0
+> Qestimate
+> mean(Q)
+> 1000 800 600 400 200 0
+> Qestimate
+> max(Q)
+> early (56% success) mid (78% success) late (94% success) y=x
+
+(b) OGPO+CA 
+
+Figure 7: We take early-, mid-, and late- training checkpoints for OGPO and OGPO+CA to rollout 32 trajectories and visualize the min, mean, and max Q vs Monte-Carlo returns. (a) Shows OGPO ’s Q values fluctuating widely between positive and negative values. (b) Shows OGPO+CA ’s Q values converging more stably around the y = x
+
+axis 
+
+A second challenge in offline-to-online RL is the pervasive “dip” in performance that arises transitioning from offline pretraining to online RL. Warm-starting meth-ods like [Uchendu et al., 2023, Zhou et al., 2024 ] propose the use of high update-to-data (UTD) ratios and /or offline datasets during online RL, and the use of pessimistic critic updates. Anecdotally, we find that neither of these methods suffice . Moreover, from Figure 7a, we see that both over- and under-estimation of the Q values are possible, and both outliers potentially destabilize training. Thus, we instead to have the policy extraction step maximize the conservative advantages . This is made pos-sible because our zero-order extraction takes advantages directly, and also accounts for the fact that global additive errors in critic values are less salient than incorrect advantage estimation. For a given action ai , we set ˆAcons 
+
+i =
+
+
+
+min m Ai,m if min m Ai,m > 0, max m Ai,m if max m Ai,m < 0, 0 otherwise. , (4.5) where we recall Ai,m = Qφm (s, ai ) − 1
+
+Ngroup 
+
+PNgroup 
+
+i′=1 Qφm (s, ai′ ) is the group-wise advantage using the 
+
+m-th network in the ensemble. Eq. (4.5) provides a non-zero advantage (and thus updates the policy) if and only if all advantages have the same sign, thereby robustifying updates to estimation errors in the critic networks. As shown in Figure 7b, we we see that policy extraction with conservative advantages also improves the calibration of critic estimation, in that critic values in earlier states of training more tightly track those in later stages. 
+
+10 Off-Policy Generative Policy Optimization 
+
+4.4 OGPO+ χ2: Overcoming critic exploitation on images via χ2 regularization 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4                      
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  rate
+> square-mh-image
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> tool_hang-ph-image
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> transport-mh-image
+> Img-PG-²Img-PG-KL
+
+Figure 8: We 
+
+In principle, the PPO clipping mitigates serves as an approximation for a KL trust-region, which has the intended affect of regularizing the policy to mitigate critic over-exploitation. However, given that the generative policies in OGPO are more expressive than traditional monolothic RL policies, we find above that PPO clipping does not suffice. Instead, we leverage a stronger form of regularization - χ2 regularization , motivated by its stronger coverage properties [Huang et al., 2024 ]. Concretely, we propose a regularized variant of OGPO we call OGPO+ χ2. OGPO+ χ2 adopts the best practices of 
+
+OGPO+ , and additionally maintains a slow exponential moving average policy, denoted as πslow (with update rate τslow ≪ τ). We then replace the GRPO advantage in Eq. (3.2) with the drift-penalized variant ˆA(i, j) 
+
+> χ
+
+:= ˆA(i, j) − βω θ ,slow , (4.6) where ωθ is the ratio term from Eq. (3.2). In Appendix E.2, we demonstrate that maximizing Eq. (4.6) is mathematically equivalently to adding a regularization on the χ2 difference between action-trajectories from πθ and πslow . In Appendix E.2, we verify that χ2 regularization is essential , showing that other natural regularizers fail to ensure convergence on pixel-based tasks Figure 8. 
+
+# 5 When does Full-Finetuning ( OGPO ) Improve Over Popular Baselines? 
+
+In this section, we carefully compare OGPO , OGPO+ , and OGPO+CA to a number of popular baselines to elucidate the merits and limits of its design philosophy— full policy fine-tuning, off-policy critic learning, and PPO policy extraction. Our experiment environments are representative of many common challenges in robot learning (e.g. high precision, long horizon, mixed data quality), and baselines cover competing design philosophies (e.g. steering, residual learning). 
+
+Criterion OGPO QC DSRL EXPO 
+
+Mixed Data Quality ✓ ✓ ✓ ✓ ✓ ✓ ✗ ✗ 
+
+High Precision Tasks ✓ ✓ ✓ ✓ ✗ ✗ ✓ ✓ 
+
+Partial Demonstrations ✓ ✓ ✓ ✓ ✓ ✓ ✗ ✗ 
+
+Long Horizon ✓ ✓ ✓ ✗ ✓ ✗ ✗ ✗ 
+
+Dense /Dexterous ✓ ✓ ✓ ✓ ✓ ✗ ✓ ✓ 
+
+High Sample Efficiency ✓ ✓ ✓ ✗ ✗ ✗ ✓ ✗ 
+
+Table 1: Left (resp. right) symbol indicates achieving high success With (resp. Without) task-specific hyperpa-rameter tuning. ✗- fails to converge on all tasks; ✓- converges on some but not all tasks; ✓- converges on all tasks, but below SOTA success /efficiency; ✓- converges on all tasks, competitive with SOTA success /efficiency. We use the optimized variants where possible (e.g. OGPO+ for OGPO and similarly for all the baselines). 
+
+Summary of Findings. We summarize comparisons to other off-policy methods in Table 1. Each method has two columns: left denotes if the method converges with task-optimized hyperparameters, 
+
+11 Off-Policy Generative Policy Optimization 
+
+and right denotes fixed hyperparameters across all tasks within the criterion (see Appendix J). The markings are explained in the table caption. We find that OGPO is able to learn in sparse-reward tasks with mixed /partial data quality and on high-precision /long horizon tasks , whereas other methods struggle in one or more of these regimes. It also exhibits (often times drastic) gains in sample efficiency compared to these methods, and order-of-magnitude improvements related to the on-policy DPPO algorithm. However, OGPO is less performant on the dense-reward tasks from the Adroit Hand benchmark (Figure 11). Comparisons are detailed further in Section 5.2. Sample efficiency improvements v.s. DPPO are expected (off- vs. on-policy), and we attribute gains against off-policy baselines to exploration behavior and expressive policy updates, studied in Section 6.1. Appendix H ablates the merits of zero-order vs. backpropagation through time, the role of negative-advantage gradients in encouraging exploration, and the enhancements distinguishing OGPO and OGPO+ .
+
+5.1 Experimental Setup 
+
+Baselines. We compare against the baselines mentioned in Section 7.3, which are described in more detail in Appendix F In short, we consider: (i) DPPO [Ren et al., 2024 ], representative of on-policy learning, (ii) DSRL [Wagenmaker et al., 2025 ], representative of off-policy noise steering (iii) EXPO 
+
+[Dong et al., 2025 ], representative of learning residual corrections to the GCP , and (iv) to a variant of QC 
+
+[Li et al., 2025 ] representative of behavior cloning policy extraction. We do not compare to ReinFlow 
+
+[Zhang et al., 2025b ] due to reported reduced sample efficiency compared to DPPO , making the latter a more compelling baseline. We also skip comparison to PA-RL [Mark et al., 2024 ] for reasons described in Appendix F.6. Lastly, we introduce a steering +residual learning baseline, (v) S/R , combining DSRL and 
+
+EXPO to (hypothetically) yield the benefits of both. For a fair comparison with OGPO+ , we implement each baseline with its own best-practices, as described in Appendix F. 
+
+Environments. Our simulation environments are chosen to elicit key challenges faced in modern robot learning: Robomimic: To test high-precision robotic control, we use three R OBOMIMIC tasks [Man-dlekar et al., 2021 ]: S QUARE (medium-horizon insertion), T OOLHANG (long-horizon multi-step inser-tion), T RANSPORT (bi-manual long-horizon transfer). S QUARE and T RANSPORT use Multi-Human (MH) datasets; T OOLHANG uses Proficient-Human (PH) with BC stopped at 50% success. Franka Kitchen: 
+
+We use the F RANKA -K ITCHEN benchmark [Gupta et al., 2019 ] with a 9-DoF Franka robot manipu-lating 4 kitchen objects, testing sensitivity to multi-step trajectories with complete demonstrations (K ITCHEN -C OMPLETE ), randomized subtask orders (K ITCHEN -M IXED ), and sequential partial trajectory data (K ITCHEN -P ARTIAL ). Adroit: To test performance in dextrous manipulation tasks with dense-reward, we use the 24-DoF Adroit Hand benchmark:D OOR -V1, H AMMER -V1, P EN -V1, R ELOCATE -V1 for door opening, hammering, pen reorientation, and object relocation. Expert datasets from D4RL /Minari. 
+
+LIBERO: Finally, to test pixel-based language-conditioned manipulation, we use the LIBERO benchmark 
+
+[Liu et al., 2023 ]. Further details are given in Appendix I. 
+
+Experimental Regime: Online RL from a BC Checkpoint. We emulate real-world robot learning settings where large-scale pretrained policies with varying levels of online success rates are deployed to learn novel tasks without access to large offline datasets. Thus, we pre-train a flow GCP for all baselines, clip it to at most 50% success rate, and use the same BC checkpoint for all baselines in online RL without additional data. Full details in Appendix J.1. 
+
+5.2 Comparison to other methods 
+
+Expressivity: Full-Policy Finetuning ( OGPO ) vs. Steering ( DSRL ) vs. Residual ( EXPO ). Next, we compare OGPO to performant off-policy alternatives that do not fine-tune the full GCP across 11 tasks. 
+
+Steering (DSRL ) can be sample-efficient but relies on sufficient base policy action coverage, leading to 
+
+> 12
+
+Off-Policy Generative Policy Optimization 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4  
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  rate
+
+square-mh-low_dim-clip           
+
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+tool_hang-ph-low_dim           
+
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+transport-mh-low_dim        
+
+> OGPO OGPO+ OGPO-CA OFPO++ FQL EXPO DSRL QC
+
+Figure 9: Comparison against natural off-policy baselines ( EXPO , DSRL , QC ), and on-policy algorithms modified to use OGPO-style off-policy advantages ( OFPO++ , FQL ) on R OBOMIMIC SQUARE , T OOLHANG , and T RANSPORT .0 0.5M 1M 1.5M 2M 
+
+Steps 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  rate
+
+D4RL/kitchen/complete-v2     
+
+> 00.5M 1M 1.5M 2M
+
+Steps  
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+D4RL/kitchen/mixed-v2     
+
+> 00.5M 1M 1.5M 2M
+
+Steps  
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+D4RL/kitchen/partial-v2     
+
+> OGPO OGPO+ DSRL QC EXPO
+
+Figure 10: Comparison against natural off-policy baselines ( EXPO , DSRL , QC ) on F RANKA -K ITCHEN 0 0.1M 0.2M 0.3M 0.4M 0.5M                       
+
+> Steps
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  rate
+> AdroitHandDoor-v1
+> 00.1M 0.2M 0.3M 0.4M 0.5M
+> Steps
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 AdroitHandPen-v1
+> 00.1M 0.2M 0.3M 0.4M 0.5M
+> Steps
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 AdroitHandHammer-v1
+> 00.1M 0.2M 0.3M 0.4M 0.5M
+> Steps
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 AdroitHandRelocate-v1
+> OGPO OGPO+ DSRL QC EXPO
+
+Figure 11: Comparison against natural off-policy baselines ( EXPO , DSRL , QC ) on the AdroitHand 
+
+suboptimal performance when the base policy’s performance is poor, such as in K ITCHEN tasks. Further, by not updating later steps of the GCP , steering struggles on high-precision tasks such as the A DROIT task suite. We also empirically found it to be sensitive to hyperparameters; in some tasks, DSRL performance crashes despite heavy tuning. We attribute some of this instability to our use of DSRL on a flow-based GCP instead of a diffusion-based GCP; the original paper uses diffusion GCPs for low-data-coverage experiments. However, we are also more sample-efficient than DSRL ’s paper-reported numbers on shared tasks. 
+
+Residual learning (EXPO ) can perform well when the base policy is strong and thus only minor residual corrections are needed (it is highly performant in A DROIT in Figure 9), but, just like steering (DSRL ), it generally performs poorly or is unstable when the base policy performance starts lower (K ITCHEN and most R OBOMIMIC tasks). We note that when given offline data, EXPO can perform well (see Figure 18), but our experimental regime is without access to the pre-training data. Our Steering 
+
++ Residual Learning (S/R ) baseline combines EXPO and DSRL ; we plot sample efficiency curves in ROBOMIMIC tasks in Figure 27, where we see that it is better than EXPO /DSRL alone in S QUARE , albeit still worse compared to OGPO , and demonstrates unstable training in the high precision T OOLHANG 
+
+task. 
+
+Off-Policy Learning vs. Self-Distillation /Behavior Cloning (BC) with QC . Next, we compare pol-icy extraction methods. We find the action-chunked BPTT variant proposed in the QC paper to perform poorly (Fig. 25) on flow policies, and thus use a variant that explores online with Best-of-N action sam-
+
+13 Off-Policy Generative Policy Optimization 
+
+pling and fine-tunes the BC policy on transitions from the online replay buffer. QC plateaus at lower performance for most tasks, requires more task-specific hyperparameter tuning, and has worse sample efficiency. We attribute this to SFT’s inability to expand the support of the GCP action distribution, required for sufficient exploration. 
+
+Off-Policy OGPO vs. On-Policy DPPO . We begin by comparing OGPO+ against DPPO , where the major difference between the two is that OGPO+ truncates the bi-level MDP proposed by DPPO 
+
+at the end of each denoising trajectory with terminal rewards coming from an off-policy Q-function, 
+
+Figure 12: OGPO+ substantially improves sample efficiency com-pared to the on-policy DPPO algorithm. 
+
+while DPPO treats the entire bi-level MDP as a single MDP to train with on-policy RL. On final success rates across R OBOMIMIC SQUARE and T RANS -
+
+> PORT
+
+, this off-policy modification re-sults in DPPO taking ∼ 10 × longer to reach the final success rates achieved by OGPO+ . Overall, we find that both 
+
+OGPO and OGPO+ outperform DPPO ’s paper-reported results in both sam-ple efficiency and final performance across all shared tasks, even with matched network architectures and ac-tion chunk lengths. 
+
+# 6 Understanding and Ablating The Merits of OGPO 
+
+6.1 Does OGPO Encourage Exploration? t=9               
+
+> End BC Initial RL Mid RL End RL
+> t=17 t=28
+> OGPO+ QC DSRL EXPO Per-action QConsensus Q
+
+Figure 13: Actions generated by BC policies on critical states in T OOLHANG overlap in the UMAP space and di-verge as training progresses. OGPO policies generate ac-tions along narrower variance of successful actions com-pared to the baselines. We also see that ∇aQ(s, a) nudges the actions away from this variance axis toward more ef-ficient execution 
+
+As illustrated in Figure 14, policies trained via Behavior Cloning (BC) exhibit a
+
+mode-seeking behavior, agnostic of the underlying environment MDP and task rewards. This causes the BC policy to collapse variance rapidly to ad-here to narrow "cone" of demonstrated trajecto-ries. In contrast, OGPO leverages Q-functions to drive action distribution manifold expansion to-ward high-value regions beyond the support of the offline action distributions. During policy up-dates, we compute the annealed importance sam-pling ratio ω for the online policy ¯ πθ with respect to the EMA policy ¯ π ¯θ and weigh ω against the advantage ( ˆ AG) to guide the entire GCP chain to explore actions that lead to high-value states via the Q-functions. We demonstrate this exploration tendency by visualizing the action distributions for the dif-ferent baselines on critical states obtained from TOOLHANG at the end of BC pretraining, and the Initial, Mid, and End stages of RL finetuning. Fig-ure 13 shows a UMAP [McInnes et al., 2018 ] plot of the natural baselines compared with OGPO+ 
+
+14 Off-Policy Generative Policy Optimization  
+
+> Figure 15:
+
+OGPO exhibits manifold expansion by making the policy more multimodal as well as execution ef-ficient. We compare against the natural baselines and a no-negative gradient version of OGPO , in (top) sparse reward, (middle) sparse reward with ∆at compensation, and (bottom) early-stage policy sparse reward with ∆at 
+
+> compensation settings. We observe that
+
+OGPO policies in sparse reward settings optimize for execution speed along with task success. 
+
+and visualizes the ∇aQ(s, a) vector pulling away from the action distribution in the UMAP space. We also visualize the differences in OGPO , OGPO+ , and 
+
+OGPO+CA in Figure 22 and note that OGPO+CA generates significantly stronger consensus ∇aQ(s, a)
+
+values, especially in the initial stages of training which validates that conservative advantages result in a stronger alignment of the Q functions.   
+
+> Figure 14: As needed by the task in question, generative control policies extracted via
+
+OGPO exhibit multimodal-ity by faithfully aligning Q-functions toward Q∗.
+
+We empirically show the effects of OGPO 
+
+along with all the baselines on a Push-T task from 
+
+[Chi et al., 2023 ] and elucidate a detailed sum-mary of the optimization and exploration behav-ior of OGPO in Appendix G. 
+
+6.2 Which Design Decisions Explain the Performance of OGPO and OGPO+ ?
+
+In the interest of space, full ablation details are deferred to Appendix H; here, we summa-rize the main takeaways. First, zero-order PPO extraction is crucial: directly backpropagating through the denoising chain often fails catas-trophically, supporting our choice to optimize the GCP through likelihood ratios rather than through 
+
+∇aQ(s, a). Second, Best-of-N inference provides only marginal gains by itself and can increase oscillations when the critic is imperfect, whereas the success buffer in OGPO+ consistently improves sample efficiency and asymptotic performance by an-choring policy improvement to successful behavior. Third, negative-advantage gradients are important on high-precision and long-horizon tasks, where merely imitating high-value samples is insufficient to suppress bad modes. Finally, we find that GRPO-style variance normalization hurts performance, pes-
+
+> 15
+
+Off-Policy Generative Policy Optimization 
+
+simistic min-of-ensemble critics can be overly conservative during early online learning, and flow- and diffusion-based instantiations of OGPO perform comparably, suggesting that the main gains come from the extraction mechanism rather than the particular GCP parameterization. 
+
+6.3 Does PPO policy extraction outperform AWR and FPO extraction? 
+
+We next compare OGPO ’s PPO-style policy extraction against a number of alternatives: (1) AWR -FM 
+
+which combines advantage-weighted regression (AWR, [Peng et al., 2019 ]) to re-weight the flow-matching loss by exponentiated advantages; AW -OGPO , which uses exponentiated advantages as in Peng et al. [2019 ], but instead rewieghts the OGPO likelihood ratio consider in Eq. (3.2); and OFPO++ , which performs policy extraction by using FPO ++ [ Yi et al., 2026 ] advantage on the noising MDP . Detailed descriptions of these strategies are given in Appendix H.5. In addition, we generally fine AW -OGPO to outperform AWR -FM , so we add a positive-only variant of AW -OGPO given as ˆ AG ← exp ( ˆAG/β )·I[A > 0].Otherwise, all these methods use the same replay data, critic training, and group-wise advantages. 0.00 0.25 0.50 0.75 1.00 1.25 1.50                   
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim
+> 0.0 0.5 1.0 1.5 2.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 tool_hang-ph-low_dim
+> 0.0 0.5 1.0 1.5 2.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 transport-mh-low_dim
+> OGPO+ OGPO-CA AW-OGPO AW-OGPO-pos AWR-FM OFPO++
+
+Figure 16: OGPO comparisons with policy extraction ablations with AWR -FM AW -OGPO and OFPO++ on ROBOMIMIC environments 0.00 0.25 0.50 0.75 1.00 1.25 1.50                   
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim
+> 0.0 0.5 1.0 1.5 2.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 tool_hang-ph-low_dim
+> 0.0 0.5 1.0 1.5 2.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 transport-mh-low_dim
+> OGPO+ OGPO-²AW-OGPO-²OFPO++
+
+Figure 17: OGPO comparison with policy extraction ablations with AWR -FM , AW -OGPO and OFPO++ on ROBOMIMIC environments 
+
+As shown in Figure 16, AWR -FM fails across the R OBOMIMIC tasks, indicating that pure advantage-weighted regression is not enough for finetuning expressive GCPs from imperfect critics. AW -OGPO 
+
+improves over AWR -FM , and OFPO++ is more competitive, but both remain less stable than clipped PPO extraction, especially on T OOLHANG and T RANSPORT . Adding χ2 regularization deteriorates the performance of AW -OGPO and OFPO++ (Figure 17), suggesting that compared to OGPO , these policy extraction methods do not aggressively optimize the Q-functions via the advantage estimate ˆ AG.
+
+# 7 Related Work 
+
+We situate our work within the landscape of generative control policies, reinforcement learning for robotic control, and finetuning strategies for iterative generative models. 
+
+16 Off-Policy Generative Policy Optimization 
+
+7.1 Generative Control Policies 
+
+The success of diffusion models in image generation [Ho et al., 2020, Song et al., 2020, Rombach et al., 2022 ] has inspired their adoption for robotic control. Diffusion Policy [Chi et al., 2023 ] demonstrated that denoising diffusion probabilistic models (DDPMs) can effectively parameterize visuomotor policies by iteratively denoising action sequences conditioned on observations. Flow-matching policies [Lipman et al., 2022, Liu et al., 2022 ] offer a more efficient alternative by learning velocity fields that trans-port noise to action distributions through ordinary differential equations (ODEs), achieving comparable performance with fewer integration steps. Recent work has sought to improve the generative modeling capacity. Notably, shortcut mod-els [Frans et al., 2024 ] condition on desired step sizes to enable few-step generation, while consistency models [Song et al., 2023 ] distill multi-step diffusion into single-step generation. Recently, [Pan et al., 2025 ] introduced Minimally Iterative Policies (MIP), demonstrating that two-step regression-based poli-cies can match full flow model performance, suggesting that distributional learning may be less critical than previously believed. Orthogonally, tokenized autoregressive policies such as FAST [Pertsch et al., 2025 ] encode continuous action chunks via discrete cosine transforms to enable efficient training of vision-language-action (VLA) models on high-frequency control data. For OGPO , we demonstrate flow and diffusion-based policies as representative of the general IGP formulation and leave generalization to other formulations as future work. 
+
+7.2 Reinforcement Learning for Robotic Policy Finetuning 
+
+The incorporation of Reinforcement Learning (RL) into robotic policy training mirrors the post-training paradigm in large language models [Ouyang et al., 2022, Shao et al., 2024 ]. On-policy methods such as REINFORCE [Williams, 1992 ] and PPO [Schulman et al., 2017 ] update policies using only data from the current policy iteration, ensuring stable but sample-inefficient learning. DPPO [Ren et al., 2024 ]
+
+extends PPO to diffusion policies by computing policy gradients through the denoising chain, while Reinflow [Zhang et al., 2025b ] applies similar principles to flow-matching policies. Off-policy algorithms promise greater sample efficiency by maintaining replay buffers of past expe-riences. Classical approaches such as SAC [Haarnoja et al., 2018 ], TD3 [Fujimoto et al., 2018 ], and REDQ [Chen et al., 2021 ] learn Q-functions from off-policy data to guide policy updates. Temporal difference learning mitigates the requirement of the policy to compute Monte Carlo return to the go. However, naive application to IGPs in the RL-finetuning regime can exhibit training instabilities due to large initial distributional shifts and value overestimation. To mitigate these, [Mark et al., 2024, Li et al., 2025 ] proposed using Q functions merely to rank stochastic policy actions and fine-tuning the policy using the Best-of-N actions. However, driving policy improvement via Q-function ranking can be inefficient as it requires exploration away from the mean values of the flow policy. Concurrently, RL-100 [Lei et al., 2025 ] presents a comprehensive real-world RL framework built on diffusion policies, demonstrating deployment-grade success rates across eight manipulation tasks. RL-100 adopts the same bi-level MDP formulation and clipped PPO surrogate as DPPO, unifying imitation and reinforcement learning under a single objective across both offline and online stages, and addition-ally incorporates consistency distillation for high-frequency deployment. While RL-100 demonstrates impressive real-world reliability, its policy optimization remains fully on-policy, requiring iterative offline data expansion to achieve sample efficiency. OGPO instead decouples the bi-level MDP via off-policy critic learning, achieving comparable or superior sample efficiency in simulation without requiring mul-tiple rounds of offline RL pre-training. 
+
+> 17
+
+Off-Policy Generative Policy Optimization 
+
+7.3 Finetuning Strategies for Iterative Generative Policies 
+
+Existing approaches to finetuning IGPs differ along the axis of what is optimized. Steering methods, exemplified by DSRL [Wagenmaker et al., 2025 ], optimize the distribution over initial noise aK while freezing the pretrained denoising network. This constrains policy improvement within the support of the pretrained IGP distribution. Residual policy approaches such as EXPO [Dong et al., 2025 ] train an additional network πres that modifies the final action ares = πres (at,0 , st ), allowing mode shifts within the BC policy support but fails to facilitate discovery of new behaviors. Policy-agnostic RL (PA-RL) [Mark et al., 2024 ] and Q-chunking ( QC ) [Li et al., 2025 ] employ Q-functions to rank behavior cloned policies with high-value actions or use ∇aQ(s, a). In the image gen-eration domain, Flow-GRPO [Liu et al., 2025 ] concurrently applied GRPO [Shao et al., 2024 ] to flow matching models for text-to-image alignment, sharing with OGPO the ODE-to-SDE conversion for in-jecting stochasticity into deterministic flow policies and the use of group-relative advantage estimation over parallel denoising trajectories. However, Flow-GRPO operates in the on-policy, bandit-like setting: rewards are terminal (image-level), the “environment” is a single-step generation with no dynamics, and advantages are estimated via group normalization of final rewards rather than learned Q-functions. In contrast, OGPO addresses the multi-step robotic control setting, where off-policy TD-learning is essential for sample efficiency across long environment horizons, and the two-level MDP structure enables reuse of costly environment transitions while performing on-policy updates purely within the denoising MDP . However, in addition to zero-order optimization via Q functions, OGPO performs 
+
+# 8 Conclusion and Limitations 
+
+We introduce OGPO , an approach that combines the best of on-policy and off-policy methods for fine-tuning generative control policies (GCPs) and enjoys high success rates and sample efficiency across numerous tasks. However, OGPO still has drawbacks: the use of full-policy finetuning may be needlessly expressive, and therefore slow, when large amounts of expert-quality data are added to the replay buffer (Figure 18). Moreover, it is possible that PPO policy extraction can over-exploit the Q-function, leading to either training collapse and /or tensions between success rate and speed of completion. As limited evidence of this, we see small oscillations in policy performance that prevent OGPO from reaching exact 100% success rates. 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4           
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim-clip
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> tool_hang-ph-low_dim
+
+EXPO OGPO 
+
+Figure 18: Comparison to EXPO with Offline-Ratio = 0.5 18 Off-Policy Generative Policy Optimization 
+
+Acknowledgments 
+
+MN would like to thank Qiyang Li for helping with the initial implementation, and Seohong Park and Aviral Kumar for their informative discussions. This research used the Savio computational cluster resources provided by the Berkeley Research Computing program at UC Berkeley. MS would like to thank Aviral Kumar and Andrew Wagenmaker for useful discussions. SP would like to thank Steven Man, Andrea Bajcsy, and Ken Nakamura for insightful discussions. We acknowledge support from the Toyota Research Institute (TRI) University 2.0 program. 
+
+# References 
+
+Michael S Albergo, Nicholas M Boffi, and Eric Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 , 2023. Y. Bengio, P . Simard, and P . Frasconi. Learning long-term dependencies with gradient descent is difficult. 
+
+IEEE Transactions on Neural Networks , 5(2):157–166, 1994. doi: 10.1109 /72.279181. Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. Training diffusion models with reinforcement learning. arXiv preprint arXiv:2305.13301 , 2023. Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. pi 0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. Bradley Brown, Jordan Juravsky, Ryan Ehrlich, Ronald Clark, Quoc V Le, Christopher Ré, and Azalia Mirhoseini. Large language monkeys: Scaling inference compute with repeated sampling. arXiv preprint arXiv:2407.21787 , 2024. Xinyue Chen, Che Wang, Zijian Zhou, and Keith Ross. Randomized ensembled double q-learning: Learn-ing fast without a model. arXiv preprint arXiv:2101.05982 , 2021. Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. arXiv preprint arXiv:2303.04137 ,2023. Perry Dong, Qiyang Li, Dorsa Sadigh, and Chelsea Finn. Expo: Stable reinforcement learning with expressive policies. arXiv preprint arXiv:2507.07986 , 2025. Lasse Espeholt, Hubert Soyer, Remi Munos, Karen Simonyan, Volodymir Mnih, Tom Ward, Yotam Doron, Vlad Firoiu, Tim Harley, Iain Dunning, Shane Legg, and Koray Kavukcuoglu. Impala: Scal-able distributed deep-rl with importance weighted actor-learner architectures, 2018. URL https: //arxiv.org/abs/1802.01561 .Mikhail Figurnov, Shakir Mohamed, and Andriy Mnih. Implicit reparameterization gradients. Advances in neural information processing systems , 31, 2018. Kevin Frans, Danijar Hafner, Sergey Levine, and Pieter Abbeel. One step diffusion via shortcut models. 
+
+arXiv preprint arXiv:2410.12557 , 2024. Justin Fu, Aviral Kumar, Ofir Nachum, George Tucker, and Sergey Levine. D4rl: Datasets for deep data-driven reinforcement learning. arXiv preprint arXiv:2004.07219 , 2020. 
+
+> 19 Off-Policy Generative Policy Optimization
+
+Scott Fujimoto, Herke Hoof, and David Meger. Addressing function approximation error in actor-critic methods. In International conference on machine learning , pages 1587–1596. PMLR, 2018. Abhishek Gupta, Vikash Kumar, Corey Lynch, Sergey Levine, and Karol Hausman. Relay policy learning: Solving long-horizon tasks via imitation and reinforcement learning. arXiv preprint arXiv:1910.11956 ,2019. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. Audrey Huang, Wenhao Zhan, Tengyang Xie, Jason D Lee, Wen Sun, Akshay Krishnamurthy, and Dylan J Foster. Correcting the mythos of kl-regularization: Direct alignment without overoptimization via chi-squared preference optimization. arXiv preprint arXiv:2407.13399 , 2024. Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. π0.5 : a vision-language-action model with open-world generalization, 2025. URL https://arxiv.org/abs/2504.16054 .Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 ,2013. Kun Lei, Huanyu Li, Dongjie Yu, Zhenyu Wei, Lingxiao Guo, Zhennan Jiang, Ziyu Wang, Shiyu Liang, and Huazhe Xu. Rl-100: Performant robotic manipulation with real-world reinforcement learning. 
+
+arXiv preprint arXiv:2510.14830 , 2025. Qiyang Li, Zhiyuan Zhou, and Sergey Levine. Reinforcement learning with action chunking. arXiv preprint arXiv:2507.07969 , 2025. Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Bench-marking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Wanli Ouyang. Flow-grpo: Training flow matching models via online rl. arXiv preprint arXiv:2505.05470 , 2025. Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush Nasiriany, Chen Wang, Rohun Kulkarni, Li Fei-Fei, Silvio Savarese, Yuke Zhu, and Roberto Martín-Martín. What matters in learning from offline human demonstrations for robot manipulation. In arXiv preprint arXiv:2108.03298 , 2021. 
+
+> 20 Off-Policy Generative Policy Optimization
+
+Max Sobol Mark, Tian Gao, Georgia Gabriela Sampaio, Mohan Kumar Srirama, Archit Sharma, Chelsea Finn, and Aviral Kumar. Policy agnostic rl: Offline rl and online rl fine-tuning of any class and back-bone. arXiv preprint arXiv:2412.06685 , 2024. David McAllister, Songwei Ge, Brent Yi, Chung Min Kim, Ethan Weber, Hongsuk Choi, Haiwen Feng, and Angjoo Kanazawa. Flow matching policy gradients. arXiv preprint arXiv:2507.21053 , 2025. Leland McInnes, John Healy, and James Melville. Umap: Uniform manifold approximation and projec-tion for dimension reduction. arXiv preprint arXiv:1802.03426 , 2018. Mitsuhiko Nakamoto, Oier Mees, Aviral Kumar, and Sergey Levine. Steering your generalists: Improving robotic foundation models via value guidance. Conference on Robot Learning (CoRL) , 2024. Junhyuk Oh, Yijie Guo, Satinder Singh, and Honglak Lee. Self-imitation learning. In International conference on machine learning , pages 3878–3887. PMLR, 2018. Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems , 35:27730–27744, 2022. Chaoyi Pan, Giri Anantharaman, Nai-Chieh Huang, Claire Jin, Daniel Pfrommer, Chenyang Yuan, Frank Permenter, Guannan Qu, Nicholas Boffi, Guanya Shi, et al. Much ado about noising: Dispelling the myths of generative robotic control. arXiv preprint arXiv:2512.01809 , 2025. Xue Bin Peng, Aviral Kumar, Grace Zhang, and Sergey Levine. Advantage-weighted regression: Simple and scalable off-policy reinforcement learning. arXiv preprint arXiv:1910.00177 , 2019. Ethan Perez, Florian Strub, Harm De Vries, Vincent Dumoulin, and Aaron Courville. Film: Visual rea-soning with a general conditioning layer. In Proceedings of the AAAI conference on artificial intelligence ,volume 32, 2018. Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier Mees, Chelsea Finn, and Sergey Levine. Fast: Efficient action tokenization for vision-language-action models. arXiv preprint arXiv:2501.09747 , 2025. Yury Polyanskiy and Yihong Wu. Information Theory: From Coding to Learning . Cambridge University Press, 2025. Allen Z Ren, Justin Lidard, Lars L Ankile, Anthony Simeonov, Pulkit Agrawal, Anirudha Majumdar, Benjamin Burchfiel, Hongkai Dai, and Max Simchowitz. Diffusion policy policy optimization. arXiv preprint arXiv:2409.00588 , 2024. Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE /CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. Trust region policy optimization. In International conference on machine learning , pages 1889–1897. PMLR, 2015. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy opti-mization algorithms. arXiv preprint arXiv:1707.06347 , 2017. Amrith Setlur, Matthew YR Yang, Charlie Snell, Jeremy Greer, Ian Wu, Virginia Smith, Max Simchowitz, and Aviral Kumar. e3: Learning to explore enables extrapolation of test-time compute for llms. arXiv preprint arXiv:2506.09026 , 2025. 
+
+> 21 Off-Policy Generative Policy Optimization
+
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. 2023. Hyung Ju Suh, Max Simchowitz, Kaiqing Zhang, and Russ Tedrake. Do differentiable simulators give better policy gradients? In International Conference on Machine Learning , pages 20668–20696. PMLR, 2022. Ikechukwu Uchendu, Ted Xiao, Yao Lu, Banghua Zhu, Mengyuan Yan, Joséphine Simon, Matthew Ben-nice, Chuyuan Fu, Cong Ma, Jiantao Jiao, et al. Jump-start reinforcement learning. In International Conference on Machine Learning , pages 34556–34583. PMLR, 2023. Andrew Wagenmaker, Mitsuhiko Nakamoto, Yunchu Zhang, Seohong Park, Waleed Yagoub, Anusha Nagabandi, Abhishek Gupta, and Sergey Levine. Steering your diffusion policy with latent space reinforcement learning. arXiv preprint arXiv:2506.15799 , 2025. Homer Walke, Kevin Black, Abraham Lee, Moo Jin Kim, Max Du, Chongyi Zheng, Tony Zhao, Philippe Hansen-Estruch, Quan Vuong, Andre He, Vivek Myers, Kuan Fang, Chelsea Finn, and Sergey Levine. Bridgedata v2: A dataset for robot learning at scale. In Conference on Robot Learning (CoRL) , 2023. Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning , 8(3):229–256, 1992. Rosa Wolf, Yitian Shi, Sheng Liu, and Rania Rayyes. Diffusion models for robotic manipulation: Asurvey. Frontiers in Robotics and AI , 12:1606247, 2025. Yinfei Yang, Daniel Cer, Amin Ahmad, Mandy Guo, Jax Law, Noah Constant, Gustavo Hernandez Abrego, Steve Yuan, Chris Tar, Yun-Hsuan Sung, Brian Strope, and Ray Kurzweil. Multilingual universal sen-tence encoder for semantic retrieval, 2019. URL https://arxiv.org/abs/1907.04307 .Brent Yi, Hongsuk Choi, Himanshu Gaurav Singh, Xiaoyu Huang, Takara E Truong, Carmelo Sferrazza, Yi Ma, Rocky Duan, Pieter Abbeel, Guanya Shi, et al. Flow policy gradients for robot control. arXiv preprint arXiv:2602.02481 , 2026. Fan Zhang and Michael Gienger. Affordance-based robot manipulation with flow matching. arXiv preprint arXiv:2409.01083 , 2024. Thomas T Zhang, Daniel Pfrommer, Nikolai Matni, and Max Simchowitz. Imitation learning in continuous action spaces: Mitigating compounding error without interaction. arXiv preprint arXiv:2507.09061 , 2025a. Tonghe Zhang, Chao Yu, Sichang Su, and Yu Wang. Reinflow: Fine-tuning flow matching policy with online reinforcement learning. arXiv preprint arXiv:2505.22094 , 2025b. Tony Z Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manip-ulation with low-cost hardware. arXiv preprint arXiv:2304.13705 , 2023. Zhiyuan Zhou, Andy Peng, Qiyang Li, Sergey Levine, and Aviral Kumar. Efficient online reinforcement learning fine-tuning need not retain offline data. arXiv preprint arXiv:2412.07762 , 2024. 
+
+> 22
+
+# Contents 
+
+1 Introduction 22 Preliminaries 33 Off-Policy Generative Policy Optimization 44 Improving OGPO by Mitigating Critic Over-exploitation 7
+
+4.1 Vanilla OGPO Over-exploits Imperfectly Learned Critics . . . . . . . . . . . . . . . . . . . . 84.2 OGPO+ : Regularizing OGPO With Behavior Cloning of Successful Trajectories . . . . . . 94.3 OGPO+CA : Mitigating the Offline-to-Online Performance Dip via Conservative Advantages 10 4.4 OGPO+ χ2: Overcoming critic exploitation on images via χ2 regularization . . . . . . . . 11 
+
+5 When does Full-Finetuning ( OGPO ) Improve Over Popular Baselines? 11 
+
+5.1 Experimental Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12 5.2 Comparison to other methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12 
+
+6 Understanding and Ablating The Merits of OGPO 14 
+
+6.1 Does OGPO Encourage Exploration? . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 6.2 Which Design Decisions Explain the Performance of OGPO and OGPO+ ? . . . . . . . . . . 15 6.3 Does PPO policy extraction outperform AWR and FPO extraction? . . . . . . . . . . . . . . 16 
+
+7 Related Work 16 
+
+7.1 Generative Control Policies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 7.2 Reinforcement Learning for Robotic Policy Finetuning . . . . . . . . . . . . . . . . . . . . . 17 7.3 Finetuning Strategies for Iterative Generative Policies . . . . . . . . . . . . . . . . . . . . . 18 
+
+8 Conclusion and Limitations 18 A A Practitioner’s Guide to OGPO 25 
+
+A.1 Key Design Decisions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 
+
+B Pseudocode 28 C Generative Control Policies (GCPs): A Unifying Abstraction 30 
+
+C.1 OGPO with Diffusion Policies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 C.2 Shortcut Policies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 C.3 Minimal Iterative Policy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 C.4 Tokenized Autoregressive Policies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 
+
+D Bi-Level MDP 33 E Derivations 34 
+
+E.1 Policy Gradient Loss . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 E.2 Preventing Over-exploitation with χ2-Regularization . . . . . . . . . . . . . . . . . . . . . . 35 E.3 ODE-to-SDE Exploration Noise Correction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35 
+
+F Baselines 36 
+
+F.1 Diffusion Policy Policy Optimization ( DPPO , Ren et al. [2024 ] . . . . . . . . . . . . . . . . 37 F.2 Diffusion Steering Reinforcement Learning ( DSRL , Wagenmaker et al. [2025 ] . . . . . . 37 23 Off-Policy Generative Policy Optimization 
+
+F.3 Expressive Policy Optimization ( EXPO , Dong et al. [2025 ] . . . . . . . . . . . . . . . . . . 38 F.4 Q-Chunking ( QC , Li et al. [2025 ]) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38 F.4.1 Q-Chunking v /s OGPO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 F.5 ReinFlow (Zhang et al. [2025b ], not compared) . . . . . . . . . . . . . . . . . . . . . . . . . 39 F.6 PA-RL (Mark et al. [2024 ], not compared) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 
+
+G Understanding Exploration Behavior of OGPO 39 H Ablations and Limitations of OGPO /OGPO+ 41 
+
+H.1 BPTT vs OGPO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41 H.2 OGPO v/s OGPO+ , with and without GRPO std ( σ) . . . . . . . . . . . . . . . . . . . . . . . 42 H.3 OGPO vs. OGPO with no-negative gradients . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 H.4 OGPO vs Steering + Residual Ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 H.5 Policy Extraction Alternatives (AWR, ASPO from FPO) . . . . . . . . . . . . . . . . . . . . . 43 H.5.1 Advantage-Weighted Regression and Advantage-Weighted OGPO . . . . . . . . . . 43 H.5.2 ASPO from Flow Policy Optimization . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 
+
+I Environment Details 44 
+
+I.1 FRANKA -K ITCHEN . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44 I.2 Robomimic . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45 I.3 Adroit Hand . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 I.4 LIBERO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 
+
+J Hyper-parameters and Initialization 47 
+
+J.1 Initialization and Warm Starting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47 J.2 Hyperparameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48 
+
+> 24 Off-Policy Generative Policy Optimization
+
+# A A Practitioner’s Guide to OGPO 
+
+In this section, we enumerate key design decisions, diagnostic tools, and configurations to serve as a reference for practitioners deploying OGPO on new tasks. We defer the pseudocode to Appendix B and the low level hyperparameters to Appendix J 
+
+A.1 Key Design Decisions 
+
+While a large set of hyperparameters remain static across all our experiments, some configurations might have a large impact on OGPO ’s performance on tasks beyond the scope of this paper. We list each item by descending priority level denoted by its high level description followed by the variable name in the official code base. 
+
+0. Action Chunking Conventions and Critic Update The main paper denotes each action chunk 
+
+at:t+h−1 simply as at for simplicity. Here we describe how this affects our computation of reward when used to train the resulting Q-function. Let us consider a standard MDP formulation where st is the state at current step, and at:t+h−1 denotes the action chunk. We follow the value backup formulation proposed in Q-chunking [Li et al., 2025 ], where the target uses an h-step return over the chunk and bootstraps from the value of the next action chunk at state st+h, with at+h:t+2h ∼ πθ (· | st+h) and ¯θ
+
+denoting the parameters of the target network. We use this loss to train the critic for all our off-policy methods, including OGPO , QC , DSRL , and EXPO :
+
+Lcritic (θ ) = Est ,at:t+h,st+h∼B 
+
+Qθ (st , at:t+h) −
+
+> h
+
+X
+
+> t′=1
+
+γt′
+
+rt+t′
+
+| {z }
+
+> effective reward
+
+−γhQtarg (st+h, at+h:t+2h)
+
+
+
+> 2
+
+ . (A.1) 
+
+Algorithmic Choices 1. Behavior-cloning regularization from the success buffer ( bc_coeff ). The total objective 
+
+LTotal = LPPO + λBC LBC (Eq. (4.3)) anchors the policy to actions from Dsucc ⊆ D roll — the subset of replay-buffer transitions belonging to successful episodes. The regularizer is asymmetric: it raises the likelihood of empirically successful actions but never lowers the likelihood of failed ones, so LBC 
+
+contributes a strict lower bound on the modes LPPO is allowed to abandon. Empirically (Figure 26) this is the single most consequential modification distinguishing OGPO from OGPO+ .In all experiments, we typically select λ = 1.0. 
+
+2. Conservative advantages ( adv_strategy=conservative , Eq. (4.5)). The conservative advantage ˆ Acons  
+
+> i
+
+is non-zero if and only if all M ensemble members agree on the sign of A i,m, in which case it takes the smallest magnitude consistent with that sign. Two consequences follow: (i) actions on which the ensemble disagrees produce no policy gradient, so the policy is updated only along directions of ensemble consensus; (ii) on directions of consensus, the magnitude is bounded by the most pessimistic Q-function, reducing the impact of outliers in the initial stages of online RL. This significantly mitigates the dip in policy evaluation and yields stable policy extraction. 
+
+3. Critic aggregation for Qtarg and Best-of-N (q_agg ). As referenced in Algorithm 5, OGPO updates the critic ensemble by minimizing the Temporal Difference (TD) error. To calculate the target values, 
+
+> 25 Off-Policy Generative Policy Optimization
+
+we employ an ensemble of M target critic networks. The specific method for aggregating these target predictions is determined by the configuration flag critic_flag :
+
+Qtarg (s′, a′) = 
+
+
+
+min {Qφi1
+
+(s′, a′), Qφi2
+
+(s′, a′)} critic_flag = subsample 
+
+min i∈[M ] Qφi (s′, a′) critic_flag = min 
+
+> 1
+> M
+
+PMi=1 Qφi (s′, a′) critic_flag = mean 
+
+(A.2) The setting of critic_flag is optimized per environment (see 5). The min flag uses the mini-mum all Q networks, which is more aggressively curtails overestimation. The mean flag uses the mean, which is less aggressive. Many works have found subsample to be a happy medium: we take the min-imum of two critic networks whose indices i1, i2 are sampled uniformly from the ensemble {1, . . . , M },individually per action. Note that critic training is agnostic to the GCP structure of the policy (Mark et al. [2024 ]). Eq. (A.2) aggregates the critic ensemble {Q ¯φm }Mm=1 via f ∈ { mean , min , subsample }. Across almost all tasks, we find subsample being the best strategy for Qtarg computation when using syn-chronous Jax updates, but mean to work best using asynchronous updates. Our experiments are run on using synchronous updates. In both cases, we also find subsample to work optimally for selected the Best-of-N actions Eq. (4.4). 
+
+4. ODE-to-SDE conversion ( error_correct_sde_to_ode ). In OGPO , we add Gaussian noise of variance σ2 at each flow step to (1) ensure non-singular likelihoods thereby (2) facilitating explo-ration during online RL. Instead of the classic flow deterministic update at,k+1 = at,k + vθ (at,k, tk)∆t,where ∆t is the discretization size. A naive approach would be to sample 
+
+at,k+1 ∼ N  at,k + ( vθ (at,k, tk | st )∆t, σ2 I , (A.3) but this additional noise can cause distribution shift through the denoising chain, causing the policy with SDE inference to take different actions (and thus visit different states) than with ODE inference . Instead, we adopt a correction that mitigates distribution shift in the infinite-discretization step limit, also adopted by Liu et al. [2025 ]. Specifically, we learn a small score network ˆzθ (˜xt , t) by minimizing Ldenoiser = Et,xt ,z
+
+∥ˆzθ (xt + σz, t) − z∥2 , z ∼ N(0, I), (A.4) Then, we sample 
+
+at,k+1 ∼ N
+
+
+
+at,k + ( vθ (at,k, tk | st ) + σ
+
+2∆t (ˆzθ (at,k, tk | st )∆t, σ2 I
+
+
+
+. (A.5) In Appendix E.3, we show that this update produces samples with the same per-denoising-step marginal distribution as the original flow model, in the limit of infinite discretization and perfect learning of the score network, thereby validating this decision. Ablations in Figure 21 reveal the merits of this above sampling correction. 
+
+5. χ2-regularization to prevent Q-function overoptimization (Eq. (4.6)). Q-functions learned in the early stages of training tend to represent overly optimistic estimates at the fringes of the base policy coverage. χ2-regularization on the advantages (Appendix E.2) prevents overoptimization of Q func-tions, resulting in convergence for image-based OGPO runs. The GCP denoising chain already computes the per-step likelihoods needed to evaluate ωθ , making this nearly free to implement during policy ex-traction. The penalty coefficient is set adaptively from the ensemble spread, β = βinit · std m
+
+ Q ¯φm (s, a),
+
+> 26 Off-Policy Generative Policy Optimization
+
+so that regularization is directly proportional to the critic disagreement. Further, we auto-calibrate Qtarg 
+
+for the actor and the critic update as, 
+
+ψ(ωθ ) = σ(α(ωθ − 1)) ,
+
+Qtarg = ( 1 − ψ(ωθ )) mean m
+
+
+
+Q ¯φm
+
+
+
++ ψ(ωθ ) min m
+
+
+
+Q ¯φm
+
+
+
+, (A.6) where ψ(ωθ ) is a pessimism coefficient, σ is the Sigmoid operator, and α is a sensitivity parameter. 
+
+Hyperparameters 1. Group size Ngroup (grpo_num_samples ). We rollout Ngroup trajectories in parallel from a single st to compute a mean value estimate for advantage computation in Eq. (3.2). Larger Ngroup 
+
+values result in higher exploration and diversity of information points at each update at the cost of compute. We find Ngroup = 32 to be a sweet spot across all our experiments. 
+
+2. PPO clip ε (clip_epsilon ). The Annealed Importance Sampling ratio ω computed in Eq. (3.2) is sensitive to small perturbations in the likelihoods of each denoising step of the GCP being used. For 10-step flow policies, we find a clipping value of ε = 0.01 to work best for stable policy extraction. However, practitioners might need to experiment with this ratio depending on their GCP policy parameterization. 
+
+3. Update-to-data ratios We provide three key update-to-data (UTD) ratios – utd_warmup (num-ber of critic updates per base policy rollout step), utd_q (number of critic updates per online policy rollout step), and utd_pi (number of actor updates per online policy rollout step). Although a UTD of 1 works across the board, they can be tweaked individually depending on the task setting. 
+
+4. Exponential Moving Average For all GCP instantiations within OGPO , we maintain an Exponential Moving Average (EMA) of the policy weights, denoted as θEMA . At every training step, after updating θ ,we update θEMA via: 
+
+θEMA ← αθ EMA + ( 1 − α)θ , (A.7) where α is a decay rate we typically set α = 0.995. For OGPO , the EMA serves a dual purpose be-yond standard stability. First, it acts as the reference policy πθold in the PPO importance sampling ratio (Eq. (3.2)), ensuring that updates are constrained relative to a stable baseline rather than the rapidly changing online policy. Second, for the planning component in OGPO+ , trajectories for Best-of-N rank-ing are sampled using πθEMA to ensure stability in the candidate actions. 
+
+> 27
+
+Off-Policy Generative Policy Optimization 
+
+# B Pseudocode 
+
+Algorithm 2 OGPO+ 
+
+1: ¯πθ , Qφ1... M , Droll ← ; , Dsucc ← ; 
+
+2: θtarg ← θ , φtarg i ← φi ∀i ∈ { 1, 2, . . . M }
+
+3: for iteration = 1, 2, . . . do 
+
+4: Initialize state st=0 = s0 in MENV 
+
+5: Tep ← ; Temporary episode buffer 
+
+6: while not done do 
+
+7: (s, a, r, s′, done ) ← TAKE _S TEP from the environment 
+
+8: Droll ← D roll ∪ { (s, a, r, s′, done )}
+
+9: Tep ← T ep ∪ { (s, a, r, s′, done )}
+
+% Update critic and policy 
+
+10: for epoch = 1, 2, . . . , utd do 
+
+11: if use _offline then 
+
+12: Bitr ∼ { roffline Doff ∪ (1 − roffline )Droll }
+
+13: else 
+
+14: Bitr ∼ D roll 
+
+15: end if 
+
+16: Bsucc ∼ D succ if Dsucc ̸ = ;
+
+17: UPDATE Q(Bitr )
+
+18: UPDATE IGP (Bitr , B succ )
+
+%Update target networks: 
+
+19: φtarg, i ← (1 − τ)φi + τφ targ, i ∀i ∈ 1, . . . , M
+
+20: θtarg ← (1 − τ)θ + τθ targ 
+
+21: end for 
+
+22: end while 
+
+23: if episode successful then 
+
+24: Dsucc ← D succ ∪ T ep Dsucc ⊆ D roll 
+
+25: end if 
+
+26: end for 
+
+27: 28: return converged policy πθ
+
+28 Off-Policy Generative Policy Optimization 
+
+Algorithm 3 Initialization 
+
+1: Function INITIALIZE (Doff )
+
+2: {% Policy Initialization }
+
+3: Pre-train IGP ¯ πBC  
+
+> θ
+
+on Doff using BC loss LBC (θ )
+
+4: ¯πθ ← ¯πBC 
+
+> θ
+
+5: {% Critic Initialization }
+
+6: Initialize ensemble of Q functions Qφ1... M
+
+7: if use_calql then 
+
+8: Pre-train Qφ1... M on Doff using Lcritic {Optional offline RL }
+
+9: end if 
+
+10: {% Buffer Initialization }
+
+11: Droll ← ; 
+
+12: Dsucc ← ; 
+
+13: {% Warmup Rollouts }
+
+14: for episode = 1, . . . , Nwarmup do 
+
+15: Roll out ¯ πBC  
+
+> θ
+
+in MENV , collect transitions 
+
+16: Droll ← D roll ∪ { (s, a, r, s′, done )}episode 
+
+17: if episode successful then 
+
+18: Dsucc ← D succ ∪ { (s, a, r, s′, done )}episode 
+
+19: end if 
+
+20: end for 
+
+21: if warmup_critic then 
+
+22: for step = 1, . . . , Ncritic_warmup do 
+
+23: Bitr ∼ D roll 
+
+24: UPDATE Q(Bitr ) {Critic-only updates }
+
+25: end for 
+
+26: end if 
+
+27: 28: return ¯πθ , Qφ1... M , Droll , Dsucc 
+
+Algorithm 4 Take A Step In The Environment 
+
+1: Function TAKE _S TEP (st )
+
+2: done ← False 
+
+3: at,K ∼ N(0, I )
+
+4: for k = K, . . . , 0 do 
+
+5: at,k−1 ← ¯πθtarg (ak, k, st )
+
+6: end for 
+
+7: r, st+1 ← Execute at,0 in environment 
+
+8: if st+1 is terminal then 
+
+9: done ← True 
+
+10: end if 
+
+11: 12: return (st , at,0 , r, st+1, done )
+
+29 Off-Policy Generative Policy Optimization 
+
+Algorithm 5 Critic Update  
+
+> 1:
+
+Function UPDATE Q(B itr ) 
+
+> 2:
+
+(st , at,0 , r, st+1, done ) ← Bitr 
+
+With θ frozen:  
+
+> 3:
+
+at+1,0 ← πθtarg (· | st+1) 
+
+> 4:
+
+y ← r + γ · I[not done ] · Qtarg (st+1, at+1,0 ) {Ref. Eq. A.2 }
+
+Update φ1,..., M via gradient descent:  
+
+> 5:
+
+∇φi
+
+> 1
+> |Bitr |
+
+P
+
+> Bitr
+
+ Qφi (st , at,0 ) − y2 for i = 1, . . . , M
+
+Algorithm 6 IGP Update  
+
+> 1:
+
+Function UPDATE IGP(B itr , B succ )On-Policy PPO Update  
+
+> 2:
+
+st ← Bitr  
+
+> 3:
+
+Sample G actions: {¯τ(g)}Gg=1 ∼ πθtarg (· | st ) 
+
+> 4:
+
+ˆAG = Qtarg (st , aGt,0 ) − μ(Qtarg (st , aGt,0 ))  
+
+> 5:
+
+ωθ =         
+
+> Q0
+> k=K¯πG
+> θ(at,k−1|ak,k,st)
+> Q0
+> k=K¯πG
+> θtarg (at,k−1|ak,k,st)
+> 6:
+
+LPPO (θ ) = E¯τ∼πG
+
+> θtarg
+
+min  ωθ · ˆAG, clip (ωθ , 1 − ε, 1 + ε) · ˆAG 
+
+BC Update from Success Buffer  
+
+> 7:
+
+(ssucc  
+
+> t
+
+, asucc  
+
+> t,0
+
+) ← Bsucc  
+
+> 8:
+
+LBC (θ ) = BCL OSS ( ¯πθ (· | ssucc  
+
+> t
+
+), asucc  
+
+> t,0
+
+) {IGP-specific }
+
+Combined Update  
+
+> 9:
+
+Ltotal (θ ) = LPPO (θ ) + λBC LBC (θ ) 
+
+> 10:
+
+Update θ via gradient descent on Ltotal (θ )
+
+# C Generative Control Policies (GCPs): A Unifying Abstraction 
+
+We propose a unifying abstraction for a broad family of popular parameterizations of control policies that we call Iterative Generative Policies , or GCP s. GCPs represent a stochastic policy πθ (· | s) as a series of iterative computation steps, defined by a mapping ¯ πθ : S × A× N. Given a state st , the policy samples 
+
+at,K ∼ ¯πθ (· | at,k = ;, k = K, st ). From then, we sample at,k−1 ∼ ¯πθ (· | at,k, k, st ). The final action proposed is an action at,0 . We compactly denote the distribution of this action given the observation as 
+
+at,0 ∼ πθ (· | st ), turning the GCP into a standard policy. Our iteration conventions are decreasing in K,following typical convention for diffusion models. We also drop t subscripts when clear from context. 
+
+Examples of GCPs: In addition to iterative computation, the only other requirement is that the con-ditional likelihoods, log ¯ πθ (at,k−1 = a | st , at,k, k) are efficiently represented. A number of popular parameterizations produce actions iteratively and satisfy this mild requirement: • Diffusion Policies [Chi et al., 2023 ] use Denoising Diffusion Probabilistic Models (DDPMs) Ho et al. [2020 ]. Instantiated as an GCP , these take in pairs (s, a) as training data and iteratively add Gaussian noise to the actions through a forward process q(ak+1 | ak) and learn a function 
+
+εθ (ak, k, s) predicting the noise added to convert x0 to xk. To produce an action, we sample 
+
+at,K ∼ N(O, I), and iteratively generate denoised samples with the following reverse process: 
+
+ak−1 ∼ ¯πDDPM (· | ak, k, s) := N(μk(xk, εθ (ak, k, s)) , σ2 
+
+> k
+
+I) (C.1) 
+
+30 Off-Policy Generative Policy Optimization 
+
+• Flow policies are based on flow matching models. Given training pairs (s, a), we sample noise 
+
+z ∼ N(0, I), and define the interpolant a(τ) := τa+( 1−τ)z with continuous noise index τ ∈ [0, 1 ].We then learn a velocity field vθ (a(τ), τ, s) , these predict E[a − z | s, a(τ)]. For K discretization steps, we generate samples by initializing a0 ∼ N(0, I) and discretizing an ordinary differential equation (ODE) which reverses the noising process ak−1 := ak + 1 
+
+> K
+
+vθ (ak, k/K, s) In its stand form, 
+
+ak−1 | ak, s is deterministic. Thus, to convert a flow policy into a proper GCP , for which likelihoods 
+
+are well-defined, we must add additional noise at each step (Reinflow [Zhang et al., 2025b ]). For a given choice of noise levels σ2 
+
+> k
+
+, this induces the GCP: 
+
+ak−1 ∼ ¯πFLOW (· | ak, k, s) := N(vθ (ak, k/K, s), σ2 
+
+> k
+
+I) (C.2) • Minimal Iterative Policies (MIP) are two-step flow policies which yield a performance compara-ble to 10-step flow policies with the natural benefit of allowing much faster inference. We defer the formal definition to Appendix C.3 The GCP formalism encompasses a number of more recent policy parameterizations as well, such as • Shortcut Policies [Frans et al., 2024 ]: Flow models with learnable step sizes that enable variable-length generation trajectories. • Tokenized Autoregressive Policies (FAST [Pertsch et al., 2025 ]): Policies that tokenize continu-ous actions in Fourier space and generate them autoregressively as discrete sequences. In the interest of brevity, we detail the above in the Appendix C.2, and Appendix C.4 respectively. Conveniently, the GCP formalism abstracts away the details of these varying instantiations, allowing us to state all algorithms cleanly. 
+
+C.1 OGPO with Diffusion Policies 
+
+OGPO can, in principle, be combined with any GCPs.  
+
+> Figure 19:
+
+OGPO with diffusion poli-cies. OGPO can successfully improve both flow policy and diffusion policy. We predominantly use flow policies due to the faster inference compute 
+
+Here, as an example, we illustrate its use in diffusion policies. We study this on the S QUARE task, where we pre-train a diffusion policy on the MH dataset and then apply online improvement with OGPO . As shown in Figure 19, OGPO successfully improves the diffusion policy to achieve mastery. 
+
+C.2 Shortcut Policies 
+
+Shortcut policies [Frans et al., 2024 ] are derived from flow-matching models conditioned on a step-size parameter d. The model ¯ πθ (at , t, d, o) learns to predict the next state of the flow 
+
+at+d by taking a shortcut of size d. This allows the policy to func-tion as an GCP with a variable number of refinement steps K.During pretraining, shortcut models utilize a self-consistency loss that enforces the property that one shortcut step of size 2 d should be equivalent to two consecutive steps of size d:
+
+πθ (at , t, 2 d, o) ≈ 12 πθ (at , t, d, o) + 12 πθ (a′ 
+
+> t+d
+
+, t + d, d, o) (C.3) 
+
+> 31 Off-Policy Generative Policy Optimization
+
+C.3 Minimal Iterative Policy 
+
+Minimal Iterative Policies (MIP) [Pan et al., 2025 ] represent the simplest GCP instantiation that retains the performance benefits of flow-based policies. The key insight is that the success of generative control policies stems from combining Stochasticity Injection during training with Supervised Iterative Compu-tation , rather than learning the distributions themselves. MIP uses only K = 2 denoising steps, with the first step computing at,1 ← πθ (st , at,2 = ¯0, t = 0), then refining via at,0 ← πθ (st , t⋆at,1 , t⋆). The core insight being that merely learning the conditional mean is sufficient to match the performance of complex flow-matching policies, provided the refinement steps allow the policy to adhere to the expert action manifold. Formally, MIP optimizes the following objective during pretraining, where t⋆ = 0.9 and z ∼ N (0, I)
+
+is injected noise: 
+
+LMIP (θ ) = E ∥πθ (o, I0 = 0, t = 0) − a∥2 + ∥πθ (o, It⋆ , t⋆) − a∥2 , (C.4) where It⋆ is the interpolant between action a and noise z.
+
+C.4 Tokenized Autoregressive Policies 
+
+Tokenized policies, such as those using the FAST tokenizer [Pertsch et al., 2025 ], represent the action distribution via categorical distributions over a vocabulary of discrete tokens. FAST efficiently handles high-frequency continuous control data by applying a Discrete Cosine Transform (DCT) to action chunks, followed by quantization and Byte-Pair Encoding (BPE). In this formulation, the GCP is an autoregressive Transformer ¯ πθ (zk | z<k, st ), where z represents the sequence of discrete tokens corresponding to a compressed action chunk. The generative process iteratively samples tokens: 
+
+zk ∼ Categorical (πθ (· | z<k, o)) (C.5) Unlike diffusion or flow policies where iteration occurs in continuous action space (refining the values), here iteration occurs in the token sequence space. In particular, this slightly deviates from the GCP formulation described in the main test by requiring conditioning on the whole token sequence z<k.However, the light likelihoods in our PPO update in Eq. (3.3) can be easily modified to handle this setting, because p(z1: k) = Q 
+
+> k
+
+p(zk | z<k).
+
+> 32
+
+Off-Policy Generative Policy Optimization 
+
+# D Bi-Level MDP 
+
+Figure 20: Bi-level (two-layer) MDP construction. Each environment step t is expanded into K inner action-generation steps indexed by k ∈ { K − 1, . . . , 0 }. The environment transitions and rewards occur only at k = 0, while for k > 0 the state is unchanged and the inner action variable is updated. 
+
+We formulate the bi-level MDP (Figure 20), also called the two-layer MDP in [Ren et al., 2024 ], by embedding the action-generation dynamics into the environment dynamics. This yields an augmented MDP MBILEVEL whose trajectory explicitly interleaves environment time with the K action-generation steps. Recall the environment MDP MENV := ( S, A, P0, P, R, γ) defined in Section 2. In MBILEVEL , we index time by pairs (t, k), where t denotes the environment step and k ∈ { 0, . . . , K − 1} denotes the action-generation step, with k = 0 corresponding to executing the final action in the environment. We map 
+
+(t, k) to a single time index via ¯ t(t, k) = t K + ( K − k − 1), so that the sequence ¯ t(t, K − 1), ¯ t(t, K −
+
+2), . . . , ¯ t(t, 0 ) corresponds to the K generation /execution steps within environment step t. The state, action, and reward in MBILEVEL are defined as ¯s¯t(t,k) = ( st , at,k+1), ¯a¯t(t,k) = at,k, ¯R¯t(t,k)(¯s¯t(t,k), ¯ a¯t(t,k)) = 
+
+¨0, k > 0, 
+
+R(st , at,0 ), k = 0. Importantly, rewards are emitted only at indices corresponding to executing the environment action, i.e., when at,0 is taken. The initial distribution factorizes as ¯ P0 = P0 ⊗ PACTION ,0 , where s0 ∼ P0 is the initial environment state and a0, K is sampled independently from PACTION ,0 , the initialization distribution for the action-generation process at t = 0. Finally, the transition kernel is given by ¯P(¯s¯t+1 | ¯s¯t , ¯ a¯t ) = 
+
+¨δ(st ,at,k ), ¯t = ¯t(t, k), k > 0
+
+P(· | st , at,0 ) ⊗ PACTION ,t+1 ¯t = ¯t(t, k), k = 0 ,where PACTION ,t (for t ≥ 0) denotes the initialization distribution for at,K . Intuitively, when k > 0, the transition advances the iterative action-generation process by moving from (st , at,k+1) to (st , at,k)
+
+while keeping the environment state fixed; when k = 0, it executes at,0 in the environment, samples 
+
+st+1 ∼ P(· | st , at,0 ), and re-initializes the next inner process by sampling at+1, K ∼ PACTION ,t+1.
+
+33 Off-Policy Generative Policy Optimization 
+
+# E Derivations 
+
+E.1 Policy Gradient Loss 
+
+An optimal policy parameterized by θ can be obtained by maximizing an objective function that com-putes the expected reward over a trajectory τ ∼ πθ (τ). Mathematically, θ ⋆ = arg max θ J(θ ), where 
+
+J(θ ) = Eτ∼πθ (τ) [ω(τ)] . Hence, the policy gradient objective is given as: 
+
+∇θ J(θ ) = E 
+
+> τ∼πθ(τ)
+
+[∇θ log πθ (τ)ω(τ)] (E.1) However, there are two main challenges which make the classical PG loss formulation challenging to converge in practice. (1) Policies parameterized as neural networks can only change a little with each gradient step. (2) High variance environments require a very large number of rollouts to obtain π⋆,which is prohibitively expensive and potentially unsafe to do on real robots. As proposed by [Schulman et al., 2015 ], high variance can be mitigated by estimating an expectation under a distribution from an older policy πθold using importance sampling (IS). This implies use of short horizon replay buffers where actions sampled under πθold are reused to compute IS against πθ . This modifies the PG objective as follows: 
+
+∇θ J(θ ) = E 
+
+> τ∼πθ(τ)
+
+ πθ (τ)
+
+πθold (τ) ∇θ log πθ (τ)ω(τ)
+
+
+
+= E 
+
+> τ∼πθ(τ)
+
+ TX
+
+> t=t
+
+∇θ log πθ (at | st )
+
+  TY
+
+> t=1
+
+πθ (at | st )
+
+πold (at | st )
+
+  TX
+
+> t=t
+
+r(st , at )
+
+ (E.2) However, the product of importance weights in the trajectory-level estimator leads to vanishing probability products for long horizons T . The objective is reformulated using state-action marginals. This separates the expectation over states (dependent on transition dynamics) from the expectation over actions (dependent on the policy): 
+
+J(θ ) = 
+
+> T
+
+X
+
+> t=1
+
+Est ∼ρθold (st )
+
+ ρθ (st )
+
+ρθold (st ) Eat ∼πθold (·| st )
+
+ πθ (at |st )
+
+πθold (at |st ) r(st , at )
+
+ 
+
+(E.3) Calculating the state density ratio ρθ (st )   
+
+> ρθold (st)
+
+is difficult as it requires knowledge of the system dynamics. Therefore, TRPO and PPO introduce a simplification by ignoring this term. This results in a biased estimator, but the bias is negligible provided πθ remains close to πθold . The resulting surrogate objective maximizes the probability of actions with high rewards (or advantages) relative to the old policy: 
+
+J(θ ) ≈
+
+> T
+
+X
+
+> t=1
+
+Est ∼ρθold  
+
+> at∼πθold
+
+ πθ (at |st )
+
+πθold (at |st ) r(st , at )
+
+
+
+(E.4) Classically, algorithms like PPO parameterize the policy πθ (a|s) as a unimodal Gaussian distribution 
+
+N (μθ (s), Σ). This yields a unimodal importance sampling ratio at every timestep t, which naturally struggles to model the multimodal action distributions necessary during RL exploration for complex manipulation tasks. Conversely, the total probability ¯ πθ (at,0 | st ) in a GCP is the product of the transition probabilities along the generation steps k. This likelihood is given as: πθ (at,0 | st ) = QKk=1 πθ (at,k | st )
+
+Substituting this into the standard PPO objective requires computing the ratio of these products. While trajectory-level importance sampling is unstable for long environment MDP chains (where T ≈
+
+400 − 1000), the denoising MDP horizon of the generative process can be sufficiently short (typically 
+
+K ≤ 10) 
+
+34 Off-Policy Generative Policy Optimization 
+
+Assuming the current policy πθ and the reference policy (typically an Exponential Moving Aver-age, πEMA ) are close, we extend the TRPO formulation to the GCP chains to compute the Annealed Importance Sampling (AIS) ratio: 
+
+ωθ :=
+
+> K
+
+Y
+
+> k=1
+
+πθ (ak−1 | s, ak)
+
+πθEMA (ak−1 | s, ak) (E.5) The probability of the final executed action is the joint probability of the entire chain: πθ (at,0 |
+
+st ) = Q1 
+
+> k=K
+
+π(at,k−1 | at,k, st ). We substitute the Monte Carlo return ω(τ) with the advantage ˆ A, which yields the final OGPO () objective described in Eq. (3.2). When multiplied with the advantage ˆ A, the resulting gradients propagate to every step k, updating each in proportion to its contribution to the final action’s probability. This end-to-end formulation ensures that generating a high-value action at,0 
+
+requires coherent refinement at every step at,k if the GCP .
+
+E.2 Preventing Over-exploitation with χ2-Regularization 
+
+The following lemma shows that the modification of the advantage by the likelihood term, described in Eq. (4.6), is equivalent to χ2 regularization: 
+
+Lemma E.1 . Let P θ (s) denote the distribution over the denoising trajectory a K , . . . , a0 ∼ πθ (s), and P slow (s)
+
+denote the distribution over the denoising trajectory drawn from πslow . Then, 
+
+EaK ,..., a0∼πθ (s)[ωθ ] = 1 + χ2(Pθ (s), Pslow (s)) . (E.6) 
+
+In particular, both sides of the above equation have the same gradients: 
+
+∇θ EaK ,..., a0∼πθ (s)[ωθ ] = ∇θ χ2(Pθ (s), Pslow (s)) (E.7) 
+
+Proof. This follows from the definition of the χ2 divergence [Polyanskiy and Wu, 2025 ]: if P, Q are two measures on a space X with densities p, q, then 1 + χ2(P, Q) = R p(x)2/q(x)dx = Ex∼P [p(x)/q(x)] .Now take x = ( aK , . . . , a0) to be denoising trajectoris, p(x) the density under πθ , and q(x) the density under πslow .
+
+E.3 ODE-to-SDE Exploration Noise Correction 
+
+In order to have nondegenerate likelihoods, we ned to convert deterministic flow inference into a stochastic process. Naively, we could add Gaussian noise (as in Zhang et al. [2025b ]), but the addi-tion of new noise introduces distribution shift between the original action distribution and the noise-augmented action distribution. We note that the same approach is also adopted by Liu et al. [2025 ].Specifically, we follow Albergo et al. [2023 ], which provides a principled conversion from ODE inference (as in standard flow models) in an SDE). Consider a continuous-time ODE ddτ Xτ = v(Xτ, τ), (E.8) where vτ(x) is the flow velocity field. Next for a time varying diffusion coefficient ετ, define an stochastic differential equation (SDE) dX SDE  
+
+> τ
+
+= v(X SDE  
+
+> τ
+
+, τ) + ε(τ)s(X SDE  
+
+> τ
+
+, τ)| {z }   
+
+> vSDE (XSDE
+> τ,τ)
+
+dτ +
+
+Æ
+
+2ε(τ) dWt , (E.9) where sτ(x) = ∇x log ρτ(x) is the score function, and where ρτ is the marginal distribution of Xτ.
+
+35 Off-Policy Generative Policy Optimization 
+
+Proposition E.2 (Albergo et al. [2023 ]). For every time τ, the marginal distribution of X τ and X SDE  
+
+> τ
+
+are the same. 
+
+The key insight is that the correction in the SDE drift vSDE  
+
+> τ
+
+= vτ + ετsτ directly offsets the effect of the Brownian drift. Furthermore, by Tweedie’s formulation, the score function can be computed as 
+
+s(˜xτ, τ) = 1
+
+σ (E[Z | Xτ + σZ = ˜xτ]) , Z ∼ N(0, I) (E.10) In particular, sτ = 1 
+
+> σ
+
+zτ, where 
+
+zτ ∈ arg min 
+
+> z(·)
+
+E∥zτ(Xτ + σZ) − Z∥2. (E.11) 
+
+Specialization to OGPO via discretization In OGPO, we add noise to each discrete step k with timestep ∆t. Instead of the classic flow deterministic update at,k+1 = at,k + vθ (at,k, tk)∆t. A naive approach would be to sample: 
+
+at,k+1 ∼ N  at,k + ( vθ (at,k, tk | st )∆t, σ2 I , , (E.12) which as, noted above, would cause distribution shift. Instead, we learn a small score network ˆzθ (˜xt , t) by minimizing Ldenoiser = Et,xt ,z
+
+∥ˆzθ (xt + σz, t) − z∥2 , z ∼ N(0, I), (E.13) and instead sample. 
+
+at,k+1 ∼ N
+
+
+
+at,k + ( vθ (at,k, tk | st ) + σ
+
+2∆t (ˆzθ (at,k, tk | st )∆t, σ2 I
+
+
+
+, (E.14) where σ is the standard deviation and vθ is the learned velocity field. This update corresponds to the Euler-Maruyama discretization of the SDE ddτ at,τ = ( vθ (at,τ, τ | st ) + εσ (zθ (at,τ, tτ | st ) + p2εdWt , (E.15) with diffusion coefficient set to ε = σ2/(2∆t). In the limit where ˆ zθ is the global minimizer of Eq. (E.13) under xt drawn from the true flow ODE ddτ at,τ = v(at,τ, τ | st ) (E.16) The marginals of Eq. (E.15) and Eq. (E.16) coincide due to Proposition E.2 and the above discussion Ablations in Figure 21 reveal the merits of this above sampling correction. 
+
+# F Baselines 
+
+In this section, we describe all baselines we compare to in detail. Throughout, we adopt of the action-chunking conventions of Appendix A.1 . For the off-policy methods below ( EXPO , QC , DSRL ), 
+
+36 Off-Policy Generative Policy Optimization 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4                    
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim-clip
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> tool_hang-ph-low_dim
+> 012345
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> transport-mh-low_dim
+> OGPO+ (Exploration Noise Correction) OGPO+ (Default)
+
+Figure 21: Comparison of ODE-to-SDE correction 
+
+F.1 Diffusion Policy Policy Optimization ( DPPO , Ren et al. [2024 ]
+
+DPPO fine-tunes diffusion policies by applying PPO directly to the bi-level MDP introduced in Ap-pendix D. In this construction, each inner denoising step induces an explicit (Gaussian) likelihood, enabling standard policy-gradient updates on the full trajectory in MBILEVEL . DPPO then instantiates the PPO clipping objective on MBILEVEL .Concretely, let ¯ πθ (¯a¯t | ¯s¯t ) denote the policy on MBILEVEL (i.e., the diffusion reverse transition at each denoising step). Given trajectories collected from ¯ πθold and advantage estimates ˆ A¯πθold , DPPO maximizes the PPO clipped surrogate 
+
+E(s¯t ,a¯t )∼ ¯πθold 
+
+
+
+min 
+
+ ¯πθ (a¯t | s¯t )
+
+¯πθold (a¯t | s¯t ) ˆA¯πθold (s¯t , a¯t ), clip ( ¯πθ (a¯t | s¯t )
+
+¯πθold (a¯t | s¯t ) , 1 − ε, 1 + ε) ˆA¯πθold (s¯t , a¯t )
+
+ 
+
+.
+
+DPPO further uses an advantage estimator tailored to the bi-level structure: since rewards occur only at ¯ t(t, 0 ), it computes environment-discounted returns across t and applies an additional denoising discount across k to downweight earlier (noisier) denoising steps. 
+
+F.2 Diffusion Steering Reinforcement Learning ( DSRL , Wagenmaker et al. [2025 ]
+
+DSRL improves a pretrained diffusion (or flow) policy without updating its weights by learning a policy over the input noise space while keeping the denoising dynamics fixed. Whereas a base diffusion policy 
+
+πdp samples an initial latent wt from a fixed prior (typically N (0, I)) to maps it to an executed action 
+
+at,0 via a deterministic denoising chain (e.g., DDIM), DSRL instead formulates a latent-action MDP in which the fixed prior is replaced by a learnable latent policy πW 
+
+> ψ
+
+(wt | st ). This policy selects specific noise vectors to steer the frozen denoising process toward actions with higher expected return. Formally, let πdp (st , wt ) denote the action produced by running the (frozen) denoising procedure of 
+
+πdp initialized at wt , i.e., at,0 = πdp (st , wt ). Note that if the denoising sampler is stochastic, interpret 
+
+πdp as inducing a conditional distribution over at,0 given (st , wt ). This induces a latent-action transition kernel 
+
+PW (st+1 | st , wt ) := P st+1 | st , πdp (st , wt ),and DSRL optimizes the latent policy by maximizing the discounted return in this latent-action MDP: max  
+
+> ψ
+
+J(ψ) := E
+
+X
+
+> t≥0
+
+γt R st , πdp (st , wt )
+
+, wt ∼ πW 
+
+> ψ
+
+(· | st ).In practice, πW 
+
+> ψ
+
+is learned with a standard off-policy actor–critic algorithm (e.g., SAC) using transitions 
+
+(st , wt , rt , st+1) collected by executing at,0 = πdp (st , wt ) in the environment. 
+
+37 Off-Policy Generative Policy Optimization 
+
+Optimized Variant. Our DSRL + variant applies best-of-N filtering over steering policy actions using the Q-functions and adds a BC-loss using the success buffer to the steering policy on top of the policy graident loss. 
+
+F.3 Expressive Policy Optimization ( EXPO , Dong et al. [2025 ]
+
+EXPO is designed to stably fine-tune expressive pocilices (e.g., diffusion /flow policies) with online RL by avoiding direct value maximization through the expressive policy parameters. Instead, EXPO main-tains (i) a base expressive policy πbase trained with a stable imitation (suprevised) objective, and (ii) a lightweight Gaussian edit policy πedit that performs local action refinement toward higher Q-values. At interaction time, EXPO constructs an on-the-fly (OTF) policy that samples candidate actions from 
+
+πbase , refines them with πedit , and executes the candidate with the highest critic value; the same OTF selection is also used inside the TD backup. Given a ∼ πbase (· | s), EXPO samples an additive edit δ ∼ πedit (· | s, a) and forms the refined action ˜ a = a + δ. The OTF policy selects the better of the candidates according to the critic, a∗(s) ∈
+
+arg max a′∈{ a,˜ a} Qφ (s, a′). The edit policy is updated to increase the value of refined actions (with entropy regularization). max 
+
+> πedit
+
+E(s,a)∼D ,δ∼πedit 
+
+Qφ (s, a + δ) − α log πedit (δ | s, a) .The critic is trained by TD regression using the same OTF selection for the next-state action: min  
+
+> φ
+
+E
+
+  r + γQφ′ (s′, a∗(s′)) − Qφ (s, at )2
+
+.Finally, πbase is updated only through imitation-style regression (not direct Q-maximization), with value improvement coming from πedit and the OTF selection. 
+
+Improve Variant. EXPO + modifies the behavior cloning term in the standard EXPO for the “success buffer” variant described in Section 4.2. 
+
+F.4 Q-Chunking ( QC , Li et al. [2025 ])
+
+Recall that, in our notation, we use a single action at to decode an entire action-chunk in a the true environment, at:t+h−1. The QC algorithm proposes multiple variants. One of which, when specialized to GCPs, would require backpropagation through denoising steps, which we show leads to poor per-formance in Figure 25. Therefore, we opt for the other variant, which amounts to simply best-of-N
+
+inference plus behavior cloning. This variant of QC consists of three simple components: • Learn a critic Q(s, a), following the action-chunking conventions in Appendix A.1. Use this to train the critic via Eq. (2.3). • Compute the Best-of-N action, by Qtarg , as following Eq. (4.4). • Finally, we use a behavior cloning loss applied to past (s, a) pairs collected by the above planning mechanism,. 
+
+Optimized Variant. Our QC + variant only applies BC loss to successful actions. 
+
+> 38 Off-Policy Generative Policy Optimization
+
+F.4.1 Q-Chunking v /s OGPO 
+
+Q-Chunking learns Q-functions that evaluate entire action chunks as atomic units, treating Q(s, a1: H ),where a1: H denotes the full action sequence over a horizon H. This formulation is agnostic to how the action chunk is generated—whether via a flow policy, a diffusion model, or direct regression. Policy improvement is guided using the Q-functions to rank a batch of actions and perform supervised fine-tuning (SFT) using BC loss on the Best-of-N actions. In contrast, OGPO explicitly leverages the iterative structure of the iterative generative policy (GCP) by computing annealed importance sampling ratios over the denoising chain Eq. (3.2). Moreover, the advantage computation evaluates the group relative Q values over the entire action chunk and the policy gradient loss propagates through every denoising step 
+
+k. This end-to-end formulation ensures that producing a high-value action requires coherent refinement at every GCP step, rather than treating the generation process as a black box. 
+
+F.5 ReinFlow (Zhang et al. [2025b ], not compared) 
+
+The ReinFlow algorithm [Zhang et al., 2025a ] is nearly identical to OGPO, except that it uses a flow policy as a base policy instead of Diffusion. To get non-singular likelihood rations, it augments the flow model with additional noise. However, their reported numbers are less sample efficient than DPPO 
+
+(the flow sampling, however, improves computational efficiency), so we only use DPPO as a stronger baseline. 
+
+F.6 PA-RL (Mark et al. [2024 ], not compared) 
+
+The PA-RL Mark et al. [2024 ] algorithm is similar to QC, but includes an additional gradient ascent step a′ ← ∇ aQ(s, a) to further improve actions. These gradient computations present a significant computational overhead, and perform best on TPU hardware. We found this method infeasible to run given our compute budget. Furthermore, given the instability of Q-gradients in non-smooth tasks [Suh et al., 2022 ], we conjecture this method would struggle in the contact-rich R OBO MIMIC tasks. 
+
+# G Understanding Exploration Behavior of OGPO 
+
+This section elaborates on the exploration dynamics of OGPO discussed in Section Section 6.1. We pro-vide visualizations that clarify how OGPO expands the action manifold of pretrained policy distributions while maintaining stable policy improvement. 
+
+Sample Efficiency vs. Execution Efficiency In the training dynamics of OGPO , we observe two colliding optimization objectives: (1) Sample Efficiency : Minimizing the number of environment in-teractions required for policy convergence, and (2) Execution Efficiency : Minimizing the number of timesteps the policy takes to complete a task during inference. OGPO excels at the former via off-policy stitching, but the latter introduces unique instabilities. The discount factor γ < 1 in the Bellman equa-tion Q(s, a) = r + γQtarg (s′, a′) creates a contraction map that conditions the policy to solve tasks as quickly as possible to maximize the expected return-to-go. This causes the IGP to generate actions that could potentially maximize the speed of achieving the goal, but do not necessarily abide by physical constraints like gravity, acceleration, and robot joint position and velocity limits. This explains the os-cillations in the success rate during RL-finetuning induced by rapid policy convergence via Q functions. 
+
+Visualizing Action Distributions. Figure 13 displays UMAP embeddings of action distributions at critical states from T OOLHANG , sampled at four stages: (i) end of BC pretraining, (ii) initial RL, (iii) mid RL, and (iv) end RL. We further run the natural baselines on the PushT task and rollout 50 trajectories 
+
+> 39
+
+Off-Policy Generative Policy Optimization t=9               
+
+> End BC Initial RL Mid RL End RL
+> t=17 t=28
+> OGPO OGPO+ OGPO-CA MIPQ Per-action QConsensus Q
+
+Figure 22: UMAP plot of OGPO , OGPO+ , and OGPO+CA on R OBOMIMIC TOOLHANG 
+
+and a no-negative grad ablation of OGPO . We show these rollouts in Figure 15 where the dark points represent the initial actions in the trajectory thorough the bright yellow ones, that represent the end of the trajectory. The classical Push-T sparse rewards allow OGPO to exploit the TD learning objective to learn executionally efficient policies with minimal corrective actions (denoted by end-stage yellow-orange points near the Push-T handle). 1. At the end of BC, all methods produce similar action distributions, confirming that differences emerge during RL finetuning rather than from initialization. 2. OGPO demonstrates the multi-modal conditioning of the policy via Q-functions which can be intu-itively demonstrated in Fig. 14. To test this hypothesis, we add an action compensation term r − ∆at
+
+3. Methods like QC and DSRL show limited manifold expansion, remaining closer to the BC initializa-tion. EXPO ’s residual policy facilitates support expansion but not optimal policy extraction. This can be seed by a range of corrective actions being taken near the T-shape handle. 
+
+40 Off-Policy Generative Policy Optimization t=9               
+
+> End BC Initial RL Mid RL End RL
+> t=17 t=28
+> OGPO-CA FPO FPO++ FQL Per-action QConsensus Q
+
+Figure 23: UMAP plot of OGPO comparison with various policy extraction methods on R OBOMIMIC TOOLHANG 
+
+# H Ablations and Limitations of OGPO /OGPO+ 
+
+Figure 24: OGPO - OGPO+ design ablations show that success buffer plays a crucial role in OGPO+ ’s performance. 
+
+H.1 BPTT vs OGPO 
+
+The most direct way to train off-policy RL policies is to perform gradient ascent on the Q-values. Although this works for simpler policy parameterizations like Gaussian [Fujimoto et al., 2018 ], or Squashed Gaussian [Haarnoja et al., 2018 ] policies, directly using Q values to sequentially backprop-agate through the GCP (also referred to as Back Propagation Through Time ( BPTT )) can be unstable 
+
+[Bengio et al., 1994 ]. OGPO modifies the off-policy learning paradigm for a general class of GCPs by (1) 
+
+41 Off-Policy Generative Policy Optimization 
+
+retaining the TD error loss for Q function updates, and (2) using Q functions as substitutes for Monte Carlo rollouts and computing relative advantages ˆ AG for PPO-style updates over the entire GCP chain for the policy updates. 
+
+Figure 25: BPTT uses Q-values directly to backpropagate gradients along the entire GCP chain. This results in unstable gradients and poor convergence. In contrast, OGPO uses PPO-style policy gradient loss using Q-functions described Eq. (3.2). This results in stable gradients and sample-efficient convergence. 
+
+H.2 OGPO v/s OGPO+ , with and without GRPO std ( σ)
+
+GRPO formulation uses group relative advantage computation similar to OGPO . However, the GRPO advantage uses the standard deviation of the critic ensembles to normalize the advantage values. We found this to be empirically detrimental to OGPO ’s success. We attribute this pattern to the sensitivity of the Annealed Importance Sampling ratio ω to very large and very small advantage values. We leave an extensive empirical validation of this sensitivity as future work. 
+
+H.3 OGPO vs. OGPO with no-negative gradients 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4          
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim-clip
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> tool_hang-ph-low_dim
+> OGPO+ OGPO+-NN
+
+Figure 26: OGPO+ vs OGPO+ with no-negative gradients 42 Off-Policy Generative Policy Optimization 
+
+H.4 OGPO vs Steering + Residual Ablation 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4          
+
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> square-mh-low_dim-clip
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> Steps 1e6
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success  Rate
+> tool_hang-ph-low_dim
+> S/R OGPO+
+
+Figure 27: OGPO+ comparison with an ablation of simultaneous steering and residual learning baseline: S/R 
+
+H.5 Policy Extraction Alternatives (AWR, ASPO from FPO) 
+
+OGPO separates critic learning from policy extraction: after learning Qφ with the TD objective, the actor update only needs a mechanism for increasing the probability of high-advantage actions and decreasing the probability of low-advantage actions. This makes it natural to ask whether the PPO-style extraction in OGPO is necessary, or whether simpler weighted-regression or flow-matching objectives suffice. To isolate the effect of the extraction objective, all variants below use the same replay buffer, critic update, EMA policy π ¯θ , and group-relative advantages ˆ AG as in Eq. (3.2); only the actor loss is changed. 
+
+H.5.1 Advantage-Weighted Regression and Advantage-Weighted OGPO 
+
+AWR-style extraction replaces the clipped PPO ratio with weighted flow-matching regression toward samples from the reference policy. For a sampled final action a0 ∼ π ¯θ (· | s), we define 
+
+wAWR (s, a0) = exp 
+
+ ˆAG(s, a0)
+
+β
+
+
+
+, (H.1) where β controls how sharply the update concentrates on high-advantage samples. In our flow-policy implementation, the actor loss is not a discrete denoising-chain log-likelihood; it is a weighted condi-tional flow-matching objective: ŁAWR (θ ) = Es∼B , a0∼π ¯θ (·| s)
+
+sg (wAWR (s, a0)) · Eτ, ξ ∥vθ (xτ, τ, s) − (a0 − ξ)∥2 , (H.2) where ξ ∼ N(0, I), τ ∼ Unif (0, 1 ), and xτ = τa0 +( 1−τ)ξ. We also evaluate advantage-weighted OGPO 
+
+(AW -OGPO ), which preserves the same group-relative advantage computation but replaces the clipped PPO surrogate with this advantage-weighted CFM update. Empirically, these objectives are brittle on high-precision and long-horizon tasks: they can imitate high-Q samples, but do not reliably suppress bad modes when the critic is imperfect. 
+
+H.5.2 ASPO from Flow Policy Optimization 
+
+We also compare against the asymmetric trust-region objective used in Flow Policy Optimization (FPO). Instead of computing the exact denoising likelihood ratio used by OGPO , FPO constructs a surrogate ratio from the conditional-flow-matching loss: ˆrFPO := exp  ˆLCFM ( ¯θ ; s, a) − ˆLCFM (θ ; s, a) , (H.3) where ¯θ denotes the EMA /reference policy. ASPO then applies different updates depending on the sign of the advantage. For positive advantages, it uses a PPO-style clipped objective that increases the 
+
+43 Off-Policy Generative Policy Optimization 
+
+likelihood of good actions. For negative advantages, it uses an SPO penalty with a dead zone inside the trust region: 
+
+ψASPO (ˆrFPO , ˆ AG) = 
+
+
+
+min  ˆrFPO ˆAG, clip (ˆrFPO , 1 − ε, 1 + ε) ˆAG , ˆAG ≥ 0, ˆrFPO ˆAG − | ˆAG|
+
+4ε (max (0, |ˆrFPO − 1| − ε)) 2 , ˆAG < 0. (H.4) Thus, negative-advantage samples receive no additional SPO penalty while ˆ rFPO ∈ [1 − ε, 1 + ε]; the penalty only turns on once the update moves outside the trust-region boundary, and then grows quadrat-ically in the excess violation. Compared to OGPO , ASPO /FPO avoids explicitly evaluating the full denoising-chain likelihood ratio, but this surrogate also weakens the connection between the extrac-tion objective and the actual stochastic denoising process used during rollout. Compared to OGPO , ASPO has the appealing property that it can be implemented directly through the CFM loss, without explicitly evaluating the full denoising-chain likelihood ratio. However, this sur-rogate also weakens the connection between the extraction objective and the actual stochastic denoising process used during policy rollout. In our experiments, ASPO /FPO is more competitive than pure AWR, but remains less stable than PPO-style extraction, especially on tasks where critic errors and low-value modes must be suppressed early in online learning. 
+
+# I Environment Details 
+
+I.1 FRANKA -K ITCHEN 
+
+The F RANKA -K ITCHEN benchmark [Gupta et al., 2019 ] tests multi-task sequential manipulation with compositional task structure. The environment features a 9-DoF Franka robot that must manipulate 4 kitchen objects (microwave, kettle, light switch, slide cabinet) to desired goal configurations in a specific sequence. This environment is particularly challenging due to its requirement for long-horizon planning and the need to compose multiple subtasks correctly. 
+
+State and Action Spaces: The state space consists of robot joint positions, joint velocities, and object states ( state_dim = 60). Actions are 9-dimensional continuous controls for the robot joints (action_dim = 9), normalized to [−1, 1 ].
+
+Task Horizon and Other Parameters: FRANKA -K ITCHEN tasks have a medium horizon of approxi-mately 280 timesteps. We use γ = 0.99 to account for the medium-length temporal dependencies across subtasks. The action chunk size is set to h = 4 to provide temporal smoothness while maintaining reac-tivity. 
+
+Datasets: We use three offline datasets from D4RL [Fu et al., 2020 ]:• K ITCHEN -C OMPLETE : Complete demonstrations of all 4 subtasks in the correct sequence • K ITCHEN -M IXED : Randomized subtask orders where the desired sequence is not completed se-quentially • K ITCHEN -P ARTIAL : Partial subtrajectories of the desired task 
+
+Reward Structure: We use a sparse reward structure with a base reward of -7. Each successful subtask completion adds +1, with the final subtask providing +3 upon success. This yields a maximum reward of 0 for completing all subtasks. 
+
+> 44 Off-Policy Generative Policy Optimization
+
+I.2 Robomimic 
+
+The R OBOMIMIC benchmark [Mandlekar et al., 2021 ] provides high-precision manipulation tasks that test fine-grained control and multi-step reasoning. We evaluate on three of the most challenging tasks that represent different aspects of real-world manipulation: 
+
+Square (S QUARE ): A medium-horizon fine-grained insertion task requiring precise alignment and insertion of a square peg. This task tests contact-rich manipulation with tight tolerances. • state_dim : 14 (robot end-effector pose, object pose) • action_dim : 7 (6D end-effector control + gripper) • Horizon: 400 timesteps • γ = 0.99 • Action chunk size: h = 4• Dataset: Multi-Human (MH) mixed proficiency 
+
+Tool Hang (T OOLHANG ): A long-horizon, highly-precise multi-step insertion task requiring the robot to grasp a tool and hang it on a rack. This task demands both coarse positioning and fine-grained alignment across multiple phases. • state_dim : 14 • action_dim : 7 • Horizon: 700 timesteps • γ = 0.995 (higher due to longer horizon) • Action chunk size: h = 8 (larger chunks for smoother long-horizon execution) • Dataset: Proficient-Human (PH), BC stopped at 50% success rate 
+
+Transport (T RANSPORT ): A bi-manual, multi-step, long-horizon object transfer task where two robot arms must coordinate to transport an object. This tests both individual arm control and bi-manual coordination. • state_dim : 28 (dual arm configuration) • action_dim : 14 (7 per arm) • Horizon: 700 timesteps • γ = 0.995 (higher due to longer horizon) • Action chunk size: h = 8• Dataset: Multi-Human (MH) mixed proficiency 
+
+Reward Structure: All Robomimic tasks use sparse rewards: -1 for each non-successful step, with the final successful step returning 0. 
+
+Note on Hyperparameters: The different gamma values reflect the relationship between discount factor and task horizon. Longer horizon tasks (T OOLHANG , T RANSPORT ) require larger gamma (0.995) to properly credit distant actions, while medium-horizon tasks (S QUARE ) use smaller gamma (0.99). Similarly, longer tasks benefit from larger action chunks ( h = 8) for smoother execution. Importantly, both gamma and chunk size are independent of action dimensionality. 
+
+> 45 Off-Policy Generative Policy Optimization
+
+I.3 Adroit Hand 
+
+The Adroit Hand benchmark tests dexterous manipulation with a 24-DoF anthropomorphic robotic hand performing high-precision, contact-rich tasks. This environment is particularly challenging due to the high-dimensional action space, under-actuated dynamics, and the need for coordinated finger move-ments. We evaluate on four standard tasks: • AdroitHandDoor-v1 : Door opening requiring articulated finger coordination to grasp and turn a handle • AdroitHandHammer-v1 : Hammering a nail with precise force control and wrist articulation • AdroitHandPen-v1 : In-hand pen reorientation requiring complex finger gaiting • AdroitHandRelocate-v1 : Object relocation requiring coordinated grasping and transla-tion 
+
+State and Action Spaces: 
+
+• state_dim : 45 (24 joint positions + 24 joint velocities + object state) • action_dim : 24 (continuous control for each DoF) • Actions normalized to [−1, 1 ]
+
+Task Horizon and Temporal Parameters: 
+
+• Horizon: 200 timesteps (medium-horizon tasks) • γ = 0.99 • Action chunk size: h = 4 for stabilized policy execution 
+
+Datasets: We use expert demonstration datasets provided via the D4RL /Minari interface for pre-training the base policy. 
+
+Evaluation: Following prior work, we evaluate performance using the normalized return provided by the environment, scaled to [0, 100 ].
+
+I.4 LIBERO 
+
+The LIBERO benchmark [Liu et al., 2023 ] tests vision-based, language-conditioned manipulation for multi-task learning and generalization. Unlike the previous environments, which use state-based ob-servations, LIBERO provides pixel observations and requires following natural-language instructions, thereby testing both visual understanding and instruction-following capabilities. 
+
+Observation and Action Spaces: 
+
+• Observations: RGB images (128×128×3 pixels) • action_dim : 7 (6D end-effector control + gripper) • Actions normalized to [−1, 1 ]  
+
+> 46 Off-Policy Generative Policy Optimization
+> Figure 28: We compare
+
+OGPO with DSRL and QC on pixel-based observations and natural language guidance tasks from the LIBERO benchmark 
+
+Task Structure: LIBERO features procedurally generated tasks with natural language instructions. Tasks require understanding spatial relationships and object attributes from both visual and linguistic modalities. 
+
+Reward Structure: All Libero tasks use sparse rewards: -1 for each non-successful step, with the final successful step returning 0. 
+
+Task Horizon and Temporal Parameters: 
+
+• Horizon: 1000 timesteps (long-horizon tasks) • γ = 0.999 (for OGPO , DSRL ), 0.99 (for QC since we found this leads to better performance) • Action chunk size: h = 8
+
+Training and Evaluation Setup: The base policy is trained on demonstrations from 10 tasks ( task_id ∈{0, . . . , 9 }) in the Libero-90 dataset and evaluated on 2 unseen downstream tasks ( task_id ∈ 10, 11) to test generalization capabilities. This setup explicitly tests the ability to transfer learned manipulation skills to novel task descriptions and object configurations. Since LIBERO is a language-conditioned benchmark, for both the actor and critic, we follow a widely used design from prior work [Walke et al., 2023, Nakamoto et al., 2024 ]: language instructions are first processed by a frozen MUSE en-coder [Yang et al., 2019 ] and then passed to an IMPALA encoder [Espeholt et al., 2018 ] with FiLM conditioning [Perez et al., 2018 ].
+
+# J Hyper-parameters and Initialization 
+
+J.1 Initialization and Warm Starting 
+
+OGPO accommodates two primary settings based on data availability, each with corresponding algo-rithmic choices for initialization. Setting 1: Offline data available. When an offline dataset Doff is available, we pre-train our policy ¯ πBC  
+
+> θ
+
+on Doff using the appropriate BC loss. The use_offline flag is toggled True , enabling offline data sampling reuse determined by the ratio roffline .
+
+Setting 2: No offline data (online-only). We finetune a pre-trained IGP with no additional demon-stration data which has some small but non-trivial base success rate ( >10%). The use_offline flag is toggled False .In both settings, the online replay buffer Droll is initialized with Nwarmup ¯πθ rollouts, where ¯ πθ ←
+
+¯πBC  
+
+> θ
+
+. Finally, we initialize an ensemble of Q-functions Qφ1,..., M with random weights and, importantly, find that no offline RL pretraining yields the highest sample efficiency. We defer the details of the offline RL ablations to Algorithm 3. 
+
+> 47
+
+Off-Policy Generative Policy Optimization 
+
+J.2 Hyperparameters 
+
+In this section, we list all the hyper parameters we use for OGPO across different benchmarks. Table 2 shows the maximum episode lengths we use for each environment. 
+
+Environment Max Episode Length 
+
+square 400 transport 800 tool_hang 1000 kitchen (all) 600 adroit (all) 200 
+
+Table 2: Environment maximum episode lengths 
+
+We first list the common OGPO hyper parameters. Unless otherwise stated, these remain constant throughout all our experiments. These are in Table 3. 
+
+Parameter Default Value 
+
+lr 3e −4actor_lr 3e −4critic_lr 3e −4ppo_lr 4.5e −5tau 0.05 actor_tau 0.05 discount 0.99 batch_size 256 ppo_batch_size 256 actor_hidden_dims (512, 512, 512, 512) value_hidden_dims (512, 512, 512, 512) num_qs 10 q_agg mean subsample_bon True flow_steps 10 grpo_num_samples 32 clip_epsilon 0.01 entropy_coeff 0.0 bc_coeff 1.0 constant_noise_std 0.01 actor_scheduler cosine critic_scheduler constant actor_warmup_steps 2000 actor_decay_steps 50000 actor_end_value 2e −5critic_warmup_steps 500 critic_decay_steps 5000 critic_end_value 0.0 actor_weight_decay 0.0 critic_weight_decay 1e −5horizon_length 4policy_type flow 
+
+Table 3: OGPO agent default hyperparameters. 
+
+In Table 4, we list down all R OBOMIMIC specific hyper-parameters that are used for our experiments. 
+
+48 Off-Policy Generative Policy Optimization 
+
+Hyperparameter SQUARE TOOLHANG TRANSPORT 
+
+Training Steps 
+
+offline_steps 500,000 500,000 1,000,000 online_steps 2,000,000 3,000,000 6,000,000 start_training 20,000 25,000 40,000 
+
+RL Hyperparameters 
+
+horizon_length 4 8 8discount 0.99 0.999 0.999 tau 0.05 0.05 0.05 utd_warmup 1 1 1utd_online 1 1 1
+
+Q-Network 
+
+num_qs 10 10 10 q_agg mean mean mean subsample_bon True True True best_of_n 8 8 8value_hidden_dims (512,512,512,512) (512,512,512,512) (512,512,512,512,512) 
+
+BC Regularization 
+
+use_bc_regularization True True True bc_coeff 1.0 1.0 1.0 pg_coeff 1.0 1.0 1.0 clip_bc (atmost 50% success rate) True True False 
+
+Table 4: OGPO hyperparameters for Robomimic environments. 
+
+In Table 5, we list all hyper parameters we use for the various F RANKA -K ITCHEN environments. 
+
+Hyperparameter KITCHEN -C OMPLETE KITCHEN -M IXED KITCHEN -P ARTIAL 
+
+Training Steps 
+
+offline_steps 1,000,000 1,000,000 1,000,000 online_steps 3,000,000 3,000,000 3,000,000 
+
+RL Hyperparameters 
+
+horizon_length 4 4 4discount 0.99 0.99 0.99 tau 0.05 0.05 0.05 utd_warmup 1 1 1utd_online 1 1 1
+
+Q-Network 
+
+num_qs 10 10 10 q_agg mean mean mean subsample_bon True True True best_of_n 8 8 8
+
+BC Regularization 
+
+use_bc_regularization True True True bc_coeff 0.1 0.1 0.1 clip_bc False False False 
+
+Table 5: OGPO hyperparameters for F RANKA -K ITCHEN 
+
+In Table 6, we list all hyper parameters we use for the various F RANKA -K ITCHEN environments. 
+
+49 Off-Policy Generative Policy Optimization 
+
+Hyperparameter Door-v1 Pen-v1 Hammer-v1 Relocate-v1 
+
+Training Steps 
+
+offline_steps 50,000 50,000 50,000 50,000 online_steps 500,000 500,000 500,000 500,000 
+
+RL Hyperparameters 
+
+horizon_length 4 4 4 4discount 0.95 0.95 0.95 0.95 tau 0.05 0.05 0.05 0.05 utd_warmup 1 1 1 1utd_online 4 4 4 4
+
+Q-Network 
+
+num_qs 10 10 10 10 q_agg min min min min subsample_bon False False False False best_of_n 8 8 8 8
+
+BC Regularization 
+
+use_bc_regularization True True True True bc_coeff 1.0 1.0 1.0 1.0 clip_bc True True True True 
+
+Table 6: OGPO hyperparameters for Adroit. 
+
+In Table 7, we list all hyperparameters we use for the Libero environments. 
+
+Hyperparameter Libero 
+
+Training 
+
+offline_steps 50,000 online_steps 250,000 actor_tau 0.001 batch_size 64 constant_noise_std 0.01 grpo_num_samples 8
+
+RL Hyperparameters 
+
+horizon_length 8discount 0.999 tau 0.05 utd_online 1
+
+Q-Network 
+
+num_qs 10 q_agg mean encoder impala_small value_hidden_dims (128, 128, 128) 
+
+BC Regularization 
+
+use_bc_regularization False offline_ratio 0
+
+Table 7: OGPO hyperparameters for Libero. 50

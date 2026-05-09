@@ -1,0 +1,662 @@
+Title: VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model
+
+URL Source: https://arxiv.org/pdf/2605.01194v1
+
+Published Time: Tue, 05 May 2026 00:22:16 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+Wenhao Li 1 Xiu Su 2 Dan Niu 3 Yichao Cao 2 Hongyan Xu 2 Zhe Qu 2 Lei Fan 4 Shan You 5 Chang Xu 1
+
+## Abstract 
+
+Vision-Language-Action (VLA) models have demonstrated remarkable capabilities and gener-alization in embodied manipulation. However, their decision-making relies on a fast, instinctive process that lacks deliberation. This strategy of-ten leads to suboptimal or catastrophic actions when facing complex or ambiguous scenarios that require greater consideration. In this paper, we introduce VLA-ATTC , a framework that endows VLA models with adaptive test-time compute (TTC). VLA-ATTC employs an uncertainty-based “cognitive clutch” to dynamically transition from reflexive execution to a TTC deliberation phase when necessary. During TTC phase, a novel Rel-ative Action Critic (RAC) model identifies the optimal action from generated candidates via pair-wise comparisons. This relative mechanism re-places unstable absolute value estimation, signifi-cantly simplifying the learning objective. Further-more, we introduce an efficient sampling strategy to amortize computational costs and an automated data pipeline that curates preference pairs with-out manual annotation. On the LIBERO-LONG benchmark, VLA-ATTC reduces the failure rate of the SOTA model PI0.5 by over 50%. We will open-source all the code and weights. 
+
+## 1 Introduction 
+
+The advent of VLA models (Team et al., 2024; Black et al., 2024; Kim et al., 2024; Shukor et al., 2025; Kim et al., 2025; Li et al., 2024) marks a significant milestone in Embodied AI (Liu et al., 2025; Paolo et al., 2024; Memarian & Doleck, 2024; Duan et al., 2022; Fung et al., 2025; Feng et al., 2025). By leveraging the vast world knowledge embedded in pre-trained backbones, these models have demonstrated 
+
+> 1
+
+University of Sydney 2Central South University 3Southeast University 4University of New South Wales 5Sensetime Research. Correspondence to: <> .
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 46     
+
+> 63.3
+> 52
+> 62.7
+> 40
+> 45
+> 50
+> 55
+> 60
+> 65
+> Success Rate (%)
+> Real-World
+> PI0.5 PI0.5+VLA-ATTC
+> 82.8
+> 92.2
+> 90.6
+> 95.4
+> 75
+> 80
+> 85
+> 90
+> 95
+> Success Rate (%)
+> LIBERO-LONG
+> PI0 PI0+VLA-ATTC
+> +9.4
+> +4.8
+> +10.7 +17.3
+> 0
+> 12
+> 24
+> 050 100
+> Control Frequency (Hz)
+> Success Rate (%)
+> Faster & Better
+> PI0+VLA-A TTC (Full)
+> Robomonkey
+> PI0+VLA-AATC
+
+Figure 1. Performance overview and efficiency comparison. 
+
+impressive generalization capability across diverse complex manipulation tasks. However, their decision-making is gov-erned by a fast, intuitive inference process (Xu et al., 2025). While this fast, intuitive strategy is sufficient for simple scenarios, it often leads to suboptimal or even catastrophic failures when facing complex or ambiguous situations that require deeper deliberation. This capability gap raises a fun-damental question: How can we endow VLA models with a powerful deliberation process, enabling them to evolve from fast, intuitive System 1 reasoning to the more considerate inference of System 2? 
+
+Conceptually, deliberation can be classified into sequential and parallel paradigms (Muennighoff et al., 2025; Zhang et al., 2025; Li et al., 2025; Huang et al., 2025; Zeng et al., 2025). Sequential approaches (Miao et al., 2024; Wang et al., 2025b), such as Chain-of-Thought (CoT) (Wang & Zhou, 2024; Xia et al., 2024; Chen et al., 2025; Yeo et al., 2025), have seen some exploration in VLA models (Zhao et al., 2025; Liu et al., 2024; Black et al., 2025; Zhou et al., 2025b;a; Song et al., 2025; Lin et al., 2025). However, these methods impose significant overhead, necessitating costly fine-tuning, laborious CoT data annotation, and of-ten degrading action performance by forcing action-centric models to generate text reasoning. In contrast, parallel deliberation strategies (Sessa et al., 2024; Zhang et al., 2024; Wang et al., 2025c; 2024b;a)—wherein the model generates a set of candi-dates and deliberates to select the one with the highest value—align better with the nature of embodied decision-making. However, its exploration in VLA models remains nascent. Some works attempt (Kwok et al., 2025; Nakamoto et al., 2024) to employ a large-scale external critic model 1
+
+> arXiv:2605.01194v1 [cs.RO] 2 May 2026
+
+VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model (a) Normal VLA Inference (b) Sequential Deliberation (c) Current Parallel Deliberation (d) Our VLA-AT TC 
+
+> “Stack the
+> blue block
+> on the black
+> bottle. ”
+
+VLA Model 
+
+> Fails on hard
+> situations.
+> “Stack the
+> blue block
+> on the black
+> bottle. ”
+
+VLA w/ CoT 
+
+> Language Reasoning 1
+
+VLA w/ CoT 
+
+> Action
+> “Stack the
+> blue block
+> on the black
+> bottle. ”
+
+VLA Model    
+
+> Action1 Action2 Action3 Action4
+
+Action Value Evaluation     
+
+> 0.83 0.54 0.61 0.77
+> Hard to define absolute
+> action scores.
+> Super time-consuming.
+> “Stack the
+> blue block
+> on the black
+> bottle. ”
+
+VLA Model          
+
+> VLA Retraining needed.
+> CoT Annotation needed.
+> Language Reasoning 2
+> on easy
+> situations
+> Instinctive
+> Action
+> on hard
+> situations
+> On-demand
+> Trigger
+> Action i Action j
+> TTC Phase
+> RAC Model
+> Better Action Unbiased
+> Ralative Critic
+
+Figure 2. Comparison of VLA inference paradigms. (a) Standard Inference is fast but prone to failure in complex scenarios. (b) Sequential Deliberation needs costly retraining and data annotation. (c) Existing Parallel Deliberation incurs high costs and relies on unstable absolute scoring. (d) VLA-ATTC triggers deliberation only on hard situations, employing RAC model for robust candidate selection. 
+
+to select the best action from large number of candidates, while others (Guo et al., 2025) utilize a world model to guide exploration in a Monte Carlo Tree Search-like pattern. Although pioneering, these approaches apply deliberation to all scenarios indiscriminately and their deliberation pro-cesses are prohibitively costly, rendering them impractical for real-world application. This highlights that practical parallel deliberation methods for VLA models must address three critical challenges: i) quantifying situational difficulty for adaptive deliberation ; ii) minimizing the computational overhead of multi-action sampling ; and iii) designing a lightweight yet high-fidelity action critic model. 
+
+To address these challenges, we introduce VLA-ATTC, a framework that equips VLA models with adaptive test-time deliberation without modifying the base model. VLA-ATTC incorporates a “cognitive clutch” that monitors uncertainty in the base VLA’s generation, triggering TTC deliberation phase only when necessary. During TTC phase, we mit-igate candidates sampling costs via an efficient parallel strategy that amortizes vision-language computation. To solve the evaluation bottleneck, we propose a lightweight yet highly accurate relative critic model. This model shifts from predicting an absolute score to making a rel-ative comparison—asking “Is action A preferable to action B?”—dramatically reduces the training difficulty and the required capacity of the evaluation model. Finally, to ensure scalability, we introduce an automated pipeline that curates high-quality preference pairs from existing manipulation datasets, eliminating the need for manual annotation. To sum up, our contributions are as follows: • We propose VLA-ATTC, a plug-and-play framework that enables VLA models to adaptively trigger an effi-cient test-time deliberation phase in uncertain scenar-ios, requiring no fine-tuning of the base model. • We design a lightweight yet robust RAC model, which identifies optimal actions via iterative pairwise com-parisons, overcoming the accuracy and efficiency bot-tlenecks of prior parallel deliberation methods. • We develop a fully automated data pipeline that curates high-quality preference pairs directly from existing datasets, bypassing laborious manual data collection. • Extensive experiments demonstrate that VLA-ATTC reduces LIBERO-LONG’s SOTA failure rate by over 50% and boosts real-world success by 17.3% while maintaining a practical 20.8 Hz control frequency. 
+
+## 2 Related Work 
+
+Sequential Deliberation in VLA models. Early ap-proaches like ECoT (Zawalski et al., 2024), CoT-VLA (Zhao et al., 2025), RoboMamba (Liu et al., 2024) and PI0.5 (Black et al., 2025) output predefined, structured information, such as sub-task decompositions, before an action. Subsequent works like ChatVLA (Zhou et al., 2025b), ChatVLA2 (Zhou et al., 2025a), Hume (Song et al., 2025), and OneTwoVLA (Lin et al., 2025) moved towards generating more adap-tive, free-form natural language thoughts. However, all approaches demand costly fine-tuning to adapt the VLA for the auxiliary task of reasoning. Furthermore, they possess a conflict between the optimization of text and action. 
+
+Parallel Deliberation in VLA models. Parallel deliber-ation typically employs Best-of-N sampling (Sessa et al., 2024; Zhang et al., 2024; Wang et al., 2025c; Verdun et al., 2025; Toshniwal et al., 2025; Nguyen et al., 2025) or Self-Consistency (Wang et al., 2024b;a; Prasad et al., 2024; Wang et al., 2025a). For VLAs, one direction (Guo et al., 2025) uses a world model to guide Monte Carlo Tree Search, but is hampered by the immense computational cost and the lim-ited fidelity of world models in real-world scenarios. Others (Kwok et al., 2025; Nakamoto et al., 2024) sample numer-ous action candidates and use a large external critic model for selection. However, their indiscriminate deliberation is 2VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+costly, and the absolute action scoring is unstable. 
+
+## 3 Preliminaries: VLA Inference Paradigm 
+
+Contemporary VLA models, such as PI0 (Black et al., 2025), typically operate in a two-stage inference process. Given a multi-modal observation at timestep t, comprising an image 
+
+It and a language instruction T , the process is as follows: 
+
+Vision-Language Encoding: A high-capacity, pre-trained VLM backbone, ΦV LM , processes the inputs to produce a rich, multi-modal context embedding or inner features, Ct:
+
+Ct = Φ V LM (It, T ) ∈ RL×Demb (1) This context Ct encapsulates the semantic understanding of the scene and the task objective. This operation, often involving a forward pass through a large Transformer, is computationally intensive. 
+
+Action Decoding: A specialized action head, ΨAction , then conditions on this context Ct to generate an action chunk 
+
+at:
+
+at = Ψ Action (Ct, z ), where z ∼ N (0, I) (2) where z represents the initial noise vector or random seed re-quired for the stochastic generation process. Modern VLAs predominantly employ generative models like diffusion or flow-matching for this stage. Critically, the computational cost is highly asymmetric. The VLM encoding constitutes the vast majority of the latency, a process we term “pre-filling”. In contrast, the action de-coding, even with multiple sampling steps, is significantly faster. For example, in PI0 policy, action decoding accounts for only 27ms of the total 86ms inference time on RTX4090. Our VLA-ATTC framework is designed such that multiple action candidates can be sampled efficiently by perform-ing the expensive pre-fill operation only once per timestep, amortizing its cost across all generated actions. 
+
+## 4 VLA-ATTC 
+
+4.1 Uncertainty Quantification as Clutch 
+
+A practical test-time deliberation method should only be activated when necessary to ensure manageable inference overhead. To evaluate the necessity of deliberation, we first need to quantify the model’s uncertainty. Lower uncertainty implies greater model confidence, thus requiring less de-liberation. We posit that a confident model will produce consistent actions despite variations in the random seed z,while an uncertain model will exhibit high variance. At each timestep t, we generate two action chunks, a1 and 
+
+a2, by sharing the VLM context Ct but using different seeds: 
+
+{ak}2 
+
+> k=1
+
+= {ΨAction (Ct, zk) | zk
+
+> iid
+
+∼ N (0, I)} (3) The additional overhead from the second action is negligible with shared pre-filling. Let each action chunk be a sequence 
+
+Algorithm 1 VLA-ATTC Inference 
+
+Require: VLM Backbone ΦV LM , Action Head ΨAction ,Relative Action Critic R, Image It, Instruction T , State 
+
+st, Uncertainty threshold τ , Candidate count N 
+
+> 1:
+
+Ct ← ΦV LM (It, T ) ▷ Prefill VLM once  
+
+> 2:
+
+a1, a 2 ← ΨAction (Ct) ▷ Generate two actions  
+
+> 3:
+
+Ut ← DTW (a1, a 2) ▷ Calculate DTW as uncertainty  
+
+> 4:
+
+if Ut < τ then ▷ High confidence  
+
+> 5:
+
+af inal ← a1 
+
+> 6:
+
+else ▷ Low confidence: trigger deliberation  
+
+> 7:
+
+A ← { ai}Ni=1 ← ΨAction (Ct) ▷ Batch Generation  
+
+> 8:
+
+while LEN (A) > 1 do  
+
+> 9:
+
+Anext ← ∅ ▷ Initialize next round’s winners  
+
+> 10:
+
+for (ai, a j ) in P AIRWISE (A) do  
+
+> 11:
+
+pij ← R (ai, a j , C t, s t) ▷ RAC predicts  
+
+> 12:
+
+if pij ≥ 0.5 then  
+
+> 13:
+
+ADD (Anext , a i) 
+
+> 14:
+
+else  
+
+> 15:
+
+ADD (Anext , a j ) 
+
+> 16:
+
+end if  
+
+> 17:
+
+end for  
+
+> 18:
+
+A ← A next ▷ Update candidate set  
+
+> 19:
+
+end while  
+
+> 20:
+
+af inal ← A [0] ▷ Single best action remains  
+
+> 21:
+
+end if  
+
+> 22:
+
+EXECUTE (af inal )
+
+of H poses, a = ( p1, . . . , p H ), where each pose pk ∈ RD
+
+and D is the action dimension. To measure the consistency between these two action chunks, we employ Dynamic Time Warping (DTW) distance. To compute the DTW distance, we construct an H × H
+
+cumulative cost matrix Γ. Each element Γ( i, j ) stores the minimum cumulative cost required to align the first i poses of a1 with the first j poses of a2. This matrix is computed iteratively using the following recurrence relation: 
+
+Γ( i, j ) = d(pi
+
+> 1
+
+, p j
+
+> 2
+
+) + min 
+
+
+
+Γ( i − 1, j )Γ( i, j − 1) Γ( i − 1, j − 1) 
+
+(4) where d(pi
+
+> 1
+
+, p j
+
+> 2
+
+) is a local cost measure, which we define as the Euclidean distance || pi 
+
+> 1
+
+− pj
+
+> 2
+
+|| 2 between the two poses. The matrix is initialized with Γ(0 , 0) = 0 and Γ( i, 0) = Γ(0 , j ) = ∞ for i, j > 0.The final scalar uncertainty score Ut is the total cumulative cost found in the top-right corner of the matrix, representing the optimal alignment cost between the two full sequences: 
+
+Ut = Γ( H, H ) (5) The uncertainty score Ut serves as a signal for our “Cog-nitive Clutch”. We establish a threshold τ by taking the 3VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model “Stack the 
+
+> blue block
+> on the black
+> bottle. ”
+
+VLM Backbone 
+
+> Layer 1
+> Feature 1
+> Layer 2
+> Feature 2
+
+# ...   
+
+> Layer L
+> Feature L
+
+Prefilled Context Features 
+
+> Batch Generation(single forward)
+
+Action Candidates 
+
+> Action i
+
+ATTC trigger and Multiple Action Candidates Parallel Generation  
+
+> Action NAction j
+> If high
+> uncertainty
+
+Tournament Selection with RAC Model   
+
+> Action i ×�
+> Action j
+> Action k
+> Action a
+> RAC
+
+# ...  
+
+> Better
+> Action i/j
+> Better
+> Action k/a
+> Selected
+> Candidates
+> Final
+> Action
+> RAC
+
+Action Head  
+
+> Action 1
+> Action 2
+> Uncertainty
+
+Clutch 
+
+Figure 3. The overall architecture of the VLA-ATTC framework. The process begins with the “Cognitive Clutch” (Sec 4.1), which quantifies the VLA’s action generation uncertainty. If uncertainty is low , the model executes the initial action reflexively. If uncertainty exceeds the threshold, the Deliberation Phase (Sec 4.2) is activated. This phase 1) efficiently generates N action candidates in parallel by amortizing the expensive VLM backbone computation, and 2) employs a Tournament Selection mechanism. Our lightweight Relative Action Critic model then performs iterative pairwise comparisons to identify the final optimal action. 
+
+K-th percentile of uncertainty scores computed over an of-fline dataset. At test-time, the final policy πdeploy adaptively switches between reflexive execution and TTC Deliberation: 
+
+πdeploy (st) = 
+
+(
+
+a1 if Ut ≤ τ (Fast )
+
+Deliberate (Ct, st) if Ut > τ (Slow )
+
+(6) 
+
+4.2 TTC Deliberation Phase 
+
+When TTC deliberation is triggered, we first generate N can-didate action chunks {a1, ..., a N } parallel with the action head ΨAction and prefilled context Ct:
+
+{a1, ..., a N } = Ψ Action (Ct, {z1, ..., z N }) (7) The parallel batched sampling makes the cost of generating multiple candidates marginal. Then we need to select the best action from these candidates. A significant challenge in this process is the inherent diffi-culty of action quality evaluation. Assigning an absolute, scalar quality score to a complex action chunk is often ill-defined and ambiguous. To circumvent this, our framework reframes the evaluation from absolute scoring to relative, pairwise comparison. We posit that determining whether action ai is preferable to aj (denoted ai ≻ aj ) given the current context is a more well-defined and less biased task. We leverage this principle by implementing a tournament-style selection process. This mechanism iteratively filters the candidates by conducting a series of pairwise compar-isons. Let R be our RAC model, which is detailed in the following section. The RAC model can estimate the prefer-ence probability pij given two actions, the proprioceptive state st, and the shared context Ct:
+
+pij = R(ai, a j , C t, s t) (8) In each round of the tournament, the set of candidates is organized into pairs. For each pair (ai, a j ), the preferred action is selected to advance to the next round based on the critic’s output: 
+
+awinner =
+
+(
+
+ai if pij ≥ 0.5
+
+aj otherwise (9) This single-elimination process discards half of the candi-dates in each round. It repeats until a single, optimal action 
+
+a∗ remains. 
+
+4.3 Relative Action Critic (RAC) Model 
+
+The cornerstone of our TTC deliberation phase is the RAC, a model trained to act as a pairwise preference critic. It determines if action ai is preferable to aj given the context. It is lightweight but powerful, as it can leverage the internal features of the VLM to reduce computation. 
+
+4.3.1 Input Representation 
+
+The RAC takes four distinct inputs: two action chunks to be compared, ai and aj ; their difference ai − aj ; and the current proprioceptive state st. Each input is independently mapped by a dedicated MLP into the model’s embedding dimension dmodel :
+
+ei = MLP i(ai), ej = MLP j (aj ) (10) 
+
+edif f = MLP dif f (ai − aj ), es = MLP s(st) (11) These four embedding vectors are then concatenated to form the initial hidden state for the RAC’s Transformer tower: 
+
+X0 = Concat [ei; ej ; edif f ; es].
+
+4.3.2 Hierarchical Context Condition 
+
+To equip the RAC with task-relevant context, we introduce a set of Nq randomly initialized, learnable query tokens 
+
+qrac ∈ RNq ×dmodel . These tokens are appended to the VLM’s input sequence. During the VLM’s prefilling com-putations, these queries distill high-level semantic informa-tion from VLM’s raw features Fvlm , effectively creating a compressed, task-oriented summary of the VLM’s un-derstanding. The final hidden states of these query tokens, 
+
+Fquery , serve as a rich source of context for the RAC. 
+
+Ct = [ Fvlm , F query ] = Φ V LM (It, T, q rac ) (12) 4VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model Image Instruction Learnable Query 
+
+VLM Backbone  
+
+> ×�
+
+...
+
+... Raw Features 
+
+> Query Features
+
+s    
+
+> Action
+> i
+> Action
+> j
+> Action
+> Diff State
+> MLP MLP MLP MLP
+
+Relative Action Critic (RAC) Model   
+
+> Concat
+> Multi-branch RAC Attention
+> Layer Norm + FFN
+> Multi-branch RAC Attention
+> Layer Norm + FFN
+> ×�
+> Multi-branch RAC Attention
+> Layer Norm + FFN
+> Layer Norm + MLP Relative Critic
+
+s
+
+Multi-branch RAC Attention  
+
+> Raw
+> Features
+> Query
+> Features
+> RAC
+> Features
+> Self
+> Attention
+> Query
+> Cross
+> Attention
+> Raw
+> Cross
+> Attention
+> Concat
+> Updated
+> RAC Features
+> ×Scalar Gating
+
+Figure 4. Detailed architecture of the Relative Action Critic (RAC) model (Sec 4.3). (Left) The VLM backbone is augmented with Nq
+
+learnable queries. During the single pre-filling pass, these queries distill high-level semantic context query features from the image and instruction, alongside the standard raw features. (Middle) The RAC model itself is a Transformer with consistent depth of VLM. It takes four inputs processed by dedicated MLPs: Action i, Action j, their difference (Actioni - Action j), and the current proprioceptive State. (Right) The core component is the Multi-branch RAC Attention block. At each layer, this block hierarchically fuses information from three sources: (1) Self-Attention over the RAC’s own features, (2) Raw Cross-Attention to the VLM’s raw features at same layer, and (3) Query Cross-Attention to the distilled query features. This architecture allows the RAC to be lightweight yet highly context-aware. 
+
+4.3.3 Multi-Branch Attention Architecture 
+
+The RAC is a Transformer of depth L, matching the VLM backbone’s depth. Each layer l ∈ [1 , L ] of the RAC up-dates its input Xl−1 through a sophisticated three-branch attention block, as depicted in Fig. 4. 1. Self-Attention (SA): The first branch computes self-attention over the RAC’s own representations: 
+
+Olsa = Attention (Q(Xl−1), K (Xl−1), V (Xl−1)) (13) 2. Raw Cross-Attention: The second branch injects broad contextual information by attending to raw features of the corresponding layer l in the VLM backbone, F lvlm :
+
+Olraw = Attention (Q(Xl−1), K (F lvlm ), V (F lvlm )) (14) 3. Query Cross-Attention: The third branch attends to the specialized, distilled context features from the VLM’s learnable query tokens from the same layer l, F lquery :
+
+Olquery = Attention (Q(Xl−1), K (F lquery ), V (F lquery )) 
+
+(15) These three outputs are then fused. The query cross-attention branch is modulated by a learnable scalar gat-ing parameter gl, which allows the model to dynamically control the influence of the distilled context. The fused representation Olf used is created by concatenation: 
+
+Olf used = Concat [Olsa , O lraw , g l × Olquery ] (16) This fused vector is then passed through the standard Trans-former layer components: a feed-forward network (FFN) and layer normalization (LN), with a residual connection from the input Xl−1:
+
+Xl′
+
+= LN (Olf used + Xl−1) (17) 
+
+Xl = LN (FFN (Xl′
+
+) + Xl′
+
+) (18) After the final layer L, the output representation XL is processed by a classification head (an MLP) to produce a single logit. This logit is passed through a sigmoid function to predict the probability that ai is preferred over aj , trained with a focal loss. 
+
+4.4 Automated Action Preference Pair Curation 
+
+To train the RAC, we require a large-scale dataset of prefer-ence pairs. Thus, we introduce a fully automated pipeline that generates this dataset by manipulating the generation process of flow-matching-based action head. 
+
+Principle of Conditional Flow-Matching. The flow-matching action head learns a context-conditioned vector field that transforms a simple prior distribution pprior (a)
+
+(e.g., Gaussian noise) into the complex data distribution 
+
+pdata (a|Ct) of expert actions. Generation is achieved by solving the corresponding ODE numerically over a flow timestep τ from τ = 1 down to τ = 0 :
+
+da τ
+
+dτ = v(aτ , τ, C t) (19) The quality of the final sample is highly dependent on the number of integration steps ( Nsteps ) used by the solver. A higher Nsteps yields a more accurate approximation of the true trajectory along the vector field, resulting in a sample that is more faithful to the learned expert distribution. 5VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model                                                                                                                          
+
+> Table 1. Average task success rates (%) on the LIBERO-LONG. Ours (Full) represents VLA-ATTC without Cognitive Clutch. Task Robomonkey PI0 +Ours (Full) +Ours PI0.5 +Ours (Full) +Ours
+> Soup and sauce in basket 59% 86% 94% (+8%) 92% (+6%) 92% 96% (+4%) 96% (+4%) Box and butter in basket 79% 98% 100% (+2%) 100% (+2%) 96% 100% (+4%) 100% (+4%) Turn on stove and put pot 58% 90% 96% (+6%) 94% (+4%) 92% 98% (+6%) 96% (+4%) Bowl in drawer and close 37% 96% 100% (+4%) 98% (+2%) 98% 98% (=) 98% (=) Two mugs on two plates 55% 90% 98% (+8%) 96% (+6%) 94% 100% (+6%) 100% (+6%) Book in compartment 86% 86% 96% (+10%) 94% (+8%) 96% 100% (+4%) 98% (+2%) Mug and pudding on plate 59% 84% 94% (+10%) 90% (+6%) 90% 98% (+8%) 92% (+2%) Soup and box in Basket 62% 96% 98% (+2%) 98% (+2%) 98% 98% (=) 98% (=) Both pots on stove 26% 40% 58% (+18%) 56% (+16%) 54% 68% (+14%) 66% (+12%) Mug in microwave and close 44% 62% 88% (+26%) 88% (+26%) 92% 98% (+6%) 96% (+4%) Average 56.5% 82.8% 92.2% (+9.4%) 90.6% (+7.8%) 90.6% 95.4% (+4.8%) 94% (+3.4%)
+> Table 2. Success rates (%) on real-world tasks with the Agilex Piper arm. VLA-ATTC consistently outperforms the baseline. Task Robomonkey PI0 +Ours (Full) +Ours PI0.5 +Ours (Full) +Ours
+> Stack cubes 18% 46% 62% (+16%) 58% (12%) 50% 60% (+10%) 60% (+10%) Pour water 24% 50% 66% (+16%) 64% (+14%) 54% 68% (+14%) 66% (+12%) Sweep rubbish 36% 42% 62% (+20%) 56% (14%) 52% 60% (+8%) 60% (+8%) Average 26% 46% 63.3% (+17.3%) 58.7% (+12.7%) 52% 62.7% (+10.7%) 62% (+10%)
+
+Data Curation Pipeline. We leverage this principle to create actions of varying quality from a single pre-trained VLA. For each state-action pair (ot, a expert t ) from an expert dataset, we generate: • High-quality action ( agood t ): By solving the ODE with a large number of steps, Nhigh .• Low-quality action ( abad t ): By solving the ODE with a small number of steps, Nlow .This establishes clear preference orderings: aexpert t ≻ abad t
+
+and agood t ≻ abad t , where ≻ denotes superiority. We then form a dataset of preference pairs with clear quality dis-tinction, primarily using ⟨aexpert t , a bad t ⟩ and ⟨agood t , a bad t ⟩.To ensure the model learns the relative quality rather than positional cues, we augment the dataset with the symmetric versions of each pair (e.g., also including ⟨abad t , a expert t ⟩
+
+with the inverse label). This scalable, automated process allows us to generate a massive, high-quality preference dataset without any human intervention. 
+
+## 5 Experiments 
+
+In this section, we conduct extensive experiments to address the following research questions (RQ): • RQ1 (Effectiveness) : Can VLA-ATTC significantly enhance the performance on complex tasks? • RQ2 (Ablation) : What are the contributions of core components and the impact of candidate scaling and uncertainty threshold? • RQ3 (Mechanism) : Are the proposed uncertainty mea-surement and automated data curation pipeline scien-tifically valid and necessary? • RQ4 (Efficiency) : While delivering performance gains, does VLA-ATTC maintain the high control fre-quency required for practical applications? 
+
+Environments and Tasks Our experiments are conducted across a challenging simulation platforms LIBERO-LONG (Liu et al., 2023) and a real-world robotic system on an Agilex Piper Arm. 
+
+Base Models and Implementation Details We select PI0 (Black et al., 2024) and PI0.5 (Black et al., 2025), two SOTA VLA models, as our base models. Unless specified other-wise in our ablation studies, the uncertainty threshold τ is set to the 80th percentile, the number of learnable queries 
+
+Nq is set to 8, and the number of candidates is 16. The train-ing step of RAC models in all experiments is 30000. For our automated data curation, we used a mixed set of two pairs for (Nhigh , N low ), specifically ⟨10 , 3⟩ and ⟨9, 2⟩. “Ours (Full))” signifies that we do not use the “cognitive clutch”, activating TTC at all time steps. Each task is executed 50 times to calculate the success rate. 
+
+5.1 Effectiveness of VLA-ATTC (RQ1) Obs1: VLA-ATTC boost the performance of SOTA VLA models significantly. We first compare the performance of the original base VLA models against their VLA-ATTC-augmented counterparts on the LIBERO-LONG bench-marks and real-world settings. As shown in Table 1 and Table 2 , VLA-ATTC yields substantial performance im-provements. On the highly challenging “Both pots on stove” task, VLA-ATTC improves the average success rate of PI0 from 40% to 58%, demonstrating that deliberate decision-making at critical moments effectively prevents catastrophic failures. Notably, VLA-ATTC increased the average success rate of PI0 by 17.3% on real-robot tasks, demonstrating its excellent performance on physical hardware. VLA-ATTC consistently surpasses previous representative deliberation method Robomonkey (Kwok et al., 2025). 6VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+Table 3. Effect of the uncertainty threshold ( τ , set by K-th percentile) on success rate and latency on PI0-ATTC and PI0.5-ATTC. K-th percentile PI0-0% PI0-40% PI0-60% PI0-80% PI0.5-0% PI0.5-40% PI0.5-60% PI0.5-80% Soup and sauce in basket 94% 92% 92% 92% 96% 96% 96% 96% Box and butter in basket 100% 100% 100% 100% 100% 100% 100% 100% Turn on stove and put pot 96% 96% 94% 94% 98% 98% 96% 96% Bowl in drawer and close 100% 98% 98% 98% 98% 98% 98% 98% Two mugs on two plates 98% 98% 98% 96% 100% 100% 100% 100% Book in compartment 96% 96% 94% 94% 100% 98% 98% 98% Mug and pudding on plate 94% 94% 92% 90% 98% 96% 96% 92% Soup and box in Basket 98% 98% 98% 98% 98% 98% 98% 98% Both pots on stove 58% 58% 58% 56% 68% 66% 66% 66% Mug in microwave and close 88% 88% 88% 88% 98% 96% 96% 96% Average 92.2% 91.8% 91.2% 90.6% 95.4% 94.6% 94.4% 94% 
+
+Table 4. Effect of the number of candidate actions ( N ) during deliberation on success rate on LIBERO-LONG. Number of candidate actions 4 (PI0) 8 (PI0) 16 (PI0) 32 (PI0) 4 (PI0.5) 8 (PI0.5) 16 (PI0.5) 32 (PI0.5) Soup and sauce in basket 90% 90% 92% 92% 94% 96% 96% 96% Box and butter in basket 100% 100% 100% 100% 100% 100% 100% 100% Turn on stove and put pot 92% 94% 94% 94% 94% 96% 96% 98% Bowl in drawer and close 98% 98% 98% 98% 94% 98% 98% 100% Two mugs on two plates 94% 94% 96% 98% 100% 100% 100% 100% Book in compartment 90% 94% 94% 96% 98% 100% 98% 100% Mug and pudding on plate 86% 88% 90% 94% 92% 94% 92% 96% Soup and box in Basket 96% 96% 98% 98% 96% 98% 98% 100% Both pots on stove 48% 52% 56% 60% 56% 60% 66% 66% Mug in microwave and close 76% 82% 88% 88% 96% 96% 96% 96% Average 87% 88.8% 90.6% 91.8% 92.0% 93.8% 94% 95.2% 
+
+5.2 Ablation Studies and Analysis (RQ2) Obs2: Cognitive Clutch is accurate, with difficult states being sparse. The sensitivity of the “Cognitive Clutch” is governed by the uncertainty threshold τ , set as the K-th percentile. We study the effect of varying τ on task success rate. As shown in Table 3, although lower τ triggers more deliberation, the performance does not improve significantly. This suggests that only a few scenarios during the operation are difficult, which also proves that our cognitive clutch can effectively identify these few critical, difficult scenarios. 
+
+Obs3: More candidate actions yield higher performance gains. During the TTC deliberation phase, we explore bet-ter solutions by sampling N candidate actions in parallel. We study how the choice of N affects the final success rate. As presented in Table 4, performance improves substan-tially even with a small number of candidates (e.g., N = 4 ). While performance improves steadily as the number of can-didate actions increases, we consider N = 16 to be an efficient and effective choice given the increased computa-tional cost. 
+
+Obs4: All specialized components of the RAC are es-sential for accurate preference prediction. The ablation studies presented in Figure 5 show that removing key ar-chitectural elements—specifically the learnable weights, ac-tion difference inputs, or learnable queries—consistently degrades performance on the LIBERO-LONG benchmark. While the full RAC model achieves the highest success rates 89             
+
+> 88.8
+> 90.2
+> 90.6
+> 92.4
+> 93.2
+> 93.6
+> 94
+> 8082848688909294
+> w/oLearnable
+> Query
+> w/oAction
+> Difference
+> w/oLearnable
+> Weight
+> FullRACModel
+> PI0+ATTPI0.5+ATTC C
+
+Figure 5. Comparison of success rate over different RAC model’s variant on LIBERO-LONG. 
+
+(94% for PI0.5+ATTC and 90.8% for PI0+ATTC), removing the “Learnable Query” component causes the most signifi-cant performance drop, lowering success rates to 92.4% and 88% respectively. These findings confirm that each design choice in the RAC framework is necessary to effectively evaluate and select optimal actions. 
+
+5.3 Mechanism Analysis (RQ3) 
+
+To validate the scientific validity of our core design choices—specifically the uncertainty measurement and the automated data curation pipeline—we conducted targeted controlled experiments. 
+
+Obs5: Minimal sampling ( N = 2 ) is sufficient for effec-tive uncertainty estimation. A potential concern regarding 7VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+Table 5. Comparison of average control frequency (Hz). VLA-ATTC maintains a high control rate. Model PI0/0.5 (Baseline) Robomonkey VLA-ATTC (Full) VLA-ATTC 
+
+Avg. Control Frequency (Hz) 23.3Hz 1.5Hz 12.1Hz 20.8Hz “Stack the   
+
+> blue block
+> on the black
+> bottle. ”
+> “Pour the
+> water in the
+> plastic
+> bottle into
+> the cup. ”
+> ATTC
+> ATTC ATTC
+> ATTC
+> ATTC
+
+Figure 6. Two representative cases of PI0.5-ATTC. It adaptively triggers TTC when facing difficult situations. 
+
+Table 6. Validation of Uncertainty Estimation Strategies against Human Expert Rankings. Tested on 1,000 observation pairs.                
+
+> Method Metric Human Agree. (%) Cost (Rel.)
+> Ours ( N= 2 )Pairwise DTW 89.2 1.0×
+> Baseline ( N= 4 )Mean Pairwise Dist. 90.1 2.0×
+> Baseline ( N= 8 )Mean Pairwise Dist. 90.4 4.0×
+
+Table 7. Impact of ODE Integration Steps on Action Quality. Real-world success rates on the “Pour water” task ( 50 trials each).         
+
+> ODE Steps ( Nsteps )Success Rate (%) Behavior Description
+> 10 (High Quality) 54 Precise execution 5 (Mid Quality) 42 Coherent, misaligned 1 (Low Quality) 18 Rough, frequent failure
+
+our “Cognitive Clutch” is whether comparing merely two action candidates is robust enough to accurately gauge sit-uational uncertainty. To investigate this, we constructed a specialized evaluation dataset comprising 1,000 pairs of observation scenarios. Four human experts annotated these pairs to identify which scenario in each pair presented a higher difficulty level (i.e., higher likelihood of failure), serving as the ground truth. We compared our proposed strategy (2 actions with Dy-namic Time Warping, DTW) against baselines using more samples ( N = 4 and N = 8 ) utilizing Mean Pairwise Dis-tance (MPD) as the uncertainty metric. As shown in Table 6, our method achieves an agreement accuracy of 89.2% with human experts. Crucially, scaling the sample size to 4 or 8 yields only marginal improvements ( < 1.5% ) while linearly increasing the computational overhead of the action head. 
+
+Obs6: Reducing ODE steps creates valid preference gra-dients, not random noise. Our automated data curation pipeline relies on the premise that reducing the number of ODE integration steps ( Nsteps ) degrades action quality gracefully without devolving into random noise, thereby creating valid “expert vs. sub-optimal” preference pairs. To validate this empirically, we conducted real-world experi-ments on the Agilex Piper arm using the “Pour water” task, varying Nsteps at 10, 5, and 1. The results, presented in Table 7, confirm our hypothesis. While the high-quality setting ( Nsteps = 10 ) achieves a 54% success rate, reducing steps to 5 and 1 leads to a progres-sive decline in performance (42% and 18%, respectively). This reveals that actions generated with lower steps remain semantically coherent (e.g., moving generally towards the cup) but suffer from precision errors (e.g., spilling or mis-alignment), rather than exhibiting random jitter. 
+
+5.4 Efficiency Analysis (RQ4) Obs7: VLA-ATTC maintains high control frequency suitable for real-time robotics. A core advantage of VLA-ATTC is its ability to improve decision quality while minimally impacting control frequency. Due to the “Cogni-tive Clutch”, the expensive deliberation process is invoked only when necessary. As shown in Table 5, the baseline model operates at approximately 23.3 Hz. With VLA-ATTC integrated, the average control frequency drops only slightly to 20.8 Hz, as deliberation is active for only a few timesteps. This speed is significantly higher than other indiscriminate parallel deliberation methods that rely on heavyweight critic models or MCTS, such as RoboMonkey (Kwok et al., 2025) at 1.5 Hz. This demonstrates the immense practical advan-tage of our framework, making it suitable for robotic tasks that demand real-time responsiveness. 
+
+## 6 Conclusion 
+
+In this work, we introduced VLA-ATTC, a framework that fundamentally challenges the static, “one-size-fits-all” in-ference paradigm of VLA models. By dynamically trigger-ing a test-time deliberation phase via an uncertainty-based “cognitive clutch”, and employing an efficient, lightweight Relative Action Critic model for pairwise selection, our method significantly enhances decision-making robustness in complex scenarios without sacrificing the high control fre-quencies required for robotics. This work demonstrates the critical value of adaptive computation and opens a promis-ing new direction for developing more efficient, delibera-tive, and intelligent agents that can strategically allocate resources to the problem at hand. 8VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning, specifically within Embodied AI and Robotic Manipulation. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+## References 
+
+Black, K., Brown, N., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Groom, L., Hausman, K., Ichter, B., et al. pi0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. Black, K., Brown, N., Darpinian, J., Dhabalia, K., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Galliker, M. Y., et al. pi0.5: a vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 ,2025. Chen, Q., Qin, L., Liu, J., Peng, D., Guan, J., Wang, P., Hu, M., Zhou, Y., Gao, T., and Che, W. Towards reasoning era: A survey of long chain-of-thought for reasoning large language models. arXiv preprint arXiv:2503.09567 ,2025. Duan, J., Yu, S., Tan, H. L., Zhu, H., and Tan, C. A sur-vey of embodied ai: From simulators to research tasks. 
+
+IEEE Transactions on Emerging Topics in Computational Intelligence , 6(2):230–244, 2022. Feng, Z., Xue, R., Yuan, L., Yu, Y., Ding, N., Liu, M., Gao, B., Sun, J., Zheng, X., and Wang, G. Multi-agent embodied ai: Advances and future directions. arXiv preprint arXiv:2505.05108 , 2025. Fung, P., Bachrach, Y., Celikyilmaz, A., Chaudhuri, K., Chen, D., Chung, W., Dupoux, E., Gong, H., J ´egou, H., Lazaric, A., et al. Embodied ai agents: Modeling the world. arXiv preprint arXiv:2506.22355 , 2025. Guo, W., Lu, G., Deng, H., Wu, Z., Tang, Y., and Wang, Z. Vla-reasoner: Empowering vision-language-action models with reasoning via online monte carlo tree search. 
+
+arXiv preprint arXiv:2509.22643 , 2025. Huang, C., Huang, L., Leng, J., Liu, J., and Huang, J. Effi-cient test-time scaling via self-calibration. arXiv preprint arXiv:2503.00031 , 2025. Kim, M. J., Pertsch, K., Karamcheti, S., Xiao, T., Balakr-ishna, A., Nair, S., Rafailov, R., Foster, E., Lam, G., San-keti, P., et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. Kim, M. J., Finn, C., and Liang, P. Fine-tuning vision-language-action models: Optimizing speed and success. 
+
+arXiv preprint arXiv:2502.19645 , 2025. Kwok, J., Agia, C., Sinha, R., Foutter, M., Li, S., Stoica, I., Mirhoseini, A., and Pavone, M. Robomonkey: Scaling test-time sampling and verification for vision-language-action models. arXiv preprint arXiv:2506.17811 , 2025. Li, D., Cao, S., Cao, C., Li, X., Tan, S., Keutzer, K., Xing, J., Gonzalez, J. E., and Stoica, I. S*: Test time scaling for code generation. arXiv preprint arXiv:2502.14382 , 2025. Li, Q., Liang, Y., Wang, Z., Luo, L., Chen, X., Liao, M., Wei, F., Deng, Y., Xu, S., Zhang, Y., et al. Cogact: A foundational vision-language-action model for synergiz-ing cognition and action in robotic manipulation. arXiv preprint arXiv:2411.19650 , 2024. Lin, F., Nai, R., Hu, Y., You, J., Zhao, J., and Gao, Y. Onetwovla: A unified vision-language-action model with adaptive reasoning. arXiv preprint arXiv:2505.11917 ,2025. Liu, B., Zhu, Y., Gao, C., Feng, Y., Liu, Q., Zhu, Y., and Stone, P. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. Liu, J., Liu, M., Wang, Z., Lee, L., Zhou, K., An, P., Yang, S., Zhang, R., Guo, Y., and Zhang, S. Robomamba: Mul-timodal state space model for efficient robot reasoning and manipulation. arXiv e-prints , pp. arXiv–2406, 2024. Liu, Y., Chen, W., Bai, Y., Liang, X., Li, G., Gao, W., and Lin, L. Aligning cyber space with physical world: A comprehensive survey on embodied ai. IEEE/ASME Transactions on Mechatronics , 2025. Memarian, B. and Doleck, T. Embodied ai in education: A review on the body, environment, and mind. Education and Information Technologies , 29(1):895–916, 2024. Miao, J., Thongprayoon, C., Suppadungsuk, S., Krisanapan, P., Radhakrishnan, Y., and Cheungpasitporn, W. Chain of thought utilization in large language models and appli-cation in nephrology. Medicina , 60(1):148, 2024. Muennighoff, N., Yang, Z., Shi, W., Li, X. L., Fei-Fei, L., Hajishirzi, H., Zettlemoyer, L., Liang, P., Cand `es, E., and Hashimoto, T. s1: Simple test-time scaling. arXiv preprint arXiv:2501.19393 , 2025. Nakamoto, M., Mees, O., Kumar, A., and Levine, S. Steer-ing your generalists: Improving robotic foundation mod-els via value guidance. arXiv preprint arXiv:2410.13816 ,2024. Nguyen, H. T., Nguyen, B., and Nguyen, V. A. Struc-tured pruning for diverse best-of-n reasoning optimiza-tion. arXiv preprint arXiv:2506.03978 , 2025. 9VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+Paolo, G., Gonzalez-Billandon, J., and K ´egl, B. Position: a call for embodied ai. In Forty-first International Confer-ence on Machine Learning , 2024. Prasad, A., Yuan, W., Pang, R. Y., Xu, J., Fazel-Zarandi, M., Bansal, M., Sukhbaatar, S., Weston, J., and Yu, J. Self-consistency preference optimization. arXiv preprint arXiv:2411.04109 , 2024. Sessa, P. G., Dadashi, R., Hussenot, L., Ferret, J., Vieil-lard, N., Ram ´e, A., Shariari, B., Perrin, S., Friesen, A., Cideron, G., et al. Bond: Aligning llms with best-of-n distillation. arXiv preprint arXiv:2407.14622 , 2024. Shukor, M., Aubakirova, D., Capuano, F., Kooijmans, P., Palma, S., Zouitine, A., Aractingi, M., Pascal, C., Russi, M., Marafioti, A., et al. Smolvla: A vision-language-action model for affordable and efficient robotics. arXiv preprint arXiv:2506.01844 , 2025. Song, H., Qu, D., Yao, Y., Chen, Q., Lv, Q., Tang, Y., Shi, M., Ren, G., Yao, M., Zhao, B., et al. Hume: Introducing system-2 thinking in visual-language-action model. arXiv preprint arXiv:2505.21432 , 2025. Team, O. M., Ghosh, D., Walke, H., Pertsch, K., Black, K., Mees, O., Dasari, S., Hejna, J., Kreiman, T., Xu, C., et al. Octo: An open-source generalist robot policy. arXiv preprint arXiv:2405.12213 , 2024. Toshniwal, S., Sorokin, I., Ficek, A., Moshkov, I., and Gitman, I. Genselect: A generative approach to best-of-n. 
+
+arXiv preprint arXiv:2507.17797 , 2025. Verdun, C. M., Oesterling, A., Lakkaraju, H., and Calmon, F. P. Soft best-of-n sampling for model alignment. arXiv preprint arXiv:2505.03156 , 2025. Wang, H., Prasad, A., Stengel-Eskin, E., and Bansal, M. Soft self-consistency improves language model agents. 
+
+arXiv preprint arXiv:2402.13212 , 2024a. Wang, X. and Zhou, D. Chain-of-thought reasoning without prompting. Advances in Neural Information Processing Systems , 37:66383–66409, 2024. Wang, X., Feng, S., Li, Y., Yuan, P., Zhang, Y., Tan, C., Pan, B., Hu, Y., and Li, K. Make every penny count: Difficulty-adaptive self-consistency for cost-efficient rea-soning. arXiv preprint arXiv:2408.13457 , 2024b. Wang, X., Feng, S., Li, Y., Yuan, P., Zhang, Y., Tan, C., Pan, B., Hu, Y., and Li, K. Make every penny count: Difficulty-adaptive self-consistency for cost-efficient rea-soning. In Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 6904–6917, 2025a. Wang, Y., Wu, S., Zhang, Y., Yan, S., Liu, Z., Luo, J., and Fei, H. Multimodal chain-of-thought reasoning: A comprehensive survey. arXiv preprint arXiv:2503.12605 ,2025b. Wang, Y., Zhang, P., Huang, S., Yang, B., Zhang, Z., Huang, F., and Wang, R. Sampling-efficient test-time scaling: Self-estimating the best-of-n sampling in early decoding. 
+
+arXiv preprint arXiv:2503.01422 , 2025c. Xia, Y., Wang, R., Liu, X., Li, M., Yu, T., Chen, X., McAuley, J., and Li, S. Beyond chain-of-thought: A survey of chain-of-x paradigms for llms. arXiv preprint arXiv:2404.15676 , 2024. Xu, S., Wang, Y., Xia, C., Zhu, D., Huang, T., and Xu, C. Vla-cache: Towards efficient vision-language-action model via adaptive token caching in robotic manipulation. 
+
+arXiv preprint arXiv:2502.02175 , 2025. Yeo, E., Tong, Y., Niu, M., Neubig, G., and Yue, X. Demys-tifying long chain-of-thought reasoning in llms. arXiv preprint arXiv:2502.03373 , 2025. Zawalski, M., Chen, W., Pertsch, K., Mees, O., Finn, C., and Levine, S. Robotic control via embodied chain-of-thought reasoning. arXiv preprint arXiv:2407.08693 , 2024. Zeng, Z., Cheng, Q., Yin, Z., Zhou, Y., and Qiu, X. Revisit-ing the test-time scaling of o1-like models: Do they truly possess test-time scaling capabilities? arXiv preprint arXiv:2502.12215 , 2025. Zhang, Q., Lyu, F., Sun, Z., Wang, L., Zhang, W., Hua, W., Wu, H., Guo, Z., Wang, Y., Muennighoff, N., et al. A survey on test-time scaling in large language mod-els: What, how, where, and how well? arXiv preprint arXiv:2503.24235 , 2025. Zhang, R., Haider, M., Yin, M., Qiu, J., Wang, M., Bartlett, P., and Zanette, A. Accelerating best-of-n via specula-tive rejection. In ICML 2024 Workshop on Structured Probabilistic Inference Generative Modeling , 2024. Zhao, Q., Lu, Y., Kim, M. J., Fu, Z., Zhang, Z., Wu, Y., Li, Z., Ma, Q., Han, S., Finn, C., et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 1702–1713, 2025. Zhou, Z., Zhu, Y., Wen, J., Shen, C., and Xu, Y. Chatvla-2: Vision-language-action model with open-world embodied reasoning from pretrained knowledge. arXiv preprint arXiv:2505.21906 , 2025a. Zhou, Z., Zhu, Y., Zhu, M., Wen, J., Liu, N., Xu, Z., Meng, W., Cheng, R., Peng, Y., Shen, C., et al. Chatvla: Unified 10 VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+multimodal understanding and robot control with vision-language-action model. arXiv preprint arXiv:2502.14420 ,2025b. 11 VLA-ATTC: Adaptive Test-Time Compute for VLA Models with Relative Action Critic Model 
+
+## A Verification of Semantic Preference Learning in RAC 
+
+A potential concern regarding our automated data curation pipeline (Sec. 3.4) is that the RAC model might solely rely on distinguishing low-level generation artifacts (e.g., trajectory smoothness or noise levels) resulting from different ODE integration steps ( Nhigh vs. Nlow ), rather than acquiring a semantic understanding of task fulfillment. To rule out this possibility and verify that the RAC genuinely aligns actions with visual context and language instructions, we conducted a controlled ”Cross-Task” experiment. 
+
+Experimental Setup. We utilized the real-world ”Stack Cubes” task for this validation. We collected a dataset of 1,000 observations from successful execution trajectories. For each observation, we generated a pair of action candidates to be evaluated by the RAC model trained on the ”Stack Cubes” task: • Positive Sample (Task-Aligned): Actions generated by the ”Stack Cubes” expert policy. • Negative Sample (Task-Misaligned): Actions generated by a policy trained on a completely different task (”Pour Water”), applied to the ”Stack Cubes” observations. Crucially, both policies generated actions using a high number of ODE integration steps ( Nsteps = 10 ). This setup ensures that both candidates possess high trajectory quality and smoothness, eliminating low-level generation artifacts as a discriminative feature. The only distinguishing factor is the semantic alignment with the ”Stack Cubes” task. 
+
+Results. The RAC model demonstrated a high accuracy of 97.3% in identifying the actions from the ”Stack Cubes” policy as the preferred candidates. This result strongly evidences that the RAC goes beyond detecting generation quality; it successfully learns to evaluate the semantic compatibility between the proposed action, the visual observation, and the task instruction. 12
