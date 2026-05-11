@@ -1,0 +1,849 @@
+Title: Is the Future Compatible? Diagnosing Dynamic Consistency in World Action Models
+
+URL Source: https://arxiv.org/pdf/2605.07514v1
+
+Published Time: Mon, 11 May 2026 00:59:02 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Is the Future Compatible? Diagnosing Dynamic Consistency in World Action Models 
+
+Bo-Kai Ruan Teng-Fang Hsiao Ling Lo Hong-Han Shuai 
+
+National Yang Ming Chiao Tung University 
+
+{bkruan.ee11,tfhsiao.ee13,linglo.ee08,hhshuai}@nycu.edu.tw 
+
+Abstract 
+
+World Action Models (WAMs) enable decision-making through imagined rollouts by predicting future observations and actions. However, the reliability of these imagined futures remains under-examined: is a generated future merely visually plausible, or is it dynamically compatible with the action sequence it claims to model? In this work, we identify action-state consistency , the alignment between predicted actions and induced state transitions, as a missing reliability axis for WAMs. Through a systematic study across representative joint-prediction and inverse-dynamics models, we find that action-state consistency systematically sep-arates successful and failed rollouts across many tasks and follows similar success-failure trends as learned value estimates. These results suggest that consistency captures decision-relevant structure beyond visual realism. We further identify 
+
+background collapse as an important boundary condition, where low-dynamics failed trajectories can become deceptively consistent because static futures are easier to predict. Building on these findings, we introduce a value-free consen-sus strategy for test-time selection, which ranks candidate rollouts by agreement among predicted futures. This strategy improves success rates on RoboCasa and RoboTwin 2.0 without additional training or reward modeling. Taken together, our findings establish action-state consistency as both a diagnostic tool for evaluating WAM reliability and a practical signal for value-free planning. 
+
+1 Introduction 
+
+Vision-language-action (VLA) models have recently emerged as a scalable paradigm for robot control, mapping visual observations and language instructions directly to executable actions [ 6 , 19 , 21 , 46 ]. By leveraging large-scale vision-language pretraining and robot demonstration data, these models provide a general interface for instruction-conditioned manipulation across diverse tasks. However, direct action prediction alone does not explicitly represent the future consequences of an action. A policy may output a plausible command without revealing whether the resulting physical transition is feasible or aligned with the intended task outcome. World Action Models (WAMs) have been proposed to address this limitation by extending VLA models with future prediction [ 4, 8 , 22 , 25 , 38 –40 ]. While conventional VLA policies directly predict the next action, WAMs additionally model the future state induced by an action. This joint modeling gives WAMs a mechanism to anticipate object motion, contact, scene evolution, and the consequences of robot behavior before or during execution. Nevertheless, the ability to generate plausible future observations does not guarantee that these predictions are action-conditioned, physically faithful, or decision-relevant. For a WAM to provide a reliable basis for decision making, the future it predicts should be consistent with the action it conditions on, whether that action is predicted by the policy, evaluated as a candidate, or executed in the environment. In other words, rather than merely generating visually plausible futures, a WAM should predict futures that are consistent with the given action and the underlying environment dynamics. We refer to this requirement as action-state consistency, a key reliability property for 
+
+> Preprint.
+> arXiv:2605.07514v1 [cs.RO] 8 May 2026
+
+action-conditioned world modeling. When the transition observed after executing an action agrees with the future predicted under that action, it provides evidence that the model captures action-conditioned dynamics. In contrast, a mismatch suggests a potential failure of action conditioning: the model may produce visually plausible but dynamically incompatible futures, misrepresent contact or object motion, or fail to faithfully model the consequences of its selected actions. Despite the central role of action-conditioned prediction in WAMs, the consistency between actions and their predicted or realized future states remains under-examined as a reliability property. Existing WAM and VLA studies have made substantial progress in policy learning, action-conditioned future prediction, verifier-based selection, reward estimation, and value-based planning [ 2, 4 , 8, 10 , 11 ,22 , 23 , 25 , 38 –40 ]. However, these evaluations often assess downstream success, predicted reward, or generated future quality without isolating whether the predicted future is faithful to the action-conditioned transition being evaluated. We argue that action-state consistency is a missing reliability axis for WAMs: it evaluates whether a model’s predicted future is not only visually plausible, but also dynamically compatible with the action it claims to model. In this work, we move beyond terminal reward metrics to investigate the internal reliability of WAMs through the lens of action-state consistency. We conduct our study across two representative WAM formulations: joint-prediction models, which generate future observations and actions jointly, and inverse-dynamics models, which infer actions conditioned on predicted future states. Our contributions are three-fold: • Characterizing action-state consistency in WAMs. We show that action-state consistency is measurable across both joint-prediction and inverse-dynamics WAMs, and that it is strongly associated with task success. A simple classifier using normalized episode-level consistency scores predicts successful versus failed rollouts with AUCs of 0.77 and 0.88. • Identifying when consistency becomes unreliable. We uncover a failure mode, which we call 
+
+background collapse , where low-dynamics failed trajectories remain visually static or collapse toward background-like predictions, making them easy to predict and therefore deceptively consis-tent. We show that this mismatch is explained by temporal latent transition magnitude, providing a diagnostic signal for when consistency becomes less reliable. • Using consistency as a value-free test-time selection signal. We show that consistency follows similar success-failure trends as learned value predictions, suggesting that it can serve as a value-free ranking signal when no explicit value head is available. Consistency-guided selection improves average success rate from 66.6% to 67.3% on RoboCasa and from 90.2% to 93.0% on RoboTwin 2.0 , without additional reward modeling or training. Together, these results establish action-state consistency as both a reliability diagnostic for WAMs and a model-agnostic signal for guiding test-time decision making. 
+
+2 World Action Models and Action-State Consistency 
+
+WAMs aim to model both observations and actions in sequential decision-making. Let t denote the current timestep, o0: t the past of visual observations, qt the proprioceptive state, and G the task specification ( e.g ., a language instruction). The objective is to predict a future trajectory over a horizon ∆ consisting of future observations ot+1: t+∆ and actions at+1: t+∆ .
+
+Joint-Prediction WAMs. In the joint prediction formulation, adopted by models such as Cosmos-Policy [22] and FastWAM [40], the model directly parameterizes the full joint distribution: 
+
+p(ot+1: t+∆ , a t+1: t+∆ | o0: t, q t, G). (1) Future observations and actions are generated simultaneously within a unified model. This formulation can be interpreted as learning an implicit world simulator together with a policy. Consequently, the compatibility between actions and future observations is enforced implicitly through a shared latent representation, making consistency an intrinsic property of the model distribution. 
+
+Inverse-Dynamics WAMs. Another formulation makes the joint distribution into two components: 
+
+p(ot+1: t+∆ , a t+1: t+∆ | o0: t, q t, G) = p(ot+1: t+∆ | o0: t, q t, G)
+
+| {z }
+
+> world model
+
+p(at+1: t+∆ | o0: t+∆ , q t)
+
+| {z }
+
+> inverse dynamics
+
+. (2) 2This decomposition separates the prediction of future observations from action inference. Such a formulation is closely related to approaches such as LingBot-VA [ 25 ] and GigaWorld [ 38 ], where the model first predicts or samples future states and subsequently infers the actions required to realize them. In this view, actions are not jointly generated with futures but are derived from them, making the alignment between action and outcome an explicit modeling objective. A hybrid variant is adopted in models such as DreamZero [ 39 ], which perform joint prediction during training while implicitly relying on an inverse dynamics mechanism at inference time. For simplicity, we adopt Cosmos-Policy pretrained on RoboCasa [29 ] and LingBot-VA pretrained on RoboTwin 2.0 [9] as representative instances of the joint prediction and inverse dynamics formulations, respectively, for further study throughout the paper. 
+
+Measuring Action-State Consistency. We define action-state consistency as a scalar measure of how well the predicted future observations match the real observations obtained by executing the predicted actions in the environment. For each trajectory timestep t, we compute a consistency score that measures the similarity between the future observation and the real observation. Formally, given an observation ot, we define the consistency score ct at horizon ∆ as: 
+
+ct(ot+∆ , ˆot+∆ ) = exp   − α · d(ot+∆ , ˆot+∆ ), (3) where ˆot+∆ denotes the predicted observation, α is a scaling term 1, and d(·, ·) is a distance function. We adopt MSE as the distance metric computed in the latent space prior to VAE decoding, which avoids sensitivity to pixel-level variations [ 3, 41 ] and ensures that the action-state consistency reflects structural agreement in the decision-relevant feature space. 
+
+3 Characterizing Action-State Consistency 
+
+For a WAM to serve as a reliable basis for decision making, its predicted futures should remain faithful to the action-conditioned state transitions they are intended to represent. While prior work has primarily focused on improving predictive performance or downstream task success, the dynamic alignment between imagined futures and realized environment transitions remains under-examined. We study action-state consistency as a reliability criterion along three axes: 1. Emergence and Separability (3.1) : We examine whether consistency systematically separates successful and failed rollouts across tasks and models. 2. Boundary Conditions (3.2) : We identify when consistency becomes a less reliable indicator of task success, with a focus on the “background collapse” regime. 3. Alignment with Utility (3.3) : We examine whether consistency follows similar trends as learned value predictions, assessing its potential as a value-free signal for decision making. 
+
+3.1 Emergence and Separability 
+
+We first examine whether action-state consistency is systematically associated with task outcomes across different WAM formulations and task settings. This leads to our first research question: 
+
+RQ1: Do WAMs exhibit measurable action-state consistency, and how does this consistency vary across models, tasks, and outcomes? 
+
+To answer this, we analyze (1) whether consistency is systematically related to task success, and (2) 
+
+whether this relationship holds across diverse task settings. To enable comparisons across tasks with different consistency score ranges, we normalize consistency scores within each task. Specifically, for each task, we compute the mean and standard deviation of episode-level consistency and convert each episode into a z-score. This yields a task-independent measure that reflects how consistent an episode is relative to others within the same task. We then pool normalized scores across all tasks and compare their distributions for successful and failed trajectories.    
+
+> 1We use α= 0 .1by default. The specific value does not affect our conclusions, since consistency is only used as a relative ranking signal rather than an absolute calibrated score.
+
+3(a) Cosmos-Policy −4 −3 −2 −1 0 1 2 30.00.10.20.30.4 Cohen’s d = 0 .76 Success Failure (b) LingBot-VA −3 −2 −1 0 1 2 30.00.10.20.30.4 Cohen’s d = 0 .99 Success Failure 
+
+Figure 1: KDE plot of consistency vs. task outcome. The x-axis shows normalized consistency (z-score), and the y-axis shows density. Across both models, successful trajectories exhibit higher relative consistency compared to failed ones, as indicated by the effect sizes (Cohen’s d). 0.0 0.2 0.4 0.6 0.8 1.00.00.20.40.60.81.0
+
+> Chance Cosmos-Policy (AUC = 0 .77) LingBot-VA (AUC = 0 .88)
+
+Figure 2: ROC curves for success and failure prediction in aligned task set-tings. The x-axis denotes the false posi-tive rate, and the y-axis denotes the true positive rate. The results show that con-sistency can provide a predictive signal for task success in aligned task settings. As shown in Fig. 1, successful episodes are shifted to-ward higher normalized consistency scores, whereas failed episodes tend to receive lower scores. This trend holds across both joint prediction and inverse dynamics formu-lations. Quantitatively, the two groups are statistically well-separated: on the joint prediction setting we observe a medium-to-large effect size and on the inverse dynam-ics setting a large effect size with Cohen’s d of 0.76 and 0.99, respectively, both indicating that successful and failed episodes occupy meaningfully distinct regions of the nor-malized consistency-score distribution. We further provide per-task consistency scores in Appendix C.1, which show similar trends. Together, these results suggest that WAMs produce internally consistent predictions, and that this con-sistency is meaningfully related to task success. To further assess whether consistency provides a predic-tive signal of task outcomes, we train a simple logistic regression classifier using normalized consistency scores and perform 5-fold cross-validation to predict success or failure. We report this classifier analysis on the consistency-aligned tasks, where successful episodes have higher average consistency than failed episodes. 2 This ensures that the evaluated signal reflects a consistent relationship between prediction accuracy and task success. As shown in Fig. 2, consistency alone provides a strong predictive signal, achieving an AUC of 0.77 for Cosmos-Policy and 0.88 for LingBot-VA. This indicates that episodes with higher consistency scores are more likely to succeed, and that the separation observed in Figure 1 translates into meaningful predictive performance. These results demonstrate that, when aligned with task outcomes, consistency serves as an effective predictor of task performance. We also provide per-task results and analysis in Appendix C.2. 
+
+3.2 Boundary Conditions 
+
+While the previous section shows that action-state consistency generally separates successful and failed episodes, we also observe several tasks in Appendix C.1 where this trend is reversed. In these tasks ( e.g ., TurnOnSinkFaucet ), failed episodes can unexpectedly obtain higher consistency scores than successful ones. This motivates the following question: 
+
+RQ2: Under what conditions does action-state consistency fail to predict task success, and what factors explain this mismatch? 
+
+To study this phenomenon, we group tasks by whether consistency separates successful and failed episodes. A task is consistency-aligned if successful episodes obtain higher consistency scores than failures, and consistency-misaligned otherwise. Inspection of misaligned tasks reveals a common failure pattern, shown in Fig. 3: failed trajectories often exhibit a phenomenon we term background collapse , where the predicted scene becomes nearly static, object motion weakens, and actions make little visible progress. Although these episodes fail, their static predictions are trivially accurate, yielding deceptively high consistency scores. More examples are provided in Appendix I. 
+
+> 2Full per-task results, including weaker or reversed cases, are provided in Appendix C.2.
+
+4gap gap 
+
+> ... ...
+> ... ...
+
+background collapse 
+
+(a) Aligned (Failure with low consistency ) (b) Misaligned (Failure with high consistency )  
+
+> Real Real
+> Predicted Predicted
+
+Figure 3: Illustration of background collapse. We compare two failed trajectories. In (a) ,a consistency-aligned failure case with visible actions and continued scene changes. In (b) , a consistency-misaligned failure case, the predicted trajectory collapses toward a static background with minimal visible scene change, which can yield favorable consistency scores despite task failure. To validate this hypothesis, we quantify temporal scene change by the latent change magnitude. Let 
+
+zt be the latent representation at the trajectory state t; we define the latent change ∆zt:
+
+∆zt = d(zt, z t+∆ ). (4) Larger ∆zt indicates stronger motion, while smaller ∆zt corresponds to a nearly static scene. We show the relationship in Appendix D that the two quantities exhibit a negative correlation: smaller 
+
+∆zt tend to receive higher consistency scores and vice versa. Additionally, the two signals often evolve in opposite directions over time: when ∆zt rises, indicating stronger motion or larger state change, the consistency score typically falls; when ∆zt decreases, consistency tends to increase. This result helps explain misaligned tasks. In low-dynamics regimes, prediction becomes easier, so trivial forecasts, such as static backgrounds, can obtain high consistency scores despite not solving the task. In contrast, meaningful object interaction or rapid motion is harder to predict and may receive lower consistency scores even when behaviorally successful. This is further supported by Fig. 4, where misaligned tasks show smaller latent changes on average, suggesting that they are more dominated by low-motion or collapsed dynamics. 
+
+(a) Cosmos-Policy 0.0 0.2 0.4 0.6 0.8 1.020 40 60 80 100 120   
+
+> ∆zt
+> t=Aligned / Success Aligned / Failure Misaligned / Success Misaligned / Failure
+
+(b) LingBot-VA 0.0 0.2 0.4 0.6 0.8 1.025 50 75 100 125 150  
+
+> ∆zt
+> t=
+
+Figure 4: Decomposition of latent change across success and failure episodes. We compare latent change ( ∆zt) trajectories across Aligned and Misaligned tasks, further partitioned into Success and Failure episodes. Notably, Misaligned / Failure exhibits a rapid and severe drop in latent change over time. This supports the background-collapse explanation, where extremely low ∆zt cases can yield deceptively high consistency. Overall, these findings do not imply that action-state consistency breaks down as a useful signal. Rather, they show that consistency can be confounded by scene transition difficulty in a specific failure regime: once the model enters a stalled state, the later predicted trajectory may collapse toward a nearly static background, making failed rollouts artificially easy to predict. Since background collapse is observed mainly in later steps of misaligned failures , the policy can be seen as entering an unrecoverable regime early on. A natural mitigation is therefore to strengthen action selection at initial trajectory steps, reducing the likelihood of such failures propagating into collapsed predictions. In Appendix G, we show that stronger early-stage test-time selection indeed improves consistency and reduces the occurrence of background-collapse failures. 
+
+3.3 Alignment with Utility 
+
+After characterizing the properties of action-state consistency, we next investigate whether this signal can be connected to downstream outcomes. In many sequential decision-making tasks, reward is sparse and often only revealed at the terminal step, making it difficult to directly assess the quality of intermediate decisions. The value function addresses this challenge by estimating expected future 5return before the final outcome is observed. This naturally raises the question of whether consistency also carries information about future utility, and whether it can provide a value-free decision signal when an explicit value predictor is unavailable. Concretely, we study: 
+
+RQ3: Can action-state consistency serve as a value-free signal for downstream decision making, and how does it complement reward or value prediction? 0 10 20 30 40 50 60      
+
+> −0.10.00.10.20.30.40.5
+> t=
+> Value (Success −Failure) Consistency (Success −Failure)
+
+Figure 5: Comparison of value predic-tion and consistency over time. 
+
+To examine this question, we use Cosmos-Policy as the reference model, since it explicitly exposes value predic-tion outputs. We run different random seeds to obtain a distribution of rollouts, and then compare successful and failed trajectories of the same task by measuring the gap between them. Specifically, in Fig. 5, we report the differ-ence between successful and failed rollouts, i.e ., success minus failure, for both value prediction and consistency scores. The positive gap indicates that successful trajec-tories generally obtain larger predicted values and higher consistency scores. This separation is meaningful in two ways. First, the higher predicted values ( > 0) align with their larger discounted Monte Carlo returns, confirming that the value predictor is well-calibrated. Second, the similar positive gap observed for consistency suggests that it follows the same success-failure trend as value prediction. This finding provides a direct answer to RQ3: beyond measuring model reliability, consistency also captures information correlated with downstream utility. In practice, this suggests that consistency can serve as a decision-making signal when a WAM does not explicitly provide a value head. 
+
+4 Consistency-Guided Test-Time Selection 
+
+Many WAMs predict future observations and actions, but do not necessarily provide an explicit value prediction head. In such cases, selecting among candidate futures remains challenging because task rewards are sparse and typically observed only at episode termination. The diagnostic form of action-state consistency compares predicted futures with realized transitions, but directly using this signal for test-time selection would require executing each candidate branch. To obtain a deployable alternative, we also consider an internal proxy based on agreement among sampled future predictions. We compare value-based selection with two consistency-guided best-of-N strategies: environment-exploring selection and future-consensus selection. 11 22 33       
+
+> 2
+> (c) Consistency-Consensus
+> 1
+> 23
+> a
+> 112233
+> (a) Value-Prediction
+> 123
+> 2
+> 112233
+> forward
+> (b) Consistency-Exploring
+> Predicted Action Consistency
+> Branch Predicted Value
+> Predicted State Observed State
+
+Figure 6: Illustration of best-of-N test-time selection strategies. (a) Value-Prediction : each branch is scored by the model’s predicted value function, and the branch with the highest score is selected. (b) Consistency-Exploring : each candidate branch is executed from the same initial state, and the branch with the highest consistency score is selected. (c) Consistency-Consensus : candidate future states are aggregated into a shared consensus future, and the branch whose predicted future is most consistent with this consensus is selected. 
+
+4.1 Selection by Environment Exploring 
+
+The most direct way to use consistency for test-time scaling is to explicitly evaluate each candidate branch after execution. Given the current state, the world action model samples N candidate futures 6to obtain a sequence of actions and predicted future state {(ˆ a(i)
+
+> t+1: t+∆
+
+, ˆo(i)
+
+> t+∆
+
+)}Ni=1 . In the exploration setting, each branch is executed from the same initial state, producing an observed next observation 
+
+o(i)
+
+> t+∆
+
+. We then score each branch by its action-state consistency: 
+
+c(i) 
+
+> t
+
+= ct
+
+
+
+ˆo(i)
+
+> t+∆
+
+, o (i)
+
+> t+∆
+
+
+
+, (5) and select the branch with the highest score (illustrated in Fig. 6 (a)): 
+
+i⋆t = arg max   
+
+> i∈{ 1,...,N }
+
+c(i) 
+
+> t
+
+, at = ˆ a(i⋆t ) 
+
+> t
+
+. (6) This strategy estimates how well consistency can serve as a value signal. However, it assumes that the agent can reset to the same state and execute every candidate action, which is generally unavailable in real-world robotic settings. Therefore, we use this strategy primarily as an upper bound for measuring the potential of consistency-guided selection. 
+
+4.2 Selection by Future Consensus 
+
+Since environment rollout selection requires executing every candidate branch in the environment, it is impractical for real-world robotic deployment, where resetting to the same state is often unavailable or costly. We therefore seek a fully test-time strategy that approximates true action-state consistency without requiring environment resets or additional executions. Such a strategy should rely only on the model’s sampled predictions, allowing all candidate branches to be evaluated in parallel before committing to a single action. Our key assumption is that the consensus mean of predicted futures, ¯ot+∆ , provides a better approxi-mation to the true future observation than any individual sample, as averaging multiple predictions reduces the impact of individual prediction errors. Under this assumption, a branch whose predicted future lies closer to the consensus mean is more likely to also lie closer to the true future, and therefore more likely to achieve higher true consistency. This motivates scoring each branch by its agreement with the consensus future as a deployable proxy for action-state consistency. Formally, given N
+
+predicted observations, we first average all to compute a consensus future : 
+
+¯ot+∆ = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+ˆo(j)
+
+> t+∆
+
+. (7) Each branch is then scored by how consistent its predicted future is with the consensus: 
+
+c(i) 
+
+> t
+
+= ct
+
+
+
+ˆo(i)
+
+> t+∆
+
+, ¯ot+∆ 
+
+
+
+. (8) We then select the branch with the highest consensus score via winner-takes-all :
+
+i⋆t = arg max   
+
+> i∈{ 1,...,N }
+
+c(i) 
+
+> t
+
+, at = ˆ a(i⋆t ) 
+
+> t
+
+. (9) We prefer a winner-takes-all design over weighted action aggregation since robot actions do not always lie in a Euclidean space. Many control commands involve pose and rotation components associated with manifolds such as SE (3) or SO (3) , where naive linear averaging may distort the underlying motion structure. Moreover, different branches can represent distinct motion hypotheses, and averaging them may blur their intent into an action unsupported by any predicted future. We provide further discussion in Appendix F. 
+
+5 Experimental Evaluation 
+
+Setup. We conduct experiments with Cosmos-Policy [ 22 ] on RoboCasa [ 29 ] and LingBot-VA [ 25 ]on RoboTwin 2.0 [ 9 ], covering joint-prediction and inverse-dynamics WAM formulations, respec-tively. All experiments are run on 8 NVIDIA RTX 5090 GPUs. For test-time scaling (TTS), we use N = 8 candidate rollouts by default. Following the parallel GPU setup of Cosmos-Policy [ 22 ], candidate rollouts can be evaluated in parallel, so the additional wall-clock overhead is small in our implementation. Without parallelization, runtime scales approximately linearly with the number of candidates N . The overhead of computing selection weights and consistency scores is negligible, taking approximately 0.7 ms for N = 8 .75.1 Results on RoboCasa 
+
+Table 1: Results on RoboCasa. “∗” denotes our reim-plementation; all other results are taken from [ 22 ]. TTS 
+
+indicates test-time scaling. Method TTS Average SR (%) UVA [26] ✗ 50.0 DP-VLA [16] ✗ 57.3 UWM [45] ✗ 60.8                   
+
+> π0[6] ✗62.5 GR00T-N1.5 [5] ✗64.1 Video-Policy [27] ✗66.0 FLARE [44] ✗66.4 Cosmos-Policy ∗[22] ✗66.6 + Value-Prediction ∗✓67.4 + Consistency-Consensus ( ours )✓67.3 + Consistency-Exploring ( ours )✓68.0
+
+We follow the evaluation protocol of Cosmos-Policy [ 22 ] on RoboCasa [ 29 ], which contains 24 kitchen manipulation tasks performed by a single Franka Emika Panda robot arm. For each task, we evaluate 50 trials and report the average success rate. Table 1 shows that the consistency-guided test-time selection im-proves the reimplemented Cosmos-Policy baseline from 66.6% to 68.0%. The im-provement is modest but consistent with our central claim: action-state consistency can serve as a useful ranking signal even without an explicit value head. In particu-lar, Consistency-Consensus achieves a suc-cess rate of 67 .3% , nearly matching value-based selection ( 67 .4% ). Consistency-Exploring obtains the highest success rate ( 68 .0% ), as it directly executes and evaluates candidate branches in the environment, and therefore serves as an upper-bound strategy. Unlike value-based selection, Consistency-Consensus does not rely on a learned value predictor, making it the more practical variant for deployment. The qualitative result in Fig. 7(a) provides a more direct view of this effect. The original rollout fails when the predicted future no longer matches the realized object transition during manipulation. By contrast, Consistency-Consensus selects a branch whose predicted future is better supported by other sampled futures, yielding a higher consensus score, and leads to successful task completion. This suggests that consistency-guided selection can identify branches with more reliable action-conditioned consequences. More examples are provided in Appendix J. 
+
+5.2 Results on RoboTwin 2.0 
+
+Table 2: Results on RoboTwin 2.0. “∗” denotes our reimplementation; all other results are taken from [ 25 ]. 
+
+TTS indicates whether test-time scaling is applied. Method TTS Average SR (%) X-VLA [43] ✗ 72.9             
+
+> π0[6] ✗65.9
+> π0.5[19] ✗82.7 Motus [4] ✗88.7
+> ∗LingBot-VA [25] ✗90.2 + Consistency-Consensus ( ours )✓93.0
+
+We further evaluate consistency-guided se-lection on RoboTwin 2.0 [ 9 ], following the setup of LingBot-VA [ 25 ]. RoboTwin 2.0 contains over 50 bimanual manipulation tasks requiring coordinated dual-arm con-trol, providing a complementary testbed with a different embodiment and task struc-ture from RoboCasa. We run 10 trials per task and report the average success rate un-der the Easy setting, where each task uses a fixed initial configuration. The results in Table 2 show that Consistency-Consensus 
+
+improves the reimplemented LingBot-VA baseline from 90.2% to 93.0%, supporting our findings on RoboCasa. Notably, since LingBot-VA follows an inverse-dynamics formulation, this result demonstrates that consistency-guided selection generalizes beyond joint-prediction WAMs. Furthermore, as RoboTwin 2.0 does not provide a state-saving API, Consistency-Exploring cannot be evaluated; the improvement therefore comes entirely from the deployable Consistency-Consensus variant. The qualitative comparison in Fig. 7(b) further illustrates this effect. The original rollout fails to maintain the intended object-level progress, whereas Consistency-Consensus selects a branch whose predicted transition is better aligned with the realized coordinated motion. Additional examples are provided in Appendix J. 
+
+5.3 Scaling with Number of Candidates 
+
+As discussed in Section 3.2, misaligned failures often arise when the policy enters a stalled regime and later predictions collapse toward low-motion backgrounds. In Appendix G, we provide additional evidence that consistency-guided selection can mitigate this behavior by selecting better early-stage 8Predicted       
+
+> Real
+> Failure Success (Original) (Consistency-Consensus)
+> (a) Instruction: Pick the sweet potato from the plate and place it in the pan
+> Predicted
+> Real
+> (b) Instruction: Lift the laptop with black textured screen's lid using the left arm
+> Initial Few Steps
+> Cosmos-Policy LingBot-VA
+
+Figure 7: Comparison between original and consistency-guided selection. We compare the original selection strategy with our consistency-guided selection across two (a) Cosmos-Policy and 
+
+(b) LingBot-VA. Consistency-guided selection improves task execution by selecting action branches that better align predicted state transitions with the executed actions. actions, thereby helping the rollout avoid such collapsed regimes. This suggests that giving the selector more candidate futures at test time may further improve performance. n = 1 n = 2 n = 4 n = 8 
+
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> 66.6 90.2 66.7 92.0 67.1 92.8 67.3 93.0
+> Cosmos-Policy LingBot-VA
+
+Figure 8: Scaling consistency-guided selection with more candidate rollouts. Increasing the number of sampled candidates N improves the success rate for both models, showing that consistency provides an ef-fective test-time scaling signal. We therefore examine whether consistency-guided selection benefits from additional test-time computation. Specifically, we vary the number of sampled candidates as 
+
+N ∈ { 1, 2, 4, 8} for both Cosmos-Policy and LingBot-VA, and select actions using the Consistency-Consensus strategy. As shown in Fig. 8, increasing N improves the success rate for both models. This trend indicates that a consistency-guided strategy provides a meaningful ranking signal over sampled candidate futures: as more can-didates are available, the selector is more likely to find an action branch whose pre-dicted future is well supported by the sampled consensus. Overall, these results show that our proposed consistency-guided strategy benefits from test-time scaling. 
+
+6 Conclusion and Future Work 
+
+This work studies action-state consistency as a reliability axis for world action models (WAMs). Across joint-prediction and inverse-dynamics formulations, we show that consistency is strongly associated with task success, follows similar success-failure trends as learned value prediction, and provides a value-free signal for test-time selection. We also identify background collapse as a key failure mode, where low-dynamics failed trajectories can become deceptively consistent. These results suggest that WAM reliability should be evaluated not only by task reward, visual prediction quality, or value estimates, but also by whether predicted futures remain faithful to the action-conditioned transitions they represent. More broadly, action-state consistency points toward consistency-aware world action modeling. Future WAMs should not only predict actions or futures, but also expose whether their imagined futures are dynamically compatible with the actions being considered. By making the reliability of imagined consequences explicit, consistency-aware WAMs offer a path toward robot policies that can reason not only about what actions to take, but also about whether their predicted outcomes can be trusted before acting in the world. 9References 
+
+[1] Arslan Ali, Junjie Bai, Maciej Bala, Yogesh Balaji, Aaron Blakeman, Tiffany Cai, Jiaxin Cao, Tianshi Cao, Elizabeth Cha, Yu-Wei Chao, et al. World simulation with video foundation models for physical ai. arXiv preprint arXiv:2511.00062 , 2025. [2] Zechen Bai, Chen Gao, and Mike Zheng Shou. Evolve-vla: Test-time training from environment feedback for vision-language-action models. arXiv preprint arXiv:2512.14666 , 2025. [3] Adrien Bardes, Quentin Garrido, Jean Ponce, Xinlei Chen, Michael Rabbat, Yann LeCun, Mido Assran, and Nicolas Ballas. Revisiting feature prediction for learning visual representations from video. Transactions on Machine Learning Research , 2024. [4] Hongzhe Bi, Hengkai Tan, Shenghao Xie, Zeyuan Wang, Shuhe Huang, Haitian Liu, Ruowen Zhao, Yao Feng, Chendong Xiang, Yinze Rong, et al. Motus: A unified latent action world model. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2026. [5] Johan Bjorck, Fernando Castañeda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan, Yu Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. [6] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [7] Jake Bruce, Michael D Dennis, Ashley Edwards, Jack Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar, Richie Steigerwald, Chris Apps, Yusuf Aytar, Sarah Maria Elisabeth Bechtle, Feryal Behbahani, Stephanie C.Y. Chan, Nicolas Heess, Lucy Gonzalez, Simon Osindero, Sherjil Ozair, Scott Reed, Jingwei Zhang, Konrad Zolna, Jeff Clune, Nando De Freitas, Satinder Singh, and Tim Rocktäschel. Genie: Generative interactive environments. In International Conference on Machine Learning , volume 235, pages 4603–4623, 2024. [8] Jun Cen, Chaohui Yu, Hangjie Yuan, Yuming Jiang, Siteng Huang, Jiayan Guo, Xin Li, Yibing Song, Hao Luo, Fan Wang, et al. Worldvla: Towards autoregressive action world model. arXiv preprint arXiv:2506.21539 , 2025. [9] Tianxing Chen, Zanxin Chen, Baijun Chen, Zijian Cai, Yibin Liu, Zixuan Li, Qiwei Liang, Xianliang Lin, Yiheng Ge, Zhenyu Gu, et al. Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation. arXiv preprint arXiv:2506.18088 , 2025. [10] Mingtong Dai, Lingbo Liu, Yongjie Bai, Yang Liu, Zhouxia Wang, Rui Su, Chunjie Chen, Liang Lin, and Xinyu Wu. Rover: Robot reward model as test-time verifier for vision-language-action model. arXiv preprint arXiv:2510.10975 , 2025. [11] Wenkai Guo, Guanxing Lu, Haoyuan Deng, Zhenyu Wu, Yansong Tang, and Ziwei Wang. Vla-reasoner: Empowering vision-language-action models with reasoning via online monte carlo tree search. arXiv preprint arXiv:2509.22643 , 2025. [12] David Ha and Jürgen Schmidhuber. World models. In Conference on Neural Information Processing Systems , 2018. [13] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations , 2020. [14] Danijar Hafner, Timothy P Lillicrap, Mohammad Norouzi, and Jimmy Ba. Mastering atari with discrete world models. In International Conference on Learning Representations , 2021. [15] Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse control tasks through world models. Nature , 640(8059):647–653, 2025. [16] ByungOk Han, Jaehong Kim, and Jinhyeok Jang. A dual process vla: Efficient robotic manipulation leveraging vlm. arXiv preprint arXiv:2410.15549 , 2024. [17] Weidong Huang, Jiaming Ji, Chunhe Xia, Borong Zhang, and Yaodong Yang. Safedreamer: Safe reinforcement learning with world models. In International Conference on Learning Representations ,2024. [18] Physical Intelligence, Ali Amin, Raichelle Aniceto, Ashwin Balakrishna, Kevin Black, Ken Conley, Grace Connors, James Darpinian, Karan Dhabalia, Jared DiCarlo, et al. π∗
+
+> 0.6
+
+: a vla that learns from experience. 
+
+arXiv preprint arXiv:2511.14759 , 2025. 
+
+10 [19] Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, et al. π0.5: a vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 , 2025. [20] Suhyeok Jang, Dongyoung Kim, Changyeon Kim, Youngsuk Kim, and Jinwoo Shin. Verifier-free test-time sampling for vision language action models. arXiv preprint arXiv:2510.05681 , 2025. [21] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan P Foster, Pannag R Sanketi, Quan Vuong, et al. Openvla: An open-source vision-language-action model. In Conference on Robot Learning , pages 2679–2713, 2025. [22] Moo Jin Kim, Yihuai Gao, Tsung-Yi Lin, Yen-Chen Lin, Yunhao Ge, Grace Lam, Percy Liang, Shuran Song, Ming-Yu Liu, Chelsea Finn, and Jinwei Gu. Cosmos policy: Fine-tuning video models for visuomotor control and planning. In International Conference on Learning Representations , 2026. [23] Jacky Kwok, Xilun Zhang, Mengdi Xu, Yuejiang Liu, Azalia Mirhoseini, Chelsea Finn, and Marco Pavone. Scaling verification can be more effective than scaling policy learning for vision-language-action alignment. 
+
+arXiv preprint arXiv:2602.12281 , 2026. [24] Chenhao Li, Andreas Krause, and Marco Hutter. Robotic world model: A neural network simulator for robust policy optimization in robotics. In Conference on Neural Information Processing Systems Workshop on Embodied World Models for Decision Making , 2025. [25] Lin Li, Qihang Zhang, Yiming Luo, Shuai Yang, Ruilin Wang, Fei Han, Mingrui Yu, Zelin Gao, Nan Xue, Xing Zhu, et al. Causal world modeling for robot control. In Robotics: Science and Systems , 2026. [26] Shuang Li, Yihuai Gao, Dorsa Sadigh, and Shuran Song. Unified video action model. arXiv preprint arXiv:2503.00200 , 2025. [27] Junbang Liang, Pavel Tokmakov, Ruoshi Liu, Sruthi Sudhakar, Paarth Shah, Rares Ambrus, and Carl Vondrick. Video generators are robot policies. arXiv preprint arXiv:2508.00795 , 2025. [28] Lucas Maes, Quentin Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero. Leworldmodel: Stable end-to-end joint-embedding predictive architecture from pixels. arXiv preprint arXiv:2603.19312 ,2026. [29] Soroush Nasiriany, Abhiram Maddukuri, Lance Zhang, Adeet Parikh, Aaron Lo, Abhishek Joshi, Ajay Mandlekar, and Yuke Zhu. Robocasa: Large-scale simulation of everyday tasks for generalist robots. In 
+
+Robotics: Science and Systems , 2024. [30] OpenAI. Video generation models as world simulators. Technical report, OpenAI, 2024. URL https: //openai.com/index/video-generation-models-as-world-simulators/ .[31] Yiran Qin, Zhelun Shi, Jiwen Yu, Xijun Wang, Enshen Zhou, Lijun Li, Zhenfei Yin, Xihui Liu, Lu Sheng, Jing Shao, Lei Bai, and Ruimao Zhang. WorldSimBench: Towards video generation models as world simulators. In International Conference on Machine Learning , volume 267, pages 50338–50362, 2025. [32] Yu Shang, Xin Zhang, Yinzhou Tang, Lei Jin, Chen Gao, Wei Wu, and Yong Li. Roboscape: Physics-informed embodied world model. In Conference on Neural Information Processing Systems , 2026. [33] Robbyant Team, Zelin Gao, Qiuyu Wang, Yanhong Zeng, Jiapeng Zhu, Ka Leong Cheng, Yixuan Li, Hanlin Wang, Yinghao Xu, Shuailei Ma, et al. Advancing open-source world models. arXiv preprint arXiv:2601.20540 , 2026. [34] Yalcin Tur, Jalal Naghiyev, Haoquan Fang, Wei-Chuan Tsai, Jiafei Duan, Dieter Fox, and Ranjay Krishna. Recurrent-depth vla: Implicit test-time compute scaling of vision-language-action models via latent iterative reasoning. arXiv preprint arXiv:2602.07845 , 2026. [35] Yan Wang, Wenjie Luo, Junjie Bai, Yulong Cao, Tong Che, Ke Chen, Yuxiao Chen, Jenna Diamond, Yifan Ding, Wenhao Ding, et al. Alpamayo-r1: Bridging reasoning and action prediction for generalizable autonomous driving in the long tail. arXiv preprint arXiv:2511.00088 , 2025. [36] Jialong Wu, Shaofeng Yin, Ningya Feng, and Mingsheng Long. RLVR-world: Training world models with reinforcement learning. In Conference on Neural Information Processing Systems , 2025. [37] Philipp Wu, Alejandro Escontrela, Danijar Hafner, Pieter Abbeel, and Ken Goldberg. Daydreamer: World models for physical robot learning. In Conference on Robot Learning , pages 2226–2240, 2023. 
+
+11 [38] Angen Ye, Boyuan Wang, Chaojun Ni, Guan Huang, Guosheng Zhao, Hao Li, Hengtao Li, Jie Li, Jindi Lv, Jingyu Liu, et al. Gigaworld-policy: An efficient action-centered world–action model. arXiv preprint arXiv:2603.17240 , 2026. [39] Seonghyeon Ye, Yunhao Ge, Kaiyuan Zheng, Shenyuan Gao, Sihyun Yu, George Kurian, Suneel Indupuru, You Liang Tan, Chuning Zhu, Jiannan Xiang, et al. World action models are zero-shot policies. International Conference on Learning Representation Workshop of the 2nd Workshop on World Models: Understanding, Modelling and Scaling , 2026. [40] Tianyuan Yuan, Zibin Dong, Yicheng Liu, and Hang Zhao. Fast-wam: Do world action models need test-time future imagination? arXiv preprint arXiv:2603.16666 , 2026. [41] Jiahan Zhang, Muqing Jiang, Nanru Dai, TaiMing Lu, Arda Uzunoglu, Shunchi Zhang, Yana Wei, Jiahao Wang, Vishal M. Patel, Paul Pu Liang, Daniel Khashabi, Cheng Peng, Rama Chellappa, Tianmin Shu, Alan Yuille, Yilun Du, and Jieneng Chen. World-in-world: World models in a closed-loop world. In 
+
+International Conference on Learning Representations , 2026. [42] Ruicheng Zhang, Mingyang Zhang, Jun Zhou, Zhangrui Guo, Xiaofan Liu, Zunnan Xu, Zhizhou Zhong, Puxin Yan, Haocheng Luo, and Xiu Li. Mind-v: Hierarchical video generation for long-horizon robotic manipulation with rl-based physical alignment. arXiv preprint arXiv:2512.06628 , 2025. [43] Jinliang Zheng, Jianxiong Li, Zhihao Wang, Dongxiu Liu, Xirui Kang, Yuchun Feng, Yinan Zheng, Jiayin Zou, Yilun Chen, Jia Zeng, et al. X-vla: Soft-prompted transformer as scalable cross-embodiment vision-language-action model. arXiv preprint arXiv:2510.10274 , 2025. [44] Ruijie Zheng, Jing Wang, Scott Reed, Johan Bjorck, Yu Fang, Fengyuan Hu, Joel Jang, Kaushil Kundalia, Zongyu Lin, Loïc Magne, Avnish Narayan, You Liang Tan, Guanzhi Wang, Qi Wang, Jiannan Xiang, Yinzhen Xu, Seonghyeon Ye, Jan Kautz, Furong Huang, Yuke Zhu, and Linxi Fan. Flare: Robot learning with implicit world modeling. In Conference on Robot Learning , volume 305, pages 3952–3971, 2025. [45] Chuning Zhu, Raymond Yu, Siyuan Feng, Benjamin Burchfiel, Paarth Shah, and Abhishek Gupta. Unified world models: Coupling video and action diffusion for pretraining on large robotic datasets. arXiv preprint arXiv:2504.02792 , 2025. [46] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid, et al. RT-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning , pages 2165–2183, 2023. 
+
+12 Appendix 
+
+Content 
+
+A Implementation Details 14 B Related Work 14 C Per-Task Analysis 15 
+
+C.1 Consistency Score . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 C.2 ROC Curve . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 
+
+D Relationship between Motion Change and Consistency Score 16 E Algorithm of Consistency-Guided Test-Time Scaling Strategies 16 F Why Does Consensus Use Winner-Takes-All Selection? 18 G Mitigating Background Collapse 18 H Limitations and Failure Analysis 19 I Additional Examples of Background Collapse 19 J Additional Visualizations 20 K Additional Statements 20 
+
+K.1 Use of LLMs . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 K.2 Broader Impacts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 13 A Implementation Details 
+
+We follow the official evaluation and inference setups of Cosmos-Policy 3 and LingBot-VA 4 for all experiments. Unless otherwise specified, we set the number of sampled candidate branches for test-time scaling to N = 8 .
+
+B Related Work 
+
+World Models. World models [ 12 ] learn predictive representations of environment dynamics and provide a powerful foundation for planning, control, and embodied decision making. By modeling how the world evolves under actions, they allow agents to reason about future consequences before execution, enabling reinforcement learning [ 17 , 36 ], imagination-based planning [ 13 , 14 ], and data-efficient policy learning [ 15 ]. Recent advances further extend world models to high-dimensional visual domains, where generative models can predict future observations and capture rich physical regularities from large-scale video data [ 1, 7 , 28 , 30 , 31 , 33 ]. These capabilities make world models especially appealing for robotics, where agents must understand object motion, contact dynamics, and long-horizon scene evolution [ 24 , 32 , 37 , 42 ]. Building on this line of work, our paper studies world action models, which extend predictive world modeling by jointly modeling future observations and the actions that induce them. World Action Model (WAM) 
+
+> Model
+> Predicted Action Observed State
+> Predicted State Observed Action
+
+Figure 9: Illustration of the World Action Model (WAM). A WAM usually refers to a frame-prediction-based action model, where value predic-tion is optional for a best-of-N strategy. 
+
+World Action Models. Vision-language-action (VLA) models have emerged as a scalable paradigm for robot control by mapping visual observations and language instructions directly to executable actions [ 16 , 18 , 19 , 21 , 35 , 43 , 46 ]. By leveraging large-scale vision-language pretraining and robot demonstration data, these models provide a general interface for instruction-conditioned manipulation across diverse tasks and environments. However, direct action prediction alone does not explicitly represent the future consequences of an action, making it difficult to inspect whether an action is physically plausible or aligned with the intended task outcome. World action models (WAMs) build on this progress by extending action prediction with future observation prediction [ 4, 8, 22 , 25 , 38 – 40 ]. Instead of only asking what action should be taken, a WAM also asks what future state this action should induce. This joint prediction view makes the model’s internal prediction more interpretable and actionable: the generated future can support planning, candidate selection, and self-evaluation. In this work, we study this joint structure through action-state consistency, measuring whether the predicted action and future state agree with the transition observed after execution, and how this agreement relates to downstream task outcomes. 
+
+Test-Time Scaling for Robot Control. Test-time scaling has recently emerged as an effective way to improve robot policies by allocating additional computation during deployment. Instead of only scaling training data, model size, or optimization steps for VLA models, different methods have been proposed to sample and refine multiple candidate actions with learned verifiers [ 10 ], scale instruction rephrasing and action verification [ 23 ], select among candidates using internal confidence signals [ 20 ], perform search over imagined futures [ 11 ], refine actions through latent iterative computation [ 34 ], or adapt policies online from environment feedback [ 2]. For WAMs, Cosmos-Policy [ 22 ] proposes using predicted future states and a value head to perform best-of-n selection over generated candidates. These methods show that additional inference computation can improve robustness and task success, but they generally require some scoring signal, such as an external verifier, a learned value function, task-specific feedback, or model-specific confidence. In contrast, we aim to use the inner structure of WAMs together with environment observations to derive a direct test-time scoring signal. Since not 
+
+> 3https://github.com/nvlabs/cosmos-policy
+> 4https://github.com/robbyant/lingbot-va
+
+14 all WAMs include a value head, we show that action-state consistency can serve as a model-agnostic signal that can be directly applied across different WAMs. 
+
+C Per-Task Analysis 
+
+C.1 Consistency Score 
+
+In addition to the overall analysis in Section 3.1, we provide a per-task breakdown of consistency scores in Figure 10, comparing successful and failed episodes within each task. Across both Cosmos-Policy (RoboCasa) and LingBot-VA (RoboTwin 2.0), we observe that in most tasks, successful episodes exhibit a higher consistency score than failed ones. This trend is especially pronounced in some tasks, where the gap between success and failure is large ( e.g ., CloseDrawer ,
+
+pick diverse bottles . This suggests that future prediction is closely tied to results. However, the strength of this relationship varies across tasks. In a few cases, failed episodes exhibit comparable or lower error than successful ones ( e.g ., CoffeePressButton and place mouse pad ). As discussed in Section 3.2, these exceptions are largely explained by background collapse , where stalled low-motion episodes become easier to predict and can therefore receive favorable consistency scores. Overall, the per-task results further support consistency as a meaningful indicator of task progress, while motivating a deeper study of the conditions under which it becomes less reliable. 0.16 (44) 0.09 (6)     
+
+> CloseDoubleDoor (88%)
+> 0.41 (49) 0.01 (1)
+> CloseDrawer (98%)
+> 0.13 (49) 0.08 (1)
+> CloseSingleDoor (98%)
+> 0.28 (48) 0.30 (2)
+> CoffeePressButton (96%)
+> 0.22 (28) 0.15 (22)
+> CoffeeServeMug (56%)
+> 0.19 (17) 0.19 (33)
+> CoffeeSetupMug (34%)
+> 0.27 (46) 0.19 (4)
+> OpenDoubleDoor (92%)
+> 0.40 (47) 0.14 (3)
+> OpenDrawer (94%)
+> 0.24 (39) 0.13 (11)
+> OpenSingleDoor (78%)
+> 0.30 (14) 0.24 (36)
+> PnPCabToCounter (28%)
+> 0.36 (32) 0.24 (18)
+> PnPCounterToCab (64%)
+> 0.29 (15) 0.20 (35)
+> PnPCounterToMicrowave (30%)
+> 0.42 (30) 0.35 (20)
+> PnPCounterToSink (60%)
+> 0.31 (24) 0.23 (26)
+> PnPCounterToStove (48%)
+> 0.28 (20) 0.16 (30)
+> PnPMicrowaveToCounter (40%)
+> 0.42 (38) 0.25 (12)
+> PnPSinkToCounter (76%)
+> 0.29 (34) 0.19 (16)
+> PnPStoveToCounter (68%)
+> 0.37 (36) 0.36 (14)
+> TurnOffSinkFaucet (72%)
+> 0.33 (7) 0.29 (43)
+> TurnOffStove (14%)
+> 0.31 (38) 0.19 (12)
+> TurnOnMicrowave (76%)
+> 0.38 (32) 0.48 (18)
+> TurnOnSinkFaucet (64%)
+> 0.34 (26) 0.23 (24)
+> TurnOnStove (52%)
+> 0.33 (36) 0.31 (14)
+> TurnSinkSpout (72%)
+
+Success Failure 
+
+(a) Cosmos-Policy. Per-task consistency scores on RoboCasa, comparing successful and failed episodes. We show 23 out of 24 tasks. 0.21 (8) 0.31 (2) 
+
+> dump bin bigbin (80%)
+> 0.24 (9) 0.09 (1)
+> handover block (90%)
+> 0.15 (2) 0.08 (8)
+> hanging mug (20%)
+> 0.29 (9) 0.07 (1)
+> move can pot (90%)
+> 0.21 (4) 0.14 (6)
+> move stapler pad (40%)
+> 0.22 (9) 0.09 (1)
+> open laptop (90%)
+> 0.28 (8) 0.34 (2)
+> open microwave (80%)
+> 0.14 (9) 0.03 (1)
+> pick diverse bottles (90%)
+> 0.21 (9) 0.08 (1)
+> place a2b left (90%)
+> 0.21 (8) 0.10 (2)
+> place a2b right (80%)
+> 0.18 (9) 0.13 (1)
+> place bread basket (90%)
+> 0.10 (8) 0.04 (2)
+> place bread skillet (80%)
+> 0.18 (9) 0.08 (1)
+> place can basket (90%)
+> 0.09 (8) 0.04 (2)
+> place dual shoes (80%)
+> 0.16 (8) 0.09 (2)
+> place fan (80%)
+> 0.22 (9) 0.25 (1)
+> place mouse pad (90%)
+> 0.19 (8) 0.08 (2)
+> place object basket (80%)
+> 0.17 (9) 0.09 (1)
+> place shoe (90%)
+> 0.14 (8) 0.12 (2)
+> put bottles dustbin (80%)
+> 0.11 (8) 0.04 (2)
+> put object cabinet (80%)
+> 0.09 (9) 0.03 (1)
+> scan object (90%)
+> 0.23 (9) 0.15 (1)
+> stack bowls three (90%)
+> 0.24 (4) 0.21 (6)
+> turn switch (40%)
+
+(b) LingBot-VA. Per-task consistency scores on RoboTwin 2.0, comparing successful and failed episodes. We show 23 out of 50 tasks. 
+
+Figure 10: Consistency across tasks. We report per-task consistency scores for successful and failed episodes. Across most tasks, successful episodes exhibit a higher consistency score than failures. Tasks with full success are excluded for clearer comparison. 
+
+C.2 ROC Curve 
+
+We further report per-task ROC curves in Fig. 11 to analyze how the predictive power of consistency varies across tasks. We observe strong performance across many tasks, and the resulting AUC is 15 often high and can approach 1.0, indicating near-perfect separability. This is particularly evident in many manipulation tasks across both datasets (AUC > 0.9). For tasks with smaller consistency gaps, the corresponding AUC values are more moderate, reflecting weaker but still informative separation. In particular, tasks with AUC values near chance level (AUC 
+
+≈ 0.5) typically exhibit almost identical consistency scores between successful and failed episodes, making the two outcomes difficult to distinguish using consistency alone. As discussed in Section 3.2, this weak separation can often be traced to low-motion or background-collapse regimes, where failed episodes remain visually static and are therefore easy to predict. Overall, these results show that consistency provides a strong predictive signal for task success in many settings, while its effectiveness naturally depends on the extent to which future-state alignment reflects meaningful task progress. 
+
+(a) Cosmos-Policy 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> CoffeeSetupMug TurnOffSinkFaucet TurnOffStove PnPCabToCounter CoffeeServeMug TurnOnStove PnPCounterToSink CloseDoubleDoor CloseSingleDoor OpenDoubleDoor OpenSingleDoor PnPCounterToStove PnPCounterToCab PnPCounterToMicrowave PnPMicrowaveToCounter TurnOnMicrowave PnPStoveToCounter PnPSinkToCounter CloseDrawer OpenDrawer
+> 0.52 0.62 0.65 0.72 0.75 0.81 0.84 0.85 0.86 0.86 0.88 0.90 0.90 0.91 0.96 0.97 0.99 1.00 1.00 1.00
+> Chance AUC = 0 .7
+
+(b) LingBot-VA 0.0 0.2 0.4 0.6 0.8 1.0
+
+> turn switch place dual shoes place bread basket open laptop move stapler pad pick diverse bottles move can pot handover block place a2b right place a2b left place bread skillet place can basket place fan place object basket place shoe hanging mug put bottles dustbin put object cabinet scan object stack bowls three
+> 0.52 0.88 0.89 0.89 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+
+Figure 11: Per-task ROC curves. We include only tasks where successful episodes exhibit higher consistency than failed ones, to better analyze the predictive signal of consistency. 
+
+D Relationship between Motion Change and Consistency Score 
+
+Table 3: Correlation between latent change and consistency. 
+
+Model Pearson Spearman Cosmos-Policy −0.47 −0.46 
+
+LingBot-VA −0.35 −0.30 
+
+To further analyze how transition dynamics affect con-sistency, we examine the relationship between latent transition magnitude and consistency score. Before vi-sualization, both quantities are normalized into z-scores within each model to make their scales comparable. As shown in Fig. 12 and Table 3, the two variables exhibit a clear negative correlation: larger latent changes tend to correspond to lower consistency scores, while smaller latent changes tend to receive higher consis-tency scores. Beyond this relationship, the two signals also tend to evolve in opposite directions over time: when ∆zt rises, indicating stronger motion or larger state change, the consistency score typi-cally falls; when ∆zt decreases, consistency tends to increase. These results support our observation that consistency is affected by scene transition difficulty, with low-motion transitions being easier to predict consistently. 
+
+E Algorithm of Consistency-Guided Test-Time Scaling Strategies 
+
+We now describe two algorithms for using action-state consistency as a test-time scaling signal introduced in Section 4. At each decision step, the world action model samples N candidate branches, where each branch predicts both an action sequence and its resulting future observation. The first strategy, Consistency-Exploring , directly evaluates each branch through environment execution and selects the branch with the highest action-state consistency. The second strategy, Consistency-Consensus , avoids environment execution by scoring each branch according to its agreement with the consensus among predicted futures. The full procedures are summarized in Algorithms 1 and 2. 16 (a) Cosmos-Policy −2 0 2 4 6 8 10  
+
+> ∆zt
+> ct
+
+(b) LingBot-VA −2 −1 0 1 2 3            
+
+> ∆zt
+> ct0.00.20.40.60.81.0t=Latent change Consistency 0.00.20.40.60.81.0t=
+
+Figure 12: Relationship between latent change and consistency. (top) Plots showing that larger latent changes generally correspond to lower consistency scores across both models. (bottom) 
+
+Temporal traces showing that latent change and consistency often evolve in opposite directions over time. Together, these results suggest that low-dynamics transitions are easier to predict and therefore tend to receive higher consistency scores. 
+
+Notation. At timestep t, let the model produce N candidate branches {(ˆ a(i)
+
+> t+1: t+∆
+
+, ˆo(i)
+
+> t+∆
+
+)}Ni=1 ,where ˆa(i) 
+
+> t+1: t+∆
+
+is the predicted action and ˆo(i) 
+
+> t+∆
+
+is the predicted next observation of branch i. Let 
+
+ct(·, ·) denote the consistency score in Eq. (3). 
+
+Algorithm 1 Consistency-Exploring 
+
+Require: Current observation ot, number of branches N 
+
+> 1:
+
+Sample candidate branches {(ˆ a(i)
+
+> t+1: t+∆
+
+, ˆo(i)
+
+> t+∆
+
+)}Ni=1  
+
+> 2:
+
+for i = 1 to N do  
+
+> 3:
+
+Reset environment to state ot 
+
+> 4:
+
+Execute candidate action ˆa(i) 
+
+> t+1: t+∆
+> 5:
+
+Observe next state o(i) 
+
+> t+∆
+> 6:
+
+Compute score: c(i) 
+
+> t
+
+← ct(ˆ o(i)
+
+> t+∆
+
+, o (i)
+
+> t+∆
+
+) 
+
+> 7:
+
+end for  
+
+> 8:
+
+Select best branch: i⋆ ← arg max i c(i) 
+
+> t
+> 9:
+
+Reset environment to state ot 
+
+> 10:
+
+Execute ˆa(i⋆)
+
+> t+∆
+
+Algorithm 2 Consistency-Consensus 
+
+Require: Current observation ot, number of branches N 
+
+> 1:
+
+Sample candidate branches {(ˆ a(i)
+
+> t+1: t+∆
+
+, ˆo(i)
+
+> t+∆
+
+)}Ni=1  
+
+> 2:
+
+Compute consensus future: ¯ot+∆ ← 1
+
+> N
+
+PNi=1 ˆo(i) 
+
+> t+∆
+> 3:
+
+for i = 1 to N do  
+
+> 4:
+
+Compute agreement score: c(i) 
+
+> t
+
+← ct(ˆ o(i)
+
+> t+∆
+
+, ¯ot+∆ ) 
+
+> 5:
+
+end for  
+
+> 6:
+
+for i = 1 to N do  
+
+> 7:
+
+Compute weight: w(i) 
+
+> t
+
+← exp( c(i)      
+
+> t/τ )
+> P
+> jexp( c(j)
+> t/τ )
+> 8:
+
+end for  
+
+> 9:
+
+Select best branch: i⋆ ← arg max i w(i) 
+
+> t
+> 10:
+
+Execute ˆa(i⋆)
+
+> t+∆
+
+17 F Why Does Consensus Use Winner-Takes-All Selection? 
+
+A natural alternative to branch selection is to compute a weighted average of predicted actions using consensus scores. However, in our final design, we adopt winner-takes-all selection and directly execute the highest-scoring branch. Table 4: Winner-takes-all (WTA) vs. weighted consen-sus action aggregation. Di-rectly averaging actions de-grades success rate, while selecting the highest-scoring branch performs better. Method Average SR (%)     
+
+> Cosmos-Policy
+> + Weighted 64.9 + WTA 67.3 LingBot-VA
+> + Weighted 86.4 + WTA 93.0
+
+The main reason is that robot actions are not always represented in a globally linear space. Many control commands involve end-effector pose, orientation, or pose increments, where rotational components are naturally associated with nonlinear manifolds such as SO (3) or 
+
+SE (3) . In such cases, a naive Euclidean average of multiple can-didate actions may fail to preserve a physically meaningful motion command and can degrade performance. Even when the averaged action remains numerically valid, it can still be behaviorally inconsistent. Different branches often correspond to distinct motion hypotheses, such as approaching from different directions or selecting different grasp trajectories. Averaging these hypotheses may blur their intent and produce an action that is not supported by any predicted future. To verify this effect, we implement a weighted consensus baseline that converts consistency scores into normalized weights through a temperature-scaled softmax, and then averages the predicted actions: 
+
+at =
+
+> N
+
+X
+
+> i=1
+
+w(i) 
+
+> t
+
+ˆa(i) 
+
+> t
+
+, w(i) 
+
+> t
+
+= exp( c(i) 
+
+> t
+
+/τ )
+
+PNj=1 exp( c(j) 
+
+> t
+
+/τ ) , τ > 0. (10) We compare this design against winner-takes-all selection in Table 4. The results show that direct action averaging consistently underperforms selecting the highest-scoring branch, indicating that preserving the coherence of a single motion hypothesis is more effective than mixing multiple candidate actions. 
+
+G Mitigating Background Collapse 0.0 0.2 0.4 0.6 0.8 1.0     
+
+> −1.5
+> −1.0
+> −0.50.00.51.01.52.02.5
+> ∆zt
+> t=∆zHt−∆zLt
+> cHt−cLt
+> −0.20
+> −0.15
+> −0.10
+> −0.05 0.00 0.05 0.10
+> ct
+
+Figure 13: Mitigating background collapse through improved consistency. We compare original rollouts with lower success rate ( L) against consistency-guided rollouts with higher success rate ( H). Section 3.2 identifies background collapse as a failure mode in which predicted trajec-tories become nearly static after the policy enters a stalled regime. If this failure is partly caused by poor early action choices, then improving test-time action selection should reduce the chance of entering such low-dynamics states. We test this hypoth-esis by comparing lower-success vanilla rollouts with higher-success rollouts se-lected by consistency-guided exploration. As shown in Fig. 13, we plot the difference between the higher-success consistency-guided rollout ( H) and the lower-success vanilla rollout ( L), denoted as H−L. Pos-itive values indicate that the consistency-selected rollout exhibits a larger latent tran-sition magnitude or higher consistency than the vanilla rollout at the same timestep. As shown in the figure, these differences are mostly positive in the later stages of execution, where background collapse is more likely to occur. This suggests that consistency-guided selection helps preserve task-relevant dynamics, rather than allowing the rollout to collapse into static predictions. These results support our interpretation that better early-stage action selection can reduce the likelihood of entering background-collapse regimes. 18 H Limitations and Failure Analysis ... 
+
+> Cosmos-Policy
+> LingBot-VA
+> ...
+> (b) Turn switch (a) Turn on stove
+
+Figure 14: Failure cases of consistency-guided selec-tion having background collapse. 
+
+Although consistency provides a value-free test-time signal for ranking candidate branches, it does not directly correct fail-ures in the underlying world action model. For instance, background collapse can arise when the model predicts futures that pre-serve scene appearance while failing to capture task-relevant object interactions. Consistency-guided selection can mitigate this issue by choosing better candidate branches, but it cannot guarantee that col-lapsed futures will not occur, as shown in Fig. 14. Since this failure is largely rooted in training-time representation and dynamics learning, fully removing background collapse likely requires training-time interventions, such as stronger consistency supervision or data collection that emphasizes task retry under the failure scenarios. 
+
+I Additional Examples of Background Collapse 
+
+We provide additional qualitative examples of background collapse in Fig. 15 across both RoboCasa and RoboTwin 2.0. Background collapse refers to a degenerate prediction mode in which the generated future frames become nearly static, exhibit minimal scene change, or repeatedly preserve only the background while ignoring task-relevant object dynamics. This often occurs when the policy prematurely treats the task as complete and stops producing meaningful actions ( e.g ., case (b) and 
+
+(e) ), or when the manipulated object leaves the camera view and enters configurations that are poorly represented in the training distribution ( e.g ., case (d) ). ... ... 
+
+> Real
+> Predicted
+> (a) Pick the mug (b) Press the button
+> ... ...
+> Real
+> Predicted
+> (c) Open the door
+> ... ...
+> Real
+> Predicted
+> ... ...
+> (d) Hand over mic
+> ... ...
+> (e) Open the microwave
+> ... ...
+> (f) Press the stapler
+> Real
+> Predicted
+> Real
+> Predicted
+> Real
+> Predicted
+
+Figure 15: Additional Examples of Background Collapse. Qualitative examples from RoboCasa (left columns) and RoboTwin 2.0 (right columns). In consecutive predicted frames, such as tk and 
+
+tk+1 , the scene often becomes nearly static or preserves only background content while task-relevant object motion disappears. Such behavior can be identified most clearly by comparing consecutive predicted frames, such as tk
+
+and tk+1 , where little motion is observed despite the task not being successfully finished. In these cases, reduced temporal variation can artificially increase consistency scores, since static predictions are easier to match across steps. 19 We emphasize that background collapse is not exclusive to consistency-misaligned tasks and can also appear in consistency-aligned settings. However, tasks where consistency fails to align with success outcomes tend to exhibit this phenomenon more frequently, making collapse a common source of misleadingly favorable consistency scores. 
+
+J Additional Visualizations 
+
+We provide additional qualitative visualizations in Fig. 16 to illustrate how inconsistency between predicted and realized futures can affect task execution. These examples show that consistency errors often correspond to meaningful failure modes. For instance, the robot may predict that a door is closed when it is actually open, causing it to execute an inappropriate action and become stuck (a) .In other cases, the model may incorrectly predict that an object will be grasped (b) , that the arm can move without obstruction (c) , that a stamp will remain within the paper boundary (d) , or that a mug handle is properly aligned for hanging (e) . These discrepancies between predicted consequences and actual outcomes explain why consistency can serve as a useful signal for selecting among candidate actions. For cases (a) and (d) , we adopt a different robot view for better visualization. 
+
+K Additional Statements 
+
+K.1 Use of LLMs 
+
+We use large language models to support the writing process, specifically for paraphrasing and improving the flow and clarity of the text. The LLM is used as an editing aid to refine wording and smooth paragraph transitions, while the core ideas, analysis, and final content remained our own. 
+
+K.2 Broader Impacts 
+
+This work studies the properties of world action models for robotics and is primarily foundational rather than a deployed robotic system. Nevertheless, improved world action models could eventually support more capable autonomous robots, which may raise safety, security, and societal concerns if used in high-stakes or uncontrolled environments. Potential negative impacts include unsafe behavior caused by model errors, misuse for harmful automation or surveillance, and uneven performance across user groups or environments due to biased training or evaluation data. We mitigate these concerns by focusing on analysis rather than deployment, documenting limitations, and encouraging careful evaluation, monitoring, and human oversight before any real-world robotic use. 20 Failure Success (Original) (Consistency-Consensus) Initial Few Steps 
+
+> Predicted
+> Real
+
+(a) Instruction: Close the cabinet doors 
+
+> Cosmos-Policy
+> Predicted
+> Real
+> Cosmos-Policy
+
+(b) Instruction: Turn on the front-right burner of the stove 
+
+(c) Instruction: Turn off the sink faucet 
+
+> Real
+> Predicted
+> Cosmos-Policy
+
+(e) Instruction:  Lift the ceramic mug, twist it, set it back, and secure it onto the rack with two rods sticking out 
+
+> Real
+> Predicted
+> LingBot-VA
+
+(d) Instruction:  Set the stapler with red top on the blue mat with the left arm 
+
+> Real
+> Predicted
+> LingBot-VA
+
+Figure 16: Additional qualitative examples of success and failure results with consistency. The visualizations show that discrepancies between predicted and realized futures often correspond to task-relevant errors, such as incorrect object state, failed grasping, blocked motion, or misaligned placement. Cases (a) and (d) are shown from different robot views to better visualize the interaction. 21

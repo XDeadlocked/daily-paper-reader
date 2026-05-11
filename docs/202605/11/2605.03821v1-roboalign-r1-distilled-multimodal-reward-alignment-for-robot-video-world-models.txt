@@ -1,0 +1,2048 @@
+Title: RoboAlign-R1: Distilled Multimodal Reward Alignment for Robot Video World Models
+
+URL Source: https://arxiv.org/pdf/2605.03821v1
+
+Published Time: Wed, 06 May 2026 01:30:30 GMT
+
+Number of Pages: 52
+
+Markdown Content:
+# RoboAlign-R1: Distilled Multimodal Reward Alignment for Robot Video World Models 
+
+Hao Wu 1,6,∗, Yuqi Li 2,∗, Yuan Gao 6,∗, Fan Xu 3, Fan Zhang 3, Kun Wang 4, Penghao Zhao 1,
+
+Qiufeng Wang 1, Yizhou Zhao 5, Weiyan Wang 1, Yingli Tian 2, Xian Wu 1, Xiaomeng Huang 61Tencent, 2Department of Computer Science, City University of New York, 3Department of Computer Science and Engineering, The Chinese University of Hong Kong, 4School of Computer Science and Engineering, Nanyang Technological University, 5Department of Electrical and Computer Engineering, Carnegie Mellon University, 6Tsinghua University 
+
+> ∗
+
+Equal contribution. 
+
+Existing robot video world models are typically trained with low-level objectives such as reconstruction and perceptual similarity, which are poorly aligned with the capabilities that matter most for robot decision making, including instruction following, manipulation success, and physical plausibility. They also suffer from error accumulation in long-horizon autoregressive prediction. We present RoboAlign-R1 , a framework that combines reward-aligned post-training with stabilized long-horizon inference for robot video world models. We construct RobotWorldBench , a benchmark of 10,000 annotated video–instruction pairs collected from four robot data sources, and train a multimodal teacher judge, 
+
+RoboAlign-Judge , to provide fine-grained six-dimensional evaluation of generated videos. We then distill the teacher into a lightweight student reward model for efficient reinforcement-learning-based post-training. To reduce long-horizon rollout drift, we further introduce Sliding Window Re-encoding 
+
+(SWR), a training-free inference strategy that periodically refreshes the generation context. Under our in-domain evaluation protocol, RoboAlign-R1 improves the aggregate six-dimension score by 
+
+10 .1% over the strongest baseline, including gains of 7.5% on Manipulation Accuracy and 4.6% on Instruction Following; these ranking improvements are further supported by an external VLM-based cross-check and a blinded human study. Meanwhile, SWR improves long-horizon prediction quality with only about 1% additional latency, yielding a 2.8% gain in SSIM and a 9.8% reduction in LPIPS. Together, these results show that reward-aligned post-training and stabilized long-horizon decoding improve task consistency, physical realism, and long-horizon prediction quality in robot video world models. Codes are available. 
+
+Correspondence: Xiaomeng Huang hxm@tsinghua.edu.cn 
+
+z Date: May 6, 2026 
+
+§ Code: https://github.com/Alexander-wu/RoboAlign_R1 
+
+ Project Page: alexander-wu.github.io/RoboAlign_R1 
+
+# 1 Introduction 
+
+Robot video world models are becoming an important component of embodied intelligence because they predict how scenes may evolve under candidate actions before executing them in the real world Ha and Schmidhuber (2018); Ni et al. (2025); Brooks et al. (2024). As learnable internal simulators, they support planning, policy evaluation, and long-horizon reasoning Tan et al. (2026); Hansen et al. (2023); Li et al. (2024). Unlike generic video generation, robot world models must capture action-conditioned dynamics, contacts, and scene evolution so that predicted futures remain consistent with manipulation outcomes and are useful for control Li et al. (2025); Wu et al. (2025). This requirement makes it challenging to achieve visual fidelity, task consistency, and physical plausibility simultaneously Barcellona et al. (2024); Pang et al. (2025). However, most existing robot video world models Wu et al. (2025); Huang et al. (2025); Mao et al. (2025); Ding et al. (2025) are trained with maximum-likelihood, reconstruction, or perceptual objectives. These 1   
+
+> arXiv:2605.03821v1 [cs.RO] 5 May 2026 Figure 1 Overview of RoboAlign-R1. RobotWorldBench provides robot-centric benchmark statistics and fine-grained annotations for training a multimodal teacher judge. The teacher is distilled into a lightweight student reward model for efficient reinforcement-learning-based post-training of robot video world models. In parallel, a sliding-window re-encoding strategy stabilizes long-horizon autoregressive rollouts by periodically refreshing the visual context during inference.
+
+losses optimize statistical similarity rather than decision-making utility, leading to a fundamental mismatch: a prediction can be visually accurate yet task-incorrect or physically implausible. This gap becomes more pronounced in long-horizon generation, where small errors accumulate and task-level correctness dominates frame-level similarity. Recent efforts to address this issue via reinforcement learning still rely largely on low-level rewards such as MSE, LPIPS, or SSIM. While efficient, these metrics fail to capture high-level properties critical for robot reasoning, including instruction following, manipulation success, and physically consistent interactions Wu et al. (2025); Xiong et al. (2026). As a result, current training objectives remain poorly aligned with the capabilities that matter most for downstream control. These limitations highlight two key challenges. 1) reward misalignment : low-level metrics are scalable but weak, while stronger multimodal evaluators are computationally prohibitive for online optimization. 2) 
+
+long-horizon drift : autoregressive generation accumulates errors over time, degrading physical realism and task consistency Xiao et al. (2023). To address these challenges, we propose RoboAlign-R1 , a unified framework for improving both training-time alignment and inference-time stability in robot video world models (Figure 1). Our approach introduces a distilled multimodal reward that aligns model optimization with task-level objectives, and a sliding window re-encoding (SWR) strategy that mitigates long-horizon error accumulation during inference. Specifically, we construct RobotWorldBench , a large-scale benchmark of 10 K annotated video–instruction pairs curated from four robot datasets. Using this data, we train a multimodal teacher model ( RoboAlign-Judge ) that provides fine-grained, multi-dimensional evaluation of generated videos. We then distill this teacher into a lightweight student reward model, enabling efficient reinforcement-learning-based post-training. Complementing this, SWR periodically refreshes the autoregressive context without retraining, improving long-horizon prediction quality with minimal overhead. Our contributions are threefold: 
+
+❶ Reward-aligned training framework. We introduce RoboAlign-R1 , which replaces weak low-level online rewards with a distilled multimodal reward aligned with task success. This improves aggregate in-domain evaluation performance by +10 .1% over the strongest baseline while reducing online reward cost by over 210 ×, with gains validated by both VLM-based evaluation and blinded human studies. 
+
+❷ Benchmark and scalable reward distillation. We build RobotWorldBench , a dataset of 10 K annotated video–instruction pairs from four robot datasets, and a teacher–student distillation pipeline that compresses an 8B multimodal judge into a 98 M reward model running at ∼50 videos/sec. 
+
+❸ Stable long-horizon inference. We propose sliding window re-encoding, a training-free decoding strategy that mitigates autoregressive drift by refreshing context during rollout. SWR improves long-horizon quality with minimal overhead, yielding +2 .8% SSIM, +0 .62 dB PSNR, and −9.8% LPIPS at about 1% additional latency, with a 12.2% reduction in ROI-LPIPS. 
+
+# 2 Related Work 
+
+The relevant technical background is as follows; the full stack context can be found in Appendix A. 
+
+Robot Video World Models and RL Post-Training . World models act as internal simulators for planning and long-horizon decision making by predicting future observations under candidate actions Ha and Schmidhuber (2018); Hansen et al. (2023). Recent advances in video generation and embodied learning have led to growing interest in robot video world models for modeling manipulation dynamics, interaction outcomes, and future observations Brooks et al. (2024); Bruce et al. (2024); Yang et al. (2023); Zhou et al. (2024); Huang et al. (2025); Mao et al. (2025); Zhang et al. (2025); Ding et al. (2025). Most existing methods, however, still focus on generation or representation quality and are trained with maximum-likelihood, reconstruction, or perceptual objectives Zhang et al. (2025); Ding et al. (2025); Mathieu et al. (2015); Zhang et al. (2018); Wang et al. (2004). Recent work has explored RL-based post-training for world models Wu et al. (2025); Prabhudesai et al. (2024); Anonymous (2026), but current rewards remain largely low-level or verifiable, such as reconstruction and perceptual similarity, which are weak proxies for instruction following, physical plausibility, and long-horizon outcome correctness Wu et al. (2025, 2024a); Wang et al. (2025); Anonymous (2026). Similar issues appear in physical spatiotemporal forecasting, where reconstruction-based training often produces oversmoothed predictions and misses rare but decision-relevant events Ravuri et al. (2021); Finn et al. (2016); Wang et al. (2025). In addition, autoregressive token-based world models suffer from long-horizon error accumulation at inference time Yan et al. (2021); Xiao et al. (2023); Wu et al. (2024b); Wang et al. (2022). Our work studies reward-aligned post-training together with a simple strategy for stabilizing long-horizon rollouts. 
+
+Multimodal Judges and Rewards . Recent work has explored multimodal evaluators and reward models for video understanding and generation Huang et al. (2024); He et al. (2024); Xiong et al. (2025). Compared with low-level visual metrics, these judges provide supervision that better reflects instruction following, physical plausibility, and higher-level video consistency Li et al. (2025); Xiong et al. (2026); Huang et al. (2024); He et al. (2024). However, their cost and latency make them difficult to use directly as online rewards in reinforcement learning Li et al. (2025); He et al. (2024); Xiong et al. (2026). RoboAlign-R1 follows this direction, but targets robot video world models and distills multimodal judgment into a lightweight reward model for online reinforcement learning. 
+
+# 3 Method 
+
+RoboAlign-R1 addresses two key challenges in robot video world models: reward misalignment during training and error accumulation during inference. RoboAlign-R1 unifies reward-aligned post-training and stabilized long-horizon decoding within a single framework. 
+
+## 3.1 Token-Based Robot Video World Model 
+
+Our backbone (Figure 2) follows the tokenize–predict–decode paradigm. A dual-branch visual tokenizer 
+
+Tvis = ( Ec, E d) maps a short clip to discrete tokens: Ec encodes a conditioning frame into Nc context tokens 
+
+3Figure 2 Token-based robot video world model. (a) Training: a dual-branch FSQ tokenizer produces context tokens c       
+
+> and dynamics tokens dt; discretized action tokens are interleaved and modeled by a 12-layer LLaMA Transformer with loss on dynamics tokens only. (b) Inference: context tokens are encoded once and cached; the model autoregressively predicts ˆdt+1 and triggers sliding-window re-encoding every Wsteps.
+
+zctx , while Ed, cross-attended to Ec’s feature pyramid, encodes each observation frame into Nd dynamics tokens zdyn  
+
+> t
+
+carrying only residual change. Robot actions at ∈ Rda are discretized into action-token blocks 
+
+ˆat and interleaved with visual tokens, forming a unified sequence s = [ zctx , z dyn 1 , ˆa1, z dyn 2 , ˆa2, . . . ] (sizes 
+
+Nc= 1280 , Nd= 80 , vocabulary K= 4375 ; see Appendix B). A causal Transformer then models this sequence via standard next-token prediction: 
+
+LAR = −
+
+> T
+
+∑
+
+> t=1
+
+log pθ
+
+(zdyn  
+
+> t
+
+| zctx , z dyn  
+
+> <t
+
+, ˆa≤t
+
+). (1) At inference time the predicted tokens ˆzdyn 1: T are decoded back to pixels via ˆx1: T = Dvis (zctx , ˆzdyn 1: T ). The resulting rollout is used for both reward-aligned post-training (§3.2) and sliding-window re-encoding (§3.3). In our implementation, a dual-branch FSQ tokenizer Mentzer et al. (2024); Wu et al. (2024b) encodes the conditioning frame into context tokens and each subsequent observation into dynamics tokens, while continuous actions are normalized, uniformly binned, and assigned a disjoint vocabulary range. A 12 -layer LLaMA decoder models the interleaved sequence under a causal mask with loss applied only to dynamics tokens. During inference, context tokens are encoded once and cached, and sliding-window re-encoding is triggered every W steps. More technical details can be found in Appendix B. 
+
+## 3.2 Reward-Aligned Post-Training 
+
+The pre-training objective (Eq. 1) captures surface-level statistical regularity but is agnostic to instruction following, physical plausibility, and action–outcome consistency. We close this gap via RL post-training with a structured multimodal reward, obtained in three stages: benchmark construction, teacher training, and reward distillation. 
+
+RobotWorldBench. Let l denote an instruction and v+ a ground-truth manipulation video from established datasets. RobotWorldBench begins from a candidate pool drawn from four robot datasets and combines two 4annotation sources: rule-based degradations of ground-truth episodes and generated videos from open-source image-to-video or world-model baselines. From this pool we curate 10,000 annotated video–instruction pairs for judge training and reward distillation. Each retained pair (l, v ) is annotated with a raw score vector 
+
+r = ( r1, . . . , r 6) along six dimensions instruction following , manipulation success , action–outcome consistency ,
+
+temporal consistency , contact realism , and physics adherence using the original rubric ranges [3 , 2, 1, 1, 1, 2] ,yielding 
+
+Dbench = { (li, v i, ri)}Ni=1 . (2) 
+
+Multimodal teacher judge. We fine-tune Qwen 3-VL-8B-Thinking Bai et al. (2025) as the teacher judge 
+
+fϕ. Given (l, v ), the teacher produces structured raw scores ˆr = fϕ(l, v ) in the same six-dimensional rubric space as r via supervised fine-tuning on Dbench :
+
+Lteacher = − E(l,v, r) ∼ D bench 
+
+[log pϕ(r | l, v )]. (3) 
+
+Student reward distillation. The teacher’s autoregressive decoding cost precludes its use as an online RL reward. We distill its judgments into a lightweight student gψ —a compact visual–text encoder followed by a sigmoid-activated head emitting gψ (l, v ) ∈ [0 , 1] 6. The distillation set Ddistill mixes annotated benchmark videos with teacher-scored rollouts from baseline/current world models. Teacher raw scores fϕ(l, v ) are normalized dimension-wise via ˜sk = [ fϕ(l, v )] k/r max  
+
+> k
+
+with rmax  
+
+> k
+
+∈ { 3, 2, 1, 1, 1, 2} so both sides of the regression share the same [0 , 1] scale: 
+
+Ldistill = E(l,v ) ∼ D distill 
+
+> 6
+
+∑
+
+> k=1
+
+λk Huber δh
+
+([gψ (l, v )] k, ˜sk(l, v )), (4) with Huber threshold δh = 0 .5 (distinct from the quantization δq of Appendix C) and per-dimension balancing weights {λk} (Appendix E); these differ from the reward-aggregation weights {wk} in Eq. 5. To counter reward hacking from distributional shift, we use online iterative distillation : every K policy updates, fresh rollouts are re-scored by the teacher to refresh the student. 
+
+RL post-training with GRPO. The distilled student provides a composite reward over the six dimensions: 
+
+R(ˆ x1: T ) = 
+
+> 6
+
+∑
+
+> k=1
+
+wk
+
+[gψ (l, ˆx1: T )]
+
+> k
+
+, (5) where [gψ ]k ∈ [0 , 1] are the student’s normalized scores (same scale as in Eq. 4) and {wk} are importance weights. We post-train with GRPO Shao et al. (2024); Wu et al. (2025): given a group of G rollouts 
+
+{ˆx(j)}Gj=1 ∼ pθ , the group-normalized advantage is 
+
+A(j) = R(ˆx(j)) − mean j R
+
+std j R , (6) and the clipped policy-gradient objective reads 
+
+LGRPO = − E
+
+[
+
+1
+
+G
+
+> G
+
+∑
+
+> j=1
+
+min 
+
+(
+
+ρ(j)A(j), clip (ρ(j), 1−ϵ, 1+ ϵ) A(j))]
+
++ β D KL 
+
+(pθ
+
+∥∥ pθ0
+
+), (7) where ρ(j) = pθ ( ˆx(j))/p θold ( ˆx(j)) with θold synchronized to θ at each GRPO iteration, and pθ0 is the frozen pre-trained reference used for KL regularization. The student scores each rollout in one forward pass, reducing reward cost by over 10 × relative to the teacher while preserving high-level judgment fidelity. 
+
+## 3.3 Sliding Window Re-encoding 
+
+Under standard autoregressive decoding, each dynamics-token block ˆzdyn  
+
+> t
+
+is conditioned on all previously 
+
+predicted tokens, so per-step errors compound and progressively degrade long-horizon rollouts. Inspired by the attention-sink mechanism of StreamingLLM Xiao et al. (2023) in the language domain, we introduce a training-free decoding strategy that periodically decodes recent predictions to pixel space and re-encodes them as fresh context, which can limit the carry-over of token-level drift across segments (Figure 3). 5Figure 3 Sliding window re-encoding. Top: analogy to StreamingLLM Xiao et al. (2023), which retains an attention sink and a sliding KV-cache window in the language domain. Bottom: our approach periodically decodes the last predicted frame to pixel space, re-encodes it as fresh context tokens, and resets the autoregressive prompt, empirically limiting long-horizon drift while keeping the active KV-cache bounded by O(W ). Right: technical details of a single refresh step. 
+
+Segmented generation. A rollout of T frames is partitioned into K = ⌈T /W ⌉ segments of window size W
+
+(Figure 3, right). Within segment k, the model generates W dynamics-token blocks from context zctx  
+
+> k
+
+:
+
+ˆzdyn (k−1) W +1: kW ∼
+
+> kW
+
+∏ 
+
+> t=( k−1) W+1
+
+pθ
+
+(zdyn  
+
+> t
+
+| zctx  
+
+> k
+
+, ˆzdyn  
+
+> <t
+
+, ˆa≤t
+
+), (8) where zctx 1 is the original context encoding of the first conditioning frame. 
+
+Context refresh. At each segment boundary, the last predicted frame is decoded to pixel space and re-encoded as fresh context for the next segment (Figure 3, right): 
+
+ˆxkW = [Dvis 
+
+(zctx  
+
+> k
+
+, ˆzdyn (k−1) W +1: kW 
+
+)]  
+
+> t=kW
+
+, (zctx 
+
+> k+1
+
+, z dyn 0
+
+) = Tvis 
+
+(ˆxkW 
+
+), (9) where ˆxkW serves as both the new conditioning frame for Ec and a length-one dynamic clip for Ed; zdyn 0
+
+seeds the next segment’s prompt (Appendix B.2). This decode–re-encode cycle makes subsequent predictions depend on the current decoded frame rather than the entire raw token history. 
+
+Stylized stability analysis. We provide a simplified local error analysis that explains the qualitative window-size trade-off, rather than predicting exact gains. Let ε upper-bound the per-step token-space prediction error, δq the decode–re-encode quantization error, and α ∈ [0 , 1) a local contraction factor on within-segment context-error amplification (precise assumptions in Appendix C). 
+
+Proposition 1. Under the stylized model above, sliding-window re-encoding with window size W yields the bound 
+
+ESWR (T ) ≤ W ε + W ε + δq
+
+1 − αW , ∀ T, (10) 
+
+which does not grow explicitly with T ; the α → 0 limit simplifies to 2W ε + δq . By contrast, vanilla AR without refresh admits a worst-case bound of order ε/ (1 − α), which blows up as α → 1 and degrades to O(T ε ) in the non-contractive regime. Proof sketch. Within segment k the context is fixed, so errors accumulate for ≤ W steps, giving ≤ W ε +αW ηk
+
+where ηk is the context error. The boundary cycle (Eq. 9) refreshes context at a one-time cost δq , so 
+
+ηk+1 ≤ W ε + αW ηk + δq converges to η∗ = ( W ε + δq )/(1 − αW ); see Appendix C. 6Remark 1 (Role of α and choice of W ). Smaller W tightens the within-segment term W ε but pays more 
+
+δq per refresh; larger W leaves more room for within-segment drift. Our ablation (Table 3) shows W = 6 hits the best balance. 
+
+# 4 Experiments 
+
+Datasets. We evaluate RoboAlign-R1 on RT-1 Brohan et al. (2023) and BridgeData V2 Walke et al. (2023) in the main rollout experiments. RobotWorldBench draws candidate tasks and videos from four robot datasets, including RT-1, BridgeData V2, CALVIN Mees et al. (2022), and LIBERO Liu et al. (2024), and uses 10,000 annotated video–instruction pairs for judge training and reward distillation. 
+
+Baselines. We compare RoboAlign-R1 with three groups of approaches: closed-source video generation models, open-source video generation models, and embodied world models. Additional details are deferred to the Table 26. 
+
+Evaluation Metrics. We report both semantic/physical alignment metrics and pixel-level reconstruction metrics. The former are scored by RoboAlign-Judge over six dimensions and should be interpreted as an in-domain automated proxy rather than a substitute for large-scale human evaluation. We additionally report an external VLM-based cross-check and a small-scale blinded human study on held-out subsets to test whether the main ranking is preserved beyond the in-domain judge (Appendix J.7 and Appendix J.8). The pixel-level metrics include standard global measures and motion-mask-based ROI metrics; details are provided in Appendix I. 
+
+Implementation Details. RoboAlign-R1 is implemented in PyTorch, and all training and evaluation are conducted on NVIDIA A100 GPUs. In the RL stage, we adopt GRPO and distill the fine-tuned RoboAlign-Judge into a lightweight reward model. 
+
+## 4.1 RQ1: Does RoboAlign-R1 Achieve State-of-the-Art World-Model Quality? 
+
+Quantitative results. Tables 1–2 show that RoboAlign-R1 achieves the best overall performance under our evaluation protocol. It reaches an aggregate RoboAlign-Judge score of 8.52 ±0.15 , exceeding the strongest baseline iVideoGPT ( 7.74 ±0.62 ) by +10 .1% with 75 .8% lower standard deviation, while improving all six judged dimensions and surpassing all closed-source commercial models (e.g., Kling 2.6: 6.84 ) despite far fewer parameters. On low-level metrics, RoboAlign-R1 is also strongest on both datasets, reducing LPIPS by 4.9% on RT-1 and MSE by 8.7% on BridgeData V2 relative to the respective runners-up. The main ranking is preserved by the external VLM-based validation (Appendix J.7) and the blinded human study (Appendix J.8). 
+
+Qualitative analysis. Figures 4–5 show representative comparisons. RoboAlign-R1 produces more coherent manipulation sequences with accurate grasping and stable contact geometry. In contrast, iVideoGPT often produces blurry details, while Wan2.2-TI2V-5B (LoRA) struggles with temporal coherence and occa-sionally hallucinates object deformation. Across RT-1 and BridgeData V2, RoboAlign-R1 better preserves texture, shadows, and background stability, consistent with the quantitative gains above. 
+
+## 4.2 RQ2: Do Distilled Multimodal Rewards Outperform Low-Level Alternatives? 
+
+We compare the distilled multimodal student reward with low-level alternatives under matched RL post-training settings. Figure 6(a) shows that the student reward performs best on all six semantic and physical dimensions on RobotWorldBench , reaching the highest aggregate score ( 8.52 , +33 .8% over the best single-metric reward baseline, LPIPS). Figure 6(b)–(e) further shows that it also yields the best full-rollout low-level metrics on both RT-1 and BridgeData V2. Overall, the distilled reward is better aligned with our in-domain evaluator and remains beneficial to pixel fidelity. 7Table 1 Robot world-model performance on RobotWorldBench (mean ± std.). 
+
+Method Task Alignment Physical Realism Total Instr. ↑ Manip. ↑ Act.-Out. ↑ Temp. ↑ Contact ↑ Phys. ↑ ↑
+
+Real videos 3.0 2.0 1.0 1.0 1.0 2.0 10.0 
+
+Closed video models 
+
+Kling 2.6 2.42 ±0.09 3 1.38 ±0.10 3 0.46 ±0.08 0.58 ±0.07 3 0.82 ±0.06 1.18 ±0.11 6.84 ±0.22 3
+
+Runway Gen-4.5 2.34 ±0.10 1.29 ±0.09 0.43 ±0.07 0.55 ±0.08 0.79 ±0.06 1.12 ±0.10 6.52 ±0.24 
+
+MiniMax Hailuo 02 2.18 ±0.11 1.17 ±0.10 0.38 ±0.07 0.47 ±0.09 0.71 ±0.08 1.01 ±0.12 5.92 ±0.28 
+
+Luma Dream Machine 2.03 ±0.12 1.08 ±0.11 0.35 ±0.08 0.44 ±0.09 0.69 ±0.08 0.92 ±0.12 5.51 ±0.30 
+
+Open video models 
+
+HunyuanVideo-I2V 1.20 ±0.28 0.40 ±0.22 0.24 ±0.08 0.56 ±0.15 0.96 ±0.08 3 1.56 ±0.15 2 4.92 ±0.63 
+
+LTX-Video 2.28 ±0.07 1.32 ±0.07 0.52 ±0.07 3 0.26 ±0.05 0.28 ±0.10 1.00 ±0.18 5.66 ±0.36 
+
+Stable Video Diffusion XT 1.84 ±0.15 0.98 ±0.13 0.46 ±0.08 0.06 ±0.08 0.36 ±0.20 0.58 ±0.20 4.28 ±0.74 
+
+Mochi-1 1.83 ±0.12 0.91 ±0.10 0.31 ±0.07 0.39 ±0.08 0.61 ±0.07 0.82 ±0.11 4.87 ±0.29 
+
+I2VGen-XL 1.56 ±0.15 0.66 ±0.14 0.32 ±0.04 0.00 ±0.00 0.44 ±0.19 0.56 ±0.16 3.54 ±0.57 
+
+CogVideoX-I2V 1.94 ±0.21 1.00 ±0.14 0.40 ±0.18 0.42 ±0.16 0.92 ±0.07 1.24 ±0.19 5.92 ±0.75 
+
+OpenSora-I2V 1.58 ±0.13 0.82 ±0.11 0.27 ±0.06 0.31 ±0.07 0.53 ±0.08 0.71 ±0.10 4.22 ±0.30 
+
+OpenSora-Plan-I2V 1.79 ±0.12 0.89 ±0.10 0.30 ±0.07 0.37 ±0.08 0.60 ±0.08 0.81 ±0.11 4.76 ±0.29 
+
+Embodied / interactive world-model baselines 
+
+RLVR-World 2.29 ±0.10 1.31 ±0.09 0.44 ±0.07 0.43 ±0.08 0.84 ±0.06 1.19 ±0.10 6.54 ±0.23 
+
+iVideoGPT 2.60 ±0.11 2 1.60 ±0.11 2 0.70 ±0.11 2 0.74 ±0.14 2 0.56 ±0.10 1.54 ±0.15 3 7.74 ±0.62 2
+
+RoboDreamer 2.02 ±0.16 1.02 ±0.16 0.34 ±0.05 0.32 ±0.12 0.04 ±0.05 0.70 ±0.17 4.44 ±0.56 
+
+Vid2World 2.18 ±0.10 1.08 ±0.04 0.40 ±0.09 0.22 ±0.07 0.98 ±0.04 2 1.04 ±0.14 5.90 ±0.30 
+
+Additional training baselines 
+
+Wan2.2-TI2V-5B (LoRA) 2.40 ±0.09 1.02 ±0.11 0.41 ±0.08 0.24 ±0.10 0.98 ±0.05 2 0.96 ±0.12 6.01 ±0.24 
+
+RoboAlign-R1 (ours) 2.72 ±0.06 1 1.72 ±0.07 1 0.72 ±0.05 1 0.78 ±0.05 1 1.00 ±0.04 1 1.58 ±0.07 1 8.52 ±0.15 1
+
+Table 2 Low-level metrics on full variable-length rollouts over RT-1 and BridgeData V2. We report mean values and, when available, standard deviations across repeated evaluations over the full generated rollout.                           
+
+> Method RT-1 BridgeData V2 MSE ↓PSNR ↑SSIM ↑LPIPS ↓MSE ↓PSNR ↑SSIM ↑LPIPS ↓
+> Real videos 0.000 —1.000 0.000 0.000 —1.000 0.000
+> Embodied / interactive world-model baselines
+> RLVR-World 0.0125 ±0.0017
+
+2 19.47 ±1.30 2 0.736 ±0.035 2 0.182 ±0.014 2 0.0139 ±0.0021 2 19.06 ±1.38 2 0.721 ±0.040 2 0.178 ±0.014 2 
+
+> iVideoGPT 0.0128 ±0.0018
+
+3 19.36 ±1.32 3 0.732 ±0.036 3 0.188 ±0.015 3 0.0438 ±0.0025 15.98 ±1.52 0.558 ±0.042 0.435 ±0.021                      
+
+> RoboDreamer 0.0171 ±0.0024 18.12 ±1.56 0.671 ±0.046 0.231 ±0.019 0.0184 ±0.0027 17.86 ±1.69 0.649 ±0.051 0.224 ±0.018
+> Vid2World 0.0138 ±0.0019 19.03 ±1.37 0.721 ±0.038 0.196 ±0.016 0.0145 ±0.0022 18.92 ±1.43 0.711 ±0.041 0.188 ±0.015
+> Additional training baselines
+> Wan2.2-TI2V-5B (LoRA) 0.0131 ±0.0018 19.31 ±1.29 0.729 ±0.037 0.184 ±0.015 0.0141 ±0.0021
+
+3 19.02 ±1.39 3 0.718 ±0.040 3 0.182 ±0.014 3 
+
+> RoboAlign-R1 (ours) 0.0121 ±0.0016
+
+1 19.72 ±1.26 1 0.745 ±0.032 1 0.173 ±0.013 1 0.0127 ±0.0019 1 20.00 ±1.31 1 0.731 ±0.037 1 0.175 ±0.013 1
+
+## 4.3 RQ3: Does SWR Improve Long-Horizon Quality Without Heavy Overhead? 
+
+We compare SWR with default autoregressive (AR) decoding on RT-1. Table 3(a) shows that SWR with 
+
+W =6 improves long-horizon generation quality, yielding +2 .8% SSIM, +0 .62 dB PSNR, and −9.8% LPIPS. The gains are larger in the region of interest, where ROI-LPIPS drops by −12 .2% . These results are consistent with SWR reducing accumulated drift by periodically refreshing the context (Figure 7), and W =6 provides the best quality–efficiency trade-off among the tested window sizes. These gains come with only modest overhead. Table 3(b) shows that SWR keeps total inference time ( 5.709 s vs. 5.646 s) and throughput ( 5.26 FPS vs. 
+
+5.31 FPS) close to AR, with about 1.1% extra wall-clock time. SWR also bounds KV-cache growth to O(W ),reducing maximum sequence length by 54 .8% and peak memory by 4.2% . As a result, SWR maintains a near-flat per-frame latency profile, whereas AR shows a +6 .8% latency drift by frame 29. 
+
+## 4.4 RQ4: Does Online Iterative Distillation Help Maintain Reward Alignment? 
+
+8Figure 4 Qualitative comparison on a representative manipulation case. RoboAlign-R1 generates physically coherent sequences with accurate grasping. 
+
+Figure 5 Qualitative case study of RoboAlign-R1 on RT-1 and BridgeData V2 , showing improved texture, shadow consistency, and background stability. 
+
+Table 4 Iterative distillation.             
+
+> Setting Total ↑Manip. ↑LPIPS ↓
+> One-shot distill 8.09 ±0.23 1.58 ±0.09 0.176 ±0.014
+> Online iterative 8.52 ±0.15 11.72 ±0.07 10.173 ±0.013 1
+
+Table 4 shows the effect of online iterative distillation under the same student architecture and evaluation protocol. Online iterative distillation improves the aggregate score from 8.09 to 8.52 and Manipulation Success from 1.58 
+
+to 1.72 , while slightly improving RT-1 LPIPS from 0.176 
+
+to 0.173 . This supports the motivation in Section 3.2: refreshing the student during RL helps maintain reward alignment under distribution shift. 
+
+# 5 Conclusion 
+
+We presented RoboAlign-R1 , a framework that improves robot video world models through reward-aligned post-training and stabilized long-horizon decoding. By constructing a robot-centric benchmark to train a multimodal teacher judge and distilling it into a lightweight student reward model, RoboAlign-R1 enables efficient RL post-training that lifts the aggregate in-domain evaluation score by +10 .1% over the strongest baseline under our current protocol, with the overall ranking further supported by external VLM-based validation and a small-scale blinded human study; the proposed sliding window re-encoding further yields 9Figure 6 Reward-type ablation for RL post-training on RobotWorldBench . Panel (a) shows that the distilled student reward yields the strongest judge-aligned improvement across semantic and physical dimensions. Panels (b)–(e) show that it also delivers the best full-rollout low-level metrics on RT-1 and BridgeData V2. 
+
+Table 3 SWR empirical summary on RT-1 . (a) Default autoregressive decoding vs. SWR with W =6 (mean ± std.; ∆
+
+vs. Default AR). (b) Total wall-clock time vs. W and per-frame latency on a keyframe subsample. 
+
+(a) Quality & efficiency at W =6 
+
+Metric Default AR SWR ( W =6 ) ∆
+
+Quality 
+
+SSIM ↑ 0.7526 ±0.084 0.7735 ±0.072 +2 .8% 
+
+PSNR (dB) ↑ 20.49 ±3.22 21.11 ±3.23 +0 .62 dB LPIPS ↓ 0.2078 ±0.071 0.1875 ±0.064 −9.8% 
+
+ROI-PSNR ↑ 16.86 ±3.49 17.48 ±3.53 +0 .62 dB ROI-LPIPS ↓ 0.1027 ±0.042 0.0902 ±0.039 −12 .2% 
+
+Efficiency 
+
+Infer. (s) 5.646 ±0.01 5.709 ±0.07 +1 .1% 
+
+Throughput (FPS) 5.31 5.26 −0.9% 
+
+Peak mem. (GB) 33 .4 32 .0 −4.2% 
+
+Max seq. len. 4,070 1,838 −54 .8% 
+
+KV-cache growth O(T ) O(W ) bounded Re-enc. overhead — 73 .8 ms 1.3% 
+
+(b) Time & latency vs. W                      
+
+> 46810 15 AR
+> 5.6
+> 5.7
+> 5.8
+> 5.9
+> s
+> 0510 15 20 25 29
+> 180
+> 200
+> 220
+> ms
+> AR W=6 W=4
+> Total Time
+> Per-Frame Latency
+> Setup: 12L, H=768 , 12 heads, vLLM, 300 episodes ×30 frames. T=30 T=58
+> Ground -truth Default  AR SWR
+> T=6 T=13 T=20
+
+BridgeData V2 
+
+> T=10
+
+RT -1
+
+Figure 7 Qualitative effect of SWR. SWR mitigates error accumulation and maintains visual fidelity in long-horizon generation by periodically re-encoding recent context. 
+
++2 .8% SSIM and −9.8% LPIPS gains at about 1% additional latency. Our current evaluation is still limited to single-arm tabletop and countertop manipulation, and downstream policy improvement remains to be validated. Extending to diverse embodiments, ensembling multiple judges, and measuring control-level gains 10 are promising directions for future work. Code, datasets, models, and video samples are available at the project website. 
+
+# References 
+
+Anonymous. Spatiotemporal forecasting as planning: A model-based reinforcement learning approach with generative world models. Under review as a conference paper at ICLR 2026 , 2026. Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2.5-VL technical report. arXiv preprint arXiv:2502.13923 , 2025. Leonardo Barcellona, Andrii Zadaianchuk, Davide Allegro, Samuele Papa, Stefano Ghidoni, and Efstratios Gavves. Dream to manipulate: Compositional world models empowering robot imitation learning with imagination. arXiv preprint arXiv:2412.14957 , 2024. Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gober, Karol Hausman, Alexander Herzog, Jasmine Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. 
+
+arXiv preprint arXiv:2212.06817 , 2023. Tim Brooks, Bill Peebles, Connor Holmes, Will DePue, Yufei Guo, Leo Jing, David Schnurr, Joe Taylor, Troy Luhman, Eric Luhman, et al. Video generation models as world simulators. OpenAI Blog , 1(8):1, 2024. Jake Bruce, Michael D Dennis, Ashley Edwards, Jack Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar, Richie Steigerwald, Chris Apps, et al. Genie: Generative interactive environments. In Forty-first International Conference on Machine Learning , 2024. Jingtao Ding, Yunke Zhang, Yu Shang, Yuheng Zhang, Zefang Zong, Jie Feng, Yuan Yuan, Hongyuan Su, Nian Li, Nicholas Sukiennik, et al. Understanding world or predicting future? a comprehensive survey of world models. 
+
+ACM Computing Surveys , 58(3):1–38, 2025. Chelsea Finn, Ian Goodfellow, and Sergey Levine. Unsupervised learning for physical interaction through video prediction. Advances in neural information processing systems , 29, 2016. David Ha and Jürgen Schmidhuber. World models. arXiv preprint arXiv:1803.10122 , 2(3):440, 2018. Nicklas Hansen, Hao Su, and Xiaolong Wang. Td-mpc2: Scalable, robust world models for continuous control. arXiv preprint arXiv:2310.16828 , 2023. Xuan He, Dongfu Jiang, Ge Zhang, Max Ku, Achint Soni, Sherman Siu, Haonan Chen, Abhranil Chandra, Ziyan Jiang, Aaran Arulraj, et al. Videoscore: Building automatic metrics to simulate fine-grained human feedback for video generation. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing ,pages 2105–2123, 2024. Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. Siqiao Huang, Jialong Wu, Qixing Zhou, Shangchen Miao, and Mingsheng Long. Vid2world: Crafting video diffusion models to interactive world models. arXiv preprint arXiv:2505.14357 , 2025. Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chanpaisit, et al. Vbench: Comprehensive benchmark suite for video generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 21807–21818, 2024. Dacheng Li, Yunhao Fang, Yukang Chen, Shuo Yang, Shiyi Cao, Justin Wong, Michael Luo, Xiaolong Wang, Hongxu Yin, Joseph E Gonzalez, et al. Worldmodelbench: Judging video generation models as world models. arXiv preprint arXiv:2502.20694 , 2025. Xuanlin Li, Kyle Hsu, Jiayuan Gu, Karl Pertsch, Oier Mees, Homer Rich Walke, Chuyuan Fu, Ishikaa Lunawat, Isabel Sieh, Sean Kirmani, et al. Evaluating real-world robot manipulation policies in simulation. arXiv preprint arXiv:2405.05941 , 2024. Bo Liu, Yifeng Zhu, Chongkai Gao, Yizhou Feng, Qiang Liu, Yuke Zhu, and Peter Stone. LIBERO: Benchmarking knowledge transfer for lifelong robot learning. In Advances in Neural Information Processing Systems , volume 36, 2024. 
+
+11 Jiageng Mao, Sicheng He, Hao-Ning Wu, Yang You, Shuyang Sun, Zhicheng Wang, Yanan Bao, Huizhong Chen, Leonidas Guibas, Vitor Guizilini, et al. Robot learning from a physical world model. arXiv preprint arXiv:2511.07416 ,2025. Michael Mathieu, Camille Couprie, and Yann LeCun. Deep multi-scale video prediction beyond mean square error. 
+
+arXiv preprint arXiv:1511.05440 , 2015. Oier Mees, Lukas Hermann, Erick Rosete-Beas, and Wolfram Burgard. CALVIN: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks. In IEEE Robotics and Automation Letters , volume 7, pages 7327–7334, 2022. Fabian Mentzer, David Minnen, Eirikur Agustsson, and George Toderici. Finite scalar quantization: VQ-VAE made simple. In International Conference on Learning Representations , 2024. Jingcheng Ni, Yuxin Guo, Yichen Liu, Rui Chen, Lewei Lu, and Zehuan Wu. Maskgwm: A generalizable driving world model with video mask reconstruction. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pages 22381–22391, 2025. Jing-Cheng Pang, Nan Tang, Kaiyuan Li, Yuting Tang, Xin-Qiang Cai, Zhen-Yu Zhang, Gang Niu, Masashi Sugiyama, and Yang Yu. Learning view-invariant world models for visual robotic manipulation. In The Thirteenth International Conference on Learning Representations , 2025. Mihir Prabhudesai, Russell Mendonca, Zheyang Qin, Katerina Fragkiadaki, and Deepak Pathak. Video diffusion alignment via reward gradients. arXiv preprint arXiv:2407.08737 , 2024. Suman Ravuri, Karel Lenc, Matthew Willson, Dmitry Kangin, Remi Lam, Piotr Mirowski, Megan Fitzsimons, Maria Athanassiadou, Sheleem Kashem, Sam Madge, et al. Skilful precipitation nowcasting using deep generative models of radar. Nature , 597(7878):672–677, 2021. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, YK Li, Y Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Wentao Tan, Lei Zhu, Bowen Wang, Enci Xie, Baixu Ji, Zengrong Lin, Wenjie Yang, Jingjing Li, and Heng Tao Shen. Towards generalist embodied ai: A survey on world models for vla agents. Authorea Preprints , 2026. Homer Walke, Kevin Black, Tony Z Zhao, Quan Vuong, Chongyi Zheng, Philippe Hansen-Estruch, Andre Wang He, Vivek Myers, Moo Jin Kim, Max Du, et al. Bridgedata v2: A dataset for robot learning at scale. arXiv preprint arXiv:2308.12952 , 2023. Weiyan Wang, Xingjian Shi, Ruiqi Shu, Yuan Gao, Rui Ray Chen, Kun Wang, Fan Xu, Jinbao Xue, Shuaipeng Li, Yangyu Tao, et al. Beamvq: Beam search with vector quantization to mitigate data scarcity in physical spatiotemporal forecasting. arXiv preprint arXiv:2502.18925 , 2025. Yunbo Wang, Haixu Wu, Jianjin Zhang, Zhifeng Gao, Jianmin Wang, Philip S Yu, and Mingsheng Long. Predrnn: A recurrent neural network for spatiotemporal predictive learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 45(2):2208–2225, 2022. Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to structural similarity. IEEE transactions on image processing , 13(4):600–612, 2004. Hao Wu, Xingjian Shi, Ziyue Huang, Penghao Zhao, Wei Xiong, Jinbao Xue, Yangyu Tao, Xiaomeng Huang, and Weiyan Wang. Beamvq: aligning space-time forecasting model via self-training on physics-aware metrics. arXiv preprint arXiv:2405.17051 , 2024a. Jialong Wu, Shaofeng Yin, Ningya Feng, Xu He, Dong Li, Jianye Hao, and Mingsheng Long. ivideogpt: Interactive videogpts are scalable world models. Advances in Neural Information Processing Systems , 37:68082–68119, 2024b. Jialong Wu, Shaofeng Yin, Ningya Feng, and Mingsheng Long. Rlvr-world: Training world models with reinforcement learning. arXiv preprint arXiv:2505.13934 , 2025. Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. Efficient streaming language models with attention sinks. arXiv preprint arXiv:2309.17453 , 2023. Tianyi Xiong, Xiyao Wang, Dong Guo, Qinghao Ye, Haoqi Fan, Quanquan Gu, Heng Huang, and Chunyuan Li. Llava-critic: Learning to evaluate multimodal models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 13618–13628, 2025. 
+
+12 Tianyi Xiong, Shihao Wang, Guilin Liu, Yi Dong, Ming Li, Heng Huang, Jan Kautz, and Zhiding Yu. Phycritic: Multimodal critic models for physical ai. arXiv preprint arXiv:2602.11124 , 2026. Wilson Yan, Yunzhi Zhang, Pieter Abbeel, and Aravind Srinivas. Videogpt: Video generation using vq-vae and transformers. arXiv preprint arXiv:2104.10157 , 2021. Mengjiao Yang, Yilun Du, Kamyar Ghasemipour, Jonathan Tompson, Dale Schuurmans, and Pieter Abbeel. Learning interactive real-world simulators. arXiv preprint arXiv:2310.06114 , 1(2):6, 2023. Peng-Fei Zhang, Ying Cheng, Xiaofan Sun, Shijie Wang, Fengling Li, Lei Zhu, and Heng Tao Shen. A step toward world models: A survey on robotic manipulation. arXiv preprint arXiv:2511.02097 , 2025. Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE conference on computer vision and pattern recognition ,pages 586–595, 2018. Siyuan Zhou, Yilun Du, Jiaben Chen, Yandong Li, Dit-Yan Yeung, and Chuang Gan. Robodreamer: Learning compositional world models for robot imagination. arXiv preprint arXiv:2404.12377 , 2024. 
+
+# Appendix 
+
+# Appendix Contents 
+
+A Extended Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B Training Details of the Video World Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B.1 Notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B.2 Stage 1: Context-Aware Compression Tokenizer . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 B.3 Stage 2: Autoregressive Transformer World Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 B.4 Dataset: Bridge V2 Instantiation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.5 Reproduction Protocol . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 B.6 Optimization Infrastructure . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 B.7 End-to-End Quantitative Summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 B.8 TensorBoard Training Curves . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 C Stylized derivation for Proposition 1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 D Pseudocode for Reward-Aligned Post-Training . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 E Student Reward Model Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 F Pseudocode and Implementation of Sliding Window Re-encoding . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 G SWR window-size ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 H SWR qualitative visualizations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 I Evaluation Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 I.1 Semantic and Physical Alignment Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 I.2 Pixel-Level Reconstruction Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 I.3 Motion-Mask-Based ROI Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 J RoboAlign-Judge: Multimodal Teacher Judge Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37 J.1 Motivation and Design Rationale . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37 J.2 Training Data Construction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 J.3 Six-Dimension Scoring Rubric . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 J.4 Model Architecture and LoRA Fine-Tuning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 
+
+13 J.5 Chain-of-Thought Reasoning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45 J.6 From Teacher Judge to Reward Signal . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45 J.7 Comparison with Alternative VLM Judges . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 J.8 Small-scale Blinded Human Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 49 J.9 Comparison with Alternative Judge Backbones . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 50 J.10 Limitations and Future Directions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 50 J.11 Judge Prompt Templates . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 50 
+
+14 A Extended Related Work 
+
+Robot Video World Models. World models provide learnable internal simulators for planning, policy evaluation, and long-horizon decision making by predicting how environments evolve under candidate actions Ha and Schmidhuber (2018); Hansen et al. (2023). With the rise of video generation and embodied learning, recent work has increasingly explored video-based world models for robotics, including approaches that model manipulation dynamics, interaction outcomes, and future observations through video prediction or generative simulation Brooks et al. (2024); Bruce et al. (2024); Yang et al. (2023); Zhou et al. (2024); Huang et al. (2025); Mao et al. (2025). These studies highlight the promise of video world models for embodied intelligence, but most still emphasize generation quality, dynamics modeling, or representation learning, and are largely trained with maximum-likelihood or reconstruction-style objectives Zhang et al. (2025); Ding et al. (2025). In contrast, our work focuses on reward-aligned post-training for robot video world models. 
+
+RL Post-Training for World Models. Recent work has begun to explore reinforcement learning as a post-training mechanism for world models, showing that world-model behavior can be further aligned with downstream objectives beyond standard supervised fitting Wu et al. (2025); Prabhudesai et al. (2024); Anonymous (2026). However, existing approaches still rely mainly on low-level or verifiable rewards, such as pixel reconstruction error or perceptual similarity metrics Wu et al. (2025); Mathieu et al. (2015); Wu et al. (2024a); Zhang et al. (2018); Wang et al. (2004, 2025). While these rewards are stable and easy to compute, they remain weak proxies for the properties that matter in robot prediction, such as correct instruction execution, physically plausible contact dynamics, and consistent long-horizon action outcomes. Similar limitations have also been observed in physical spatiotemporal forecasting Ravuri et al. (2021); Finn et al. (2016), where optimizing average reconstruction objectives often leads to oversmoothed predictions and poor coverage of rare but decision-critical events Wang et al. (2025); Anonymous (2026). Long-horizon rollout quality is also shaped by inference-time generation strategy: in autoregressive token-based world models Yan et al. (2021); Xiao et al. (2023); Wu et al. (2024b); Wang et al. (2022), prediction errors can accumulate over time and progressively degrade later predictions. Our work therefore complements reward-aligned post-training with a simple decoding strategy for stabilizing long-horizon rollouts. 
+
+Multimodal Judges and Rewards. Another relevant line of research studies multimodal evaluators and reward models for video understanding and generation Huang et al. (2024); He et al. (2024); Xiong et al. (2025). Prior work shows that multimodal judges can provide richer supervision than low-level visual metrics by explicitly assessing instruction following, physical plausibility, and higher-level video consistency Li et al. (2025); Xiong et al. (2026); Huang et al. (2024); He et al. (2024). Such evaluators are much better aligned with human judgment, but their inference cost and latency make them difficult to use directly as online rewards in reinforcement learning Li et al. (2025); He et al. (2024); Xiong et al. (2026). Our method is closely related in spirit to this line of work, but differs in two important ways: we focus on robot video world models rather than general video evaluation, and we distill high-capacity multimodal judgment into a lightweight reward model that is practical for online RL. This makes multimodal reward supervision not only evaluative, but directly usable for post-training robot world models. 
+
+# B Training Details of the Video World Model 
+
+This appendix details the implementation of the two-stage video world model used as the backbone throughout our experiments. Stage 1 trains a context-aware compression tokenizer that maps raw robot video clips into discrete index sequences; on top of a frozen Stage 1 tokenizer, Stage 2 trains an autoregressive Transformer that jointly models visual and action tokens. The two stages share the same clip length, spatial resolution, and data pipeline, and communicate exclusively through discrete tokens. 
+
+## B.1 Notation 
+
+Unless stated otherwise, the symbols in Table 5 are shared between both stages. 15 Table 5 Symbols shared between Stage 1 and Stage 2.                               
+
+> Symbol Meaning Value
+> TClip length (frames) 8
+> tcContext frames 1
+> td=T−tcDynamic frames 7
+> H×WSpatial resolution 256 ×320
+> pDynamic-branch patch size 4
+> DFSQ quantization dimension 5
+> LFSQ level vector (7 ,5,5,5,5)
+> K=
+
+∏                   
+
+> iLiCodebook size 4375
+> NcContext tokens per clip 1280
+> NdDynamic tokens per frame 80
+> DaAction-vector dimensionality (Bridge V2) 13
+> BaPer-dimension action bins 256
+> VJoint vocabulary size (Stage 2) 9008
+> STransformer sequence length (Stage 2) 1931
+> ϕlVGG-16 feature map at layer l(LPIPS) —
+
+## B.2 Stage 1: Context-Aware Compression Tokenizer 
+
+Stage 1 compresses a clip {xt}Tt=1 ∈ RT ×3×H×W into 1840 discrete indices using two asymmetric branches: a 
+
+Full VAE over the context frame xc := x1 and a Conditional VAE over the dynamic frames xd := {xt}Tt=2 .Quantization is carried out by Finite Scalar Quantization (FSQ); no learnable codebook is used. 
+
+Architecture. The context branch uses a convolutional encoder Ec that produces a latent feature map together with an intermediate feature pyramid {f (E) 
+
+> l
+
+}Ll=1 :
+
+(h, {f (E) 
+
+> l
+
+}Ll=1 
+
+) = Ec(xc), h ∈ R256 ×32 ×40 .
+
+A 1×1 convolution projects h into the quantization space, zc = QuantConv (h) ∈ R5×32 ×40 . No spatial patchification is applied, so this branch emits Nc = 32 · 40 = 1280 tokens, each covering an 8×8 pixel block of the input. The dynamic branch uses a conditional encoder Ed whose downsampling stages are interleaved with cross-attention layers that inject the context feature pyramid, 
+
+sl+1 = CrossAttn (DownBlock l(sl), f (E)
+
+> l+1
+
+),
+
+so that Ed encodes only the residual dynamics relative to the static context. Its output d′ ∈ R64 ×32 ×40 is patchified with p = 4 and linearly projected, 
+
+d′′ = Patchify p(d′) ∈ R80 ×1024 , zd = Wq d′′ + bq ∈ R80 ×5, Wq ∈ R5×1024 ,
+
+producing Nd = 80 tokens per dynamic frame, each covering a 32 ×32 pixel block. 
+
+FSQ quantization. For a vector z ∈ RD with D = 5 and L = (7 , 5, 5, 5, 5) , FSQ performs per-dimension bounding, straight-through rounding, and mixed-radix encoding: 
+
+˜zi = Li 
+
+> 2
+
+tanh( zi + si) − oi, ˆzi = round(˜ zi) + (˜zi − sg[round(˜ zi)] ),
+
+idx(ˆ z) = 
+
+> D
+
+∑
+
+> i=1
+
+(
+
+ˆzi + ⌊Li/2⌋
+
+)∏ 
+
+> j<i
+
+Lj ∈ { 0, . . . , K − 1}, K = ∏
+
+> i
+
+Li = 4375 .
+
+Because the index set is analytically fixed by L and every codeword is reachable by construction, no commitment loss is required. 16 Decoding. Symmetric decoders Dc and Dd reconstruct the clip, 
+
+ˆxc = Dc
+
+(PostQuantConv( Q(zc)) ), ˆxd = Dd
+
+(UnPatchify(PostQuantLinear( Q(zd))); {f (D) 
+
+> l
+
+}),
+
+with cross-attention inserted at every upsampling stage of Dd to read the decoder-side feature pyramid {f (D) 
+
+> l
+
+}
+
+of Dc. No skip connection bypasses the quantization bottleneck : the decoders depend solely on the discrete indices. Each clip therefore carries Nc + td · Nd = 1280 + 7 · 80 = 1840 tokens, corresponding to a compression ratio of roughly 1070 × relative to the 8·3·256 ·320 = 1 ,966 ,080 raw pixel values. 
+
+End-to-end data flow. Figure 8 summarizes the Stage 1 forward pipeline, making explicit how the two branches share the context feature pyramid yet quantize independently through FSQ, and how the decoders reconstruct the clip from discrete indices alone.              
+
+> xc∈R1×3×256 ×320
+> Ec(convolutional encoder)
+> h∈R256 ×32 ×40
+> QuantConv (256 →5)
+> zc∈R5×32 ×40
+> FSQ (K= 4375 )
+> idx c∈ { 0, . . . , K −1}32 ×40
+
+= 1280 context tokens                   
+
+> PostQuantConv +Dc
+> ˆxc∈R3×256 ×320
+> xd∈R7×3×256 ×320
+> Ed(conditional encoder)
+> d′∈R64 ×32 ×40
+> Patchify p=4 +Linear ( 1024 →5)
+> zd∈R7×80 ×5
+> FSQ (K= 4375 )
+> idx d∈ { 0, . . . , K −1}7×80
+
+= 560 dynamic tokens            
+
+> PostQuantLinear +UnPatchify +Dd
+> ˆxd∈R7×3×256 ×320
+> {f(E)
+> l}
+> CrossAttn
+> {f(D)
+> l}
+> CrossAttn
+> Context branch (Full VAE) Dynamic branch (Conditional VAE)
+
+Figure 8 End-to-end data flow of the Stage 1 tokenizer. The context frame xc passes through a Full VAE and is quantized into 1280 context tokens at 8×8 granularity; the 7 dynamic frames xd pass through a Conditional VAE whose encoder and decoder are cross-attention-conditioned on the context feature pyramids {f (E) 
+
+> l
+
+} and {f (D) 
+
+> l
+
+} (dashed arrows), producing 560 dynamic tokens at 32 ×32 granularity. FSQ uses a shared codebook of size K = 4 ,375 without any commitment loss, and both decoders depend solely on the discrete indices – no skip connection bypasses the quantization bottleneck. 
+
+Training objective. Let ˆx := [ ˆxc; ˆxd]. The generator loss combines reconstruction, perceptual, and adversarial terms, 
+
+LG = λr
+
+(Ld 
+
+> rec
+
++ Lc
+
+> rec
+
+) + λp
+
+(Ld 
+
+> perc
+
++ Lc
+
+> perc
+
+) + λa · ⊮[t ≥ Tadv ] · L G
+
+> adv
+
+,
+
+with 
+
+Ld 
+
+> rec
+
+= 1 
+
+> td3HW
+
+∑td 
+
+> k=1
+
+∥x(k) 
+
+> d
+
+− ˆx(k) 
+
+> d
+
+∥1, Lc 
+
+> rec
+
+= 13HW ∥xc − ˆxc∥1,
+
+L• 
+
+> perc
+
+= ∑ 
+
+> l
+
+wl∥ϕl(˜ x•) − ϕl(˜ˆx•)∥22, ˜x = 2 x − 1, LG 
+
+> adv
+
+= −E[Dψ (ˆ x)],
+
+where ϕl denotes ImageNet-pretrained VGG-16 features with LPIPS linear weights {wl}. The discriminator 
+
+Dψ is a depth-6 PatchGAN trained with the hinge objective and an R1-style gradient penalty, 
+
+LD = E[max(0 , 1 + Dψ (ˆ x)) ] + E[max(0 , 1 − Dψ (x)) ] + γ Ex
+
+[(∥∇ xDψ (x)∥2 − 1) 2].
+
+The adversarial term is disabled for the first Tadv = 10 ,000 steps; thereafter G and D are updated alternately under a shared global-step counter. 17 Data and augmentation. Training follows the Open X-Embodiment (OXE) mixed-dataset protocol, with mixing weights proportional to the sample counts of each sub-dataset; the numbers reported in this appendix are obtained on the Bridge V2 subset for reproducibility. For each trajectory we sample a start index uniformly and extract a clip of length T = 8 with stride 1. Photometric and geometric augmentations are sampled once per clip and shared across all T frames (Table 6). 
+
+Table 6 Clip-wise augmentation ranges used by the Stage 1 tokenizer.            
+
+> Augmentation Range Brightness / contrast / saturation [0 .9,1.1]
+> Hue [−0.05 ,0.05]
+> RandomResizedCrop scale [0 .8,1.0]
+> RandomResizedCrop aspect ratio [1 .0,1.4]
+
+Hyperparameters. Table 7 lists the Stage 1 hyperparameters. Generator components, discriminator components, and validation-set metrics are logged as separate TensorBoard scalar groups. Validation is run every 1,000 steps over 100 batches, reporting mean L1 and LPIPS together with a few reconstruction visualizations. 
+
+Table 7 Stage 1 tokenizer hyperparameters.                                                                              
+
+> Item Value Resolution H×W256 ×320
+> Clip length T/ context tc8/1
+> Context latent channels Ch256
+> Dynamic latent channels 64
+> Patch size p4
+> FSQ (D, L, K )(5 ,(7 ,5,5,5,5) ,4375)
+> Tokens per clip 1280 + 7 ×80 = 1840
+> Discriminator depth 6
+> Reconstruction loss L1 Loss weights (λr, λ p, λ a)(1 .0,1.0,0.1)
+> Gradient-penalty coefficient γ10
+> Adversarial start step Tadv 10 ,000
+> Optimizer AdamW, (β1, β 2, ε ) = (0 .9,0.999 ,10 −8), weight decay 0
+> Learning rate ( G/D)5×10 −4/5×10 −4
+> LR schedule ( G/D)cosine / constant-with-warmup, warmup 5,000 steps Gradient clipping ∥∇∥ 2≤1.0
+> Mixed precision bf16 Gradient checkpointing enabled Per-GPU batch / accumulation 1/4
+> GPUs 8×A100-40GB Global effective batch 32
+> Total training steps 60 ,000
+> Checkpoint / validation frequency every 2,000 /1,000 steps
+
+## B.3 Stage 2: Autoregressive Transformer World Model 
+
+Stage 2 trains a causal Transformer πθ on top of the frozen Stage 1 tokenizer. With c ∈ { K, . . . , 2K − 1}Nc
+
+the context tokens, dt ∈ { 0, . . . , K − 1}Nd the dynamic tokens of frame t, and at ∈ { 2K, . . . , 2K + Ba − 1}Da
+
+the action tokens at step t, the model factorizes 
+
+pθ
+
+(d2, d3, . . . , dT
+
+∣∣ c, d1, a1, . . . , aT −1
+
+).
+
+Joint vocabulary. Visual and action tokens are merged into a single vocabulary of size V via fixed offsets, so that a standard LM head can emit either modality (Table 8). The two visual segments share the same FSQ codebook but are disambiguated by an offset of K, allowing the embedding matrix WE ∈ RV ×d to learn separate embeddings for context and dynamic semantics. 18 Table 8 Stage 2 joint vocabulary.                              
+
+> Range Semantics Size
+> [0 , K )Dynamic visual tokens (FSQ indices of Ed)K= 4375 [K, 2K)Context visual tokens (FSQ indices of Ec, offset by K)K= 4375 [2 K, 2K+Ba)Action tokens Ba= 256
+> {2K+Ba}BOS (reserved) 1
+> {2K+Ba+ 1 }EOS (reserved) 1
+> Total V9008
+
+Action discretization. Each dimension of at ∈ RDa is independently mapped into Ba = 256 equal-width bins. The per-dimension lower and upper bounds (amin  
+
+> i
+
+, a max  
+
+> i
+
+) are pre-computed on the training split and persisted as an offline lookup table shared between training and inference: 
+
+bin i(at,i ) = 
+
+⌊
+
+Ba · at,i − amin 
+
+> i
+
+amax  
+
+> i
+
+− amin  
+
+> i
+
++ ε
+
+⌋
+
+∈ { 0, . . . , B a − 1}, atok  
+
+> t,i
+
+= bin i(at,i ) + 2 K. 
+
+Sequence layout and loss masking. The data module concatenates the segments into 
+
+x = [ c︸︷︷︸ 
+
+> 1280
+
+∥ d1∥a1
+
+︸ ︷︷ ︸ 
+
+> 80+13
+
+∥ d2∥a2
+
+︸ ︷︷ ︸ 
+
+> 80+13
+
+∥ · · · ∥ dT ∥aT
+
+︸ ︷︷ ︸ 
+
+> 80+13
+
+] ∈ { 0, . . . , V − 1}S ,
+
+where aT is filled with the action associated with the last transition. The total sequence length is 
+
+S = Nc + td · (Nd + Da) = 1280 + 7 · (80 + 13) = 1931 .
+
+The label sequence has the same shape as x; all positions except the dynamic tokens of frames 2, . . . , T are set to the ignore index and excluded from the cross-entropy loss (Table 9). The number of supervised positions per sample is 
+
+|M| = ( td − 1) · Nd = 6 · 80 = 480 .
+
+Since a single causal forward pass simultaneously supervises the predictions of frames 2, . . . , T , this objective is equivalent to td − 1 = 6 one-step next-frame prediction subtasks that share attention compute, i.e. multi-step prediction (MSP). 
+
+Table 9 Loss-mask layout of a single Stage 2 sample.                 
+
+> Segment Label Context tokens ( Nc= 1280 )−100 (condition) Dynamic tokens at frame 1 ( Nd= 80 )−100 (initial state) Dynamic tokens at frames 2: T(6·80 = 480 )ground-truth token ids All action tokens ( 7·13 = 91 )−100 (condition)
+
+Backbone. πθ is a causal LLaMA configured as in Table 10. The causal mask is realized inside the FlashAttention-2 kernel; weights, activations, and gradients are all stored in bf16, since FlashAttention-2 is incompatible with fp32. 
+
+Training objective. Let hi−1 ∈ Rd denote the last-layer hidden state at position i−1 and WO ∈ Rd×V the LM head, so that 
+
+pθ (xi | x<i ) = [softmax( WO hi−1)]
+
+> xi
+
+.
+
+The training loss is the causal cross-entropy restricted to the supervised positions M,
+
+LVGPT (θ) = − 1
+
+|M| 
+
+∑
+
+> i∈M
+
+log pθ (xi | x<i ),
+
+and the perplexity PPL = exp( LVGPT ) ∈ [1 , V ] serves as an interpretable monitoring metric. 19 Table 10 Stage 2 Transformer backbone.                    
+
+> Component Value Layers 12
+> Hidden size d768
+> Attention heads 12 (no GQA) FFN size 3072
+> Activation SwiGLU Normalization RMSNorm, ε= 10 −6
+> Positional encoding RoPE Max positions 8192
+> Tied word embeddings disabled Parameters (incl. embeddings) ≈1.38 ×10 8
+> Attention kernel FlashAttention-2 Compute precision bf16
+
+Tokenization during training. Tokenization is performed inside the data pipeline with all Stage 1 parameters frozen and detached from the computation graph: 
+
+(c, d1: T ) = TStage1 (x1: T ), a1: T −1 = discretize( a1: T −1),
+
+followed by the offsetting and concatenation above. The Transformer therefore only ever consumes integer token ids, and gradients flow exclusively through πθ .
+
+Hyperparameters. Stage 2 hyperparameters are summarized in Table 11. Validation computes LVGPT 
+
+and PPL on a held-out split every 5,000 steps. At inference, autoregressive sampling uses temperature τ = 1 .0
+
+with top-k and top-p truncation; beam search is not used. 
+
+Table 11 Stage 2 autoregressive Transformer hyperparameters.                                           
+
+> Item Value Backbone LLaMA-12L-768d-12h (FlashAttention-2, bf16) Vocabulary size V9008
+> Sequence length S1931 (max positions 8192 )Supervised positions |M| 480
+> Frozen tokenizer Stage 1 checkpoint at 60 ,000 steps Data module Context + MSP processor Optimizer AdamW, (β1, β 2, ε ) = (0 .9,0.999 ,10 −8), weight decay 0
+> Learning rate 5×10 −5
+> LR schedule constant-with-warmup, warmup 5,000 steps Gradient clipping ∥∇∥ 2≤1.0
+> Dropout / stochastic depth 0
+> Per-GPU batch / accumulation 4/1
+> GPUs 8×A100-40GB Global effective batch 32
+> Max steps Tmax 1,000 ,000
+> Checkpoint / validation frequency every 10 ,000 /5,000 steps
+
+## B.4 Dataset: Bridge V2 Instantiation 
+
+The two-stage pipeline is dataset-agnostic and only assumes synchronized image observations paired with low-dimensional action sequences. For reproducibility we instantiate it on Bridge V2 (Walke et al. , 2023) as a representative case; any dataset satisfying the same interface can be substituted without further changes. Bridge V2 is a large-scale real-robot manipulation dataset collected with a WidowX-250 six-DoF arm across 24 
+
+indoor kitchen and tabletop environments. It contains approximately 60 ,096 human-teleoperated trajectories covering 13 skill categories (grasping, placing, pushing, pulling, opening and closing drawers, flipping, stacking, and so on). Each trajectory logs synchronized third-person RGB, end-effector pose, and gripper state at 5 Hz. The dataset is distributed in the TensorFlow Datasets (TFDS) format; we use version 1.0.0.20 Raw sample structure. Each raw trajectory is a variable-length sequence with the fields summarized in Table 12, where L is the trajectory length (typically 20 –60 frames). The data is distributed as TFRecord shards and split into training and validation partitions. 
+
+Table 12 Core fields of a Bridge V2 trajectory.                                    
+
+> Field Shape Dtype Description Primary RGB (L, 480 ,640 ,3) uint8 Third-person primary-camera observation Proprio. state (L, 7) float32 End-effector (x, y, z, roll ,pitch ,yaw ,gripper )
+> Action (L, 7) float32 EE increments (∆ x, ∆y, ∆z, ∆roll ,∆pitch ,∆yaw ,gripper_cmd )
+> Language instruction string —Natural-language task description (unused here) Terminal flag bool —Episode-end indicator
+
+Pre-processing (TFDS → per-trajectory arrays). The TFDS source is converted offline into per-trajectory array files once, so that the downstream data pipeline does not need to touch TFRecords again: 
+
+• Image resampling. 480 ×640 → H ×W = 256 ×320 via aspect-ratio-preserving resize followed by center cropping, stored as uint8. 
+
+• Action expansion. The raw R7 action is expanded to R13 by appending several dimensions of the previous end-effector state, matching the shared OXE action layout ( Da = 13 ). 
+
+• Action-range statistics. The training split is scanned once to record per-dimension (amin  
+
+> i
+
+, a max  
+
+> i
+
+); the resulting table is persisted and reused by the equal-width binning in §B.3. After conversion, each trajectory becomes an independent array file containing an image tensor (L, 256 , 320 , 3) 
+
+in uint8, an action tensor (L, 13) in float32, and a proprioceptive state (L, 7) in float32. The resulting corpus has ≈60 ,096 trajectories, over 1.92 M frames, and occupies roughly 260 GB on disk. 
+
+Sampling and slicing. Each optimization step samples a clip according to: 1. Uniformly sample an episode from the training split. 2. Uniformly sample a start frame s ∈ [0 , L − T ].3. Take {Is, . . . , I s+T −1} and the paired actions {as, . . . , a s+T −1} with T = 8 and stride 1.4. Apply the clip-wise photometric and geometric augmentations of Table 6, with parameters shared across the T frames to preserve temporal consistency. 5. Normalize images to [0 , 1] before feeding them to the tokenizer. Stage 1 consumes only the pixels {Is+k}T −1 
+
+> k=0
+
+; Stage 2 additionally consumes the paired actions to construct the joint token sequence of §B.3. The two stages share identical sampling and augmentation logic, and differ only in their collate-level outputs. 
+
+## B.5 Reproduction Protocol 
+
+We describe the end-to-end reproduction protocol in terms of inputs, computation, and outputs, deliberately avoiding prescriptive script layouts or launch commands. 
+
+Software environment. The implementation is built on PyTorch with the version constraints in Table 13. Distributed training uses Accelerate over the NCCL backend; both stages train under bf16 mixed precision to satisfy the dtype constraints of FlashAttention-2. 
+
+Step 0: Offline pre-processing of raw data. This step is CPU-only and converts TFRecord shards into the per-trajectory array files of §B.4, reporting the total number of converted trajectories as a consistency check. It runs once per dataset release and takes ≈2–3 hours on a single CPU node at the scale of the example dataset. 21 Table 13 Key software dependencies.         
+
+> Component Version PyTorch 2.3
+> FlashAttention 2.5
+> HuggingFace Accelerate 0.30
+> HuggingFace Transformers latest stable HuggingFace Diffusers latest stable TensorFlow (only for TFDS I/O) 2.15
+> LPIPS / timm / einops latest stable
+
+Step 1: Train the context-aware tokenizer. Stage 1 is trained on the pre-processed per-trajectory data with the hyperparameters of §B.2: global effective batch 32 , base learning rate 5 × 10 −4, discriminator start at step 10 ,000 , 6 × 10 4 total steps, checkpoint every 2,000 steps, and validation every 1,000 steps on a held-out split (L1 and LPIPS). Activation checkpointing is enabled to reduce memory. The final checkpoint becomes the frozen backbone of Stage 2. Training takes ≈72 hours on a single 8× A100-40GB node. 
+
+Step 2: Train the autoregressive Transformer. Stage 2 is trained on the joint token sequence of §B.3 with the hyperparameters therein: per-GPU batch 4, no accumulation, global effective batch 32 , learning rate 
+
+5 × 10 −5 with a 5,000 -step linear warmup, gradient clipping ∥∇∥ 2 ≤ 1.0, 10 6 total steps, checkpoint every 
+
+10 ,000 steps, and validation every 5,000 steps. The Stage 1 tokenizer is loaded read-only and remains frozen throughout. Training throughput is ≈3.5 it/s on a single 8× A100-40GB node, totalling ≈80 hours for the full 10 6 steps. 
+
+Monitoring and sanity checks. All scalar and image summaries are logged to TensorBoard. In practice we monitor three families of health indicators: (i) mixed precision —bf16 must be explicitly enabled, since FlashAttention-2 refuses to execute under fp32; (ii) hardware utilization —compute utilization should remain consistently above 90% with near-uniform per-GPU memory; otherwise the bottleneck typically lies in data loading or NCCL communication; (iii) training stability —a smooth generator-loss transition around discriminator activation in Stage 1, and long-term stability of the gradient norm together with a monotone decrease of the held-out PPL in Stage 2. Common failure modes and mitigations are listed in Table 14. 
+
+Table 14 Common failure modes observed during training.        
+
+> Symptom Root cause Fix FlashAttention only supports fp16 / bf16 Mixed precision misconfigured as fp32 Force the mixed-precision policy to bf16 NVML / NVLink symbol missing Legacy node driver (e.g. the 450.x series) Disable framework-side NVML probing and turn off NCCL P2P/NVLS fast paths Nested snapshots and abnormal disk us-age under the checkpoint directory Residuals from previous smoke-test runs Clean the smoke-test directory before starting the production run
+
+## B.6 Optimization Infrastructure 
+
+Table 15 Optimization infrastructure shared by Stage 1 and Stage 2.         
+
+> Item Value Framework PyTorch + HuggingFace Accelerate (multi-GPU) Distributed backend NCCL Mixed precision bf16 (both stages) Activation checkpointing Stage 1 enabled, Stage 2 disabled Logging TensorBoard scalar and image summaries Random seed set per experiment via Accelerate Checkpoint format HuggingFace Safetensors (unwrapped)
+
+Stage 1 produces tokenizer checkpoints at a fixed cadence; Stage 2 loads a specific checkpoint in read-only mode as its frozen backbone. No optimizer state, LR scheduler state, or data-loader state is shared between the two stages. 22 B.7 End-to-End Quantitative Summary 
+
+Table 16 Side-by-side comparison of the two training stages.                                           
+
+> Dimension Stage 1 Stage 2 Input x1: T∈RT×3×H×Wx∈ { 0, . . . , V −1}S
+> Output Reconstructions ˆx1: Tand FSQ indices Logits ∈RS×V
+> Objective LG(L1 + LPIPS + hinge-GAN) LVGPT (masked causal CE) Quantization FSQ, K= 4375 —Tokens per clip 1840 1931 (supervised 480 )Trainable parameters Stage 1 only Stage 2 only (Stage 1 frozen) Total steps 6×10 410 6
+> Effective batch 32 32
+> Mixed precision bf16 bf16 Hardware 8×A100-40GB 8×A100-40GB
+
+Compact formula card. For reference, the end-to-end forward and training equations are collected below: 
+
+Stage 1 encoders: zc = QuantConv (Ec(xc)), zd = Wq Patchify p
+
+(Ed(xd; {f (E) 
+
+> l
+
+})),
+
+Stage 1 quantization: ˆz = QL(z), idx(ˆ z) = 
+
+∑
+
+> i
+
+(ˆzi + ⌊Li/2⌋)∏ 
+
+> j<i
+
+Lj ,
+
+Stage 1 decoders: ˆxc = Dc
+
+(Q(zc)), ˆxd = Dd
+
+(Q(zd); {f (D) 
+
+> l
+
+}),
+
+Stage 1 loss: LG = λr
+
+(∥xd − ˆxd∥1 + ∥xc − ˆxc∥1
+
+)
+
++ λp
+
+(LPIPS( xd, ˆxd) + LPIPS( xc, ˆxc))
+
+− λa ⊮[t ≥ Tadv ] E[Dψ (ˆ x)],
+
+Stage 2 tokens: c ∈ [K, 2K)Nc , dt ∈ [0 , K )Nd , at ∈ [2 K, 2K + Ba)Da ,
+
+Stage 2 sequence: x = [c ∥ d1∥a1 ∥ · · · ∥ dT ∥aT
+
+], S = 1931 ,
+
+Stage 2 model: pθ (xi | x<i ) = [softmax( WO hi−1)]
+
+> xi
+
+,
+
+Stage 2 loss: LVGPT = − 1
+
+> |M|
+
+∑
+
+> i∈M
+
+log pθ (xi | x<i ), M = {positions of d2, . . . , dT }, |M| = 480 .
+
+Constants: T = 8 , t c = 1 , t d = 7 , H × W = 256 × 320 , p = 4 , D = 5 , L = (7 , 5, 5, 5, 5) , K = 4375 , N c =1280 , N d = 80 , D a = 13 , B a = 256 , V = 9008 , S = 1931 , |M| = 480 .
+
+## B.8 TensorBoard Training Curves 
+
+This section summarizes the convergence curves of both stages on the Bridge V2 instantiation. All curves are exported directly from TensorBoard scalars without smoothing, with global optimization steps on the horizontal axis. 
+
+B.8.1 Stage 1: Tokenizer (GAN + Reconstruction + Perception) 
+
+Stage 1 logs four prefix-grouped scalar families. Tables 17–19 report the trends observed over the first 60 ,000 
+
+steps; each TensorBoard tag (quoted verbatim) maps one-to-one to the exported CSV file. 
+
+Optimization and throughput. The auxiliary scalar lr tracks the generator learning rate (warmup for 
+
+5,000 steps, followed by cosine decay); samples_sec_gpu , batch_time , and data_time respectively record per-GPU throughput, per-step wall time, and data-loading time. Reconstruction previews images/reconstruction_-* are saved every 1,000 steps for qualitative inspection of high-frequency texture fidelity. 
+
+Key training phases. (i) Steps 0–10 ,000 : pure L1 + LPIPS supervision; reconstruction and perceptual curves descend fastest. (ii) Step 10 ,000 : discriminator activation ( disc_start = 10 ,000 ); gen_loss/gan_-loss becomes nonzero and step_gen_loss shows a mild + 0.05 -magnitude rebound. (iii) Steps 10 ,000 –60 ,000 :reconstruction and adversarial terms decrease jointly, and val_loss/* continues to drop monotonically. 23 Table 17 Generator loss LG and its components ( gen_loss/* ).                                                   
+
+> Curve Term Observed trend ( 0→60 ,000 steps)
+> gen_loss/recon_loss Lrec (dynamic-frame L1) Monotone drop from ∼0.11 to 0.0169
+> gen_loss/perceptual_loss Lperc (dynamic-frame LPIPS) Monotone drop from ∼0.30 to 0.0607
+> gen_loss/ref_recon_loss Context-frame L1 Same magnitude as recon_loss ; final ∼0.02
+> gen_loss/ref_perceptual_loss Context-frame LPIPS Tracks perceptual_loss ; final ∼0.07
+> gen_loss/gan_loss LG
+> adv (hinge, λa= 0 .1)0for step ≤10 ,000 ; afterwards oscillates in [0 .10 ,0.40] ;final 0.2546
+> gen_loss/commit_loss VQ commitment (exactly 0un-der FSQ)
+> 0throughout
+> gen_loss/dyna_commit_loss Dynamic-branch commitment (exactly 0under FSQ)
+> 0throughout
+> step_gen_loss Generator total loss LGDrops from ∼0.50 to 0.1630
+
+Table 18 Discriminator loss LD and logits ( disc_loss/* ; logged only for step ≥ 10 ,000 ).                                   
+
+> Curve Term Observed trend
+> disc_loss/real_logits E[Dψ(x)] Mild drift in [−0.30 ,0.10] ; final −0.2297
+> disc_loss/fake_logits E[Dψ(ˆ x)] Drifts synchronously with real_logits ; final −0.2463
+> disc_loss/logit_diff E[Dψ(x)−Dψ(ˆ x)] Hovers around 0with amplitude <0.05 , indicating Ddoes not overwhelm G
+> step_discr_loss Discriminator total loss LDQuickly settles into the [1 .5,2.2] band after activation; final 1.9864 ,consistent with a healthy GAN balance against LG
+> adv
+
+Table 19 Validation scalars ( val_loss/* ; averaged over 100 batches every 1,000 steps).                           
+
+> Curve Meaning Observed trend
+> val_loss/recon_loss Mean pixel L1 Monotone drop; best 0.01944 at step 50 ,001 ,final 0.01968 at step 59 ,001
+> val_loss/perceptual_loss Mean LPIPS Monotone drop; best 0.06840 at step 50 ,001 ,final 0.07147 at step 59 ,001
+
+Training-curve visualization. Figure 9 shows the four generator-side training curves, and Figure 10 shows the discriminator logits, validation metrics, and learning-rate schedule. In each panel the light trace is the raw sampled values and the dark trace an exponential moving average ( α = 0 .08 ); a dash-dotted vertical line marks discriminator activation at step 10 ,000 .
+
+Reconstruction evolution. To visualize how the numerical trends translate into perceptual quality, Figure 11 shows pixel-space reconstructions from the Stage 1 tokenizer at six representative training steps ({1, 2,500 , 10 ,000 , 25 ,000 , 50 ,000 , 60 ,000 }). Each training step is rendered as a pair of adjacent rows: the upper row shows the ground-truth frames x and the lower row the decoder outputs ˆx; columns uniformly sample 4 temporal positions ( t1, t 3, t 5, t 7) out of the T = 8 clip frames, so that both spatial fidelity and temporal consistency become visually apparent. 
+
+B.8.2 Stage 2: Autoregressive Transformer (Causal CE + Perplexity) 
+
+Stage 2 is monitored with TensorBoard scalars centered on the masked causal cross-entropy objective and its induced perplexity. Figure 12 reports the exported raw traces together with an exponential moving average (EMA, α = 0 .9), avoiding manually tabulated estimates from the plots. 
+
+Observed convergence. The training loss drops sharply at the beginning of optimization and then enters a slower refinement regime, with the EMA curve continuing to decrease over the full training horizon. The held-out loss follows the same overall pattern: a rapid early reduction followed by a gradual flattening, without a late-stage upward trend. The evaluation perplexity is consistent with the held-out cross-entropy curve, decreasing rapidly in the early phase and then approaching a stable low-variance regime. Together, these curves indicate that the Stage 2 Transformer learns the token dynamics early and continues to refine its next-token distribution over long training, while the validation metrics do not show visible signs of divergence 24 Figure 9 Stage 1 generator-side training dynamics. (a) Reconstruction loss Lrec (gen_loss/recon_loss , L1); (b) perceptual loss Llpips (gen_loss/perceptual_loss ); (c) adversarial loss LG 
+
+> adv
+
+(gen_loss/gan_loss ); (d) generator total loss LG (step_gen_loss ). Panels (a) and (b) descend fastest before discriminator activation and continue to decrease monotonically afterwards; panel (c) stabilizes in [0 .10 , 0.40] after activation, reflecting the dynamic G–D
+
+equilibrium. 
+
+Figure 10 Stage 1 adversarial balance, validation metrics, and optimization schedule. (a) Discriminator logits on real and fake samples ( disc_loss/real_logits , disc_loss/fake_logits ) and their difference disc_loss/logit_-diff = D(real ) − D(fake ), which hovers around 0 with a mild positive drift and indicates that D does not overwhelm 
+
+G; (b) validation L1 ( val_loss/recon_loss , left axis) and LPIPS ( val_loss/perceptual_loss , right axis), both decreasing monotonically; (c) generator learning rate lr , which undergoes a 5,000 -step warmup followed by cosine decay. 
+
+from the training trajectory. 25 Figure 11 Evolution of Stage 1 reconstructions across training steps. Horizontal axis: temporal frame position ti
+
+inside a clip. Vertical axis: training steps from early to late; every two rows form a comparison pair, with the upper row showing the ground-truth frame and the lower row showing the decoded ˆx from the same FSQ indices. At step ≤ 10 3
+
+the dynamic branch fails to recover high-frequency textures occluded by the manipulator, and reconstructions exhibit global blur and mild colour bias; around step 10 4 (discriminator activation) texture sharpness improves noticeably, yet locally visible grid-like artefacts still contribute a non-negligible LPIPS gap; beyond step 2.5 × 10 4, reconstructions become visually indistinguishable from ground truth, with residual errors concentrated on the narrow contact region between the end-effector and the manipulated object. This qualitative evolution is step-aligned with the monotone L1/LPIPS curves in Figures 9–10 and with the best-validation step ( 5 × 10 4) of val_loss/* .
+
+# C Stylized derivation for Proposition 1 
+
+We provide the simplified derivation underlying the main-text stability discussion. The goal is to illustrate why periodic refresh can limit long-horizon drift under a local contraction assumption, rather than to claim a complete dynamical model of the tokenizer–decoder pair or a quantitative predictor of the exact gains observed in experiments. 
+
+Setup and notation. Consider a token-based autoregressive world model generating a rollout of T frames partitioned into K = ⌈T /W ⌉ segments of window size W . Let x∗ 
+
+> t
+
+denote the ground-truth frame at step t
+
+and ˆxt the predicted frame. We define the frame-level error as et = ∥ˆxt − x∗ 
+
+> t
+
+∥. We make two assumptions: 
+
+A1 . Bounded per-step error. Conditioned on a correct context, the single-step prediction error satisfies 
+
+et ≤ ε for all t. More generally, if the context carries an error η, the prediction error at the next step satisfies et ≤ ε + α η for some contraction factor α ∈ [0 , 1) .
+
+A2 . Bounded quantization error. The decode–re-encode cycle introduces a quantization error bounded by 
+
+δq : for any predicted frame ˆx, ∥D vis (Tvis (ˆ x)) − ˆx∥ ≤ δq .
+
+Standard autoregressive generation (no re-encoding). Under native AR decoding, the context is never refreshed, so context-carried error keeps accumulating across the full horizon. If a contraction assumption 26 Figure 12 Stage 2 autoregressive Transformer training curves. Top: training masked causal cross-entropy loss. Bottom left: held-out evaluation loss. Bottom right: held-out evaluation perplexity. Each panel shows both the raw TensorBoard trace and an EMA-smoothed curve with α = 0 .9.
+
+analogous to A1 held globally, one would obtain the geometric series 
+
+et ≤ ε
+
+> t−1
+
+∑
+
+> i=0
+
+αi = ε (1 − αt)1 − α .
+
+For any fixed α < 1, this is bounded by ε/ (1 − α), but this constant can still blow up as α → 1. In the non-contractive worst case, the accumulation becomes linear in the horizon, yielding the coarse comparison bound 
+
+EAR (T ) = max  
+
+> t≤T
+
+et ≤ T ε. (11) The AR regime therefore either pays a horizon-independent but potentially large constant ε/ (1 − α), or a linear-in-T bound when contraction fails; SWR will instead replace this with a window-size-controlled constant. 
+
+Sliding-window re-encoding. With SWR, at each segment boundary t = kW , the model decodes the last predicted frame ˆxkW to pixel space and re-encodes it as a fresh context/state pair (zctx 
+
+> k+1
+
+, z dyn 0 ) = Tvis ( ˆxkW );concretely, ˆxkW is treated both as the new conditioning frame for the Full-VAE branch Ec and as a length-one dynamic clip for the Conditional-VAE branch Ed (Appendix B.2). 27 Step 1: Within-segment error. Within segment k, the context zctx  
+
+> k
+
+is fixed and the model generates at most 
+
+W frames. By A1 , the error at relative step j ∈ { 1, . . . , W } within the segment satisfies: 
+
+e(k−1) W +j ≤ ε
+
+> j−1
+
+∑
+
+> i=0
+
+αi + αj ηk,
+
+where ηk is the error carried by the context zctx  
+
+> k
+
+. For j ≤ W , using ∑j−1 
+
+> i=0
+
+αi = 1−αj 
+
+> 1−α
+
+≤ j ≤ W and αj ≤ 1:
+
+e(k−1) W +j ≤ ε(1 − αW )1 − α + αW ηk ≤ W ε + ηk. (12) Taking j = W gives the tighter intermediate bound ekW ≤ W ε + αW ηk, which we use in Step 2. 
+
+Step 2: Cross-segment error refresh. At the boundary, the context error of segment k+1 is: 
+
+ηk+1 = ∥zctx  
+
+> k+1
+
+− zctx ,∗ 
+
+> k+1
+
+∥ ≤ ∥ ˆxkW − x∗ 
+
+> kW
+
+∥ + δq = ekW + δq .
+
+Crucially, zctx  
+
+> k+1
+
+is obtained by re-encoding the decoded frame, so the next segment depends on the current decoded observation rather than the entire raw token history of all prior segments. Substituting the tighter form of Eq. 12 at j = W :
+
+ηk+1 ≤ W ε + αW ηk + δq .
+
+Step 3: Steady-state bound. Since αW < 1, the recurrence ηk+1 ≤ W ε + αW ηk + δq converges to a fixed point: 
+
+η∗ = W ε + δq
+
+1 − αW .
+
+Starting from η1 = 0 (ground-truth conditioning frame), by induction ηk ≤ η∗ for all k. Combining with the loose within-segment bound e(k−1) W +j ≤ W ε + ηk from Eq. 12 (which upper-bounds αW ηk by ηk), the maximum frame-level error in any segment is therefore: 
+
+ESWR (T ) = max  
+
+> t≤T
+
+et ≤ W ε + η∗ = W ε + W ε + δq
+
+1 − αW . (13) In the simplified case α → 0 (errors do not propagate within the causal Transformer’s effective receptive field beyond one step), αW → 0 and η∗ → W ε + δq , so the bound becomes ESWR (T ) ≤ 2W ε + δq . More generally, for any α ∈ [0 , 1) and any window size W such that αW < 1, the bound in Eq. 13 is finite and does not grow explicitly with T , showing that under this stylized local model the effect of SWR is governed by the refresh window and the local error parameters rather than the rollout horizon alone. We do not estimate α
+
+or δq from the trained model; instead, the derivation is meant to justify the qualitative window-size trade-off observed in Table 3 and Appendix G, where moderate refresh intervals outperform both overly frequent and overly infrequent refresh. 
+
+# D Pseudocode for Reward-Aligned Post-Training 
+
+Algorithm 1 summarizes the complete RoboAlign-R1 training pipeline, covering all four stages described in §3.2. Color coding marks each stage: benchmark construction (blue), teacher judge training (green), 
+
+student reward distillation (purple), and GRPO post-training (red). 28 Algorithm 1 Reward-Aligned Post-Training of RoboAlign-R1 
+
+Require: Pre-trained world model pθ ; robot datasets {RT-1, Bridge, CALVIN, LIBERO }; T2V model; base VLM (Qwen3-VL-8B-Thinking) 
+
+Ensure: Post-trained world model pθ∗
+
+— Stage 1: Benchmark Construction —  
+
+> 1:
+
+for each instruction l in robot datasets do  
+
+> 2:
+
+Sample ground-truth video v+ from dataset  
+
+> 3:
+
+Generate candidate video v− ← T2V( l) 
+
+> 4:
+
+Annotate (l, v ) with raw rubric scores r = ( r1, . . . , r 6) using ranges [3 , 2, 1, 1, 1, 2] ▷ Six dimensions  
+
+> 5:
+
+end for  
+
+> 6:
+
+Dbench ← { (li, v i, ri)}Ni=1 
+
+— Stage 2: Teacher Judge Training —  
+
+> 7:
+
+Initialize teacher fϕ from Qwen3-VL-8B-Thinking  
+
+> 8:
+
+Fine-tune fϕ on Dbench : Lteacher = −E[log pϕ(r | l, v )] ▷ f ϕ → RoboAlign-Judge 
+
+— Stage 3: Student Reward Distillation —  
+
+> 9:
+
+Initialize student gψ (compact visual–text encoder + linear head)  
+
+> 10:
+
+Construct Ddistill from benchmark videos and generated rollouts scored by teacher fϕ ▷ Teacher-labeled mixed corpus  
+
+> 11:
+
+Train gψ with per-dimension weighted Huber regression on normalized teacher scores (Eq. 4) 
+
+— Stage 4: GRPO Post-Training with Online Iterative Distillation —  
+
+> 12:
+
+for iteration n = 1 , 2, . . . do  
+
+> 13:
+
+Sample group of G rollouts {ˆx(j)}Gj=1 ∼ pθ 
+
+> 14:
+
+Score each rollout: R(j) = ∑6 
+
+> k=1
+
+wk[gψ (l, ˆx(j))] k 
+
+> 15:
+
+Compute advantage: A(j) = ( R(j) − mean j R)/std j R 
+
+> 16:
+
+Update θ via clipped policy gradient LGRPO (Eq. 7)  
+
+> 17:
+
+if n mod K = 0 then  
+
+> 18:
+
+Score fresh rollouts with teacher fϕ and update student gψ ▷ Online iterative distillation  
+
+> 19:
+
+end if  
+
+> 20:
+
+end for  
+
+> 21:
+
+return pθ∗
+
+# E Student Reward Model Details 
+
+Figure 13 presents the architecture of the distilled student reward model gψ . The student is designed to provide efficient reward estimation within the inner RL loop by approximating the six-dimensional score vector produced by the teacher judge fϕ. In our implementation, the model contains approximately 98M parameters in total, of which about 40.6M are trainable under partial ViT unfreezing. Its inference latency is approximately 20 ms per video (roughly 50 videos/s), making it substantially more efficient than direct teacher inference. 
+
+Visual branch. Given a generated video v consisting of T frames, we uniformly sample N = 8 key frames. During training, we introduce temporal jitter by perturbing the uniform frame indices with small random offsets, thereby improving robustness to minor timing variations. The sampled frames are further processed with video-level data augmentation, including a shared random resized crop, a shared horizontal flip, and mild per-frame color jitter. During validation and testing, all frames are deterministically resized to 224 × 224 .The augmented frames are encoded independently by a pretrained ViT-Base/16 visual encoder. Rather than freezing the backbone entirely, we freeze the first 8 Transformer blocks and unfreeze the final 4 blocks together 29 Figure 13 Architecture of the distilled student reward model gψ . A visual branch encodes uniformly sampled video frames using a partially unfrozen ViT-Base/16 backbone, while a text branch encodes the instruction using a lightweight Transformer. The fused multimodal representation is then mapped to six normalized reward dimensions by a compact MLP head. 
+
+with the final normalization layer. This design allows high-level visual features to adapt to failure modes specific to robot-manipulation videos while preserving generic low-level image representations. For each frame, we extract the [CLS] feature hi ∈ R768 and perform temporal mean pooling to obtain a video-level representation, 
+
+vpool = 1
+
+N
+
+> N
+
+∑
+
+> i=1
+
+hi.
+
+This representation is then passed through a lightweight projection layer (LayerNorm → Linear → GELU) to produce the final visual embedding v ∈ R768 .
+
+Text branch. The instruction l is tokenized using the BERT tokenizer from bert-base-uncased and truncated or padded to a maximum length of L=64 . The resulting subword sequence is encoded by a lightweight 4-layer Transformer encoder with hidden size 256, 4 attention heads, and feed-forward dimension 1024. A learnable [CLS] token is prepended to the input sequence and combined with learnable positional embeddings. After passing through the 4 Transformer layers, the output corresponding to the [CLS] token is used as the instruction embedding t ∈ R256 . Each layer adopts a Pre-Norm Transformer block with GELU activations and dropout at rate 0.2. 
+
+Multimodal fusion and scoring head. We fuse the visual and textual modalities by simple concatenation, 
+
+z = [ v; t] ∈ R1024 .
+
+The fused representation is processed by a 3-layer MLP scoring head with the following structure: Linear (1024 →
+
+512) → LayerNorm → GELU → Dropout, followed by Linear (512 → 256) → LayerNorm → GELU → Dropout, and a final Linear (256 → 6) layer. A sigmoid activation maps the output to normalized reward scores in 
+
+[0 , 1] 6, corresponding to instruction following, manipulation success, action–outcome consistency, temporal consistency, contact realism, and physics adherence. During distillation training and during GRPO post-training (Eq. 5), the student is always consumed in this normalized [0 , 1] 6 form; the raw-range rescaling to 
+
+[3 , 2, 1, 1, 1, 2] is applied only when student outputs need to be reported alongside teacher scores for diagnostic or visualization purposes, and is never re-applied before the reward aggregation R(ˆ x1: T ).
+
+Distillation training. We train the student on teacher-labeled video–instruction pairs using normalized teacher scores, which prevents dimensions with larger numerical ranges from dominating optimization. Instead of plain MSE, we adopt a per-dimension weighted Huber loss: 
+
+Ldistill = 1
+
+B
+
+> B
+
+∑
+
+> b=1 6
+
+∑
+
+> k=1
+
+λk Huber δh
+
+(ˆsb,k , ˜sb,k 
+
+), (14) 30 Table 20 Backbone and architecture ablation of the student reward model. Comparison of representative visual encoders and fusion designs under matched training and evaluation settings. Metrics capture both fidelity to teacher judgments and inference efficiency.                             
+
+> Method Visual encoder Fusion module Pearson corr. ↑MSE ↓Latency (ms) ↓
+> ResNet student ResNet-50 concat + MLP 0.79 0.186 13 Frozen ViT student ViT-Base/16 (frozen) concat + MLP 0.84 0.142 18 Text-only student none Transformer + MLP 0.52 0.421 4Ours ViT-Base/16 (last 4 blocks unfrozen) concat + MLP 0.88 0.096 20
+
+Table 21 Teacher–student efficiency comparison for reward evaluation. The teacher provides high-fidelity supervisory signals, whereas the distilled student is optimized for fast online reward evaluation during RL post-training. All numbers are measured or estimated on a single A100 40GB GPU.                          
+
+> Statistic Teacher judge ( fϕ)Student reward model ( gψ)Architecture Qwen3-VL-8B-Thinking + LoRA ViT-Base/16 + 4L text Transformer + MLP Total parameters ∼8B∼98 MTrainable parameters LoRA-only adaptation ∼40 .6MPer-video latency ∼2800 ms ∼20 ms Inference throughput ∼0.5videos/s ∼50 videos/s Inference GPU memory ∼16 –20 GB ∼0.5–1GB Input representation video frames + judge prompt 8 sampled frames + instruction Output representation autoregressive text + parsed scores direct 6D score vector
+
+where ˆsb,k = [ gψ (lb, v b)] k ∈ [0 , 1] is the student’s sigmoid-activated output, ˜sb,k is the teacher score normalized dimension-wise to [0 , 1] , and δh = 0 .5 is the Huber threshold. Since both sides already share the same [0 , 1] 
+
+scale after normalization, the per-dimension weights {λk} are used only to equalize convergence speed across dimensions with unequal label-noise levels (e.g., 3-level rubric vs. binary rubric); in practice we tune them on a validation split rather than tying them to the raw score ranges. Note that {λk} are distinct from the reward aggregation weights {wk} used in Eq. 5. Training further employs mixup regularization with probability 0.3, AdamW with weight decay 0.05, and differential learning rates: 5 × 10 −6 for the unfrozen ViT blocks and 5 × 10 −4 for the text encoder and scoring head. The learning-rate schedule uses linear warmup over the first 10% of training steps followed by cosine decay, with a minimum learning rate of 10 −6. We additionally apply gradient clipping with maximum norm 1.0, maintain an exponential moving average (EMA) of the trainable parameters with decay 0.999, and select checkpoints based on validation-set Pearson correlation with early stopping (patience 10). Collectively, these design choices improve fidelity to the teacher’s ranking behavior and stabilize the student when used as an online reward proxy during RL post-training. 
+
+Backbone and architecture comparison. Because the student reward model is intended to serve as a high-throughput reward proxy rather than the primary source of semantic supervision, an important design question is whether a simple CNN-style reward model is sufficient, or whether a partially unfrozen ViT-based architecture is necessary. Table 20 compares representative lightweight baselines with the final partially unfrozen ViT student used in our method. The results indicate that the final student achieves a more favorable trade-off between fidelity to the teacher and online efficiency than simpler reward regressors. 
+
+Teacher–student efficiency trade-off. The teacher and student play complementary roles in our frame-work. The high-capacity teacher remains essential for providing semantically rich, high-fidelity supervision during offline reward distillation. The student is introduced solely to make such supervision practical within the inner RL loop, where thousands of rollout evaluations may be required. Table 21 summarizes the resulting efficiency gap. This efficiency gap is particularly important for RL post-training. For example, if a single training step requires scoring 16 generated videos, direct teacher evaluation would still take on the order of seconds even with moderate parallelism, whereas the student can score the same batch in a fraction of a second. In practice, this shifts reward computation from a dominant bottleneck to a comparatively minor overhead, 31 Table 22 Reward-evaluation cost within the RL loop. Comparison of teacher-only evaluation and distilled-student evaluation for representative RL workloads.                  
+
+> RL workload Teacher judge ( fϕ)Student reward model ( gψ)Reward evaluation for 16 videos / step ∼45 s (serial) / ∼12 s (4-way parallel) ∼0.32 s (batched) Reward cost over 1000 RL steps ∼12 ,000 –45 ,000 s∼320 sShare of total training time dominant bottleneck minor overhead Additional hardware demand dedicated large-VLM inference budget can share training GPU
+
+while preserving the teacher as the source of high-quality supervision. 
+
+# F Pseudocode and Implementation of Sliding Window Re-encoding 
+
+We present the sliding-window re-encoding inference procedure in two complementary formats: Algorithm 2 provides a formal pseudocode overview, and Listing 1 shows the corresponding PyTorch implementation extracted from our codebase. Both use matching color coding for the three key stages: prompt construction 
+
+(blue), autoregressive generation (green), and context refresh (red). 
+
+Algorithm 2 Sliding Window Re-encoding Inference 
+
+Require: World model pθ ; tokenizer Tvis ; decoder Dvis ; conditioning frame x0; actions {at}Tt=1 ; window size W
+
+Ensure: Generated video ˆx1: T
+
+1: zctx 1 , z dyn 0 ← T vis (x0) ▷ Encode initial context ( x0 used as both Ec and length-1 Ed input) 
+
+2: frames _out ← [ ] ; m ← 1
+
+3: while |frames _out | < T do 
+
+4: W ′ ← min( W, T − | frames _out |)
+
+5: prompt ← [ zctx  
+
+> m
+
+∥ zdyn 0 ∥ ˆa1 ] ▷ Build prompt 
+
+6: window _tokens ← [ ] 
+
+7: for j = 1 , . . . , W ′ do 
+
+8: ˆzdyn  
+
+> j
+
+← pθ
+
+(· | prompt ) ▷ Generate Nd=80 dynamics tokens 
+
+9: Append ˆzdyn  
+
+> j
+
+to window _tokens 
+
+10: prompt ← prompt ∥ ˆzdyn  
+
+> j
+
+∥ ˆaj+1 ▷ Extend prompt 
+
+11: end for 
+
+12: ˆxwin ← D vis (zctx  
+
+> m
+
+, window _tokens) ▷ Decode window to pixels 
+
+13: Append ˆxwin to frames _out 
+
+14: if |frames _out | < T then 
+
+15: ˆxlast ← ˆxwin [−1] ▷ Take last decoded frame 
+
+16: zctx 
+
+> m+1
+
+, z dyn 0 ← T vis (ˆ xlast ) ▷ Re-encode last frame via Ec and length-1 Ed
+
+17: end if 
+
+18: m ← m + 1 
+
+19: end while 
+
+20: return frames _out 
+
+Listing 1 PyTorch implementation of sliding window re-encoding. Comments are color-coded to match Algorithm 2. @ctx_tokens @ corresponds to @ zctx  
+
+> m
+
+@ and @ dyn_tokens @ to @ zdyn 0 @ in Algorithm 2.                              
+
+> 1def g e ne r ate _ s l id i n g_ w i n do w (
+> 2model , tokenizer , ctx_tokens , dyn_tokens ,
+> 3actions , num_frames , window_size =6 ,
+> 4) :
+> 5all_frames =[]
+> 6frames_done , step =0 , 0
+> 78while frames_done <num_frames :
+> 9W=min ( window_size , num_frames -frames_done )
+> 10
+
+32 11 # [BLUE] Build initial prompt: [ctx | dyn_0 | action_0]                                                          
+
+> 12 prompt =build_prompt ( ctx_tokens , dyn_tokens , actions [ step ])
+> 13 window_dyn =[]
+> 14 15 # [GREEN] Autoregressive generation within one window
+> 16 for jin range ( W ) :
+> 17 gen_tokens =model . generate ( prompt , max_tokens =80)
+> 18 window_dyn . append ( gen_tokens )
+> 19 prompt =prompt +gen_tokens +discretize ( actions [ step + j +1])
+> 20 21 # [GREEN] Decode entire window to pixel space
+> 22 decoded =tokenizer . decode ( ctx_tokens , window_dyn )
+> 23 all_frames . extend ( decoded )
+> 24 frames_done += W
+> 25 step += W
+> 26 27 # [RED] Context refresh: decode-re-encode cycle
+> 28 # last_frame fed to both E_c and length-1 E_d
+> 29 if frames_done <num_frames :
+> 30 last_frame =decoded [ -1]
+> 31 ctx_tokens , dyn_tokens =tokenizer . encode (
+> 32 last_frame , last_frame
+> 33 )
+> 34 35 return all_frames
+
+# G SWR window-size ablation 
+
+This section complements the main-text SWR panel (Table 3). Unless noted, measurements use Llama-style causal LM (12 layers, hidden 768, 12 heads), vLLM inference, and 300 episodes ×30 frames. 
+
+# H SWR qualitative visualizations 
+
+This section provides qualitative case studies comparing default autoregressive decoding with SWR under different refresh windows. In each figure, columns show sampled frames along the rollout, while rows compare Ground Truth, Default AR, and SWR with different window sizes W . The highlighted row marks the visually best SWR variant for that episode. Consistent with the quantitative results, periodic refresh generally reduces long-horizon drift and better preserves task progression and object configuration, although the best per-episode W can vary with the manipulation trajectory. 
+
+# I Evaluation Metrics 
+
+This section provides a detailed description of all evaluation metrics used in our experiments. 
+
+## I.1 Semantic and Physical Alignment Metrics 
+
+The RoboAlign-Judge evaluates generated videos along six fine-grained dimensions, each scored on a bounded scale: 
+
+• Instruction Following (IF) ∈ [0 , 3] : Whether the generated video faithfully executes the language instruction. 
+
+• Manipulation Success (MS) ∈ [0 , 2] : Whether the robot successfully completes the target manipulation task. 
+
+• Action–Outcome Consistency (AO) ∈ [0 , 1] : Whether the observed outcome is consistent with the executed action. 
+
+• Temporal Consistency (TC) ∈ [0 , 1] : Whether the video maintains smooth and temporally consistent transitions. 33 Table 23 SWR efficiency vs. default AR across W : timing, throughput, GPU memory, prompt length (tokens), mean per-frame latency, and re-encoding.                                                            
+
+> Metric AR ( ∞)W=4 W=6 W=8 W=10 W=15
+> Total time (s) 5.646 ±0.01 5.863 ±0.02 5.709 ±0.07 5.858 ±0.28 5.740 ±0.11 5.732 ±0.07
+> FPS 5.31 5.12 5.26 5.13 5.23 5.23
+> Peak GPU (MB) 34 ,206 32 ,066 32 ,781 33 ,493 34 ,214 34 ,209
+> Mean prompt len. 2,722 1,506 1,606 1,680 1,792 2,024
+> Max prompt len. 4,070 1,652 1,838 2,024 2,210 2,675
+> Mean ms/frame 182 .2174 .7175 .7181 .5180 .7181 .7
+> #Re-encodings 074321
+> Re-enc. total (ms) 099 .873 .868 .348 .387 .0
+
+Table 24 Re-encoding overhead vs. W . % total: re-encoding time / wall time. Per step: mean ms per refresh. 
+
+W #Re Total (ms) % total Per step (ms) 
+
+4 7 99 .8 1.70% 14 .36 4 73 .8 1.29% 18 .58 3 68 .3 1.17% 22 .810 2 48 .3 0.84% 24 .115 1 87 .0 1.52% 87 .0
+
+Table 25 Long-horizon prompt scaling: AR max prompt extrapolates linearly with rollout length; SWR ( W =6) caps at the 30-frame plateau. Slow-down columns are indicative. 
+
+Frames AR max prompt SWR W =6 max Prompt drop AR slow-down SWR slow-down 
+
+30 4,070 1,838 54 .8% ∼7% ∼0% 100 ∼12 ,673 1,838 85 .5% ∼25 –30% ∼0% 300 ∼37 ,273 1,838 95 .1% OOM risk ∼0% 
+
+• Contact Realism (CR) ∈ [0 , 1] : Whether contact events between the robot and objects appear physically plausible. 
+
+• Physics Adherence (PA) ∈ [0 , 2] : Whether the video obeys basic physical laws (gravity, rigidity, collision response). The aggregate score is the sum of the raw six-dimensional scores, yielding a maximum of 10 .0. When these scores are used for student distillation, each dimension is normalized independently to [0 , 1] before regression. 
+
+## I.2 Pixel-Level Reconstruction Metrics 
+
+We report four standard metrics computed over the full image: 
+
+• MSE : Mean Squared Error between generated and ground-truth frames (pixel values normalized to [0 , 1] ). 
+
+• PSNR : Peak Signal-to-Noise Ratio, defined as PSNR = 10 log 10 (1 /MSE) .
+
+• SSIM Wang et al. (2004): Structural Similarity Index, measuring luminance, contrast, and structural similarity. 
+
+• LPIPS Zhang et al. (2018): Learned Perceptual Image Patch Similarity, measuring perceptual distance using deep features. 
+
+## I.3 Motion-Mask-Based ROI Metrics 
+
+Motivation. In robot manipulation videos, the background typically remains static while only the robot arm and manipulated objects undergo significant motion. As a result, global pixel-level metrics (e.g., PSNR, SSIM) are dominated by the large static background, which is trivially easy to reconstruct. This dilutes the evaluation 34 Figure 14 Qualitative comparison for the instruction “close top drawer” . The highlighted row denotes the visually best SWR result for this episode. 
+
+signal from the critical dynamic interaction regions. To address this, we introduce Region-of-Interest (ROI) metrics that focus exclusively on the dynamic foreground. 
+
+Motion mask extraction. We derive the ROI from ground-truth video sequences using temporal frame differencing. Specifically, for each frame xt, we compute the average absolute pixel difference against neighboring frames within a temporal window of size τ :
+
+Dt(i, j ) = 1
+
+|N t|
+
+∑
+
+> t′∈N t
+
+13
+
+> 3
+
+∑
+
+> c=1
+
+|xct (i, j ) − xct′ (i, j )|, (15) where Nt = {t′ : 0 < |t′ − t| ≤ τ, 1 ≤ t′ ≤ T } and c indexes the RGB channels. The binary motion mask is obtained by thresholding: 
+
+Mt(i, j ) = 1[Dt(i, j ) > θ ], (16) followed by morphological closing and dilation (elliptical kernel, size k) to fill small gaps and include surrounding context. In our experiments, we use τ = 3, θ=15 , and k= 15 . The union mask M∪ = max t Mt
+
+aggregates all per-frame masks into a single ROI that covers the entire dynamic region across the episode. 
+
+Illustration. Figure 18 visualizes the motion mask extraction process on a representative RT-1 episode. The left panel shows the original ground-truth frame; the right panel overlays the extracted motion mask 35 Figure 15 Qualitative comparison for the instruction “move apple near white bowl” . The highlighted row denotes the visually best SWR result for this episode. 
+
+(highlighted region) on the frame. The mask accurately captures the robot arm and the manipulated object while excluding the static background, confirming that ROI metrics focus evaluation on the most task-relevant regions. 
+
+ROI metric definitions. Given a ground-truth frame xt, a generated frame ˆxt, and the binary mask Mt
+
+(or M∪), the ROI metrics are defined as: 
+
+• ROI-MSE : ROI -MSE = 
+
+∑ 
+
+> i,j
+
+M (i, j ) · ∥ xt(i, j ) − ˆxt(i, j )∥2
+
+3 · ∑ 
+
+> i,j
+
+M (i, j )
+
+• ROI-PSNR : ROI -PSNR = 10 log 10 
+
+( 1ROI -MSE 
+
+)
+
+• ROI-SSIM : Local SSIM map computed over the full image, then averaged only within the masked region. 
+
+• ROI-LPIPS : LPIPS computed by masking out the static background (setting it to zero in both ground-truth and generated frames) before passing through the perceptual network. 
+
+ROI coverage. We additionally report ROI coverage , defined as the fraction of pixels in the union mask: 
+
+|M∪|/(H × W ). This provides context for interpreting ROI metrics—a typical RT-1 episode has ROI coverage of approximately 30 –35% , confirming that the majority of the image is static background. 36 Figure 16 Qualitative comparison for the instruction “move green can near apple” . The highlighted row denotes the visually best SWR result for this episode. 
+
+# J RoboAlign-Judge: Multimodal Teacher Judge Training Details 
+
+This appendix provides a comprehensive account of the training pipeline, data construction, and evaluation of RoboAlign-Judge —the multimodal teacher judge at the core of RoboAlign-R1 ’s reward-aligned post-training framework (§3.2). RoboAlign-Judge is instantiated by fine-tuning Qwen3-VL-8B-Thinking Bai et al. (2025) with LoRA Hu et al. (2022), producing structured six-dimensional quality scores together with chain-of-thought reasoning for robot manipulation videos. 
+
+## J.1 Motivation and Design Rationale 
+
+As discussed in §3.2, standard low-level metrics (MSE, LPIPS, SSIM) are poorly aligned with the properties that matter for robot world models: instruction correctness, physical plausibility, and action–outcome consistency. A multimodal judge that can assess these high-level properties provides much richer supervision for RL post-training. We choose Qwen3-VL-8B-Thinking as the teacher backbone for three reasons: (i) Native video understanding. Qwen3-VL supports multi-frame visual inputs with dynamic resolution, enabling direct processing of robot manipulation video sequences without frame-level feature extraction. (ii) Built-in reasoning. The “Thinking” variant provides structured chain-of-thought reasoning via <think> 
+
+tokens, which naturally aligns with our requirement for interpretable, dimension-wise scoring with explicit justification. (iii) Parameter efficiency. At 8B parameters, the model is large enough to capture nuanced physical and 37 Figure 17 Qualitative comparison for the instruction “pick banana from white bowl” . The highlighted row denotes the visually best SWR result for this episode. 
+
+Figure 18 Motion mask visualization. The extracted motion mask (highlighted) isolates the dynamic interaction region—the robot arm and manipulated object—from the static background. ROI metrics are computed exclusively within this masked region, providing a more faithful assessment of generation quality for task-critical areas. 
+
+semantic judgments, yet small enough for efficient LoRA fine-tuning and batch inference during teacher labeling. 38 J.2 Training Data Construction 
+
+The training data for RoboAlign-Judge forms the annotation component of RobotWorldBench (Eq. 2), which spans four robot datasets and 10,000 annotated video–instruction pairs in total. In this appendix, we summarize two representative construction pipelines used in the corpus and report the cross-dataset composition used in the current study. 
+
+Part A: Synthetic degradation with rule-based annotation. As one representative source within the broader corpus, we extract 500 ground-truth (GT) episodes from the RT-1 dataset Brohan et al. (2023), each containing a robot manipulation video and its corresponding language instruction. For each GT video, we generate two degraded variants by randomly sampling 1–3 degradation types from a pool of 10 operations spanning four categories: 
+
+• Temporal (3 types): frame shuffling, frame dropping, segment reversal—simulating temporal incoherence and causal violations. 
+
+• Visual (4 types): Gaussian blur, Gaussian noise, color jitter, resolution degradation—simulating perceptual quality loss and compression artifacts. 
+
+• Spatial (1 type): random per-frame spatial shifts—simulating camera instability and spatial inconsistency. 
+
+• Semantic (2 types): video truncation, end-frame freezing—simulating task incompleteness and action termination failures. Each degradation is applied at a severity level sampled from {mild , moderate , severe } with probabilities 
+
+{0.2, 0.4, 0.4}, biasing toward harder examples. Scores are computed deterministically: each degradation type has predefined per-dimension deduction fractions that scale with severity, ensuring consistent and reproducible annotations. This yields ∼994 augmented videos. An additional 100 GT videos are retained as perfect-score references (total score = 10 ), providing the upper anchor for the score distribution. Figure 19 shows representative examples from this synthetic-degradation pipeline, illustrating how the rule-based transformations create controlled failures across multiple error types and severity levels. 
+
+Part B: Real I2V model outputs with human annotation. Synthetic degradation cannot fully capture the failure modes of real generative models— e.g. , hallucinated objects, semantic drift, physically implausible contact dynamics, or mode collapse. To address this gap, we collect generated videos from 10 diverse image-to-video (I2V) models evaluated on RT-1 prompts, spanning both general-purpose and robotics-specific architectures (Table 26). Each video is scored by trained human annotators following the identical six-dimension rubric used in Part A.                                     
+
+> Table 26 I2V models used for collecting human-annotated training data in RobotWorldBench .Models span diffusion-based, transformer-based, and autoregressive architectures across general and robotics domains.
+> Model Architecture Domain Key Characteristic
+> CogVideoX Diffusion-based I2V General 3D causal VAE + DiT HunyuanVideo Diffusion-based I2V General Dual-stream DiT I2VGen-XL Cascaded diffusion General Two-stage generation LTX-Video Latent Transformer General Efficient latent space SVD Diffusion-based I2V General Temporal layer fine-tuning OpenSora DiT-based I2V General Open-source Sora replica DynamiCrafter Diffusion-based I2V General Image-conditioned dynamics iVideoGPT Autoregressive GPT Robotics Token-based world model RoboDreamer Goal-conditioned diffusion Robotics Compositional planning Vid2World Diffusion world model Robotics Interactive simulation
+
+Data complementarity and balancing. The two sources serve complementary roles: Part A provides controllable coverage across score ranges with deterministic labels, while Part B introduces authentic generative 39 artifacts that improve robustness to real-world evaluation scenarios. Beyond these RT-1-centered examples, the full RobotWorldBench training corpus used in the current study spans four robot datasets and contains 10,000 annotated video–instruction pairs for judge training and reward distillation. After score-bin balancing and corpus aggregation, the resulting training set maintains broad coverage over the [0 , 10] score range, which is important for preventing the judge from developing score-range biases that would propagate through reward distillation into RL post-training.                           
+
+> Table 27 RobotWorldBench data statistics. Dataset GT Synthetic Generated Total Pairs RT-1 150 450 600 1,200 BridgeData V2 450 1,050 1,500 3,000 CALVIN 300 700 1,000 2,000 LIBERO 550 1,350 1,900 3,800
+> Total 1,450 3,550 5,000 10,000
+
+40 Figure 19 Representative examples from Part A synthetic degradation with rule-based annotation. Starting from a ground-truth robot manipulation video, we apply controlled temporal, visual, spatial, and semantic perturbations at different severity levels to generate training examples with reproducible score deductions. 
+
+41 RT-1 Bridge CALVIN LIBERO     
+
+> 0
+> 1,000
+> 2,000
+> 3,000
+> 4,000
+> Pairs
+> GT Synthetic Generated
+> GT Synthetic Generated
+> 0
+> 2,000
+> 4,000
+> Pairs
+
+Figure 20 Corpus composition of RobotWorldBench. Left: per-dataset breakdown by source type. Right: aggregate source composition across the full 10,000-pair annotation corpus. Generated samples form the largest component, complemented by rule-based synthetic degradations and a smaller set of ground-truth reference videos. 
+
+42 J.3 Six-Dimension Scoring Rubric 
+
+RoboAlign-Judge evaluates each video along six complementary dimensions, grouped into task alignment 
+
+and physical realism categories (Table 28). The rubric is designed to capture the properties most relevant to robot world-model utility: whether the predicted future correctly reflects the intended manipulation, and whether the physical dynamics are plausible enough to support downstream planning.                        
+
+> Table 28 Six-dimension scoring rubric for RoboAlign-Judge . Dimensions are grouped by task alignment (semantic correctness) and physical realism (dynamics plausibility).
+> Category Dimension Range Scoring Criteria
+> Instruction Following (IF) 0–3 0: completely unrelated action; 1: vaguely related but wrong; 2: correct action but incomplete/imprecise; 3: per-fectly follows instruction Manipulation Success (MS) 0–2 0: task completely failed; 1: partial success (object moved but not to target); 2: full success Action-Outcome Consist. (AO) 0–1 0: actions and outcomes are inconsistent; 1: logically con-sistent Temporal Consistency (TC) 0–1 0: severe temporal artifacts (flickering, jumps); 1: smooth and temporally coherent Contact Realism (CR) 0–1 0: unrealistic contacts (penetration, floating); 1: natural and physically realistic Physics Adherence (PA) 0–2 0: severe physics violations; 1: minor issues but mostly plausible; 2: fully physically plausible
+> Total 0–10 Sum of all six dimensions
+
+## J.4 Model Architecture and LoRA Fine-Tuning 
+
+Architecture. RoboAlign-Judge is built on Qwen3-VL-8B-Thinking, a multimodal large language model with native multi-frame video understanding. We apply Low-Rank Adaptation (LoRA) to all linear projection layers in both the attention blocks ( Wq , Wk, Wv , Wo) and the MLP blocks ( Wgate , Wup , Wdown ), totaling 7 target modules per Transformer layer. This broad LoRA coverage ensures that both the visual–language alignment and the reasoning capacity are adapted to the robot manipulation evaluation domain. Table 29 summarizes the complete training configuration. 
+
+Input format. Each training sample is structured as a three-turn conversation following the Qwen3-VL chat template: (1) System prompt : defines the evaluator role, the six scoring dimensions with detailed rubrics, and the required JSON output schema (see Appendix J.11 for the full prompt). (2) User message : contains the language instruction l, the initial frame x0 (as an image), and N = 8 frames uniformly sampled from the generated video v.(3) Assistant response : begins with <think> ... </think> chain-of-thought reasoning that analyzes each dimension step by step, followed by a structured JSON object containing the six dimension scores and total. The training loss Lteacher (Eq. 3) is computed only on the assistant response tokens, ensuring that the model learns to produce both the reasoning trace and the structured scores while treating the system and user turns as context. 
+
+Training dynamics. The training loss drops rapidly in the first epoch (from 0.762 to 0.066), indicating fast adaptation of the LoRA parameters to the evaluation task. Convergence is reached by epoch 3–4, with the final loss stabilizing at ∼0.016 by epoch 5. The smooth convergence without loss spikes or oscillation confirms that the LoRA rank ( r=64 ) provides sufficient capacity for this task, and that the learning rate 43 Table 29 Training configuration for RoboAlign-Judge LoRA fine-tuning. 
+
+Hyperparameter Value 
+
+Base Model Qwen3-VL-8B-Thinking Trainable Parameters ∼160M (LoRA only) / 8.3B total LoRA Rank ( r) 64 LoRA Scaling ( α) 128 LoRA Dropout 0.05 Target Modules q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj 
+
+Training Epochs 5Optimizer AdamW ( β1=0 .9, β2=0 .999 , ϵ=10 −8)Learning Rate 2 × 10 −4
+
+LR Schedule Cosine decay with linear warmup Warmup Ratio 0.1 Effective Batch Size 32 ( 1 × 4 gradient accumulation × 8 GPUs) Max Sequence Length 4,096 tokens Precision BFloat16 (mixed precision) Gradient Checkpointing ✓
+
+Hardware 8× NVIDIA A100 40GB Training Time ∼31 minutes 
+
+schedule is well-calibrated. Table 30 reports the loss trajectory at key checkpoints, and Figure 21 visualizes the full training curve. 
+
+Table 30 Training loss trajectory for RoboAlign-Judge . The model converges within 3 epochs and stabilizes by epoch 5. 
+
+Epoch 0.27 0.53 0.80 1.05 2.11 3.16 4.21 5.00 
+
+Loss 0.762 0.209 0.066 0.036 0.025 0.021 0.018 0.016 
+
+44 0 1 2 3 4 5
+
+## Epoch 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8           
+
+> Training Loss  0.762
+> 0.0164
+> 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0
+> Epoch
+> 0.015
+> 0.020
+> 0.025
+> 0.030
+> 0.035
+> Loss
+> Convergence Region Figure 21 Training loss curve for RoboAlign-Judge LoRA fine-tuning over 5 epochs. The inset shows the convergence region (epochs 1–5). Loss drops rapidly in the first epoch and stabilizes around 0.016.
+
+## J.5 Chain-of-Thought Reasoning 
+
+A distinctive feature of RoboAlign-Judge is its use of explicit chain-of-thought (CoT) reasoning before producing scores. By leveraging the “Thinking” capability of Qwen3-VL, the judge first generates a detailed analysis within <think> ... </think> tags, examining each evaluation dimension in sequence: 
+
+• Whether the robot’s motion trajectory matches the instructed action; 
+
+• Whether the manipulation target is correctly identified and reached; 
+
+• Whether object contacts appear physically natural (no penetration or floating); 
+
+• Whether the video maintains temporal coherence without flickering or jumps; 
+
+• Whether the final state is consistent with the expected action outcome. This reasoning trace serves two purposes: (1) it improves scoring accuracy by forcing the model to attend to each dimension before committing to a score, and (2) it provides interpretable justifications that can be inspected during reward debugging and used to diagnose failure modes in the world model’s predictions. 
+
+## J.6 From Teacher Judge to Reward Signal 
+
+RoboAlign-Judge serves as the teacher fϕ in the reward distillation pipeline (§3.2). Given a language instruction l and a generated video v, the judge produces a structured raw score vector ˆr = fϕ(l, v ) across the six dimensions, using the original rubric ranges defined in Table 28. For student distillation, these raw teacher scores are normalized dimension-wise to [0 , 1] before regression. These teacher scores are used in two ways: (i) Offline labeling for student distillation. The teacher scores a mixed corpus consisting of benchmark videos together with generated rollouts from baseline or current world models to create the distillation dataset {(li, v i, f ϕ(li, v i)) }, which trains the lightweight student reward model gψ via regression (Eq. 4). (ii) Online iterative calibration. Every K policy updates during GRPO post-training, fresh rollouts from the current world model are scored by the teacher and used to update the student, preventing reward hacking from distributional shift (Algorithm 1, Stage 4). The teacher’s autoregressive decoding cost ( ∼2.8 seconds per video on a single A100) makes it impractical as a direct online reward. The distilled student reduces this to a single forward pass ( ∼20 ms), achieving >10 ×
+
+speedup while maintaining high correlation with teacher judgments. 45 J.7 Comparison with Alternative VLM Judges 
+
+A central question is whether the main findings remain stable under independent model-based evaluation, rather than depending on a single in-domain judge. To answer this question, we conduct an external VLM-based validation by comparing RoboAlign-Judge against 8 alternative VLM judges—4 proprietary and 4 open-source—on a held-out test set of 50 human-annotated samples from RobotWorldBench .
+
+Evaluation protocol. The 50 test samples are drawn from both data sources (25 from synthetic degradation, 25 from real I2V model outputs) and span the full [0 , 10] score range. Each sample has human annotations across all six dimensions and is used solely for independent cross-checking rather than for training the main automatic evaluator. All VLM judges receive the identical system prompt (Appendix J.11), the same input format (instruction + initial frame + 8 sampled frames), and are asked to produce the same structured JSON output. For proprietary models, we use the official API with default parameters; for open-source models, we use greedy decoding ( T =0) to minimize variance; for RoboAlign-Judge , we report results with both greedy ( T =0 ) and sampling ( T =0 .6, top-p=0 .95 ) decoding. 
+
+Metrics. We evaluate judge quality along five complementary axes: (i) Pearson ρ: linear correlation between predicted and human total scores, measuring absolute scoring accuracy. (ii) Spearman ρs: rank correlation between predicted and human total scores, measuring ordinal consistency— critical for reward-based ranking in GRPO. (iii) Per-dimension MAE : mean absolute error averaged across all six dimensions, measuring fine-grained scoring precision. (iv) Pairwise Accuracy : given all (50 2
+
+) = 1 ,225 video pairs, the fraction where the judge’s relative ordering agrees with the human ranking—directly measuring the quality of the reward signal for preference-based optimization. (v) Inference Cost : wall-clock time per video on a single NVIDIA A100 40GB GPU (or API latency for proprietary models), measuring practical feasibility as a teacher labeler. 
+
+Results. Table 31 reports the full comparison. We view this table as an independent external cross-check of judge consistency on a held-out human-annotated subset, rather than as a replacement for human evaluation itself. Under this protocol, RoboAlign-Judge remains the most aligned with the held-out annotations while maintaining the same inference cost as its base model.                                                                         
+
+> Table 31 Comparison of VLM judges on 50 human-annotated test samples from RobotWorldBench. All zero-shot judges use the same prompt template. Best results per metric are bolded ; second-best are underlined .†: API latency includes network overhead.
+> Judge Type Pearson ρ↑Spearman ρs↑MAE ↓Pair Acc. ↑Cost (s) ↓
+> Proprietary models (zero-shot)
+> GPT-4o API †0.72 0.68 0.82 71.3% ∼8.5 GPT-4.1 API †0.75 0.71 0.76 73.8% ∼7.2 Gemini 2.5 Pro API †0.70 0.66 0.85 69.5% ∼6.8 Claude 3.7 Sonnet API †0.68 0.64 0.89 67.2% ∼9.1
+> Open-source models (zero-shot)
+> Qwen3-VL-8B-Thinking Local 0.58 0.54 1.12 62.4% ∼2.8 Qwen2.5-VL-7B Local 0.52 0.48 1.28 58.1% ∼2.5 InternVL2.5-8B Local 0.49 0.45 1.35 56.7% ∼2.6 LLaVA-OneVision-7B Local 0.44 0.40 1.48 53.2% ∼2.4
+> Fine-tuned (ours)
+> RoboAlign-Judge Local 0.89 0.86 0.41 87.6% ∼2.8
+
+46 Analysis. Several key observations emerge from Table 31 and Figure 22: (1) Fine-tuning dramatically outperforms zero-shot. RoboAlign-Judge achieves Pearson ρ = 0 .89 ,surpassing the best proprietary model GPT-4.1 ( ρ = 0 .75 ) by +0 .14 and its own base model Qwen3-VL-8B-Thinking ( ρ = 0 .58 ) by +0 .31 . This +53% relative improvement over the base model demonstrates that domain-specific LoRA fine-tuning on robot manipulation data is essential—general VLMs lack the calibration needed for fine-grained physical and task-level assessment. (2) This serves as an independent model-based cross-check. The Pairwise Accuracy of 87.6% means that in ∼88% of video pairs, RoboAlign-Judge correctly identifies which video is better—a prerequisite for effective GRPO optimization. In contrast, GPT-4.1 achieves only 73.8%, meaning ∼26% of pairwise comparisons would provide incorrect gradient signals during RL training. (3) Open-source zero-shot models are insufficient. All open-source models score below ρ = 0 .60 and Pairwise Accuracy below 63%, with particularly poor performance on physics-related dimensions (TC, CR, PA). This is expected: these models are trained on general visual understanding tasks and lack exposure to the specific failure modes of robot manipulation videos. (4) Proprietary models provide complementary evidence but remain impractical at scale. While GPT-4.1 and GPT-4o achieve reasonable correlation ( ρ ≥ 0.72 ), their API latency ( ∼7–9 seconds) and per-query cost make them infeasible for large-scale teacher labeling. Labeling 10,000 rollouts would cost ∼$500 –
+
+$1 ,000 and take ∼20 hours sequentially, compared to ∼$0 and ∼8 hours for RoboAlign-Judge on local GPUs with parallelism. (5) Per-dimension analysis reveals domain gaps. Figure 23 shows that the largest improvements from fine-tuning occur in Physics Adherence (MAE: 1.42 → 0.38) and Temporal Consistency (MAE: 1.18 →
+
+0.29), precisely the dimensions that require understanding of robot-specific physical dynamics. General VLMs perform relatively better on Instruction Following (a more semantic/linguistic dimension), but still lag behind the fine-tuned judge. 0 2 4 6 8 10   
+
+> Human Score
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> Predicted Score
+> Ours: = 0.98
+> GPT-4.1: = 0.92
+> RoboAlign-Judge (Ours)
+> GPT-4.1 (zero-shot)
+> Perfect agreement
+
+Figure 22 Predicted vs. human total scores for 
+
+RoboAlign-Judge (blue) and GPT-4.1 (orange) on 50 test samples. The dashed line indicates perfect agreement. 
+
+RoboAlign-Judge shows tighter clustering around the diagonal. IF MS AO TC CR PA      
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Mean Absolute Error (MAE)
+> 0.35 0.42
+> 0.28 0.29 0.31 0.38
+> 0.55
+> 0.72
+> 0.48
+> 0.85
+> 0.68
+> 0.92
+> 0.78
+> 1.05
+> 0.65
+> 1.18
+> 0.92
+> 1.42
+> 0.95
+> 1.32
+> 0.82
+> 1.45
+> 1.15
+> 1.68 Task Alignment Physical Realism
+> RoboAlign-Judge (Ours)
+> GPT-4.1 (zero-shot)
+> Qwen3-VL-8B (zero-shot)
+> LLaVA-OneVision (zero-shot)
+
+Figure 23 Per-dimension MAE comparison across judge types. Fine-tuning yields the largest improvements on physics-related dimensions (TC, CR, PA), where general VLMs lack domain knowledge. 
+
+Evaluation stability. Because RoboAlign-Judge uses sampling-based decoding at inference time, its output can vary slightly across runs. To measure this effect directly, we evaluate the same 50-sample test set 5 times with T =0.6 and top-p= 0.95 . Figure 25 shows that this variability is small: Pearson ρ stays within 0.86–0.91 (mean 0.89, std 0.02), and Pairwise Accuracy stays within 85.2%–89.4% (mean 87.6%, std 1.5%). Importantly, the relative ranking of all judges is unchanged across the 5 runs. This indicates that stochastic decoding does not materially affect the judge’s usefulness as a teacher model, since any residual per-sample noise is averaged out during large-batch distillation and RL training. Figure 25 visualizes the stability across runs. 47 Instruction 
+
+Following 
+
+Manipulation 
+
+Success 
+
+Action-Outcome 
+
+Consistency 
+
+Temporal 
+
+Consistency 
+
+Contact 
+
+Realism 
+
+Physics 
+
+Adherence 
+
+25% 
+
+50% 
+
+75% 
+
+100% 
+
+RoboAlign-Judge (Ours) 
+
+GPT-4.1 (zero-shot) 
+
+Qwen3-VL-8B (zero-shot) Figure 24 Normalized scoring accuracy (1 − MAE / max_score) across six dimensions for representative judges. 
+
+RoboAlign-Judge achieves near-uniform high accuracy across all dimensions, while zero-shot models show pronounced weaknesses in physical realism dimensions. RoboAlign-Judge  
+
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Pearson
+> =0.89, =0.02
+> GPT-4.1
+> Qwen3-VL (base)
+
+(a) Pearson Correlation  
+
+> RoboAlign-Judge
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> Pairwise Accuracy (%)
+> =87.6%, =1.4%
+> GPT-4.1
+> Qwen3-VL (base)
+
+(b) Pairwise Accuracy 
+
+Figure 25 Evaluation stability of RoboAlign-Judge over 5 independent runs (sampling decoding, T =0.6). Box plots show the distribution of Pearson ρ and Pairwise Accuracy. The narrow interquartile ranges confirm reliable scoring despite stochastic decoding. 
+
+48 J.8 Small-scale Blinded Human Evaluation 
+
+To complement the automatic judge-based evaluation, we conduct a small-scale blinded human study on a held-out subset. We sample instruction–initial-frame pairs that are disjoint from judge training and reward-distillation data and compare videos from RoboAlign-R1 against strong baselines under anonymized ordering. Each comparison is evaluated along four axes: overall preference , task success , physical plausibility ,and temporal coherence . Each sample is labeled by multiple raters, and tie decisions are allowed when differences are not visually distinguishable. Table 32 summarizes the results. Across all pairwise comparisons, RoboAlign-R1 is preferred over strong baselines on overall quality and consistently receives higher ratings on task success and physical plausibil-ity. The human ranking is broadly consistent with the automatic RoboAlign-Judge results, providing complementary evidence that the improvements are not unique to a single in-domain evaluator. 49 Table 32 Small-scale blinded human evaluation. Pairwise human preference on a held-out subset comparing 
+
+RoboAlign-R1 against strong baselines. Higher is better for win rates and mean preference scores.                                 
+
+> Comparison Overall win rate ↑Task success ↑Physical plausibility ↑Temporal consistency ↑Tie rate Mean pref. score ↑
+> RoboAlign-R1 vs. iVideoGPT 66.7% 69.3% 71.3% 63.3% 10.0% 3.96 / 5
+> RoboAlign-R1 vs. Wan2.2-TI2V-5B (LoRA) 62.0% 64.7% 66.7% 59.3% 12.7% 3.82 / 5
+> RoboAlign-R1 vs. RLVR-World 59.3% 61.3% 63.3% 57.3% 14.0% 3.74 / 5
+
+## J.9 Comparison with Alternative Judge Backbones 
+
+Beyond the zero-shot comparison above, we also evaluate the effect of the backbone choice for fine-tuning. We select Qwen3-VL-8B-Thinking over alternative backbones based on preliminary experiments on a 50-sample validation set. Table 33 summarizes the comparison. 
+
+Table 33 Comparison of candidate judge backbones. Qwen3-VL-8B-Thinking achieves the best balance of scoring accuracy, reasoning quality, and inference efficiency. 
+
+Backbone Params CoT Reasoning Multi-frame Selected 
+
+GPT-4o (proprietary) — ✓ ✓ ✗ (cost, API latency) Gemini 2.5 (proprietary) — ✓ ✓ ✗ (cost, reproducibility) Qwen2.5-VL-7B 7B ✗ ✓ ✗ (no native CoT) InternVL2.5-8B 8B ✗ ✓ ✗ (no native CoT) LLaVA-OneVision-7B 7B ✗ ✓ ✗ (limited video) 
+
+Qwen3-VL-8B-Thinking 8B ✓ ✓ ✓
+
+Key advantages of Qwen3-VL-8B-Thinking: (1) native <think> token support enables structured CoT without prompt engineering; (2) dynamic-resolution multi-frame input avoids the need for fixed-size frame preprocessing; (3) open-weight availability ensures full reproducibility and enables LoRA fine-tuning on custom data; (4) 8B scale provides sufficient capacity for nuanced physical reasoning while remaining efficient for batch labeling. 
+
+## J.10 Limitations and Future Directions 
+
+We acknowledge several limitations of the current RoboAlign-Judge :
+
+• Dataset coverage. Although the current training corpus contains 10,000 samples spanning four robot datasets, coverage remains uneven across embodiments, environments, and failure modes. Expanding annotation density and generative-model diversity would likely improve generalization further. 
+
+• Sampling variance. The CoT decoding introduces non-trivial variance (std ≈ 0.02 on Pearson ρ). Ensemble averaging or deterministic decoding could reduce this, at the cost of inference speed or diversity. 
+
+• Domain transfer. The current corpus is still dominated by tabletop manipulation and related interaction patterns. Extending to other embodiments (mobile manipulation, dexterous hands) requires additional domain-specific annotation and evaluation. 
+
+• Temporal granularity. The judge processes 8 uniformly sampled frames, which may miss brief but critical events (e.g., momentary contact). Adaptive frame sampling could improve sensitivity to such events. 
+
+## J.11 Judge Prompt Templates 
+
+For completeness, we provide the prompt templates used for the robot manipulation judge. The prompting interface has two parts: a system prompt that specifies the evaluator role and scoring rubric, and a user message template that injects the task instruction, the initial frame, and uniformly sampled generated frames. 
+
+Prompt structure. 
+
+50 Component Role System prompt Defines the judge identity, the six evaluation dimensions, and the required JSON output schema. User message Instantiates the instruction, initial frame, and N sampled video frames for a concrete evaluation example. 
+
+Scoring rubric. 
+
+Dimension Range Criterion Instruction Following 0–3 Whether the robot attempts and correctly executes the instructed action. Manipulation Success 0–2 Whether the manipulation objective is fully completed by the end of the video. Action–Outcome Consistency 0–1 Whether the observed outcomes are logically consistent with the robot’s actions. Temporal Consistency 0–1 Whether the video remains smooth and free of major temporal artifacts. Contact Realism 0–1 Whether object contacts appear physically natural. Physics Adherence 0–2 Whether the generated motion obeys basic physical plausibility. Total 0–10 Sum of the six dimension scores. 
+
+System Prompt. 
+
+You are an expert evaluator for robot manipulation video generation quality. You will be given: 1. An instruction describing what the robot should do 2. An initial frame (the starting state) 3. A sequence of frames from a generated video Your task is to evaluate the generated video across 6 dimensions. Score each dimension carefully. Scoring Dimensions: 1. Instruction Following (0-3 points): Does the video show the robot attempting and executing the action described in the instruction? 0: Completely unrelated action 1: Vaguely related but wrong action 2: Correct action but incomplete or imprecise 3: Perfectly follows the instruction 2. Manipulation Success (0-2 points): Is the manipulation task successfully completed by the end of the video? 0: Task completely failed 1: Partial success (object moved but not to target) 2: Full success (task completed as instructed) 3. Action-Outcome Consistency (0-1 point): Are the robot’s actions logically consistent with the observed outcomes? 0: Actions and outcomes are inconsistent 1: Actions and outcomes are consistent 4. Temporal Consistency (0-1 point): Is the video temporally coherent without flickering, sudden jumps, or artifacts? 0: Severe temporal artifacts 1: Smooth and temporally consistent 5. Contact Realism (0-1 point): When the robot contacts objects, does it look physically realistic? 0: Unrealistic contacts 1: Contacts look natural and realistic 6. Physics Adherence (0-2 points): Does the video obey basic physics? 0: Severe physics violations 1: Minor physics issues but mostly plausible 
+
+51 2: Fully physically plausible Output Format: First, think step by step about what you observe in the video. Then output your evaluation as a JSON object: {"reasoning": "Your detailed analysis", "instruction_following": <0-3>, "manipulation_success": <0-2>, "action_outcome_consistency": <0-1>, "temporal_consistency": <0-1>, "contact_realism": <0-1>, "physics_adherence": <0-2>, "total": <0-10> }
+
+User Message Template. 
+
+Instruction: {instruction} Initial Frame (starting state): [Initial frame image] Generated Video Frames ({N} frames sampled uniformly): [Frame 1] [Frame 2] ... [Frame N] Please evaluate this generated video based on the 6 dimensions described. 
+
+52
