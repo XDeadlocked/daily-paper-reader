@@ -1,0 +1,1231 @@
+Title: Understanding Asynchronous Inference Methods for Vision-Language-Action Models
+
+URL Source: https://arxiv.org/pdf/2605.08168v1
+
+Published Time: Tue, 12 May 2026 00:03:02 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Understanding Asynchronous Inference Methods for Vision-Language-Action Models 
+
+Ayoub Agouzoul 
+
+École polytechnique Systems Group, ETH Zürich 
+
+ayoub.agouzoul@polytechnique.edu 
+
+Abstract 
+
+Vision-Language-Action (VLA) models offer a promising path to generalist robot control, but their inference latency causes observation staleness when generated actions are executed asynchronously. Several methods have been proposed con-currently to mitigate this problem: inference-time inpainting (IT-RTC), training-time delay simulation (TT-RTC), future-state-aware conditioning (VLASH), and lightweight residual correction (A2C2). Each takes a fundamentally different approach, but they have so far been evaluated independently with different code-bases, base policies, and protocols. We present a systematic comparison of these four methods under controlled conditions. We develop two unified codebases that integrate all methods with harmonized library and dataset versions, and we benchmark them on the Kinetix suite with MLPMixer policies and on the LIBERO manipulation benchmark with SmolVLA, sweeping inference delays up to d = 20 
+
+control steps. A2C2’s per-step residual correction is the most effective method on Kinetix, holding above 90% solve rate up to d=8 , and also leads on LIBERO from 
+
+d≥4 onwards. IT-RTC is competitive at low delays but degrades sharply under long chunks ( H=30 ) and high delays. TT-RTC is the most robust training-based method: stable across dmax choices, generalizes beyond its training delay distribution, and adds zero inference overhead. VLASH exhibits a clear low-delay vs. high-delay trade-off governed by the fine-tuning delay range [0 , d max ]. Code is available at 
+
+https://github.com/TheAyos/async-vla-inference .
+
+1 Introduction 
+
+Vision-Language-Action (VLA) models have emerged as a powerful paradigm for generalist robot control, mapping visual observations and natural-language instructions to robot actions [ 1–5 ]. A key design choice in modern diffusion- and flow-matching-based VLA policies is action chunking [ 6]: instead of predicting one action per observation, the policy predicts a sequence of H future actions in a single forward pass, reducing compounding errors and amortizing inference cost. However, action chunking interacts poorly with the high inference latency of large VLA models—typically tens to hundreds of milliseconds [ 7 , 8 ]. By the time a chunk is ready, the robot’s state and environment have already moved on, so executed actions are conditioned on a stale observation and may no longer be optimal. 
+
+Synchronous execution avoids this problem by halting the robot during inference, but caps the control frequency at the policy’s end-to-end inference rate, which is impractical for tasks requiring fast reaction times. Naive asynchronous execution maintains a high control rate by decoupling inference from execution and switching to the new chunk as soon as it is available [ 5 ], but introduces jitter and discontinuities at chunk boundaries that visibly degrade task performance [ 9]. Four methods have recently been proposed to bridge this gap, each targeting a different failure mode: 
+
+> Preprint.
+> arXiv:2605.08168v1 [cs.RO] 4 May 2026
+
+• IT-RTC [ 9 ]: training-free flow-matching guidance that inpaints fresh actions onto a partially frozen chunk at inference time. • TT-RTC [10 ]: training-time delay simulation that conditions the policy on action prefixes so it learns to predict only the non-stale postfix, with no inference overhead. • VLASH [ 11 ]: estimates the robot’s future state at execution time using known previous actions, and conditions the policy on this rolled-forward state. • A2C2 [ 12 ]: a lightweight correction head that runs at every control step, producing residual adjustments to the base policy’s stale actions. Despite their shared motivation, these methods have been developed and evaluated in incompatible codebases, on different benchmarks, and with different base policies. This makes direct comparison difficult and obscures the trade-offs between them. 
+
+Contributions. (i) Two unified codebases (bt-kinetix in JAX/Flax NNX, bt-libero in Py-Torch/LeRobot) that integrate all four methods with harmonized libraries, datasets, and base policies. (ii) A systematic comparison on the Kinetix [ 13 ] continuous-control suite (10 dynamic environ-ments, H ∈ { 16 , 30 }, delays up to d=15 ) and on the LIBERO [ 14 ] manipulation benchmark with SmolVLA (delays up to d=20 ). (iii) Practical insights on training cost, inference overhead, and out-of-distribution delay generalization that inform the choice of asynchronous inference strategy for future VLA design and deployment. 
+
+2 Background and Methods 
+
+2.1 The Asynchronous Inference Gap 
+
+Following Black et al. [9] , we define the inference delay d = ⌊δ/ ∆t⌋, where δ is the wall-clock inference time and ∆t is the control period. At time t the robot captures observation ot and submits it to the policy. During the d control steps that inference takes, the robot must continue to act and so executes the tail of the previous chunk. When the new chunk At = π(ot) is ready at step t+d,its first d entries correspond to elapsed timesteps and are obsolete; the robot begins executing from 
+
+at+d onward. Naive asynchronous execution thus suffers from three interrelated failure modes: 
+
+chunk-boundary discontinuity (the new chunk is incompatible with the just-committed actions), 
+
+observation staleness (the new chunk is conditioned on a d-step-old observation), and open-loop degradation (committed actions cannot adapt during the chunk’s lifetime). 
+
+2.2 Four Methods, Four Failure Modes 
+
+The four methods we compare each primarily target one of these failure modes; their workings are detailed in Appendix A. 
+
+IT-RTC [ 9] addresses chunk-boundary discontinuity by treating the first d actions of a new chunk as known constraints and inpainting the remaining H−d actions during flow-matching denoising, drawing on diffusion-based image inpainting [ 15 ]. Each Euler step adds a pseudoinverse-guidance term [ 16 ] that steers the denoised actions toward satisfying the prefix constraint, with a soft exponen-tially decaying mask blending frozen and free actions. IT-RTC requires no retraining but invokes a backward (VJP) pass per denoising step, tripling the denoising-loop FLOPs (Section 6). 
+
+TT-RTC [ 10 ] attacks the same problem at training time. Through three minimal architecture changes—per-token flow timesteps via adaLN-Zero [ 17 ], a non-noisy ground-truth prefix during training, and a masked loss that fires only on the postfix—the policy learns to predict postfix actions conditioned on a committed prefix. The training-time delay d is sampled with exponential decay 
+
+p(d) ∝ λd for d ∈ { 0, . . . , d max }. At inference, TT-RTC is a drop-in replacement for IT-RTC with zero overhead. 
+
+VLASH [ 11 ] directly targets observation staleness by modifying the state conditioning . When inference begins on ot, VLASH rolls the proprioceptive state forward by ∆ steps using the known committed actions, and conditions the (otherwise unmodified) policy on (ot, ˆst+∆ ) rather than 2(ot, s t). A temporal-offset training augmentation samples δ ∈ { 0, . . . , ∆max } and trains the policy to predict the action chunk starting at t+δ from the original observation ot but the shifted state st+δ ,encouraging reliance on the (varying) state rather than the (fixed) image. 
+
+A2C2 [ 12 ] targets open-loop degradation. Rather than modify the base policy, it trains a lightweight correction head πA2C2 that runs at every control step and emits a residual ∆at+k added to the base action abase 
+
+> t+k
+
+. The head conditions on the latest observation, base-policy hidden features, language, and a sinusoidal time-in-chunk feature τk = (sin(2 πk/H ), cos(2 πk/H )) that signals how stale the current base action is. The head is small enough to run inline within the control loop and the base policy is left frozen, so A2C2 is in principle composable with the other three methods. 
+
+2.3 Mapping Inference Delay to Real-World Deployments 
+
+Prior work on asynchronous chunking [9–11] has primarily evaluated delays up to d=4 . At a 50 Hz control rate ( ∆t = 20 ms, the standard for the π0 family [ 3, 4]), this corresponds to only 80 ms and does not capture the regime relevant to many real deployments. Drawing on the roofline-based latency analysis of Jiang et al. [8] for π0, Table 1 maps representative deployment scenarios to their expected delay. Even an on-device Jetson Thor incurs d=2 , an edge server over 4G already reaches d=3 ,and cloud inference over constrained networks pushes d to 13 or beyond. These numbers motivate evaluating delays well past d=4 and choosing dmax for training-based methods accordingly. Table 1: Inference delay d at 50 Hz control ( ∆t = 20 ms) for representative π0 deployment scenarios, using the latency estimates of Jiang et al. [8]. d = ⌊δ/ ∆t⌋.                             
+
+> Scenario Configuration Latency δDelay d
+> Datacenter GPU (local) B100, no network 3.2 ms 0Consumer GPU (local) RTX 4090, no network 31.1 ms 1Edge GPU (on-device) Jetson Thor, no network 52.6 ms 2Edge server (Wi-Fi 7) B100 + Wi-Fi 7 8.4 ms 0Edge server (5G) B100 + 5G 27.8 ms 1Edge server (4G) B100 + 4G 73.0 ms 3Cloud server (fast) B100 + wired + fast cloud 23.4 ms 1Cloud server (slow) B100 + 4G + slow cloud 273.4 ms 13
+
+3 Experimental Setup 
+
+3.1 Unified Codebases 
+
+A practical obstacle to comparing the four methods is that each was developed in a separate codebase with different dependencies, dataset formats, and evaluation protocols. The IT-RTC and TT-RTC papers share a Kinetix-only JAX codebase; VLASH and A2C2 each ship LIBERO-specific codebases pinned to incompatible LeRobot/PyTorch versions, plus distinct JAX implementations for Kinetix. We developed two unified codebases to remove these as confounders. 
+
+bt-kinetix (JAX, Flax NNX, Optax) integrates the flow-matching policy training, TT-RTC’s prefix conditioning, VLASH’s temporal-offset augmentation, and A2C2’s residual training under a single entry point. All methods share the same MLP-Mixer [ 18 ] backbone, data loader, and evaluation protocol. We additionally extended the original IT-RTC framework, which only supported H=8 , to arbitrary H ∈ { 8, 16 , 30 }, enabling delay sweeps up to d=15 .
+
+bt-libero (PyTorch, LeRobot v0.4.2, Accelerate) supports SmolVLA [ 5] (and in principle π0/π0.5)under a unified evaluation harness with five modes: baseline , vlash , tt_rtc , it_rtc , and a2c2 .We re-implemented the A2C2 residual pipeline (originally on LeRobot v0.2.x) and the IT-RTC inference-time guidance into the VLASH-derived training stack, harmonized dataset formats across LIBERO suites, and added multi-GPU distributed training for the A2C2 head via accelerate .33.2 Benchmarks and Protocols Kinetix [ 13 ] is a JAX-based 2D physics suite for continuous control. Following Black et al. [9] , we use 10 of the 12 hand-designed dynamic environments (excluding mjc_walker and trampoline ,which exhibited unstable behavior during our experiments). Observations are 679-dimensional symbolic vectors. Actions control joint torques/forces. All Kinetix experiments share an MLP-Mixer base ( ∼310K params, 4 layers, C=256 , 5 Euler steps), trained per the four-phase pipeline of Black et al. [9 , 10] (PPO experts → data collection → flow-matching base → method-specific fine-tune); see Appendix B. We evaluate two chunk sizes, H=16 and H=30 , with 2048 parallel rollouts per configuration (d, s, method ) and per environment. We sweep over delays (d, s ) = ( d, max(1 , d )) 
+
+for d ∈ { 0, . . . , ⌊H/ 2⌋} and over execution horizons (d, s ) = (1 , h ) for h ∈ { 2, . . . , H }. Reported metrics are solve rate (with 95% Wilson CIs) and mean episode length (number of steps to solve). 
+
+LIBERO [ 14 ] is a manipulation benchmark on a 7-DoF Franka arm with parallel-jaw gripper and dual workspace cameras (256 ×256). We evaluate on the four LIBERO suites (Spatial, Object, Goal, 10-task; 40 tasks total), 10 rollouts per task per (d, s ), with d ∈ { 0, 1, 2, 4, 8, 15 , 20 } and 
+
+s = 50 . The base policy is SmolVLA fine-tuned from the public smolvla_libero checkpoint with 
+
+dmax ∈ { 0, 4, 8, 16 } for VLASH variants and dmax ∈ { 4, 8} for TT-RTC; the baseline is the same checkpoint fine-tuned for the same number of steps with dmax =0 , to ensure that the checkpoints are trained on the same dataset for a comparable number of optimization steps. Only the action expert is trained, with the VLM layers frozen. The A2C2 correction model is a 6-layer Transformer (dmodel =512 , 8 heads, FFN 2048) with a frozen ResNet-18 vision backbone and VLM-feature projection (32.0M total / 20.8M trainable params). Inference delay is simulated by feeding the policy the observation from d steps ago while executing the first s actions of each predicted chunk; for A2C2, observations are always current and staleness is simulated at the action level. Hyperparameters are listed in Appendix B.2. 
+
+Important caveat for VLASH on LIBERO. Because the LIBERO state dimension (9: end-effector pose + gripper width) differs from the action dimension (7: end-effector velocity + gripper command), state rollforward via committed actions (as on Kinetix) is not possible. Due to time constraints, we follow the original VLASH authors’ implementation 1 and use ground-truth future states from the demonstration dataset for ˆst+δ . This is an information advantage that would not be available in real-world deployment. We re-emphasize this when interpreting LIBERO results (Section 5). 
+
+Hardware. Kinetix training and evaluation, and LIBERO training, use 4 × H100 NVL GPUs (CUDA 13.0). LIBERO evaluation uses 4 × RTX 3090 (CUDA 12.6). 
+
+3.3 Research Questions 
+
+We organize the experiments around three questions: (RQ1) How do the four methods compare in task performance as the delay d increases? (RQ2) How well do training-based methods generalize when evaluated at delays beyond dmax ? (RQ3) How do training cost and inference overhead trade off across methods at small (Kinetix) vs. VLA (LIBERO) scale? 
+
+4 Kinetix Results 
+
+4.1 RQ1: Scaling with Delay 
+
+Figure 1 shows the main H=16 results. In the delay sweep (left), A2C2 (pink) achieves the highest absolute solve rate across nearly all delays, remaining above 90% even at d=8 , while the naive baseline drops below 40%. TT-RTC with dmax =8 
+
+closely tracks IT-RTC at d=0 , 1 and surpasses it for higher delays, confirming that training-time delay simulation can match or exceed inference-time guidance without the VJP overhead. VLASH outperforms the RTC methods at low delays but falls behind A2C2. The horizon sweep at d=1 
+
+(right) shows that all methods except naive remain stable across s with minimal drops in performance (5 − 15 % only), with IT-RTC, TT-RTC, and VLASH ( dmax =4 ) exhibiting the most consistent curves. To probe higher delays representative of real-world VLA deployment ( d=15 corresponds to 300 ms at 50 Hz; cf. Table 1), we repeat the evaluation with H=30 (Figure 2).  
+
+> 1See https://github.com/mit-han-lab/vlash/issues/10#issuecomment-3700627643 .
+
+40 1 2 3 4 5 6 7 8                
+
+> Inference Delay, d
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+> Solve Rate vs Delay (95% Wilson CI)
+> 12345678
+> Execution Horizon, s
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Solve Rate
+> Solve Rate vs Horizon ( d= 1) (95% Wilson CI)
+> Naive IT-RTC TT-RTC d4 TT-RTC d8 VLASH d4 VLASH d8 A2C2
+
+Figure 1: Kinetix at H=16 across 10 environments (2048 rollouts each). Left: solve rate vs. delay 
+
+d. Right: solve rate vs. horizon s at d=1 . Seven variants: naive, IT-RTC, TT-RTC ( dmax ∈ { 4, 8}), VLASH ( dmax ∈ { 4, 8}), A2C2. 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15                         
+
+> Inference Delay, d
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+> Solve Rate vs Delay (95% Wilson CI)
+> 12345678910 11 12 13 14 15
+> Execution Horizon, s
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Solve Rate
+> Solve Rate vs Horizon ( d= 1) (95% Wilson CI)
+> Naive IT-RTC TT-RTC d4 TT-RTC d8 TT-RTC d15 VLASH d4 VLASH d15 A2C2
+
+Figure 2: Kinetix at H=30 , extending the delay range to d=15 . Eight variants: naive, IT-RTC, TT-RTC ( dmax ∈ { 4, 8, 15 }), VLASH ( dmax ∈ { 4, 15 }), A2C2. The overall ranking persists: A2C2 leads, followed by VLASH ( dmax =4 ) and the TT-RTC family, with IT-RTC and naive trailing. Two new observations stand out. First, IT-RTC now barely improves over naive at high delays, suggesting that its linear VJP approximation degrades as the prefix-to-postfix ratio grows. Second, training VLASH with a wider range ( dmax =15 ) helps at d ≥ 6 but costs nearly 10% absolute solve rate at low delays compared to dmax =4 . At d=0 all methods recover comparable performance to the base policy, confirming that the asynchronous mechanisms do not introduce regressions at zero delay. Per-environment breakdowns and d=0 sanity-check plots are provided in Appendix D. 
+
+4.2 RQ2: Choosing the Training Delay dmax 
+
+Figure 3 isolates TT-RTC and VLASH at H=30 across dmax values. A clear distinction emerges between the two fine-tuning-based methods: TT-RTC is largely insensitive to dmax : the dmax ∈ { 4, 8, 15 } curves overlap, and even out-of-distribution delays degrade gracefully. VLASH shows the opposite pattern: a wider dmax consistently improves robustness at high delays but measurably hurts low-delay accuracy. We attribute this to the underlying mechanism: VLASH’s temporal-offset augmentation directly conditions on the offset, so the training distribution shifts the policy’s bias; TT-RTC’s prefix conditioning provides a more natural extrapolation. The same trend, less pronounced, appears at H=16 (figure in Appendix D). Cross-chunk-size comparisons confirming 50 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15                      
+
+> Inference Delay, d
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+> Solve Rate vs Delay (95% Wilson CI)
+> 12345678910 11 12 13 14 15
+> Execution Horizon, s
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Solve Rate
+> Solve Rate vs Horizon ( d= 1) (95% Wilson CI)
+> TT-RTC d4 TT-RTC d8 TT-RTC d15 VLASH d4 VLASH d15
+
+Figure 3: Effect of dmax on TT-RTC and VLASH at H=30 . Left: solve rate vs. delay. Right: solve rate vs. horizon at d=1 . Delays beyond dmax are out-of-distribution for the respective variant. that the H=16 and H=30 ablations are mutually consistent over the shared range d ∈ { 0, . . . , 8}
+
+are deferred to Appendix E. 
+
+Practical takeaway. For VLASH, dmax must be tuned to the expected deployment delay; for TT-RTC, choosing dmax generously seems to be essentially free. 
+
+5 LIBERO Results 
+
+We evaluate the same methods on LIBERO with SmolVLA, with d ∈ { 0, 1, 2, 4, 8, 15 , 20 } and s=50 .As noted above, the LIBERO VLASH implementation accesses ground-truth future states; results for VLASH should be read as an upper bound on the achievable performance of a deployable variant. 0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success % (avg over suites)
+
+Averaged Success % vs Delay (chunk_size=50) 
+
+> SmolVLA A2C2 d0
+> SmolVLA Baseline d0 5k
+> SmolVLA IT-RTC d0
+> SmolVLA VLASH d16 5k
+> SmolVLA VLASH d4 5k
+> SmolVLA VLASH d8 5k
+> SmolVLA TT-RTC d4 5k
+> SmolVLA TT-RTC d8 5k
+
+Figure 4: LIBERO success rate averaged across the four suites (Spatial, Object, Goal, 10-task) vs. inference delay d, with s=50 . SmolVLA is the base policy; 10 rollouts per task per (d, s ).The results on LIBERO are meaningfully different from Kinetix: at d=0 , IT-RTC achieves the highest success rate ( ∼75%), with A2C2 second ( ∼70%) and the VLASH and TT-RTC variants clustered between ∼57–61%. As delay grows, this ranking inverts almost completely. The naive baseline collapses fastest, falling from ∼61% at d=0 to ∼10–12% at d=20 , and IT-RTC follows it closely from above—from ∼75% at d=0 down to ∼20% at d=20 —and especially beyond d=8 . TT-RTC 6also degrades substantially: dmax =8 falls from ∼60% to ∼25% at d=20 and dmax =4 from ∼57% to 
+
+∼33%, in marked contrast to TT-RTC’s near-flat profile on Kinetix. In contrast, A2C2 and the wider VLASH variants are remarkably stable. VLASH dmax ∈{ 8, 16 }
+
+traces nearly horizontal curves, retaining ∼55–56% through d=20 (within ∼5 points of their d=0 
+
+values); VLASH dmax =4 instead peaks at d=4 (∼63%) and declines more steeply afterwards, replicating the low-delay/high-delay dmax trade-off observed on Kinetix (RQ2). A2C2 takes the lead over every other method from d=4 onwards and holds a ∼10-point margin over the next-best variants throughout d ∈ { 4, 8, 15 } (mid-to-high 60s vs. mid-50s); at d=20 that margin shrinks as A2C2 begins to slip ( ∼58%) while VLASH dmax =16 (∼56%) and dmax =8 (∼55%) remain nearly flat, with dmax =4 trailing at ∼49%. The per-suite breakdown (Appendix F) shows the same ranking holds across LIBERO-Spatial, -Object, -Goal, and -10, with the largest method gaps on the LIBERO-Spatial and -Object suites. A VLASH ablation over dmax ∈ { 0, 4, 8, 16 } at multiple training checkpoints (Appendix G) further confirms that wider dmax values improve high-delay robustness. 
+
+Why does the Kinetix ranking not transfer? First, SmolVLA action chunks are much longer (H=50 vs. H∈{ 16 , 30 } on Kinetix), which inflates the prefix-to-postfix ratio at any given d and may handicap the prefix-conditioned methods (IT-RTC, TT-RTC). Second, LIBERO VLASH benefits from the privileged future-state access discussed in Section 3.2, which would not be available in real-world deployment; its strong performance at high delay should therefore be read as an upper bound. We did test an analogous variant on Kinetix and found it to track the standard VLASH implementation closely, suggesting the privileged shortcut is a faithful proxy for the deployable mechanism, but this is not conclusive given how different the two environments are. A2C2 also no longer dominates at the very lowest delays as it did on Kinetix—IT-RTC narrowly beats it at d ∈ { 0, 1, 2}, after which A2C2 retakes the lead—potentially because the base SmolVLA’s actions are already close to optimal at low delays. This leaves the residual head with a higher chance of injecting noise, as it is trained with positions sampled uniformly within the chunk and is not aware of a specific delay, so it cannot specialize to the small-prefix regime the way IT-RTC does. 
+
+6 Cost Analysis and Inference Overhead 
+
+We compare the methods on three cost axes: per-chunk inference FLOPs, additional training FLOPs, and measured wall-clock latency. Detailed FLOPs derivations and break-even calculations are in Appendix C. 
+
+Inference FLOPs. On Kinetix’s compact MLP-Mixer ( F K 
+
+> fwd
+
+≈ 47 .1 MFLOPs), IT-RTC’s pseu-doinverse guidance costs 3F K 
+
+> fwd
+
+per Euler step (one forward + one VJP backward at ≈ 2× for-ward [ 19 ]) for a 3× overhead. TT-RTC, VLASH, and A2C2 add zero or negligible model FLOPs. On LIBERO, the picture flips: SmolVLA’s vision-encoder prefill ( Fpre = 494 .6 GFLOPs measured via torch.profiler ) accounts for 89.8% of the chunk cost, so IT-RTC’s 3× denoising-loop over-head translates to only 1.20 × overall ( 663 .8/551 .0 GFLOPs). A2C2 with s=50 incurs the largest per-chunk overhead on LIBERO: 50 ResidualTransformer forwards (8.21 GFLOPs each) bring the chunk cost to 1.75 × naive—more expensive than IT-RTC. 
+
+Training FLOPs and break-even. TT-RTC’s 8-epoch fine-tune adds ∼25% of base training cost on Kinetix, and 5,000 steps of SmolVLA fine-tune ( ∼1,310 PFLOPs) on LIBERO, with the chosen training hyperparameters in Appendix B. The break-even between TT-RTC’s one-time training and IT-RTC’s recurring inference overhead is N ∗ 
+
+> ep
+
+≈ 2.9 × 10 6 episodes on LIBERO. In pure FLOPs terms IT-RTC is therefore quite competitive at VLA scale, but the comparison must also account for sequential latency, since IT-RTC’s overhead falls entirely on the (sequential, non-pipelinable) denoising loop. 
+
+Measured LIBERO latency. Table 2 reports wall-clock chunk-generation latency on a single LIBERO-Spatial observation on an RTX 3090 (10 warmup + 100 timed iterations). TT-RTC matches the naive baseline almost exactly (402.7 vs. 405.2 ms), IT-RTC is 64.5 ms slower per chunk (+15.9%, throughput drops from 2.47 to 2.13 Hz), and A2C2’s residual head is lightweight in isolation (7.27 ms) so a serial base+residual call sits at +1.8%. 7Table 2: Measured LIBERO chunk-generation latency on an NVIDIA RTX 3090 for one LIBERO-Spatial observation (SmolVLA, batch size 1). “A2C2 residual only” is reported as a breakdown of the serial path, not as a standalone method. 
+
+Method Mean (ms) P95 (ms) Hz Ratio 
+
+Naive 405.2 407.5 2.47 1.00 ×
+
+TT-RTC 402.7 404.9 2.48 0.99 ×
+
+IT-RTC 469.7 488.6 2.13 1.16 ×
+
+A2C2 (serial) 412.4 417.2 2.42 1.02 ×
+
+A2C2 residual only 7.27 7.35 137.5 0.02 ×
+
+7 Discussion 
+
+Across both benchmarks the naive asynchronous baseline is, as expected, the most sensitive to delay. All four mitigation methods recover most of the lost performance, but no single method dominates across all settings, and the cross-benchmark ranking changes more than we initially expected. Prefix-conditioned training (TT-RTC) is the most stable choice on Kinetix: a modest fine-tune, least sensitive to out-of-distribution delays regardless of the training dmax , zero inference overhead, and on LIBERO it matches the wall-clock latency of the unmodified base policy. However, on LIBERO its accuracy degrades substantially with delay, eroding much of the appeal of its low cost. IT-RTC 
+
+is competitive at zero or near-zero delay—on LIBERO it is the single best method at d=0 —but its gains shrink as the prefix-to-postfix ratio grows, it triples the sequential denoising-loop latency, and on LIBERO it collapses essentially to the naive baseline beyond d=8 . VLASH exposes a clear low-delay/high-delay trade-off via dmax on both benchmarks, but the dmax ∈{ 8, 16 } variants are essentially flat on LIBERO; we re-emphasize that this stability is partly enabled by the privileged future-state access in our LIBERO setup, so a deployable VLASH variant would need to bring its own forward dynamics model. A2C2 is the most chunk-size-tolerant method in our experiments: it led on Kinetix, and on LIBERO it is the strongest method at high delay despite the longer chunks. Its only sizeable cost—accumulating s residual calls per chunk—is precisely what gives it this robustness, and its design composes naturally with the other three methods, a direction we view as promising and did not exhaustively explore. 
+
+Limitations. Our evaluation treats d as a fixed integer; in real deployments d varies with GPU scheduling, network jitter, and input complexity, conditions under which delay-aware methods (TT-RTC, A2C2) likely have an additional advantage we do not capture. Hyperparameters were taken from the original papers and not individually retuned, as our goal was to get a first understanding of how these recent asynchronous inference approaches compare, rather than developing a new method. Following the VLASH authors’ own LIBERO setup, our VLASH results rely on oracle future states to bypass the action/state dimension mismatch that prevents the additive rollforward used in the original VLASH formulation (and possible on Kinetix); a deployable variant would require either a lightweight learned forward model or an environment patch restoring that coupling. Time-to-solve measurements did not prove reliable in simulation, and we leave to future work an evaluation on physical robots, which will be required to draw firm conclusions about energy, time-to-solve, and overall efficiency. 
+
+8 Conclusion 
+
+We presented a systematic comparison of four asynchronous action-chunking methods (IT-RTC, TT-RTC, VLASH, A2C2) under controlled conditions, enabled by two unified codebases. On Kinetix across 10 environments and chunk sizes H ∈ { 16 , 30 }, A2C2 leads on absolute solve rate, TT-RTC offers the most attractive training/inference trade-off, and TT-RTC overtakes IT-RTC at the highest delays once trained with a wide enough dmax . On LIBERO with SmolVLA ( H=50 ), the ranking shifts: A2C2 is the strongest method at high delay, the wider VLASH variants are also remarkably stable (with the caveat of privileged future-state access), and IT-RTC and TT-RTC degrade substantially as the prefix-to-postfix ratio grows. Training-based methods generalize beyond their training delay distribution when dmax is set appropriately, and prefix-conditioned training (TT-RTC) is markedly more dmax -robust than offset-augmented training (VLASH) on 8Kinetix. In practise: if retraining is infeasible and the expected delay is low, IT-RTC is a sensible drop-in; if fine-tuning is possible and chunks are short, TT-RTC offers a near-free fix; on long-chunk VLA settings, A2C2 is the most reliable choice and naturally composes with the other methods. VLASH remains a strong choice provided an accurate forward state model is available and one can commit to an expected delay range at fine-tune time. All related code is available at: 
+
+https://github.com/TheAyos/async-vla-inference .
+
+Acknowledgments and Disclosure of Funding 
+
+This work was conducted during an exchange semester at ETH Zürich and is based on a bachelor’s thesis submitted in partial fulfillment of the requirements for a B.Sc. degree at École polytechnique. The author would like to thank Prof. Wenqi Jiang for guidance and supervision throughout this project, and the Systems Group at ETH Zürich for providing a stimulating research environment and access to computing resources. The author is also grateful to École polytechnique for academic and administrative support during this work. Generative artificial intelligence tools were used to improve the grammar and readability of portions of this manuscript. 
+
+References 
+
+[1] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, Julian Ibarz, Brian Ichter, Alex Irpan, Tomas Jackson, Sally Jesmonth, Nikhil J Joshi, Ryan Julian, Dmitry Kalashnikov, Yuheng Kuang, Isabel Leal, Kuang-Huei Lee, Sergey Levine, Yao Lu, Utsav Malla, Deeksha Manjunath, Igor Mordatch, Ofir Nachum, Carolina Parada, Jodilyn Peralta, Emily Perez, Karl Pertsch, Jornell Quiambao, Kanishka Rao, Michael Ryoo, Grecia Salazar, Pannag Sanketi, Kevin Sayed, Jaspiar Singh, Sumedh Sontakke, Austin Stone, Clayton Tan, Huong Tran, Vincent Vanhoucke, Steve Vega, Quan Vuong, Fei Xia, Ted Xiao, Peng Xu, Sichun Xu, Tianhe Yu, and Brianna Zitkovich. Rt-1: Robotics transformer for real-world control at scale, 2023. URL https://arxiv.org/abs/2212.06817 .[2] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, Quan Vuong, Thomas Kollar, Benjamin Burchfiel, Russ Tedrake, Dorsa Sadigh, Sergey Levine, Percy Liang, and Chelsea Finn. Openvla: An open-source vision-language-action model, 2024. URL https://arxiv. org/abs/2406.09246 .[3] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Lucy Xiaoyang Shi, James Tanner, Quan Vuong, Anna Walling, Haohuan Wang, and Ury Zhilinsky. π0: A vision-language-action flow model for general robot control, 2026. URL https://arxiv. org/abs/2410.24164 .[4] Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. π0.5: a vision-language-action model with open-world generalization, 2025. URL 
+
+https://arxiv.org/abs/2504.16054 .[5] Mustafa Shukor, Dana Aubakirova, Francesco Capuano, Pepijn Kooijmans, Steven Palma, Adil Zouitine, Michel Aractingi, Caroline Pascal, Martino Russi, Andres Marafioti, Simon Alibert, Matthieu Cord, Thomas Wolf, and Remi Cadene. Smolvla: A vision-language-action model for affordable and efficient robotics, 2025. URL https://arxiv.org/abs/2506.01844 .9[6] Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipulation with low-cost hardware, 2023. URL https://arxiv.org/abs/2304.13705 .[7] Yunchao Ma, Yizhuang Zhou, Yunhuan Yang, Tiancai Wang, and Haoqiang Fan. Running vlas at real-time speed, 2025. URL https://arxiv.org/abs/2510.26742 .[8] Wenqi Jiang, Jason Clemons, Karu Sankaralingam, and Christos Kozyrakis. How fast can i run my vla? demystifying vla inference performance with vla-perf, 2026. URL https: //arxiv.org/abs/2602.18397 .[9] Kevin Black, Manuel Y. Galliker, and Sergey Levine. Real-time execution of action chunking flow policies, 2025. URL https://arxiv.org/abs/2506.07339 .[10] Kevin Black, Allen Z. Ren, Michael Equi, and Sergey Levine. Training-time action conditioning for efficient real-time chunking, 2025. URL https://arxiv.org/abs/2512.05964 .[11] Jiaming Tang, Yufei Sun, Yilong Zhao, Shang Yang, Yujun Lin, Zhuoyang Zhang, James Hou, Yao Lu, Zhijian Liu, and Song Han. Vlash: Real-time vlas via future-state-aware asynchronous inference, 2025. URL https://arxiv.org/abs/2512.01031 .[12] Kohei Sendai, Maxime Alvarez, Tatsuya Matsushima, Yutaka Matsuo, and Yusuke Iwasawa. Leave no observation behind: Real-time correction for vla action chunks, 2025. URL https: //arxiv.org/abs/2509.23224 .[13] Michael Matthews, Michael Beukman, Chris Lu, and Jakob Foerster. Kinetix: Investigating the training of general agents through open-ended physics-based control tasks, 2025. URL 
+
+https://arxiv.org/abs/2410.23208 .[14] Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning, 2023. URL https: //arxiv.org/abs/2306.03310 .[15] Ashwini Pokle, Matthew J. Muckley, Ricky T. Q. Chen, and Brian Karrer. Training-free linear image inverses via flows, 2024. URL https://arxiv.org/abs/2310.04432 .[16] Jiaming Song, Arash Vahdat, Morteza Mardani, and Jan Kautz. Pseudoinverse-guided diffusion models for inverse problems. In International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=9_gsMA8MRKQ .[17] William Peebles and Saining Xie. Scalable diffusion models with transformers, 2023. URL 
+
+https://arxiv.org/abs/2212.09748 .[18] Ilya Tolstikhin, Neil Houlsby, Alexander Kolesnikov, Lucas Beyer, Xiaohua Zhai, Thomas Unterthiner, Jessica Yung, Andreas Steiner, Daniel Keysers, Jakob Uszkoreit, Mario Lucic, and Alexey Dosovitskiy. Mlp-mixer: An all-mlp architecture for vision, 2021. URL https: //arxiv.org/abs/2105.01601 .[19] Andreas Griewank and Andrea Walther. Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation . Society for Industrial and Applied Mathematics, 2 edition, 2008. doi: 10.1137/1.9780898717761. 
+
+A Detailed Method Descriptions 
+
+A.1 IT-RTC: Pseudoinverse Guidance Details 
+
+The soft mask used to blend frozen and free actions is 
+
+Wi = ci · eci − 1
+
+e − 1 , ci = max(0 , 1 − i/d ), (1) with Wi = 1 for fully frozen actions and Wi = 0 for fully free actions. During each Euler denoising step Aτ +1 /n = Aτ + (1 /n )vθ (Aτ , o, τ ), IT-RTC adds a pseudoinverse-guidance term [ 16 ] to the velocity field: 
+
+vguided = vθ + min 
+
+
+
+β, 1−ττ ·r2
+
+> τ
+
+
+
+· (Y − ˆAt)⊤ diag( W ) · ∂ ˆAt 
+
+> ∂A τ
+
+, (2) 10 where Y is the target prefix, ˆAt = Aτ + (1 −τ )vθ is the current denoised estimate, and β is a maximum guidance-strength parameter. The Jacobian-vector product ∂ ˆAt/∂A τ is computed via 
+
+jax.vjp , costing one extra backward pass per Euler step (Appendix C). 
+
+A.2 TT-RTC: Architecture Modifications 
+
+TT-RTC trains πθ (At+d:H | ot, A t:t+d) via three minimal architecture modifications, with no addi-tional parameters. (i) Per-token flow timesteps : the adaLN-Zero conditioning [ 17 ] is modified to support different flow-matching timesteps for prefix and postfix tokens; prefix actions use τ =1 (fully denoised, ground truth) while postfix actions use the sampled training timestep. (ii) Non-noisy prefix :at training time the prefix actions are set to ground truth rather than being noised. (iii) Masked loss :the flow-matching loss is computed only over the postfix. The training-time delay d is sampled from 
+
+p(d) ∝ λd for d ∈ { 0, . . . , d max }. At inference, TT-RTC is a drop-in replacement for IT-RTC with zero overhead. 
+
+A.3 VLASH: State Rollforward and Temporal-Offset Augmentation 
+
+For position-controlled robots where actions represent target displacements, the future state estimate is 
+
+ˆst+∆ = st +
+
+> ∆−1
+
+X
+
+> k=0
+
+aprev 
+
+> t+k
+
+, (3) where aprev  
+
+> t+k
+
+are the remaining actions from the previous chunk. For velocity- or torque-controlled systems the rollforward is approximate [ 11 ]. The training augmentation samples δ ∈ { 0, . . . , ∆max }
+
+and trains πθ (At+δ:t+δ+H−1 | ot, s t+δ ), keeping the visual observation ot fixed across δ so the model learns to rely on the (varying) proprioceptive state for time-sensitive positioning. With block-sparse attention, this can be processed in a single forward pass when state conditioning is routed through a dedicated pathway (e.g. adaRMS in π0.5 [4]); when state is embedded in the input token sequence (as in SmolVLA [5]), each offset requires a separate forward pass. 
+
+A.4 A2C2: Residual Head Details 
+
+The correction head outputs 
+
+aexec  
+
+> t+k
+
+= abase  
+
+> t+k
+
++ ∆ at+k, ∆at+k = πA2C2 (ot+k, a base 
+
+> t+k
+
+, τ k, z t+k, l ), (4) where τk = (sin(2 πk/H ), cos(2 πk/H )) encodes time within the chunk, zt+k is base-policy hidden state, and l is the language instruction. Training is on pre-collected base-policy rollouts with an L2
+
+residual loss; offsets k are sampled uniformly so the head sees varying staleness. The base policy is frozen and so A2C2 is composable with the other three methods. 
+
+B Hyperparameters 
+
+B.1 Kinetix Worked example: base flow policy. The base imitation-learning flow policy is shared by Naive, IT-RTC, and A2C2, and is the starting point for TT-RTC fine-tuning. Architecture: a 4-layer MLP-Mixer with channel dimension 256, channel hidden dimension 512, token hidden dimension 64, and adaLN-Zero conditioning supporting both scalar and per-token flow timesteps. Training: imitation learning with flow-matching loss for 32 epochs, batch size 512, AdamW with constant learning rate 
+
+3 × 10 −4 (linear warmup over 1000 steps), weight decay 10 −2, and gradient clipping to norm 10.0; 5 Euler denoising steps at inference. The full pipeline is re-run for each chunk size H ∈ { 16 , 30 }.
+
+TT-RTC ( dmax ∈ { 5, 9, 16 }). 8-epoch fine-tune from the 24-epoch base checkpoint, with the same optimizer, batch size, and learning-rate schedule; the only change is that simulated_delay is set to the desired dmax to enable per-token prefix conditioning and the masked postfix loss. 
+
+VLASH ( dmax ∈ { 5, 9, 16 }). Trained from scratch for 32 epochs with the same optimizer and batch size as the base; async_interval is set to dmax to enable per-batch random observation/action offsets. 11 A2C2. A 3-layer MLP residual head ( obs + base action + (sin , cos) τ → 256 → 512 → action ) is trained on top of the frozen base flow policy for 16 epochs at batch size 512, with AdamW learning rate 10 −4, weight decay 10 −3, 500 warmup steps, and gradient clipping 10.0. 
+
+IT-RTC. Inference-only over the base flow policy; uses guidance strength β=5 .0 and an exponential prefix-attention schedule. 
+
+B.2 LIBERO Worked example: base d=0 SmolVLA fine-tune. All four LIBERO methods derive from a single SmolVLA fine-tune of the publicly released HuggingFaceVLA/smolvla_libero check-point on the combined Spatial+Object+Goal+10 training data; full configuration is reported in Table 3. Only the action expert is trained (the VLM is frozen via num_vlm_layers = 0 and 
+
+load_vlm_weights =false , and the action expert is initialized from the smolvla_libero weights with expert_width_multiplier = 0 .5). Table 3: LIBERO base d=0 SmolVLA fine-tune hyperparameters. The VLASH and TT-RTC variants share this configuration and differ only in the fields called out below; A2C2 uses a separate optimizer and architecture (Table 4). 
+
+Field Value 
+
+Initial checkpoint HuggingFaceVLA/smolvla_libero 
+
+Components fine-tuned action expert only (VLM frozen) Action chunk size H 50 Training dataset theayos/libero_image (Spatial+Object+Goal+10) Optimizer AdamW Peak / final learning rate 4 × 10 −4 / 2.5 × 10 −6
+
+β1, β 2 0.9, 0.95 Weight decay 10 −10 
+
+Gradient-clip norm 10.0 LR schedule cosine decay with warmup Warmup / decay steps 1,000 / 5,000 Total training steps 5,000 Batch size (per-GPU × #GPUs) 64 × 4 = 256 
+
+Mixed precision enabled (Accelerate) 
+
+max_delay_steps (delay aug.) 0Seed 42 
+
+VLASH (dmax ∈ {4, 8, 16 }). Configuration identical to the base d=0 run, except 
+
+max_delay_steps is set to the target dmax to activate VLASH’s temporal-offset augmentation. Each dmax variant is fine-tuned independently from HuggingFaceVLA/smolvla_libero (not from the base d=0 checkpoint) for 5,000 steps. 
+
+TT-RTC ( dmax ∈ { 5, 9}). Fine-tuned from the base d=0 checkpoint at step 5,000 for an additional 5,000 steps with max_delay_steps = dmax to enable prefix sampling. Per-GPU batch is 128 on 2 GPUs (effective 128 × 2 = 256 ); optimizer and schedule are otherwise unchanged. The dmax =17 
+
+variant is trained fresh from the public smolvla_libero checkpoint at 128 × 4 = 512 on 4 GPUs to fit the longer prefix. 
+
+A2C2 (residual transformer). Trained on offline ( observation , base action , ground-truth action )
+
+triplets collected by rolling out the frozen base d=0 policy on the LIBERO training data. Architecture and optimizer differ from the SmolVLA fine-tunes; values are summarized in Table 4. 12 Table 4: A2C2 residual transformer training on LIBERO. 
+
+Field Value 
+
+Base policy frozen base d=0 SmolVLA (step 5,000) Residual model parameters 32.0 M total / 20.8 M trainable Vision backbone ResNet-18 (frozen, ImageNet weights) 
+
+dmodel 512 Encoder layers / heads 6 / 8 Feed-forward dim 2,048 Dropout 0.1 Time-in-chunk feature (sin , cos)(2 πk/H )
+
+Optimizer AdamW Learning rate / weight decay 10 −5 / 10 −5
+
+Mixed precision enabled (Accelerate) Effective batch / #GPUs 64 / 1 Total training steps 200,000 
+
+IT-RTC. Inference-only over the base d=0 checkpoint; uses execution horizon smin =10 , guidance strength β=5 .0, and an exponential prefix-attention schedule ( EXP ). 
+
+C FLOPs and Break-Even Analysis 
+
+C.1 Kinetix 
+
+We analytically compute FLOPs for the MLP-Mixer policy using 2mn FLOPs per matmul of dimensions m × n per token. With o = 679 and representative a = 6 :Table 5: Analytically computed FLOPs for Kinetix models. C denotes chunk size, Ns = 5 Euler steps. The flow policy has an input projection, 4 MLPMixerBlocks (token + channel mixing + 2 AdaLN projections), a time MLP, and an output projection. The residual MLP is a 3-layer feedforward network. 
+
+Component C=16 C=30 
+
+Flow policy (per denoising step) 
+
+Input projection 5.60 M 10.50 M Time MLP (scalar) 0.26 M 0.26 M 4× MLPMixerBlock 40.89 M 73.92 M Final projection 0.31 M 0.35 M 
+
+F K 
+
+> fwd
+
+(1 step) 47.1 M 85.0 M 
+
+5F K 
+
+> fwd
+
+(1 chunk) 235 M 425 M 
+
+Residual MLP (per action step) 
+
+F K 
+
+> res
+
+0.62 M 
+
+Table 6: Per-chunk inference FLOPs on Kinetix ( C=16 , Ns=5 , execution horizon s). Ratio is relative to naive. 
+
+Method Per-chunk FLOPs MFLOPs Ratio 
+
+Naive Ns · F K 
+
+> fwd
+
+235 1.0×
+
+IT-RTC 3Ns · F K 
+
+> fwd
+
+707 3.0×
+
+TT-RTC Ns · F K 
+
+> fwd
+
+235 1.0×
+
+VLASH Ns · F K 
+
+> fwd
+
+(+ env sim) 235 1.0×
+
+A2C2 Ns · F K 
+
+> fwd
+
++ s · F K 
+
+> res
+
+235 + 0 .62 s ≈ 1.02 ×
+
+13 Table 7: Additional training cost for each method on Kinetix beyond the shared 32-epoch base flow policy ( ≈ 54 .2 PFLOPs). 
+
+Method Config Additional cost % of base 
+
+IT-RTC Training-free 0 0% TT-RTC 8 epochs FT, B=512 ∼13.6 PFLOPs 25% VLASH 32 epochs retrain, B=512 ∼54.2 PFLOPs 100% A2C2 16 epochs, B=512 ∼27.4 PFLOPs † 51%    
+
+> †A2C2 training requires a frozen base-policy forward per step; the residual head cost is negligible ( ≈1.3% of base forward).
+
+C.2 LIBERO 
+
+Table 8: Measured FLOPs for the LIBERO models (SmolVLA with expert_width_multiplier =0.5, H=50 , Ns=10 ). Values obtained via torch.profiler on an NVIDIA H100 NVL. 
+
+Component FLOPs 
+
+SmolVLA prefill ( Fpre ) 494.6 GFLOPs SmolVLA denoising step ( Fds ) 5.64 GFLOPs SmolVLA full chunk ( Fpre + 10 Fds ) 551.0 GFLOPs ResidualTransformer forward ( F L
+
+> res
+
+) 8.21 GFLOPs SmolVLA total parameters 604.9 M ResidualTransformer parameters (total / trainable) 32.0 M / 20.8 M Table 9: Per-chunk inference FLOPs on LIBERO. The shared, dominating prefill makes IT-RTC’s overhead modest overall but A2C2’s per-step head accumulates over s.
+
+Method Per-chunk FLOPs GFLOPs Ratio 
+
+Naive Fpre + 10 Fds 551.0 1.00 ×
+
+IT-RTC Fpre + 30 Fds 663.8 1.20 ×
+
+TT-RTC Fpre + 10 Fds 551.0 1.00 ×
+
+VLASH Fpre + 10 Fds (+ state lookup) 551.0 1.00 ×
+
+A2C2 ( s=50 ) Fpre + 10 Fds + 50 F L 
+
+> res
+
+961.7 1.75 ×
+
+Table 10: LIBERO training cost. Beff is the effective batch size. Per-sample cost: Fpre + 3 Fds =511 .5 GFLOPs/sample for SmolVLA fine-tuning (frozen vision encoder forward + expert forward + backward); 3F L 
+
+> res
+
+for A2C2. 
+
+Method Steps Beff GPUs Est. total cost 
+
+Baseline ( dmax =0 ) 5,000 256 4 ∼654 PFLOPs TT-RTC ( dmax =8 ) 5,000 512 4 ∼1,310 PFLOPs VLASH ( dmax =8 ) 5,000 256 4 ∼654 PFLOPs A2C2 (ResTransformer) 200,000 64 1 ∼315 PFLOPs 
+
+C.3 Break-Even: TT-RTC vs. IT-RTC 
+
+We define 
+
+N ∗ = CTT-RTC train 
+
+∆Cchunk 
+
+, ∆Cchunk = CIT-RTC chunk − CTT-RTC chunk . (5) Converting to episodes: N ∗ 
+
+> ep
+
+= N ∗ · s/L ep .14 Kinetix ( C=16 ). CTT-RTC train = 8 × 23 ,437 × 512 × 3F K
+
+fwd ≈ 2.88 × 10 8F K
+
+fwd and ∆Cchunk = 10 F K
+
+fwd ,giving N ∗ ≈ 2.88 × 10 7 chunks. With Lep ≈ 80 and s=8 (10 chunks/episode), N ∗
+
+ep ≈ 2.88 × 10 6
+
+episodes. On 4 ×H100 NVL, both TT-RTC fine-tuning and millions of evaluation episodes complete in minutes; the choice between IT-RTC and TT-RTC at this scale is performance-driven, not compute-driven. 
+
+LIBERO (SmolVLA). CTT-RTC train ≈ 1,310 PFLOPs and ∆Cchunk = 20 Fds = 112 .8 GFLOPs, giving 
+
+N ∗ ≈ 1.16 × 10 7 chunks. With Lep ≈ 200 and s=50 (4 chunks/episode), N ∗
+
+ep ≈ 2.9 × 10 6 episodes. The break-even is large because training cost is dominated by the frozen vision-encoder forward (Fpre ≫ Fds ) while the inference overhead acts only on Fds . In purely FLOPs terms IT-RTC is competitive, but its 3× overhead falls entirely on the (sequential, non-pipelinable) denoising loop, whereas the prefill can in principle be pipelined with action execution—so TT-RTC remains preferable for latency-sensitive deployment. 
+
+D Per-Environment Kinetix Breakdowns 0.2           
+
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Solve Rate
+> car_launch
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> cartpole_thrust
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> catapult
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> catcher_v3
+> 0.93
+> 0.94
+> 0.95
+> 0.96
+> 0.97
+> Solve Rate
+> chain_lander
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> grasp_easy
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h17_unicycle
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> hard_lunar_lander
+> 02468
+> Inference Delay, d
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+> mjc_half_cheetah
+> 02468
+> Inference Delay, d
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> mjc_swimmer
+> Naive
+> IT-RTC
+> TT-RTC d4
+> TT-RTC d8
+> VLASH d4
+> VLASH d8
+> A2C2
+
+Figure 5: Per-environment solve rate vs. delay at H=16 (best execution horizon per delay). 15 0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Solve Rate
+
+car_launch 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+cartpole_thrust 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+catapult 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+catcher_v3 
+
+0.90 
+
+0.92 
+
+0.94 
+
+0.96 
+
+0.98 
+
+> Solve Rate
+
+chain_lander 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+grasp_easy 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+h17_unicycle 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+hard_lunar_lander 
+
+0 5 10 15 
+
+Inference Delay, d
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+> Solve Rate
+
+mjc_half_cheetah 
+
+0 5 10 15 
+
+Inference Delay, d
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+mjc_swimmer 
+
+Naive 
+
+IT-RTC 
+
+TT-RTC d4 
+
+TT-RTC d8 
+
+TT-RTC d15 
+
+VLASH d4 
+
+VLASH d15 
+
+A2C2 Figure 6: Per-environment solve rate vs. delay at H=30 (best execution horizon per delay). 16 car_launch 
+
+> cartpole_thrust
+> catapult
+> catcher_v3
+> chain_lander
+> grasp_easy
+> h17_unicycle
+> hard_lunar_lander
+> mjc_half_cheetah
+> mjc_swimmer
+
+Environment 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Solve Rate
+
+Method Comparison at d = 0, s = 1 (Synchronous Execution) 
+
+Naive IT-RTC TT-RTC d4 TT-RTC d8 VLASH d4 VLASH d8 A2C2 car_launch 
+
+> cartpole_thrust
+> catapult
+> catcher_v3
+> chain_lander
+> grasp_easy
+> h17_unicycle
+> hard_lunar_lander
+> mjc_half_cheetah
+> mjc_swimmer
+
+Environment 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Solve Rate
+
+Method Comparison at d = 0, s = 1 (Synchronous Execution) 
+
+Naive IT-RTC TT-RTC d4 TT-RTC d8 TT-RTC d15 VLASH d4 VLASH d15 A2C2 Figure 7: Per-environment solve rate at d=0 , s=1 (synchronous execution) for H=16 (top) and 
+
+H=30 (bottom). All variants should ideally match the base policy. 0 1 2 3 4 5 6 7 8
+
+Inference Delay, d
+
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+
+Solve Rate vs Delay (95% Wilson CI)        
+
+> 12345678
+
+Execution Horizon, s
+
+> 0.80
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> Solve Rate
+
+Solve Rate vs Horizon ( d = 1) (95% Wilson CI)    
+
+> TT-RTC d4 TT-RTC d8 VLASH d4 VLASH d8
+
+Figure 8: Effect of dmax on TT-RTC and VLASH at H=16 (companion to Figure 3). 
+
+E Cross-Chunk-Size Kinetix Comparisons 
+
+These plots verify that the H=16 and H=30 training-delay ablations are mutually consistent over the shared range d ∈ { 0, . . . , 8}. For naive, IT-RTC, and A2C2, H=16 consistently beats H=30 
+
+in absolute solve rate, confirming that longer chunks impose an intrinsic prediction difficulty even 17 before delay-related degradation; IT-RTC’s curves are nearly parallel across chunk sizes, indicating that its VJP guidance scales well with chunk length. TT-RTC’s variants are consistent across chunk sizes when dmax is set appropriately. VLASH H=16 , dmax =8 slightly outperforms VLASH 
+
+H=30 , dmax =15 despite the latter’s wider training range, suggesting that VLASH’s state-rollforward accuracy is more chunk-size-sensitive than TT-RTC’s prefix conditioning. 0 1 2 3 4 5 6 7 8
+
+Inference Delay, d
+
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+
+Solve Rate vs Delay (95% Wilson CI)        
+
+> 12345678
+
+Execution Horizon, s
+
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Solve Rate
+
+Solve Rate vs Horizon ( d = 1) (95% Wilson CI)      
+
+> Naive H16 Naive H30 IT-RTC H16 IT-RTC H30 A2C2 H16 A2C2 H30
+
+Figure 9: Cross-chunk comparison for training-free methods (naive, IT-RTC) and A2C2: H=16 vs. 
+
+H=30 over d ∈ { 0, . . . , 8}.0 1 2 3 4 5 6 7 8
+
+Inference Delay, d
+
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Solve Rate
+
+Solve Rate vs Delay (95% Wilson CI)        
+
+> 12345678
+
+Execution Horizon, s
+
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> Solve Rate
+
+Solve Rate vs Horizon ( d = 1) (95% Wilson CI)     
+
+> TT-RTC H16 d4 TT-RTC H30 d4 TT-RTC H16 d8 TT-RTC H30 d8 TT-RTC H30 d15
+
+Figure 10: Cross-chunk comparison for TT-RTC: H=16 and H=30 variants across dmax over the shared range. 18 0 1 2 3 4 5 6 7 8
+
+Inference Delay, d
+
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Solve Rate
+
+Solve Rate vs Delay (95% Wilson CI)        
+
+> 12345678
+
+Execution Horizon, s
+
+> 0.750
+> 0.775
+> 0.800
+> 0.825
+> 0.850
+> 0.875
+> 0.900
+> 0.925
+> Solve Rate
+
+Solve Rate vs Horizon ( d = 1) (95% Wilson CI)    
+
+> VLASH H16 d4 VLASH H30 d4 VLASH H16 d8 VLASH H30 d15
+
+Figure 11: Cross-chunk comparison for VLASH: H=16 and H=30 variants across dmax over the shared range. 
+
+F LIBERO: Episode Length and Per-Suite Results 0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+200 
+
+220 
+
+240 
+
+> Avg Solved Episode Length (avg over suites)
+
+Averaged Solved Episode Length vs Delay (chunk_size=50)  
+
+> SmolVLA A2C2 d0
+> SmolVLA Baseline d0 5k
+> SmolVLA IT-RTC d0
+> SmolVLA VLASH d16 5k
+> SmolVLA VLASH d4 5k SmolVLA VLASH d8 5k
+
+Figure 12: Average solved-episode length (successful episodes only) vs. inference delay d, averaged across the four LIBERO suites. Error bars: ±1 standard deviation pooled across suites. 19 0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> Success %
+
+LIBERO-Spatial 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> Success %
+
+LIBERO-Object 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> Success %
+
+LIBERO-Goal 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> Success %
+
+LIBERO-10 
+
+Success % vs Delay (chunk_size=50) 
+
+SmolVLA A2C2 d0 
+
+SmolVLA Baseline d0 5k 
+
+SmolVLA IT-RTC d0 
+
+SmolVLA VLASH d16 5k 
+
+SmolVLA VLASH d4 5k SmolVLA VLASH d8 5k SmolVLA TT-RTC d4 5k SmolVLA TT-RTC d8 5k Figure 13: Per-suite LIBERO success rate vs. delay ( s=50 ). 0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+80 
+
+90 
+
+100 
+
+110 
+
+120 
+
+130 
+
+140 
+
+> Avg Solved Episode Length
+
+LIBERO-Spatial 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+120 
+
+140 
+
+160 
+
+180 
+
+200 
+
+220 
+
+240 
+
+> Avg Solved Episode Length
+
+LIBERO-Object 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+> Avg Solved Episode Length
+
+LIBERO-Goal 
+
+0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400 
+
+450 
+
+> Avg Solved Episode Length
+
+LIBERO-10 
+
+Avg Solved Episode Length vs Delay (chunk_size=50) 
+
+SmolVLA A2C2 d0 SmolVLA Baseline d0 5k SmolVLA IT-RTC d0 SmolVLA VLASH d16 5k SmolVLA VLASH d4 5k SmolVLA VLASH d8 5k 
+
+Figure 14: Per-suite LIBERO solved-episode length vs. delay ( s=50 ). Error bars: ±1 standard deviation. 20 G VLASH Training-Configuration Ablation on LIBERO 0 1 2 4 8 15 20 
+
+Inference Delay, d 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> Success % (avg over suites)
+
+Averaged Success % vs Delay (chunk_size=30) 
+
+> SmolVLA Baseline d0 3k
+> SmolVLA Baseline d0 5k
+> SmolVLA VLASH d16 3k
+> SmolVLA VLASH d16 4k
+> SmolVLA VLASH d16 5k
+> SmolVLA VLASH d4 2k
+> SmolVLA VLASH d4 3k
+> SmolVLA VLASH d4 4k
+> SmolVLA VLASH d4 5k
+> SmolVLA VLASH d8 3k
+> SmolVLA VLASH d8 4k
+> SmolVLA VLASH d8 5k
+
+Figure 15: VLASH training-configuration ablation on LIBERO: success rate vs. delay averaged across the four suites, for dmax ∈ { 0, 4, 8, 16 } at multiple training checkpoints (2k–5k steps), evaluated with s=30 .21
