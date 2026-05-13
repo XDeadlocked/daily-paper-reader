@@ -1,0 +1,465 @@
+Title: Data-Asymmetric Latent Imagination and Reranking for 3D Robotic Imitation Learning
+
+URL Source: https://arxiv.org/pdf/2605.10166v1
+
+Published Time: Tue, 12 May 2026 02:19:50 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Data-Asymmetric Latent Imagination and Reranking for 3D Robotic Imitation Learning 
+
+Lianghao Luo Xizhou Bu Ruyan Liu Qingqiu Huang Chufeng Tang Xiaoshuai Hao Hongbo Wang Wei Li 
+
+{25213070026, xzbu24, 24210860011}@m.fudan.edu.cn {draco.huang, felix.tang}@morphi.com haoxiaoshuai714@163.com Wanghongbo@fudan.edu.cn fd_liwei@fudan.edu.cn 
+
+## Abstract 
+
+Robotic imitation learning typically assumes access to optimal demonstrations, yet real-world data collection often yields suboptimal, exploratory, or even failed trajectories. Discarding such data wastes valuable information about environment dynamics and failure modes, which can instead be leveraged to improve decision-making. While 3D policies reduce reliance on high-quality demonstrations through strong spatial generalization, they still require large-scale data to achieve high task success. To address this, we propose DALI-R, a Data-Asymmetric Latent Imagination and Reranking framework for 3D robotic imitation learning from mixed-quality trajectories. It learns a Latent World Model over 3D point clouds for imagined rollouts and a Task Completion Scorer that reranks candidate action chunks, improving decision-making without additional high-quality demonstrations. We instantiate DALI-R with both diffusion and efficient flow-matching policies and evaluate it on Adroit and MetaWorld benchmarks. Across the two evaluated 3D base policies, DALI-R achieves an average 6.8% improvement in success rate while incurring less than 0.7× additional inference overhead. 
+
+## 1 Introduction 
+
+Imitation learning has become a widely used paradigm for learning complex robotic manipulation skills from demonstrations [ 1, 2, 3]. Recent generative policies, including diffusion-based action models, can represent multimodal action distributions and generate temporally coherent action chunks for high-dimensional control [ 3, 4]. These advances have enabled robots to acquire contact-rich manipulation behaviors without manually designing dense reward functions. However, their performance still depends heavily on clean and successful expert demonstrations. In practical robotic data collection, high-quality demonstrations are expensive to obtain, while many collected trajectories are suboptimal, exploratory, or failed. Naively training a behavior cloning policy on mixed-quality trajectories can corrupt the expert action prior [ 5, 6 ], whereas discarding imperfect data wastes useful information about environment dynamics, failure modes, and task boundaries. This tension motivates the central question of this work: how can a robot learning system exploit abundant imperfect data without degrading the policy that imitates expert behavior? Our key observation is that different components of a robot learning system need not consume data of the same quality. A generative policy should imitate successful expert behavior and therefore benefits from clean demonstrations. In contrast, predictive and evaluative models can benefit from broader offline data because suboptimal and failed trajectories reveal how the environment evolves under diverse actions and which states are unlikely to lead to task completion. This suggests a data-asymmetric learning strategy: use expert data to train the action prior, and use mixed-quality data to train models for inference-time prediction and action selection. A natural way to use such predictive and evaluative models is inference-time imagination and reranking. Given multiple candidate action chunks from a policy, a world model can imagine their 
+
+> Preprint.
+> arXiv:2605.10166v1 [cs.RO] 11 May 2026
+
+future consequences, and a task-completion scorer can select the most promising candidate before execution. Existing predictive-reranking and video-model-based policies often reason in image or video space [ 7 , 8, 9]. While promising for high-level planning, these pipelines can be computationally expensive for high-frequency robot control and may not explicitly preserve the 3D geometric structure needed for precision manipulation. Since manipulation success often depends on object pose, end-effector alignment, and contact geometry, we instead perform prediction and evaluation in a compact 3D latent representation extracted from point-cloud observations and robot states. We instantiate this idea as DALI-R, a data-asymmetric latent imagination and reranking framework for 3D robotic imitation learning. The Base 3D Policy is trained only on successful expert demonstrations, preserving a clean action prior over successful behaviors. In parallel, a Latent World Model and a Task Completion Scorer are trained using mixed-quality trajectories, including successful expert data, imperfect but successful data, and failed data. The world model predicts action-conditioned latent state transitions, while the Task Completion Scorer estimates the probability of task completion from latent states. Imperfect and failed trajectories are therefore not used as direct imitation targets; instead, they provide supervision for dynamics prediction and failure-aware scoring. At deployment time, the frozen Base 3D Policy proposes multiple candidate action chunks from the current observation. To obtain diverse candidates without directly injecting unstructured noise into action space, we apply stochastic point dropout to the input point cloud and query the policy under these perturbed observations. Each candidate is then imagined by the Latent World Model in a compact 3D latent space and evaluated by the Task Completion Scorer. The robot executes the highest-scoring candidate in a receding-horizon manner. This inference-time imagination and reranking procedure allows the system to use information from imperfect and failed data while keeping the Base 3D Policy trained only on successful expert demonstrations. Efficiency is critical for making this loop practical. Standard diffusion policies often require many denoising steps, limiting the number of candidates that can be generated and evaluated within a control cycle. We therefore also instantiate the Base 3D Policy using optimal-transport flow matching [ 10 ], which learns a deterministic transport vector field from a simple noise distribution to the expert action distribution. In practice, this enables high-throughput candidate generation with only a small number of network function evaluations, making it suitable for latent imagination and scorer-based reranking. We evaluate our framework on challenging manipulation tasks from Adroit [ 11 ] and MetaWorld [ 12 ]. In our main multi-seed evaluation, DALI-R improves the average success rates of both 3D diffusion and 3D flow-matching policies. Additional diagnostic ablations suggest that stochastic point dropout, sparse binary task-completion supervision, and mixed-quality dynamics data each contribute to its effectiveness. We further conduct an offline real-world diagnostic on point-cloud trajectories released by 3D Diffusion Policy [ 13 ], where action conditioning substantially reduces held-out latent transition error compared with an action-ablated world model. Our contributions are summarized as follows: • We propose DALI-R, a data-asymmetric latent imagination and reranking framework for robotic imitation learning, where successful expert data trains a clean Base 3D Policy, while mixed-quality trajectories train a Latent World Model and Task Completion Scorer for inference-time action selection. • We introduce an inference-time pipeline that combines stochastic point dropout, chunk-level latent world-model prediction, and task-completion scoring to rerank candidate action chunks without additional online interaction. • We instantiate DALI-R with diffusion and optimal-transport flow-matching backbones, evaluate it on Adroit and MetaWorld, and provide an offline real-world diagnostic on released 3D Diffusion Policy trajectories. 
+
+## 2 Related work 
+
+3D imitation learning and generative visuomotor policies. Imitation learning is a standard paradigm for acquiring robotic manipulation skills from demonstrations without manually designing dense rewards [ 1 , 2]. Early behavior cloning methods often learn deterministic or unimodal action mappings, which can be insufficient for contact-rich manipulation where multiple plausible actions may exist under the same observation. Recent generative visuomotor policies address this issue by 2modeling multimodal action distributions and generating temporally coherent action chunks [ 4, 3 ]. Building on denoising diffusion models and deterministic diffusion sampling [ 14 , 15 ], Diffusion Policy [ 3 ] formulates action prediction as conditional denoising and has shown strong performance in manipulation tasks. Follow-up works incorporate 3D or multi-view observations to better preserve object geometry, end-effector pose, and contact structure [ 16 , 17 , 18 , 13 ]. Recent flow-based and consistency-based generative models further improve inference efficiency for 3D manipulation [ 10 ,19 ]; for example, FlowPolicy applies consistency flow matching to point-cloud-conditioned policy generation and reduces inference latency while maintaining competitive success rates [ 20 ]. These methods provide expressive and efficient action priors for high-dimensional control, but they are typically trained by cloning successful demonstrations. In contrast, DALI-R is complementary to the choice of action prior: it keeps the 3D generative policy trained only on expert demonstrations, and uses imperfect trajectories to train separate predictive and evaluative models for inference-time action selection. 
+
+Learning from imperfect demonstrations and mixed-quality data. Robotic data collection often produces trajectories of varying quality, including suboptimal, exploratory, or failed executions. A large body of work studies how to learn from such imperfect data through offline reinforcement learning [ 21 , 22 ], inverse reinforcement learning, or reward learning from suboptimal demonstra-tions [ 23 , 6]. These methods aim to extract useful supervision from non-expert data, but directly incorporating imperfect trajectories into policy learning can be risky when the action prior is expected to imitate high-quality behavior. Behavior cloning on mixed-quality data may pull the learned policy toward unsuccessful or inefficient actions, while purely filtering demonstrations may discard informative failure cases that reveal task boundaries and transition dynamics. DALI-R follows a different design principle: data quality should be matched to model role. Expert demonstrations train the action prior, whereas mixed-quality trajectories train the Latent World Model and Task Completion Scorer. Thus, imperfect data contributes to prediction and evaluation rather than direct action supervision. 
+
+Inference-time planning, reranking, and world models. Another line of work improves decision making at inference time by generating multiple candidate actions or trajectories and selecting among them using a learned model, reward function, value function, or simulator. Classical model-predictive control and trajectory optimization methods, such as random shooting, CEM [ 24 ], and MPPI [ 25 ], perform online search in action space. Earlier visual foresight methods plan through learned image-space prediction [ 26 ]. Recent learning-based approaches combine generative policies with value-guided sampling, diffusion-based planning, or learned world models to evaluate candidate futures before execution [ 27 , 28 , 29 ]. Closest to our work is Generative Predictive Control (GPC), which enhances a frozen diffusion behavior-cloning policy at inference time by using an action-conditioned predictive world model to rank or refine action proposals [ 7 ]. Recent video-model-based policies also integrate action generation, future-state prediction, and value estimation [ 30 , 8]; for example, Cosmos Policy adapts a pretrained video model to generate action chunks, future states, and values for best-of-N planning. Broader closed-loop benchmarks such as World-in-World further highlight that world models should be evaluated by embodied task success rather than visual fidelity alone [ 9 ]. DALI-R differs from these image- or video-space approaches by focusing on 3D robotic imitation from mixed-quality demonstrations: it keeps the base 3D policy frozen and expert-trained, uses suboptimal and failed trajectories only for latent prediction and success evaluation, and performs lightweight reranking in a compact 3D latent space. 
+
+## 3 Methodology 
+
+3.1 Problem setup and data-asymmetric design 
+
+We study visuomotor robotic manipulation under partial observability. At each time step t, the robot observes a point cloud ot and a robot state qt, and predicts a continuous action chunk at:t+k for closed-loop control, where k is the action horizon. The policy is learned from offline demonstrations without dense task rewards during imitation learning. DALI-R targets the common setting where collected trajectories have uneven quality. We use Dexp 
+
+to denote successful expert demonstrations, D+imp to denote imperfect but successful trajectories, and D0fail to denote failed trajectories. The superscripts indicate terminal task-completion labels, 3DATA COLLECTION & TRAINING     
+
+> INFERENCE -TIME IMAGINATION & RERANKING
+> Environment
+> Rollout
+> Successful
+> Expert Data
+> Failed Data
+> Base 3D Policy
+> Init Noise
+> Conditioning
+> …
+> 1
+> 2
+> N-1
+> U-Net
+> N
+> Latent
+> WM
+> Prediction
+> Task
+> Completion
+> Scoring
+> Base 3D
+> Policy Training
+> Base
+> Policy 3D
+> Encoder
+> Latent
+> WM 3D
+> Encoder
+> Latent World Model
+> &
+> Task Completion Scorer
+> Training
+> Action Chunk
+> Latent
+> World Model
+> (Transformer)
+> Point Cloud
+> Next
+> Latent
+> State Task
+> Completion
+> Scorer
+> (MLP)
+> Score
+> Robot
+> State
+> Encoder
+> Robot
+> State
+> Latent
+> WM 3D
+> Encoder
+> Initialize
+> & Fine -tune
+> Latent State
+> Candidate Action Chunks Predicted
+> States
+> Expert -only
+> policy learning
+> Mixed -quality
+> latent -model learning
+> Sim : env success signal
+> Real : human annotation
+
+A
+
+B
+
+> (Terminal Score : 1)
+> Imperfect Data
+> (Terminal Score : 1)
+> (Terminal Score : 0)
+
+Figure 1: Overview of DALI-R, our data-asymmetric latent imagination and reranking frame-work. (A) During training, the Base 3D Policy is trained only on successful expert data, while mixed-quality trajectories, including imperfect-success and failed data, are used to train the Latent World Model and Task Completion Scorer. (B) At inference time, stochastic point dropout produces perturbed point-cloud observations for candidate generation. Candidate action chunks from the frozen Base 3D Policy are imagined in latent space and scored by the Task Completion Scorer, and the highest-scoring candidate is executed in a receding-horizon loop. where successful trajectories have terminal score 1 and failed trajectories have terminal score 0. The mixed-quality dataset is Dmix = Dexp ∪D +imp ∪D 0fail . The central design principle is data-asymmetric learning : different model components consume data of different quality according to their roles. The Base 3D Policy is trained only on successful expert demonstrations, while mixed-quality trajectories are used to train latent prediction and task-completion scoring models. We write the Base 3D Policy as πθ = ( Eπθ , G θ ), where Eπθ denotes the policy-side observation encoder and Gθ is the generative action head. In implementation, Eπθ encodes both the point cloud ot
+
+and the robot state qt; Figure 1 visualizes its 3D point-cloud branch for compactness. Let zπt denote the policy-side latent used internally by πθ , distinct from the latent state used by the Latent World Model. After expert-only policy training, we initialize a separate Latent WM 3D Encoder Eoϕ from the trained policy point-cloud encoder. The copied encoder Eoϕ is then fine-tuned jointly with the Robot State Encoder Eqη , the Latent World Model Wψ , and the Task Completion Scorer Cω on Dmix ,while the Base 3D Policy πθ remains frozen. 
+
+3.2 Expert-trained base 3D policy 
+
+The Base 3D Policy maps the current point cloud ot and robot state qt to a temporally coherent action chunk at:t+k. Since the policy is trained exclusively on Dexp , it learns an action prior concentrated around successful expert behavior rather than directly cloning suboptimal or failed actions. DALI-R is agnostic to the specific generative action backbone. In our experiments, we instantiate the Base 3D Policy with both diffusion-based 3D action generation [ 3 , 13 ] and an optimal-transport flow-matching variant [ 10 , 20 ]. For the flow-matching variant, the model learns a conditional vector field that transports Gaussian noise to expert action chunks under the current point-cloud observation and robot state. At inference, an action chunk is generated by integrating this vector field with a 40.0 0.5 1.0                             
+
+> 0.0
+> 0.5
+> 1.0
+> Completion Score
+> Scorer
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Scorer
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Completion Score
+> Scorer
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Scorer
+> 0.0 0.5 1.0
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> 0.0 0.5 1.0
+> Normalized Time
+> 0.0
+> 0.5
+> 1.0
+> Completion Score
+> Scorer
+> 0.0 0.5 1.0
+> Normalized Time
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> 0.0 0.5 1.0
+> Normalized Time
+> 0.0
+> 0.5
+> 1.0
+> Scorer
+> 0.0 0.5 1.0
+> Normalized Time
+> 0.0
+> 0.5
+> 1.0
+> Latent WM
+> Disassemble Shelf-Place
+> Stick-Pull Pick-Place-Wall
+> Door Pen
+> Success Ref. Success Pred. Failure Ref. Failure Pred.
+
+Figure 2: Diagnostic visualization of the learned Task Completion Scorer and Latent World Model. Scorer plots compare predicted completion scores with Monte-Carlo targets, while WM plots compare scores from predicted and ground-truth future latents. Dashed/solid curves denote references/predictions, and blue/orange curves denote successful/failed trajectories. small number of network function evaluations. This efficient generation process is important because DALI-R samples multiple candidates at each control step. 
+
+3.3 Latent imagination from mixed-quality data 
+
+DALI-R evaluates candidate actions in a compact 3D latent space rather than in image or video space. Given the current point cloud and robot state, the Latent WM 3D Encoder and Robot State Encoder produce zot = Eoϕ(ot) and zqt = Eqη (qt), respectively. We concatenate them into the latent state st = [ zqt , z ot ]. For each training segment, the target future latent state st+k is constructed analogously from the future point cloud and robot state. The Latent World Model Wψ
+
+predicts a chunk-level residual transition from the current latent state and an action chunk, written as 
+
+ˆst+k = st + Wψ (st, at:t+k), and is trained with a supervised latent prediction loss on Dmix .The Task Completion Scorer Cω estimates the probability that a latent state will eventually lead to task completion. We assume only sparse terminal success labels, with successful and failed trajectories assigned terminal labels 1 and 0, respectively. For a trajectory with terminal label yT ∈ { 0, 1}, we define discounted Monte-Carlo targets yt = γT −tyT and train Cω with binary cross entropy on 
+
+psucc (st) = σ(Cω (st)) , where T is the terminal step, γ ∈ (0 , 1] is the discount factor, and σ is the sigmoid function. Thus, mixed-quality data provides supervision about both transition structure and failure modes, while never serving as direct imitation targets for the frozen policy. Together, Wψ and Cω form a latent imagination module. The world model predicts the latent consequence of a candidate action chunk, and the Task Completion Scorer evaluates whether the imagined outcome is likely to lead to success. Figure 2 provides trajectory-level diagnostics showing that the scorer tracks Monte-Carlo task-completion targets and that world-model predictions preserve the success/failure score trends in latent space. 
+
+3.4 Inference-time latent reranking 
+
+At deployment, DALI-R improves the frozen expert-trained Base 3D Policy through best-of-Ncand 
+
+latent reranking, where Ncand denotes the number of candidate action chunks. To generate diverse 5Table 1: Success rates across Adroit and MetaWorld benchmarks. Results are reported as mean ±
+
+standard deviation over three random seeds, with 100 evaluation episodes per task. Bold entries with gray backgrounds indicate the best performance in each task.                                                                                                        
+
+> Method Adroit (Dexterous Hand) MetaWorld (General Gripper) Total Avg.
+> Door Pen Disassemble Shelf Place Stick Pull Pick Place Wall
+> 2D Baselines
+> Diffusion Policy [3] 42 .7±2.431 .7±4.756 .3±4.232 .7±5.048 .0±2.154 .3±2.644 .3
+> 3D Base Policies
+> 3D Diffusion Policy [13] 50 .7±2.746 .2±4.967 .7±2.546 .7±3.949 .3±1.761 .7±1.253.7 3D Flow Matching Policy [20] 47 .2±1.450 .8±2.276 .3±2.949 .3±2.148 .7±1.263 .3±2.555.9
+> Ours (3D Reranking)
+> 3D DP + Ours 57 .8±2.152 .0±3.579 .0±3.753 .3±2.953 .0±2.869 .3±0.960.7
+> 3D FM + Ours 54 .8±2.756 .3±0.884 .7±1.256 .3±1.750 .7±1.771 .3±2.162 .4
+
+candidates without injecting unstructured noise into action space, we apply stochastic point dropout to the input point cloud. For each candidate i, point dropout produces a perturbed point cloud ˜o(i) 
+
+> t
+
+,and the frozen policy samples an action chunk a(i) 
+
+> t:t+k
+
+∼ πθ (· | ˜o(i) 
+
+> t
+
+, q t). Because diversity is induced in observation space, the resulting candidates remain constrained by the expert-trained generative prior rather than drifting into arbitrary action-space perturbations. The unperturbed point cloud and robot state are encoded by the fine-tuned Latent WM 3D Encoder and Robot State Encoder to form st = [ zqt , z ot ]. Each candidate is then imagined once in latent space and scored by the Task Completion Scorer. DALI-R selects 
+
+i⋆ = arg max  
+
+> i∈{ 1,...,N cand }
+
+σ
+
+
+
+Cω
+
+
+
+st + Wψ (st, a(i)
+
+> t:t+k
+
+)
+
+ 
+
+, a⋆t:t+k = a(i⋆)
+
+> t:t+k
+
+. (1) The robot executes a⋆t:t+k according to the receding-horizon control schedule and repeats the proce-dure at the next observation. Since both prediction and scoring are performed in latent space, the reranking loop remains lightweight and avoids expensive image- or video-space rollout, making it suitable for high-throughput action proposal backbones such as flow matching. 
+
+## 4 Experiments 
+
+We evaluate DALI-R on Adroit [ 11 ] and MetaWorld [ 12 ], two MuJoCo-based manipulation bench-mark suites [ 31 ], covering main success rates, inference-time action improvement, efficiency, scorer supervision, mixed-quality latent dynamics, and an offline real-world diagnostic. We abbreviate 3D Diffusion Policy and 3D Flow Matching Policy as 3D DP and 3D FM, respectively. Main results use three seeds with 100 episodes per task; unless otherwise noted, ablations use one seed with 100 episodes and are intended as diagnostic trends. The real-world diagnostic uses released 3D Diffusion Policy point-cloud trajectories and evaluates offline latent transition prediction rather than closed-loop robot performance. 
+
+4.1 Main results: latent reranking improves 3D generative policies 
+
+Table 1 reports the main multi-seed success rates across Adroit and MetaWorld tasks. Compared with the 2D diffusion baseline, both 3D base policies achieve higher average success rates, highlighting the importance of preserving 3D geometric structure for manipulation. The 3D Diffusion Policy obtains an average success rate of 53 .7% , while the 3D Flow Matching Policy reaches 55 .9% .Adding DALI-R consistently improves both 3D policy backbones. For 3D Diffusion Policy, our method increases the average success rate from 53 .7% to 60 .7% , corresponding to a 7.0% absolute improvement. For 3D Flow Matching, our method improves the average success rate from 55 .9% to 
+
+62 .4% , a 6.5% absolute gain. These improvements are observed across all evaluated tasks, suggesting that the learned Latent World Model and Task Completion Scorer provide useful inference-time action selection beyond the base generative prior. The gains are especially visible on tasks that require precise pose control, contact reasoning, and spatial alignment. For example, with DALI-R, 3D Flow Matching improves from 76 .3% to 84 .7% 
+
+6Table 2: Single-seed diagnostic of inference-time action improvement using the same 3D FM policy and Task Completion Scorer. All methods select candidate action chunks with the same scorer, but introduce variation either in action space or policy input.                                                                  
+
+> Method Variation Target Adroit MetaWorld Avg.
+> Door Pen Disassemble Shelf Place Stick Pull Pick Place Wall Base Policy None 47.0 49.5 76.0 52.0 49.0 66.0 56.6 Random Shooting Action Chunk 51.0 61 .073.0 30.0 49.0 56.0 53.3 CEM Action Chunk 48.0 57.0 74.0 33.0 52 .059.0 53.8 MPPI Action Chunk 54.0 55.0 80.0 30.0 47.0 56.0 53.7 Score Grad. Ascent Action Chunk 31.0 57.0 80.0 31.0 46.0 52.0 49.5 Std. Obs. Noise Policy Input 49.0 57.5 82.0 55.0 48.0 70.0 60.9 Point Dropout Policy Input 58 .055.5 85 .058 .050.0 74 .063 .8
+
+on MetaWorld Disassemble and from 50 .8% to 56 .3% on Adroit Pen. These results support the central design of DALI-R: imperfect trajectories are not used as imitation targets, but instead provide transition and failure-mode supervision for inference-time latent reranking. 
+
+4.2 Using latent imagination for inference-time action improvement 
+
+A key question is how to use the learned Latent World Model and Task Completion Scorer to improve actions at inference time. A naive strategy is to repeatedly query the frozen imitation policy and rerank the resulting action chunks. However, as visualized in Figure 3(c), clean policy samples tend to be low-diversity and concentrated around similar actions, providing limited candidate variation for reranking. We therefore compare two broader ways of introducing candidate diversity: varying the action chunk itself through scorer-guided search or optimization, and varying the policy input through observation perturbations while keeping the expert-trained policy as the action proposal mechanism. Table 2 compares these alternatives, including random shooting, CEM [ 24 ], MPPI [ 25 ], and score-gradient ascent, using the same 3D FM base policy and Task Completion Scorer. Action-chunk variation provides limited and inconsistent improvements over the base policy. In our experiments, methods that vary the action chunk directly often reduce the average success rate relative to the unrefined base policy. This suggests that scorer-guided search or optimization in action space can move candidates away from the expert action manifold, where the learned scorer may be less reliable. Varying the policy input is more effective. Standard observation noise improves the average success rate from 56 .6% to 60 .9% , while stochastic point dropout further improves it to 63 .8% . Unlike direct action-chunk variation, point dropout perturbs the policy input while leaving the expert-trained generative prior responsible for producing temporally coherent action chunks. These results suggest that latent imagination is most effective when used to evaluate and rerank policy-generated candidates, rather than to directly optimize unconstrained action proposals. 
+
+4.3 Inference efficiency and candidate scaling 
+
+We next analyze the latency and candidate-scaling behavior of DALI-R, since reranking must run inside a closed-loop control cycle. Figure 3(a) reports inference latency under different numbers of candidate action chunks Ncand . The 2D Video + Vision-Language Model (VLM) pipeline is included only as a simulated latency reference rather than a trained task baseline, approximating a GPC-style predictive-reranking pipeline [ 7] with a lightweight visual-generation proxy and Qwen2-VL-2B scoring [ 32 ]. Its latency reaches 1414 .91 ms at Ncand = 4 and 10948 .59 ms at Ncand = 32 , making it unsuitable for high-frequency control. In contrast, 3D latent reranking remains efficient. At Ncand = 4 , 3D DP + Ours requires 83 .17 
+
+ms, while 3D FM + Ours requires only 10 .64 ms. Even at Ncand = 32 , 3D FM + Ours requires only 13.62 ms per decision, corresponding to 73 .44 FPS, showing that flow matching provides a high-throughput action proposal backbone for latent reranking. Figure 3(b) shows a single-seed candidate-scaling diagnostic on Disassemble for 3D DP + Ours and 3D FM + Ours. Increasing Ncand initially improves success, but the trend is not strictly monotonic: 3D FM + Ours improves from 76 .0% at Ncand = 1 to 86 .0% at Ncand = 4 , then fluctuates for larger candidate sets. This is expected because the learned Task Completion Scorer is not an oracle; larger 71 4 8 16 32       
+
+> Number of candidates Ncand
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> Inference latency (ms)
+> (a) Inference latency
+> 2D Video + VLM
+> 3D DP + Ours
+> 3D FM + Ours
+> 100 ms budget
+> 14816 32
+> Number of candidates Ncand
+> 65
+> 70
+> 75
+> 80
+> 85
+> Success rate (%)
+> (b) Candidate scaling
+> 3D DP + Ours
+> 3D FM + Ours
+> Action space
+> (c) Proposal diversity
+> Point dropout
+> Clean candidates
+> Selected
+
+Figure 3: Inference-time efficiency and candidate generation analysis. (a) Latency under different Ncand , with 2D Video + VLM shown only as a simulated latency reference and the dotted line denoting a 100 ms budget. (b) Single-seed candidate-scaling diagnostic on Disassemble for 3D DP + Ours and 3D FM + Ours. (c) Proposal-diversity visualization: clean candidates collapse near one action, while point dropout produces diverse policy-generated candidates for reranking. candidate pools may include better actions, but can also introduce overestimated out-of-distribution candidates. Main results use Ncand = 32 , while this diagnostic shows that smaller candidate sets already yield useful gains. 
+
+4.4 Sparse supervision for task-completion scoring 
+
+We next examine the supervision used to train the Task Completion Scorer. In realistic robotic data collection, dense task rewards or privileged simulator states are often unavailable, whereas terminal task-completion labels can be obtained from environment success signals in simulation or human annotation in real settings. Therefore, our default scorer is trained only from sparse terminal 0/1
+
+success labels. To contextualize this design choice, Table 3(a) compares three settings on Pen and Disassemble: the base policy without scorer-based reranking, our scorer trained from sparse terminal success labels, and a privileged oracle scorer trained with dense simulator rewards. The sparse scorer improves the average success rate from 62 .75% to 70 .25% , substantially outper-forming the base policy. The dense-reward oracle reaches 73 .5% , leaving only a 3.25% absolute gap relative to the sparse model. This comparison suggests that terminal task-completion labels provide a practical and effective training signal for scorer-based reranking, while avoiding privileged reward supervision that would not generally be available in real-world data. Thus, DALI-R uses dense rewards only as a diagnostic oracle in this ablation, not as part of the default training pipeline. 
+
+4.5 Effect of mixed-quality data on latent dynamics 
+
+We further analyze how the amount of mixed-quality data affects the Latent World Model. Table 3(b) reports latent prediction MSE and downstream success rate on the Disassemble diagnostic setting as the number of mixed trajectories increases while the expert data remains fixed. Increasing the amount of mixed data from 100 to 1000 trajectories reduces the latent MSE from 0.539 to 0.381 and improves downstream success from 82 .0% to 85 .0% .This trend supports the data-asymmetric design of DALI-R. Although imperfect trajectories may be harmful as direct imitation targets, they provide valuable coverage of state transitions and failure modes for learning latent dynamics. Better latent prediction, in turn, improves the reliability of imagined rollouts used during inference-time reranking. 
+
+4.6 Offline validation on real-world point clouds 
+
+We additionally evaluate the Latent World Model on real-world point-cloud trajectories released by 3D Diffusion Policy [ 13 ]. We split trajectories at the trajectory level to avoid frame-level leakage and compare the full action-conditioned world model with an action-ablated baseline. Since real-world point clouds often contain large static background regions, we focus on whether action conditioning improves held-out latent transition prediction rather than interpreting raw cross-domain MSE in isolation. This diagnostic tests whether the learned latent dynamics capture action-dependent 8Table 3: Diagnostic ablations for scorer supervision and mixed-quality latent dynamics. (a) compares sparse terminal labels with dense reward supervision, and (b) evaluates the effect of increasing mixed-quality data for Latent World Model training.                       
+
+> (a) Scorer supervision
+> Supervision Pen Disassemble Avg. No scorer 49.5 76.0 62.75 Sparse terminal labels 55.5 85.0 70.25 Dense simulator reward 61.0 86.0 73.50
+> (b) Mixed-quality data
+> WM Data MSE ↓Success ↑
+> 100 mixed 0.539 82.0% 500 mixed 0.417 84.0% 1000 mixed 0.381 85.0%
+
+Table 4: Offline latent transition MSE on released 3D Diffusion Policy trajectories; lower is better. We compare the full action-conditioned Latent World Model with an action-ablated variant. 
+
+Method Drill (Real World) Pour (Real World) Dumpling (Real World) Avg. 
+
+WM w/o Action 0.047 0.195 0.016 0.086 WM w/ Action 0.017 0.010 0.004 0.010 
+
+transitions under real sensor observations, where background clutter, calibration noise, and partial visibility may differ from simulation. As shown in Table 4, action conditioning consistently reduces latent transition error, decreasing the average MSE from 0.086 to 0.010 and reducing the Drill error from 0.047 to 0.017 . The improvement is also observed on the other two real-world tasks, suggesting that the benefit is not limited to a single trajectory distribution. These results indicate that action chunks contain transition-relevant information under real sensor observations and that the latent imagination module can model action-dependent transition structure beyond simulation. While this does not replace closed-loop real-robot evaluation, it provides evidence that the proposed latent prediction objective remains meaningful on released real-world point-cloud trajectories. 
+
+## 5 Conclusion and limitations 
+
+Conclusion. We presented DALI-R, a data-asymmetric latent imagination and reranking framework for 3D robotic imitation learning from mixed-quality trajectories. DALI-R separates imitation, prediction, and evaluation: a clean 3D generative policy is trained only from expert demonstrations, while mixed-quality trajectories are used to train a Latent World Model and Task Completion Scorer for inference-time action selection. This design allows imperfect and failed trajectories to provide transition and failure-mode supervision without corrupting the expert action prior. Across Adroit and MetaWorld tasks, DALI-R improves both 3D diffusion and 3D flow-matching policies while remaining efficient enough for closed-loop reranking. Our diagnostic analyses further support the roles of observation-space candidate generation, sparse task-completion supervision, and mixed-quality latent dynamics. The offline real-world diagnostic suggests that action-conditioned latent prediction remains useful under real-world point-cloud observations. Overall, these results indicate that imperfect trajectories can be valuable for prediction and evaluation even when they are unsuitable as direct imitation targets. 
+
+Limitations. DALI-R has several methodological limitations. First, it relies on accurate and well-calibrated latent prediction and task-completion scoring; overconfident scores may lead to suboptimal reranking. Second, the current chunk-level reranking procedure provides limited explicit reasoning over long-horizon dependencies and delayed outcomes. Third, closed-loop deployment on physical robots remains necessary to assess robustness under sensor noise, dynamics mismatch, and execution uncertainty. Future work may incorporate uncertainty-aware scoring, multi-step latent rollout, and real-robot validation. 9References 
+
+[1] Brenna D. Argall, Sonia Chernova, Manuela M. Veloso, and Brett Browning. A survey of robot learning from demonstration. Robotics Auton. Syst. , 57(5):469–483, 2009. [2] Pete Florence, Corey Lynch, Andy Zeng, Oscar A. Ramirez, Ayzaan Wahid, Laura Downs, Adrian Wong, Johnny Lee, Igor Mordatch, and Jonathan Tompson. Implicit behavioral cloning. In Conference on Robot Learning, 8-11 November 2021, London, UK , Proceedings of Machine Learning Research, pages 158–168, 2021. [3] Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. In Robotics: Science and Systems XIX, Daegu, Republic of Korea, July 10-14, 2023 , 2023. [4] Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipula-tion with low-cost hardware. In Robotics: Science and Systems XIX, Daegu, Republic of Korea, July 10-14, 2023 , 2023. [5] Stéphane Ross, Geoffrey J. Gordon, and Drew Bagnell. A reduction of imitation learning and structured prediction to no-regret online learning. In Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics, AISTATS 2011, Fort Lauderdale, USA, April 11-13, 2011 , JMLR Proceedings, pages 627–635, 2011. [6] Daniel S. Brown, Wonjoon Goo, Prabhat Nagarajan, and Scott Niekum. Extrapolating beyond suboptimal demonstrations via inverse reinforcement learning from observations. In Proceedings of the 36th Inter-national Conference on Machine Learning, ICML 2019, 9-15 June 2019, Long Beach, California, USA ,Proceedings of Machine Learning Research, pages 783–792, 2019. [7] Han Qi, Haocheng Yin, Aris Zhu, Yilun Du, and Heng Yang. Inference-time enhancement of generative robot policies via predictive world modeling. IEEE Robotics Autom. Lett. , 11(5):5534–5541, 2026. [8] Moo Jin Kim, Yihuai Gao, Tsung-Yi Lin, Yen-Chen Lin, Yunhao Ge, Grace Lam, Percy Liang, Shuran Song, Ming-Yu Liu, Chelsea Finn, and Jinwei Gu. Cosmos policy: Fine-tuning video models for visuomotor control and planning. CoRR , abs/2601.16163, 2026. [9] Jiahan Zhang, Muqing Jiang, Nanru Dai, Taiming Lu, Arda Uzunoglu, Shunchi Zhang, Yana Wei, Jiahao Wang, Vishal M. Patel, Paul Pu Liang, Daniel Khashabi, Cheng Peng, Rama Chellappa, Tianmin Shu, Alan L. Yuille, Yilun Du, and Jieneng Chen. World-in-world: World models in a closed-loop world. CoRR ,abs/2510.18135, 2025. [10] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 , 2023. [11] Aravind Rajeswaran, Vikash Kumar, Abhishek Gupta, Giulia Vezzani, John Schulman, Emanuel Todorov, and Sergey Levine. Learning complex dexterous manipulation with deep reinforcement learning and demon-strations. In Robotics: Science and Systems XIV, Carnegie Mellon University, Pittsburgh, Pennsylvania, USA, June 26-30, 2018 , 2018. [12] Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Karol Hausman, Chelsea Finn, and Sergey Levine. Meta-world: A benchmark and evaluation for multi-task and meta reinforcement learning. In 3rd Annual Conference on Robot Learning, CoRL 2019, Osaka, Japan, October 30 - November 1, 2019, Proceedings ,Proceedings of Machine Learning Research, pages 1094–1100, 2019. [13] Yanjie Ze, Gu Zhang, Kangning Zhang, Chenyuan Hu, Muhan Wang, and Huazhe Xu. 3d diffusion policy: Generalizable visuomotor policy learning via simple 3d representations. In Robotics: Science and Systems XX, Delft, The Netherlands, July 15-19, 2024 , 2024. [14] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual , 2020. [15] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 , 2021. [16] Mohit Shridhar, Lucas Manuelli, and Dieter Fox. Perceiver-actor: A multi-task transformer for robotic manipulation. In Conference on Robot Learning, CoRL 2022, 14-18 December 2022, Auckland, New Zealand , Proceedings of Machine Learning Research, pages 785–799, 2022. 
+
+10 [17] Théophile Gervet, Zhou Xian, Nikolaos Gkanatsios, and Katerina Fragkiadaki. Act3d: 3d feature field transformers for multi-task robotic manipulation. In Conference on Robot Learning, CoRL 2023, 6-9 November 2023, Atlanta, GA, USA , Proceedings of Machine Learning Research, pages 3949–3965, 2023. [18] Ankit Goyal, Jie Xu, Yijie Guo, Valts Blukis, Yu-Wei Chao, and Dieter Fox. RVT: robotic view transformer for 3d object manipulation. In Conference on Robot Learning, CoRL 2023, 6-9 November 2023, Atlanta, GA, USA , Proceedings of Machine Learning Research, pages 694–710, 2023. [19] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. In International Conference on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA , Proceedings of Machine Learning Research, pages 32211–32252, 2023. [20] Qinglun Zhang, Zhen Liu, Haoqiang Fan, Guanghui Liu, Bing Zeng, and Shuaicheng Liu. Flowpolicy: Enabling fast and robust 3d flow-based policy via consistency flow matching for robot manipulation. In 
+
+Thirty-Ninth AAAI Conference on Artificial Intelligence, Thirty-Seventh Conference on Innovative Applica-tions of Artificial Intelligence, Fifteenth Symposium on Educational Advances in Artificial Intelligence, AAAI 2025, Philadelphia, PA, USA, February 25 - March 4, 2025 , pages 14754–14762, 2025. [21] Aviral Kumar, Aurick Zhou, George Tucker, and Sergey Levine. Conservative q-learning for offline reinforcement learning. In Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual , 2020. [22] Ilya Kostrikov, Ashvin Nair, and Sergey Levine. Offline reinforcement learning with implicit q-learning. In 
+
+The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 , 2022. [23] Brian D. Ziebart, Andrew L. Maas, J. Andrew Bagnell, and Anind K. Dey. Maximum entropy inverse reinforcement learning. In Proceedings of the Twenty-Third AAAI Conference on Artificial Intelligence, AAAI 2008, Chicago, Illinois, USA, July 13-17, 2008 , pages 1433–1438, 2008. [24] Pieter-Tjerk de Boer, Dirk P. Kroese, Shie Mannor, and Reuven Y. Rubinstein. A tutorial on the cross-entropy method. Ann. Oper. Res. , 134(1):19–67, 2005. [25] Grady Williams, Nolan Wagener, Brian Goldfain, Paul Drews, James M. Rehg, Byron Boots, and Evange-los A. Theodorou. Information theoretic MPC for model-based reinforcement learning. In 2017 IEEE International Conference on Robotics and Automation, ICRA 2017, Singapore, Singapore, May 29 - June 3, 2017 , pages 1714–1721, 2017. [26] Chelsea Finn and Sergey Levine. Deep visual foresight for planning robot motion. In 2017 IEEE International Conference on Robotics and Automation, ICRA 2017, Singapore, Singapore, May 29 - June 3, 2017 , pages 2786–2793, 2017. [27] Michael Janner, Yilun Du, Joshua B. Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. In International Conference on Machine Learning, ICML 2022, 17-23 July 2022, Baltimore, Maryland, USA , Proceedings of Machine Learning Research, pages 9902–9915, 2022. [28] Nicklas Hansen, Hao Su, and Xiaolong Wang. Temporal difference learning for model predictive control. In International Conference on Machine Learning, ICML 2022, 17-23 July 2022, Baltimore, Maryland, USA , Proceedings of Machine Learning Research, pages 8387–8406, 2022. [29] Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy P. Lillicrap. Mastering diverse domains through world models. CoRR , abs/2301.04104, 2023. [30] Yilun Du, Sherry Yang, Bo Dai, Hanjun Dai, Ofir Nachum, Josh Tenenbaum, Dale Schuurmans, and Pieter Abbeel. Learning universal policies via text-guided video generation. In Advances in Neural Information Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10 - 16, 2023 , 2023. [31] Emanuel Todorov, Tom Erez, and Yuval Tassa. Mujoco: A physics engine for model-based control. In 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems, IROS 2012, Vilamoura, Algarve, Portugal, October 7-12, 2012 , pages 5026–5033, 2012. [32] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Yang Fan, Kai Dang, Mengfei Du, Xuancheng Ren, Rui Men, Dayiheng Liu, Chang Zhou, Jingren Zhou, and Junyang Lin. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. CoRR , abs/2409.12191, 2024. 
+
+11 A Benchmark tasks and simulation environments 
+
+Figure 4 shows representative rendered observations from the six evaluated simulation tasks. We evaluate two Adroit dexterous-hand tasks, Door and Pen, and four MetaWorld gripper manipulation tasks: Disassemble, Shelf-Place, Stick-Pull, and Pick-Place-Wall. 
+
+Figure 4: Representative rendered observations from the evaluated Adroit and MetaWorld simulation tasks. Top row (left to right): Door, Pen, Disassemble. Bottom row (left to right): 
+
+Shelf-Place, Stick-Pull, Pick-Place-Wall. Door and Pen use the Adroit dexterous-hand embodiment, while the remaining tasks use the MetaWorld gripper embodiment. 
+
+## B Experimental setup 
+
+B.1 Datasets and evaluation protocol 
+
+We use the six simulation tasks reported in the main paper: Door and Pen from Adroit, and Disas-semble, Shelf-Place, Stick-Pull, and Pick-Place-Wall from MetaWorld. To isolate the effect of using imperfect trajectories for prediction and evaluation, all base policies are trained with the same 10 expert demonstration episodes per task. DALI-R additionally uses 1000 mixed-quality trajectories per task to train only the Latent World Model and Task Completion Scorer. These mixed trajectories are generated by policy rollouts and by adding drift noise to actions from the expert policy that provides the expert demonstrations. They are never used as imitation targets for the Base 3D Policy. Trajectories are partitioned according to the terminal task-completion signal returned by the simulator. Successful expert and imperfect-success trajectories are assigned terminal label 1, while failed trajectories are assigned terminal label 0. For the offline real-world diagnostic, we split released 3D Diffusion Policy trajectories at the trajectory level to avoid frame-level leakage and report held-out latent transition MSE rather than closed-loop real-robot performance. 
+
+B.2 Implementation details 
+
+All policies use horizon 16, 2 observation steps, and 8 action execution steps, following the DP3 configuration. The Task Completion Scorer is trained with AdamW using learning rate 1 × 10 −4,batch size 128, weight decay 1 × 10 −3, and 30 epochs, with binary cross entropy on discounted terminal task-completion targets. 12 The Latent World Model predicts chunk-level latent residual transitions conditioned on the current latent state and an action chunk. It is implemented as a lightweight Transformer encoder with hidden dimension 256, 3 layers, 4 attention heads, and action-chunk length 8. The world model is trained with AdamW using learning rate 3 × 10 −4, weight decay 1 × 10 −4, batch size 512, and 100 epochs, with mean-squared error loss. At inference time, DALI-R samples Ncand = 32 candidate action chunks from the frozen Base 3D Policy. Candidate diversity is induced by a fixed stochastic point-cloud perturbation setting that is kept unchanged across tasks and methods. Each candidate is evaluated by one-step latent world-model prediction followed by Task Completion Scorer evaluation. All experiments are conducted on a single NVIDIA RTX 3090 GPU with 24GB memory. 
+
+## C Additional experimental details 
+
+C.1 Additional latency details 
+
+Table 5 reports the exact latency and FPS values corresponding to Figure 3(a) in the main paper. The 2D Video + VLM pipeline is included only as a simulated latency reference rather than a trained task baseline. Table 5: Exact inference latency and FPS values under different numbers of candidate action chunks. Latency is measured in milliseconds per decision.                                            
+
+> Ncand
+> 2D Video + VLM 3D DP + Ours 3D FM + Ours Lat. ↓FPS ↑Lat. ↓FPS ↑Lat. ↓FPS ↑
+> 1335.23 2.98 70.72 14.14 7.83 127.63 41414.91 0.71 83.17 12.02 10.64 94.03 82721.85 0.37 87.95 11.37 11.09 90.14 16 5451.23 0.18 93.32 10.72 11.82 84.58 32 10948.59 0.09 108.92 9.18 13.62 73.44
+
+C.2 Inference-time algorithms 
+
+All inference-time action-improvement methods in Table 2 use the same frozen 3D FM base policy, Latent World Model, and Task Completion Scorer. They differ only in how candidate action chunks are generated. 
+
+Observation-space methods. DALI-R uses stochastic point dropout to generate perturbed point-cloud observations, queries the frozen Base 3D Policy under these observations, and selects the highest-scoring policy-generated action chunk after latent world-model prediction and task-completion scoring. The standard observation noise baseline follows the same procedure but replaces point dropout with unstructured Gaussian perturbations. In both cases, one unperturbed observation is retained as a candidate. 
+
+Action-space methods. Random shooting samples noisy action chunks around the base policy proposal and selects the highest-scoring one. CEM iteratively updates a Gaussian action proposal distribution using top-scoring elite samples. MPPI forms a score-weighted average of noisy action samples using a softmax over scorer values. Score-gradient ascent directly optimizes the action chunk by backpropagating through the frozen Latent World Model and Task Completion Scorer with an action-deviation penalty. For conservative execution, action-space methods keep the gripper dimension unchanged and accept modified actions only when they improve the scorer value over the base policy proposal. Algorithm 1 summarizes the default DALI-R inference procedure. 13 Algorithm 1 Inference-time latent reranking with stochastic point dropout 
+
+Require: Frozen Base 3D Policy πθ , latent encoders Eoϕ, E qη , Latent World Model Wψ , Task Com-pletion Scorer Cω
+
+Require: Number of candidates Ncand , action horizon k
+
+while task is not completed do 
+
+Receive current point-cloud observation ot and robot state qt
+
+Encode latent state st ← [Eqη (qt), E oϕ(ot)] 
+
+for i = 1 to Ncand in parallel do 
+
+Apply stochastic point dropout: ˜o(i) 
+
+> t
+
+← Dropout( ot)
+
+Generate candidate action chunk: a(i) 
+
+> t:t+k
+
+∼ πθ (· | ˜o(i) 
+
+> t
+
+, q t)
+
+Imagine future latent: ˆs(i) 
+
+> t+k
+
+← st + Wψ (st, a(i)
+
+> t:t+k
+
+)
+
+Score imagined latent: p(i) ← σ(Cω (ˆ s(i)
+
+> t+k
+
+)) 
+
+end for 
+
+Select i⋆ ← arg max i p(i)
+
+Execute a(i⋆) 
+
+> t:t+k
+
+according to the receding-horizon schedule 
+
+end while 
+
+## D Compute resources 
+
+All experiments were conducted on a single NVIDIA RTX 3090 GPU with 24GB memory. Training and evaluation were implemented in PyTorch. Latency measurements were performed on the same hardware after GPU warm-up. The reported latency values measure milliseconds per decision for a single closed-loop control step. 
+
+## E Existing assets and licenses 
+
+We use existing simulation environments, codebases, models, and released trajectories only for research evaluation and offline diagnostics; no existing asset is redistributed with this submission. The Adroit and MetaWorld simulation tasks are credited in the main paper. MetaWorld is distributed under the MIT License. The Adroit environments are used through Gymnasium-Robotics/D4RL-style Adroit code; Gymnasium-Robotics is distributed under the MIT License, and D4RL code is distributed under the Apache-2.0 License, with datasets licensed under CC BY 4.0 unless otherwise noted. MuJoCo, the physics simulator used by these benchmarks, is open source and distributed under the Apache-2.0 License. We build on and cite 3D Diffusion Policy (DP3); its public repository, including the released real-robot trajectories used for the offline diagnostic, is distributed under the MIT License unless separate terms are specified. The 3D flow-matching policy used in our experiments is our own implementation; FlowPolicy is cited as related prior work and not used as a code or model asset. The Qwen2-VL-2B model used only as a latency reference for the 2D Video + VLM pipeline is released under the Apache-2.0 License. We do not release new datasets, pretrained models, or benchmark assets as part of this submission. 14

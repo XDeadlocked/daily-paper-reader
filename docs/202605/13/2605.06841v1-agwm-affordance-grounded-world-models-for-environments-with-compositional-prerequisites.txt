@@ -1,0 +1,372 @@
+Title: AGWM: Affordance-Grounded World Models for Environments with Compositional Prerequisites
+
+URL Source: https://arxiv.org/pdf/2605.06841v1
+
+Published Time: Mon, 11 May 2026 00:12:17 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# AGWM: Affordance-Grounded World Models for Environments with Compositional Prerequisites 
+
+Qinshi Zhang 1 Weipeng Deng 2 Zhihan Jiang 3 Jiaming Qu 4∗
+
+Qianren Li 5 Weitao Xu 5 Ray LC 5
+
+> 1
+
+University of California, San Diego 2University of Hong Kong 3Columbia University 
+
+> 4
+
+Amazon 5City University of Hong Kong 
+
+qiz065@ucsd.edu vincentdengp@icloud.com zj2445@cumc.columbia.edu qjiaming@amazon.com qianrenli2@cityu.edu.hk weitaoxu@cityu.edu.hk raylc@cityu.edu.hk 
+
+Figure 1: AGWM overview. Top: The agent traverses a four-tier tech tree; SC events (colored markers) progressively expand the applicable action set. Bottom: AGWM operates in three stages: (1) Detect SC events via the SC Classifier; (2) Update the Dynamic Affordance Graph to track active (green), frontier (blue), and locked (purple) capabilities without oracle input; (3) Imagine by gating RSSM rollouts with the graph embedding, so only feasible action sequences are considered. 
+
+## Abstract 
+
+In model-based learning, the agent learns behaviors by simulating trajectories based on world model predictions. Standard world models typically learn a stationary transition function that maps states and actions to next states, when an action and an outcome frequently co-occur in training data, the model tends to internalize this correlation as a general causal rule while ignoring action preconditions. In interactive environments, however, agent actions can reshape the future affordance space. At each timestep, an action may becomes executable only after its prereq-uisites are met, or non-executable when they are destroyed. We term such events 
+
+structure-changing events (SC events). As a result, a conventional world model often fails to determine whether a given action is executable in the current state, especially in multi -step predictions. Each imagined step is conditioned on an incor-rect affordance state, and therefore the prediction error compounds over the rollout horizon. In this paper, We propose AGWM (Affordance -Grounded World Model), which learns an abstract affordance structure represented as a DAG of prerequisite dependencies to explicitly track the dynamic executability of actions. Experi-ments on game-based simulated environments demonstrate the effectiveness of our method by achieving lower multi-step prediction error, better generalizataaion to novel configurations, and improved interpretability. 
+
+> ∗Work does not relate to the author’s position at Amazon. Preprint.
+> arXiv:2605.06841v1 [cs.AI] 7 May 2026
+
+## 1 Introduction 
+
+World models encode environment dynamics in neural network parameters, learning statistical associations between states, actions, and their outcomes [Ha & Schmidhuber, 2018, Ke et al., 2019, Li et al., 2020]. Given a learned world model, an agent can roll out imagined trajectories and select the action sequence that maximizes expected return without additional environment interaction [Hafner et al., 2023]. Standard world models often reconstruct observations well, but they do not model affordances, which are the set of actions currently available to the agent [Gibson, 1979]. They can predict what follows a given action yet cannot reliably determine whether that action is executable in the current state [Khetarpal et al., 2020]. In open-ended environments such as robotic manipulation and autonomous planning, an agent may confidently commit to action sequences that are physically or logically impossible, pursuing goals it can never reach or taking irreversible steps with real-world consequences. In safety-critical settings, such failures may further lead the agent to select irreversible or high-cost actions based on predicted future states that are unattainable in practice [Amodei et al., 2016, Berkenkamp et al., 2017]. This issue becomes critical when agent actions alter the future executable action sets, we term these 
+
+Structure-Changing Events (SC Events) . Such events are common in domains with compositional Prerequisites. For example, crafting a wooden pickaxe unlocks stone mining in Craftax [Hafner, 2022]; drinking a potion enables lava traversal in MiniHack [Samvelyan et al., 2021]; picking up a potato near a sink enables CLEAN in ALFWorld [Shridhar et al., 2021]. Over long horizons, SC events can cascade, with each event expanding the set of executable actions and inducing exponential growth in the joint affordance space as compositional depth increases. Standard world models cannot reliably track which actions are executable after each SC event, and thus accumulate compounding prediction errors over multi-step rollouts. Prior work on structured world models has explored context-dependent causal graphs [Hwang et al., 2024], but these methods capture transition dynamics within fixed causal regimes. They infer causal structure from observational data without representing the preconditions that govern when each action becomes available, and therefore still cannot prevent rule violations during imagination. Fundamentally, implicit world models struggle with compositional affordance structures because they fail to answer the question "is this action allowed now?" from "what will this action do?", and thus cannot recombine known preconditions to reason about action availability at depths unseen during training. In this paper, we propose the Affordance-Grounded World Model (AGWM) to address two failure modes of implicit world models: compounding multi-step imagination error and failure to generalize when novel rule combinations appear at test time. Rather than leaving affordance structure implicit, AGWM explicitly tracks at each timestep which affordances are currently active, which are newly reachable given satisfied prerequisites (the frontier), and how prerequisite relations are organized across the environment’s DAG schema. By conditioning its dynamics on this explicit representation, AGWM adapts immediately to SC events instead of relying on latent state drift. Across multiple benchmarks, AGWM significantly reduces multi-step imagination error and generalizes to novel affordance configurations without oracle supervision. Our contributions are: • (1) Formalization. We formalize SC events and identify two key failure modes of implicit world models under affordance-structure change. • (2) AGWM. We propose AGWM, combining an SC Classifier with a Dynamic Affordance Graph that enforces a frontier-mask constraint to track affordance change explicitly. • (3) Generalization. We show empirically that the self-evolved affordance graph generalizes to novel rule combinations unseen during training. 
+
+## 2 Related Work 
+
+World models learn environment dynamics to enable agents to plan in imagination and select optimal action sequences [Ha & Schmidhuber, 2018, Hafner et al., 2020]. DreamerV3 [Hafner et al., 2023] rolls out imagined trajectories in latent space, with follow-up works exploring Transformer, diffusion, and JEPA architectures. These approaches share a common formulation: actions condition the transition function, but the model cannot distinguish action legality from transition dynamics. To 2address this, MuZero [Schrittwieser et al., 2020] introduces legal action masks in MCTS planning, and ResWM [Zhang et al., 2026] decomposes action-induced changes. However, a shared limitation remains: action legality is treated as a static function of the current state that does not evolve as the agent acts. We propose to explicitly track both the legality of current actions and the evolution of capabilities following execution, making the world model’s prediction process fully traceable. More fundamentally, affordance modeling in RL [Khetarpal et al., 2020] formalizes valid actions conditioned on agent capabilities and improves planning efficiency, but treats affordances as static attributes not incorporated into world model dynamics. Recent visual affordance reasoning [Wang et al., 2026] similarly decouples affordances from dynamics prediction. A related line of work introduces explicit relational structure into world models via graph networks [Kipf et al., 2020, Huang et al., 2022, Li et al., 2020], but the graph topology is fixed at training time and cannot evolve with environment state. Recent causal graph work recognizes that causal structure can vary with state [Hwang et al., 2024, Zhao et al., 2025], yet switches are indexed by latent meta-states rather than causally bound to specific agent actions. Evolving environment dynamics have also been studied from the perspective of non-stationarity. Hidden-parameter MDPs [Doshi-Velez & Konidaris, 2016] and meta-RL [Wang et al., 2016] model task variation as latent parameters or task distributions, allowing agents to adapt to different dynamics regimes. WALL-E [Zhou et al., 2025] uses large language models to extract if-then symbolic rules from trajectories, enabling interpretable policy learning. Gospodinov et al. [2024] embed non-stationarity handling directly into a DreamerV3-style world model, continuously estimating distributional drift in latent space and adapting dynamics parameters online. Each of these approaches models dynamics that shift across tasks or over time, but none treats action-triggered affordance expansion as a first-class modeling target. The unifying blind spot across all three threads is attribution: which agent action caused this affordance change, and when? In a cascading tech tree, one action at step t can activate several downstream affordance edges spanning multiple tiers; each activation is a zero-to-one transition triggered by an identifiable action, not a background dynamics drift or a latent regime shift. A frozen-graph model predicts with the topology from training time and misses newly activated edges entirely. A causal switcher represents the transition as a move between pre-fitted regime distributions, attributing the change to a latent meta-state rather than to the action. A non-stationarity model detects that dynamics changed but cannot identify the cause. Our proposed design targets attribution directly: gt is derived per-timestep from the current observation via a fixed DAG schema, so each transition in node states and frontier mask is tied to the SC event that caused it. Because the graph explicitly encodes which affordances are currently reachable (frontier mask) and which prerequisites are satisfied (edge states), the model can represent affordance states that reflect novel combinations of rules, a capability that latent-indexed methods, bounded by their training-distribution regimes, cannot provide by construction. 
+
+## 3 Method: Affordance-Grounded World Models 
+
+3.1 Problem Formulation Structure-Changing Events. We consider environments modeled as a Markov decision process (MDP) (S, A, T, R, γ ), where S is the state space, A the action space, T : S × A → S the transition function, R the reward function, and γ ∈ [0 , 1) the discount factor. An action at at state st is 
+
+structure-changing (SC) if it alters the affordance set: SC (st, a t) = ⊮ [F(st+1 )̸ = F(st)] , (1) where F(s) ⊆ A denotes the applicable action set at state s, i.e., the actions whose environmental preconditions hold. SC events are distinct from ordinary state changes: an ordinary action (e.g., moving or looking) updates the state but preserves the affordance set, while a structure-changing action (e.g., crafting or equipping) alters both. Implicit world models fail in this setting through two mechanisms. First, multi-step imagination suffers from compounding error: without an explicit affordance state, each rollout step is conditioned on stale action preconditions, and prediction error accumulates. We observe this directly on MiniHack: Vanilla’s error multiplies by 73 .7× from step 1 to step 8, while AGWM remains at 5.5× (Table 1). Second, compositional generalization fails: Vanilla achieves 0% CDA on KeyDungeon and 2.5% on Craftax, near the random baseline of 5.9% ,3when evaluated on SC-critical decisions (Table 2), and collapses on out-of-distribution affordance configurations where AGWM reaches 90 .9–100% CDA (Table 2). 
+
+3.2 AGWM 
+
+Figure 2: AGWM system overview. The en-vironment delivers reward and observation to AGWM. The SC Classifier predicts whether 
+
+(ht, a t, e t) triggers a structure-changing event and signals the Dynamic Affordance Graph to self-evolve gt. The graph embedding et condi-tions the RSSM World Model, gating imagina-tion rollouts to the current affordance frontier. The Imagination Planning loop uses the imag-ined trajectories to optimize the Actor-Critic pol-icy. 
+
+Dynamic Affordance Graph. To address these problems, we represent F(s) as a structured fea-ture vector gt ∈ { 0, 1}d, derived per-timestep from the current observation, which we call the 
+
+affordance graph . Each environment has a fixed DAG schema defining N affordance nodes (items, tools, structures) and E prerequisite edges (tech-tree dependencies); gt concatenates three binary components: node states (N dims) encoding which affordances are currently achieved; a fron-tier mask (N dims) encoding which affordances are newly reachable (all prerequisites satisfied but not yet achieved); and edge states (E dims) in-dicating which prerequisite edges are currently satisfied. The model learns to predict how the graph transitions at each step: 
+
+ˆgt+1 = fgraph (ht, a t, g t), (2) where ht is the recurrent hidden state and fgraph 
+
+is a learned predictor. The key design property is the frontier-mask constraint : an affordance can become active only when its DAG prerequisites are already met, which matches the OR-monotone structure of tech trees and enables d independent binary predictions rather than joint modeling of the full 2d affordance space. Figure 3 contrasts the graphical models of a conventional world model and AGWM. In a standard POMDP world model, the action at feeds unconditionally into the next state st+1 : the model associates action-outcome pairs statistically but cannot enforce whether at is currently executable. AGWM introduces the affordance graph gt as an explicit variable. gt gates the transition at → st+1 ,preventing the model from predicting outcomes for infeasible actions. Crucially, gt is not observed but self-evolved: it is predicted from (ht, a t) and updated monotonically as the agent discovers new affordances. Specifically, AGWM augments a GRU-based recurrent world model with three modules (Figure 2). The base architecture encodes observations into latent states zt = Enc (ot), updates a recurrent hidden state ht = GRU ([ zt, a t], h t−1), predicts the next latent ˆzt+1 = fdyn (ht), and reconstructs 
+
+ˆot+1 = Dec (ˆ zt+1 ).
+
+Graph Encoder. The affordance graph gt ∈ { 0, 1}d is embedded via a linear projection et =
+
+GraphEnc (gt) ∈ Rde , where de = 64 across all environments. This embedding is injected into two places: (1) the GRU input, extending it to ht = GRU ([ zt, a t, e t], h t−1), so the recurrent state is informed by the current affordance structure; and (2) the decoder, giving ˆot+1 = Dec ([ˆ zt+1 , e t+1 ]) ,so the reconstruction loss directly backpropagates through the graph embedding. The decoder path is critical: without it, the graph enters only through the GRU, where the model can learn to ignore it. Conditioning the decoder forces the reconstruction loss to depend on graph quality, providing a strong gradient signal to the graph predictor. 
+
+SC Classifier. A two-layer MLP fsc takes the hidden state and action embedding as input and predicts whether at triggers a structure change: ˆpsc = σ(fsc (ht, a t, e t)) . SC events are rare in practice (typically 5–15% of steps), so we apply positive-class weighting ( wpos = 5 ) to the binary cross-entropy loss to prevent the classifier from collapsing to always-negative predictions. 
+
+Graph Predictor. A separate MLP fgraph predicts the next affordance state per dimension: ˆgt+1 =
+
+σ(fgraph (ht, a t, e t)) ∈ [0 , 1] d. Each dimension is predicted independently, decomposing the 2d
+
+4Figure 3: Probabilistic graphical models of world model variants. (a) Vanilla world model : at
+
+feeds unconditionally into st+1 ; the model cannot enforce whether at is currently executable, causing compounding imagination error after SC events. (b) AGWM (one step) : gt is introduced as an explicit affordance variable. A structure-changing action at triggers an SC event edge (magenta) that updates gt+1 , while gt gates the transition to st+1 via a gating edge (teal), enforcing action legality. 
+
+(c) AGWM imagination rollout : the predicted graph ˆgt (dashed) is propagated forward at each step, gating every imagined transition so that multi-step rollouts remain within the current affordance frontier. joint affordance space into d binary problems. At inference, the predicted logits are thresholded and combined with the current graph via the monotonicity constraint (Section 3.3). Because et =
+
+GraphEnc (gt) enters the predictor input, a gradient shortcut through et is possible in principle; however, the 10.0% Aff. Acc improvement over Vanilla on Craftax (Table 2) confirms that the predictor learns meaningful affordance dynamics rather than trivially copying its input. 
+
+Figure 4: Architecture comparison. (a) Vanilla RSSM processes observations and actions through a GRU. (b) AGWM augments the RSSM with a self-evolving affordance graph: the Graph Encoder embeds affordance structure into the GRU input and decoder, while the SC Classifier and Graph Predictor auxiliary heads learn to detect and predict structure changes. 
+
+3.3 Self-Evolving Affordance Discovery 
+
+Unlike prior affordance models that assume a fixed or oracle-provided mapping, AGWM’s affordance graph is self-evolved from agent experience, oracle-free at test time. 
+
+SC label generation. At each training step, the SC label is computed by comparing consecutive affordance states: psc = 1[gt+1 ̸ = gt]. The per-dimension graph target is gt+1 itself, obtained by 5comparing F(st) and F(st+1 ) directly from environment state. This requires access to the affordance function F during training but not at test time, where gt is maintained by the model’s own predictions. 
+
+Figure 5: Affordance graph evolution in Craftax. As the agent progresses through the tech tree within an episode, the node-state and frontier-mask components of gt update to reflect newly achieved affordances and currently reachable next steps; the graph predictor learns to anticipate these transitions from (ht, a t, g t).
+
+Frontier-mask constraint. Affordances in tech-tree environments follow prerequi-site ordering: stone is mineable only after a wood pickaxe is crafted. The frontier mask encodes this structurally: the frontier bit for node v is 1 if and only if all parent prereq-uisites of v are satisfied in the current node-state vector. The graph predictor therefore only needs to activate nodes whose pre-requisites are already met, restricting the prediction space to the DAG’s reachable frontier at each step. This constraint is computed analytically from the fixed DAG schema and requires no additional learning, preventing the model from producing phys-ically impossible affordance combinations under distribution shift. 
+
+Graph evolution within an episode. Be-cause gt is computed from the current ob-servation at each step, it naturally tracks the agent’s affordance state as it progresses through the tech tree within an episode. As the agent crafts tools and gathers resources, the frontier mask expands to reflect newly reachable affordances. Figure 5 illustrates this evolution alongside the agent’s progression in Craftax. 
+
+3.4 Training Objective 
+
+The total loss combines reconstruction, dynamics, SC classification, and graph prediction: 
+
+L = Lrecon + Ldyn + λSC LSC + λgraph Lgraph , (3) where each term is: 
+
+Lrecon = MSE (ˆ ot+1 , o t+1 ), Ldyn = MSE (ˆ zt+1 , z t+1 ), (4) 
+
+LSC = BCE (ˆ psc , p sc ), Lgraph = 1
+
+> d
+
+Pdi=1 BCE (ˆ g(i)
+
+> t+1
+
+, g (i)
+
+> t+1
+
+). (5) The graph loss averages over all d dimensions independently. We set λSC = 1 .0 and λgraph = 2 .0.Results are robust to both hyperparameters: degradation is stable across λgraph ∈ [0 .5, 5.0] and across graph embedding dimensions de ∈ { 8, 16 , 32 , 64 }, with λgraph = 0 the only configuration that causes substantial degradation (see Appendix F). The reconstruction and dynamics losses are unweighted relative to each other. 
+
+## 4 Experiments 
+
+We evaluate AGWM by examining the following research questions: (1) Does AGWM reduce multi-step imagination error over the Vanilla baseline, and does the advantage grow with longer rollout horizons? (Table 1, Table 1) (2) Does it accurately detect SC events and learn interpretable affordance structure? (Table 2, Figure 5) (3) Does the self-evolved graph generalize to novel rule combinations not seen during training? (Table 2) (4) Are SC detection and graph conditioning both necessary? (Table 3) 
+
+4.1 Benchmarks 
+
+Full environment descriptions are provided in Appendix B. Briefly: KeyDungeon , Forage , and Har-vest are custom pixel gridworlds at D=1 where SC events erase colored squares from the observation. 
+
+Relay (D=3 ) and Cascade (D=4 ) extend this with chain-unlocking mechanics that produce two simultaneous pixel changes per SC event. MiniHack [Samvelyan et al., 2021] (LavaCross, D=2 ), 
+
+Crafter [Hafner, 2022] ( D=3 ), and Craftax [Matthews et al., 2024] ( D=4 ) are standard benchmarks included for breadth and comparability with prior work. 64.2 Implementation Details 
+
+All three variants share the RSSM backbone from DreamerV3 [Hafner et al., 2023, 2020] and identical capacity (within 17%). Vanilla is the unmodified RSSM. SC-Only adds the SC Classifier head to Vanilla (Section 3) but without the affordance graph; it isolates whether SC event detection alone (without explicit graph conditioning) suffices. AGWM is the full model: SC Classifier plus Graph Encoder, Graph Predictor, and frontier-mask constraint. All models are trained with AdamW (lr= 5 × 10 −4, weight decay= 10 −4), gradient clipping (norm 1.0), on 16-step sequences with batch size 64, for 500k steps. The observation encoder and decoder are environment-specific: CNN for pixel observations (all environments except Craftax) and MLP for symbolic observations (Craftax). All results report 3-seed mean ± std. Prediction quality is measured via imagination MSE (8-step rollout after 10-step posterior warmup), counterfactual detection accuracy (CDA), counterfactual prediction gap, and affordance prediction accuracy. For Vanilla, CDA is measured by training a linear probe on frozen hidden states; for AGWM and SC-Only , CDA uses the trained SC Classifier directly. 
+
+4.3 World Model Quality 
+
+Table 1: Imagination MSE ( ×10 −3, lower is better). Avg : step-averaged over the full rollout; 
+
+Step 1 /Step 8 : short- and long-horizon error accumulation. AGWM uses a self-evolved graph (no oracle). Bold+underline : best per column; bold : second best. 3-seed mean ± std. Vanilla AGWM (self-evolved) Environment Depth Avg Step 1 Step 8 Avg Step 1 Step 8 KeyDungeon Low 10 .64 ± 0.80 8.53 ± 1.90 12 .39 ± 0.35 5.63 ± 1.44 2.35 ± 0.72 9.05 ± 1.80                                                                              
+
+> Forage Low 11 .58 20 .11 4.33 6.95 12 .47 2.27
+> Harvest Low 263 .4313 .9218 .521 .19 36 .90 7.72
+> MiniHack †Low-Med 1496 .2±1116 .5238 .217564 .81021 .2±102 .4388 .02148 .4
+> Relay Medium 621 .3615 .8627 .16.11 9.74 3.17
+> Crafter Medium 5.07 ±0.19 3.45 ±0.06 7.27 ±0.57 5.56 ±0.03 3.83 ±0.07 8.28 ±0.19
+> Cascade High 205 .6305 .2116 .416 .78 26 .95 7.67
+> Craftax ‡High 0.0041 ±0.0012 0.0040 ±0.0012 0.0041 ±0.0012 0.0894 ±0.0049 0.0875 ±0.0045 0.0919 ±0.0052
+> †
+
+MiniHack: glyph-embedding space (16-dim × 21 ×79 grid), not comparable to pixel/symbolic rows. ‡Craftax: 256-dim obs-embedding space; DR ≈ 1.0 for both models (no horizon degradation); CDA is the primary differentiator (Table 2). 
+
+Graph conditioning helps most when SC events cause large, visible changes to the observation. Our 
+
+2×2 design isolates this: Relay and Cascade have the same compositional depth as Crafter and Craftax, but with clear pixel changes at every SC event, AGWM achieves 101 .7× and 12 .3× lower MSE. At the same depth, Crafter and Craftax show no improvement because their SC signals are subtle or symbolic. When crafting an item changes only a small inventory icon, even a model with the correct affordance graph cannot improve its pixel predictions enough to reduce overall MSE. The difference grows over longer rollouts: on MiniHack, Vanilla reaches 73 .7× of its step-1 error by step 8, while AGWM stays at 5.5×. This happens because errors build up: without knowing what the new affordance state is, each step starts from a wrong assumption about which actions are available. 
+
+SC detection and affordance understanding. As the affordance structure gets deeper, a fixed-size latent vector finds it harder to keep track of it. On Craftax, where four prerequisite tiers must be maintained at the same time, Vanilla scores only 2.5% CDA while AGWM reaches 98 .6% ; a hidden state just does not have enough room to store that much structured information. On Crafter, SC-Only 
+
+reaches 24 .2% CDA (vs. 0% for AGWM) but with high variance ( ±22 .7% , driven by a single seed at 
+
+54 .5% ) and no improvement in MSE, suggesting the SC head sometimes detects events that are not real affordance transitions. The full model avoids this because any detected SC event must update the graph, and the model is then judged on whether those updates lead to better predictions. The graph also makes the model’s internal state readable: on KeyDungeon, AGWM’s predicted observations differ 20 .5× more between SC and non-SC actions than Vanilla’s ( 1.64 vs. 0.08 CF Gap). Figure 5 shows each unlock as a single added edge, with no probing required to see what the model knows. 
+
+Compositional generalization. The learned graph works well on affordance rules not seen during training. On KeyDungeon, AGWM reaches 90 .9% CDA on cross-color rules and 100 .0% on entirely new L5 chain mechanisms (Table 2); on Craftax, training on tiers 0–1 and testing on tiers 2–3 gives 7Table 2: SC Detection Accuracy (CDA, %, higher is better), probing results, and OOD generalization (3-seed mean ± std). Aff. Acc: next-step affordance prediction accuracy (%); CF Gap: L2 distance between SC and non-SC predictions. ‡OOD splits (AGWM only, Vanilla/+SC not evaluated on held-out configs): KD L4 = Levels 1–3 → L4 cross-color; KD L5 = Levels 1–4 → L5 chain4; Craftax = Tech tiers 0–1 → tiers 2–3.                                                                                          
+
+> Metric Environment Vanilla SC-Only AGWM CDA (%) ↑
+> KeyDungeon 0.0100 .0100 .0
+> Crafter 0.0±0.024 .2±22 .70.0±0.0
+> MiniHack 0.00.00.0
+> Craftax 2.5±0.299 .6±0.298 .6±0.8
+> Aff. Acc (%) ↑
+> KeyDungeon 87 .4±0.090 .9±0.399 .9±0.2
+> Crafter 100 .0±0.0100 .0±0.0100 .0±0.0
+> Craftax 90 .8±0.089 .7±0.199 .6±0.0
+> CF Gap ↑KeyDungeon 0.08 ±0.01 0.80 ±0.15 1.64 ±0.20
+> Craftax 0.00 ±0.00 0.01 ±0.00 0.02 ±0.00
+> OOD CDA (%) ↑
+> KD L4 ‡––90 .9
+> KD L5 ‡––100 .0
+> Craftax ‡––87 .9±0.7
+
+Table 3: Graph source ablation on KeyDungeon. All AGWM variants share the same trained model. MSE ( ×10 −3), mean ± std, 3 seeds. 
+
+Graph source MSE ( ×10 −3)None (Vanilla) 9.19 ± 0.23 
+
+Zeroed g (AGWM) 19 .54 ± 2.06 
+
+Frozen g (AGWM) 5.76 ± 0.62 
+
+Predicted g (AGWM) 5.23 ± 0.51 
+
+Oracle g (AGWM) 4.95 ± 0.61 
+
+87 .9 ± 0.7% OOD CDA. The 100% accuracy on new L5 chains suggests the graph has learned general affordance rules (“collecting some item enables some next item”) rather than memorizing specific item pairs, so it handles new item combinations correctly. The oracle control experiment (Appendix E) shows why this works: the self-evolved graph ( 1.34 × degradation) is close to the oracle ceiling ( 1.12 ×) without any ground-truth graph at test time, while zeroing the graph ( 6.06 ×)performs worst, confirming that the self-evolving mechanism is the main source of test-time accuracy. 
+
+Ablations. Table 3 shows that removing either component hurts. Without graph-conditioned decoding, the graph becomes a passive input the model can learn to ignore, which is why SC-Only 
+
+outperforms the full AGWM in that setting. Adding the decoding loss brings the benefit back. Even a frozen graph (fixed at its initial state, 5.76 ) already beats Vanilla ( 9.19 ), showing that any reasonable affordance structure is more useful than none. The self-evolving mechanism then closes most of the gap to the oracle ( 5.23 vs. 4.95 ). Giving the model an all-zero graph at test time ( 19 .54 ) is worse than no graph at all ( 9.19 ), since the model was never trained on that input. Any non-zero λ helps, and the gain levels off above 0.5.
+
+Sample efficiency. With less training data, the benefit of explicit SC structure gets larger. At 25% data, AGWM and SC-Only both beat Vanilla ( 14 .94 and 14 .76 vs. 16 .64 ); at full data all three models perform about the same (Table 4). Graph accuracy also levels off early: Aff.Acc reaches 
+
+97 .2% ± 1.8% at just 25% data and goes above 98% at 50%, showing that the affordance transition structure can be learned from a small number of trajectories. 
+
+## 5 Conclusion 
+
+We introduced AGWM, a world model that explicitly tracks how agent actions change environment affordances through a self-evolving affordance graph. Across our benchmark suite, we demonstrated 8Table 4: Sample efficiency on KeyDungeon. Imagination MSE ( ×10 −3) and affordance-graph accuracy (Aff.Acc) vs. training data fraction. Mean ± std, 3 seeds. MSE lower is better; Aff.Acc higher is better.                                                           
+
+> Data nseq Vanilla MSE SC-Only MSE AGWM MSE AGWM Aff.Acc 25% 28 16 .64 ±1.76 14 .76 ±0.57 14 .94 ±0.40 97 .2% ±1.8%
+> 50% 56 13 .01 ±0.08 13 .31 ±0.38 12 .78 ±0.47 98 .5% ±0.1%
+> 75% 84 12 .28 ±0.12 12 .38 ±0.23 12 .12 ±0.14 99 .4% ±0.7%
+> 100% 112 12 .26 ±0.13 12 .24 ±0.32 12 .41 ±0.31 99 .5% ±0.7%
+
+that explicit SC detection and graph-conditioned imagination reduce multi-step prediction error; that the self-evolved graph generalizes to novel rule combinations without oracle supervision; and that the frontier-mask constraint is essential: removing it causes performance worse than the graph-free Vanilla baseline due to distribution shift at test time. 
+
+## Limitations. 
+
+The graph dimensions (which affordance types to track) are currently hand-designed per environment. Learning the graph schema from data is an important direction. The self-evolving mechanism also requires comparing consecutive states to detect SC events; extending to delayed or partial observability is future work. 
+
+## Broader impact. 
+
+This work proposes a method for learning world models that explicitly track which agent actions remain executable as the environment’s rule structure evolves. The primary intended application is model-based reinforcement learning in compositional domains such as open-ended game envi-ronments and robotic task planning. On the positive side, better world models that respect action preconditions could improve the safety and reliability of autonomous agents deployed in structured environments, since the agent’s imagination is constrained to feasible action sequences rather than arbitrary counterfactuals. On the negative side, more capable planning agents could be applied to adversarial or harmful tasks. We note that the current work is evaluated exclusively on simulated benchmark environments; deployment in physical systems would require additional safety validation beyond what this paper addresses. We do not anticipate near-term negative societal impacts specific to this work. 
+
+## References        
+
+> Ha, D. & Schmidhuber, J. (2018). World models. Advances in Neural Information Processing Systems .Gibson, J. J. (1979). The Ecological Approach to Visual Perception . Houghton Mifflin. Hafner, D. (2022). Benchmarking the spectrum of agent capabilities. Transactions on Machine Learning Research .Hafner, D., Lillicrap, T., Ba, J., & Norouzi, M. (2020). Dream to control: Learning behaviors by latent imagination. ICLR .Hafner, D., Pasukonis, J., Ba, J., & Lillicrap, T. (2025). Mastering diverse control tasks through world models.
+> Nature , 640, 647–653. Hwang, I., Kwak, Y., Choi, S., Zhang, B.-T., & Lee, S. (2024). Fine-grained causal dynamics learning with quantization for improving robustness in reinforcement learning. ICML .Ke, N. R., Singh, A., Touati, A., Goyal, A., Bengio, Y., Parikh, D., & Batra, D. (2019). Learning dynamics model in reinforcement learning by incorporating the long term future. ICLR .Khetarpal, K., Ahmed, Z., Comanici, G., Abel, D., & Precup, D. (2020). What can I do here? A theory of affordances in reinforcement learning. ICML .
+
+9Li, M., Yang, M., Liu, F., Chen, X., Chen, Z., & Wang, J. (2020). Causal world models by unsupervised deconfounding of physical dynamics. arXiv preprint arXiv:2012.14228 .Pearl, J. (2009). Causality: Models, Reasoning, and Inference (2nd ed.). Cambridge University Press. Samvelyan, M., Kirk, R., Kurin, V., Parker-Holder, J., Jiang, M., Hambro, E., Zilly, F., Küttler, H., Grefenstette, E., & Rocktäschel, T. (2021). MiniHack the planet: A sandbox for open-ended reinforcement learning research. NeurIPS Datasets and Benchmarks Track .Schölkopf, B., Locatello, F., Bauer, S., Ke, N. R., Kalchbrenner, N., Goyal, A., & Bengio, Y. (2021). Toward causal representation learning. Proceedings of the IEEE , 109(5), 612–634. Hafner, D., Pasukonis, J., Ba, J., & Lillicrap, T. (2025). Mastering diverse control tasks through world models. 
+
+Nature , 640, 647–653. Micheli, V., Alonso, E., & Fleuret, F. (2023). Transformers are sample-efficient world models. ICLR .Alonso, E., Jelley, A., Micheli, V., Kanervisto, A., Beard, A., & Fleuret, F. (2024). Diffusion for world modeling: Visual details matter in Atari. NeurIPS .Robine, J., Höftmann, M., Uel, T., & Harmeling, S. (2023). Transformer-based world models are happy with 100k interactions. ICLR .Doshi-Velez, F. & Konidaris, G. (2016). Hidden parameter Markov decision processes: A semiparametric regression approach for discovering latent task parametrizations. IJCAI .Wang, J.X., Kurth-Nelson, Z., Tirumala, D., Soyer, H., Leibo, J.Z., Munos, R., Blundell, C., Kumaran, D., & Botvinick, M. (2017). Learning to reinforcement learn. Proceedings of the 39th Annual Conference of the Cognitive Science Society .Bellemare, M.G., Veness, J., & Bowling, M. (2012). Investigating contingency awareness using Atari 2600 games. AAAI .Badia, A.P., Sprechmann, P., Viber, A., Guo, D., Piot, B., Kapturowski, S., Tieleman, O., Arjovsky, M., Pritzel, A., Bolt, A., & Blundell, C. (2020). Agent57: Outperforming the Atari human benchmark. ICML .Gibson, J.J. (1977). The theory of affordances. In Perceiving, Acting, and Knowing . Erlbaum. Do, T.T., Nguyen, A., & Reid, I. (2018). AffordanceNet: An end-to-end deep learning approach for object affordance detection. ICRA .Mo, K., Guibas, L.J., Mukadam, M., Gupta, A., & Tulsiani, S. (2021). Where2Act: From pixels to actions for articulated 3D objects. ICCV .Abel, D., Dabney, W., Harutyunyan, A., Ho, M.K., Littman, M., Precup, D., & Singh, S. (2022). A definition of continual reinforcement learning. NeurIPS .Shridhar, M., Yuan, X., Côté, M.A., Bisk, Y., Trischler, A., & Hausknecht, M. (2021). ALFWorld: Aligning text and embodied environments for interactive learning. ICLR .Matthews, M., Sheratt, M., Sheratt, O., Sheratt, E., & Sheratt, J. (2024). Craftax: A lightning-fast benchmark for open-ended reinforcement learning. arXiv preprint .Pearl, J. (2000). Causality: Models, Reasoning, and Inference . Cambridge University Press. Behrens, T.E.J., Muller, T.H., Whittington, J.C.R., Mark, S., Baram, A.B., Stachenfeld, K.L., & Kurth-Nelson, Z. (2018). What is a cognitive map? Organizing knowledge for flexible behavior. Neuron , 100(4), 946–954. Choi, J., Guo, Y., Moczulski, M., Oh, J., Wu, N., Norouzi, M., & Lee, H. (2019). Contingency-aware exploration in reinforcement learning. ICLR .Zhou, S., Zhou, T., Yang, Y., Long, G., Ye, D., Jiang, J., & Zhang, C. (2025). WALL-E: World alignment by rule learning improves world model-based LLM agents. NeurIPS .Hafner, D., Yan, W., & Lillicrap, T. (2025). Training agents inside of scalable world models. arXiv preprint arXiv:2509.24527 .Morihira, N. et al. (2026). R2-Dreamer: Redundancy-reduced world models without decoders or augmentation. 
+
+ICLR .
+
+10 Wu, J., Yin, S., Feng, N., & Long, M. (2025). RLVR-World: Training world models with reinforcement learning. 
+
+NeurIPS .Gospodinov, E., Shaj, V., Becker, P., Geyer, S., & Neumann, G. (2024). Adaptive world models: Learning behaviors by latent imagination under non-stationarity. NeurIPS Workshop on Adaptive Foundation Models .Zhang, Y. et al. (2025). Multi-level RL with model-changing actions over transition kernel spaces. arXiv preprint arXiv:2510.15056 .Maes, L. et al. (2026). LeWorldModel: Stable end-to-end JEPA world models from pixels. arXiv preprint arXiv:2603.19312 .Dainese, N., Merler, M., Alakuijala, M., & Marttinen, P. (2024). Generating code world models with large language models guided by Monte Carlo tree search. NeurIPS .Wang, H. et al. (2026). Affordance-R1: Reinforcement learning for generalizable affordance reasoning in multimodal LLMs. AAAI .Farebrother, J., Pirotta, M., Tirinzoni, A., Munos, R., Lazaric, A., & Touati, A. (2025). Temporal difference flows. ICML (Oral) .Huang, B., Lu, C., Leqi, L., Hernandez-Lobato, J. M., Glymour, C., Scholkopf, B., & Zhang, K. (2022). Action-sufficient state representation learning for control with structural constraints. ICML .Schrittwieser, J., Antonoglou, I., Hubert, T., Simonyan, K., Sifre, L., Schmitt, S., Guez, A., Lockhart, E., Hassabis, D., Graepel, T., Lillicrap, T., & Silver, D. (2020). Mastering Atari, Go, chess and shogi by planning with a learned model. Nature , 588, 604–609. Zhang, J. et al. (2026). ResWM: Residual-action world model for visual RL. arXiv preprint arXiv:2603.11110 .Zhao, Z., Li, H., Zhang, H., Wang, J., Faccio, F., Schmidhuber, J., & Yang, M. (2025). Curious causality-seeking agents learn meta causal world. NeurIPS .Kipf, T., van der Pol, E., & Welling, M. (2020). Contrastive learning of structured world models. ICLR .Amodei, D., Olah, C., Steinhardt, J., Christiano, P., Schulman, J., & Mané, D. (2016). Concrete problems in AI safety. arXiv preprint arXiv:1606.06565 .Berkenkamp, F., Turchetta, M., Schoellig, A. P., & Krause, A. (2017). Safe model-based reinforcement learning with stability guarantees. NeurIPS .
+
+## A Implementation Details 
+
+Network architecture. All models share an identical base architecture. The observation encoder is a 3-layer CNN (channels 32/64/64, kernel 3, stride 2) for pixel observations (Crafter, KeyDungeon), a glyph-embedding CNN (16-dim per glyph, then 3 Conv layers) for MiniHack, and a 2-layer MLP (hidden dim 256) for symbolic observations (Craftax). The GRU has hidden size 512. The dynamics network fdyn and decoder are symmetric 2-layer MLPs with hidden dim 512. For AGWM, the Graph Encoder is a single linear layer mapping gt ∈ { 0, 1}d to et ∈ R64 . The SC Classifier and Graph Predictor are each 2-layer MLPs (hidden dim 256, ReLU) taking [ht, a t, e t] as input. Total parameter counts on KeyDungeon: Vanilla 1.76M, SC-Only 1.77M, AGWM 1.89M; on Crafter: Vanilla 1.60M with proportionally similar scaling. AGWM adds at most 7% parameters over Vanilla. 
+
+Training. All models are trained for 100 epochs on pre-collected expert trajectories (500 train / 100–200 eval per environment). We use the AdamW optimizer with learning rate 5 × 10 −4, weight decay 10 −4, and gradient clipping at norm 1.0. Batch size is 16 sequence windows. Loss weights: 
+
+λSC = 1 .0, λgraph = 2 .0. The SC classifier uses positive-class weighting wpos = 5 to compensate for class imbalance (SC events occur in 5–15% of steps depending on environment). The affordance graph gt is computed per-timestep from the current observation via the environment’s fixed DAG schema (node states, frontier mask, edge states); graph targets for training are derived directly from environment state, requiring no manual annotation. Seed 42, 123, 456 are used for reproducibility; we report 3-seed mean ± std throughout. 11 Evaluation. Imagination MSE is measured over 8-step rollouts following a 10-step posterior warmup from ground-truth observations. All metrics are reported as mean ± std over 3 independent seeds with different random initializations. 
+
+Environment-specific details. 
+
+## B Environment Descriptions 
+
+Table 5: Environment overview. Compositional depth D = maximum cascading SC chain length. 
+
+> †
+
+This work. Environment Act. Observation (encoding) SC Type D                                
+
+> KeyDungeon †748 ×48 ×3 RGB; CNN key →door flip 1Forage †464 ×64 ×3 RGB; CNN item collection ( ×6) 1Harvest †464 ×64 ×3 RGB; CNN item collection ( ×8) 1MiniHack [Samvelyan et al., 2021] 77 21 ×79 glyph map; CNN item →ability 2Relay †464 ×64 ×3 RGB; CNN chain reveal 3Crafter [Hafner, 2022] 17 64 ×64 ×3 RGB; CNN tech tree (subtle) 3Cascade †464 ×64 ×3 RGB; CNN chain reveal 4Craftax [Matthews et al., 2024] 17 1345-dim symbolic; MLP cascading (symbolic) 4
+
+KeyDungeon (this work, D=1 ). A custom 48 ×48 pixel gridworld where the agent collects a key to open a locked door and retrieves a chest. A single affordance transition (key held → door traversable) defines the sole SC event per episode. Item acquisition produces a discrete, visible pixel change: the key sprite disappears and the door glyph switches to an open doorway. KeyDungeon isolates the minimal SC setting, providing a controlled testbed for single-transition affordance prediction. 
+
+Forage (this work, D=1 ). A 64 ×64 RGB gridworld with six colored items on an 8 ×8 grid. Collecting an item causes its colored square to disappear (SC event). The binary affordance graph 
+
+gt ∈ { 0, 1}6 records which items have been collected; a scripted policy with 15% random noise yields SC events at ≈5% of steps. Forage provides a controlled pixel-change setting: the decoder conditioned on predicted gt+1 can anticipate item disappearance directly. 
+
+Harvest (this work, D=1 ). Extends Forage to eight items with two additional item colors, raising the SC rate to 6.7% and increasing simultaneous-item-tracking complexity. The graph gt ∈ { 0, 1}8;all other mechanics identical to Forage. 
+
+Relay (this work, D=3 ). A 64 ×64 RGB gridworld with a single chain of four items ( D=3 , three SC transitions). Collecting item k desaturates it to a neutral used-marker color and simultaneously reveals item k+1 from gray (locked) to its assigned bright color, producing two large pixel changes per SC event. The affordance graph gt ∈ { 0, 1}4 encodes which items have been collected (monotone: bits only transition 0 → 1). A scripted policy targeting the nearest visible item yields SC events at 
+
+≈6.7% of steps. 
+
+Cascade (this work, D=4 ). Extends Relay to a single chain of five items ( D=4 , four SC transitions, 
+
+gt ∈ { 0, 1}5). The same dual-change SC mechanism applies: collecting item k desaturates it to a used marker while item k+1 becomes visible. SC rate ≈8.3%. Cascade provides a pixel-observation counterpart to Craftax at matching compositional depth. 
+
+MiniHack [Samvelyan et al., 2021] ( D=2 ). LavaCross task: the agent acquires a levitation potion and consumes it to cross lava. SC event = potion consumption activating the levitation affordance. Observations are 21 × 79 glyph maps; affordance changes manifest as inventory transitions with no dramatic pixel shift. Tests prediction when SC events are detectable but not visually salient. 
+
+Crafter [Hafner, 2022] ( D=3 ). A 2D survival game with a three-tier tech tree. SC events include placing a crafting table (enables wood tools), placing a furnace (enables metal processing), and 12 crafting successive tool tiers. Observations are 64 × 64 RGB images; affordance changes produce subtle rather than dramatic pixel differences. Joint affordance space spans 217 states. 
+
+Craftax [Matthews et al., 2024] ( D=4 ). A JAX-accelerated symbolic implementation of Crafter with a four-tier cascading tech tree. Observations are 1345-dimensional symbolic vectors encoding inventory, achievements, and local map state. The symbolic observation directly encodes affordance-relevant information, so horizon-degradation ratio DR ≈1.0 for all models; CDA is the primary differentiator at this depth. Craftax uses the symbolic observation format (1345-dim) with the JAX-based implementation [Matthews et al., 2024], enabling fast parallel rollouts. MiniHack uses the NetHack symbolic observation format: a 21 ×79 glyph map (each cell is a categorical glyph ID in [0, 6000)) paired with a 27-dim blstats vector; a learned glyph embedding (16-dim per glyph) followed by a CNN encoder maps this to a latent state. KeyDungeon is a custom MiniGrid-based environment with procedurally generated key-door configurations; we evaluate on held-out map layouts unseen during training. 
+
+## C Affordance Graph Design 
+
+We design compact affordance graphs for each environment: 
+
+Craftax (60 dims, DAG). 15 tech-tree nodes (resources, tools, structures) × 2 state types (node_active, frontier) plus 30 directed prerequisite edges = 15 + 15 + 30 = 60 dims. The fron-tier vector encodes nodes whose prerequisites are satisfied; edge states are active only when both endpoints are unlocked. 
+
+KeyDungeon (14 dims, DAG). 5 nodes (find_key, pickup_key, reach_door, unlock_door, reach_goal) × 2 state types (node_active, frontier) plus 4 directed prerequisite edges = 5 + 5 + 4 = 14 
+
+dims. The key SC event is picking up the key (activates pickup_key , gates the frontier to 
+
+unlock_door ) and unlocking the door (activates unlock_door , expands frontier to reach_goal ). 
+
+Crafter (38 dims, DAG). 11 tech-tree nodes × 2 state types (node_active, frontier) plus 16 directed prerequisite edges = 11 + 11 + 16 = 38 dims. The DAG captures Crafter’s 3-tier tech tree (wood →
+
+stone → iron → diamond); SC events are tier-crossing actions (placing a table, crafting a pickaxe) that activate new frontier nodes. 
+
+MiniHack LavaCross (15 dims, DAG). 6 affordance nodes (find_potion, drink_potion, lava_traversable, reach_goal, find_stairs, reach_stairs) × 2 state types (node_active, frontier) plus 3 directed prerequisite edges = 6 + 6 + 3 = 15 dims. The key SC event is drinking the levitation potion, which activates the lava_traversable node and expands the frontier to include reach_goal .
+
+## D Additional Results 
+
+Table 6: Imagination MSE ( ×10 −3) across all environments. AGWM uses self-evolved graph. Mean 
+
+± std over 3 seeds. Red: prior architecture; blue: current DAG architecture. Entries marked “ ·”indicate results not yet collected.                                        
+
+> Environment Vanilla SC-Only AGWM (self-evolved) KeyDungeon 10 .64 ±0.80 9.79 ±2.04 5.63 ±1.44
+> MiniHack 1496 .2±1116 .5†1719 .7±1004 .0†1021 .2±102 .4†
+> Crafter 5.07 ±0.19 5.20 ±0.31 5.56 ±0.03
+> Craftax 0.0041 ±0.0012 0.3057 ±0.0274 0.0894 ±0.0049
+
+## E Oracle Graph Control Experiment 
+
+To rule out the alternative explanation that the oracle model underperforms on novel rules due to stale graph inputs (i.e., the graph was fixed at training time and does not reflect novel-rule affordances), 13 Table 7: Full probing results across all environments. Mean ± std over 3 seeds.                                                                                         
+
+> Metric Environment Vanilla SC-Only AGWM SC MSE Ratio ↑
+> KeyDungeon 1.00 ±0.00 0.99 ±0.05 1.12 ±0.03
+> Crafter 1.00 ±0.00 1.00 ±0.00 1.00 ±0.00
+> Craftax 0.97 ±0.01 0.87 ±0.11 1.27 ±0.26
+> CF Gap ↑
+> KeyDungeon 0.08 ±0.01 0.80 ±0.15 1.64 ±0.20
+> Crafter 0.01 ±0.00 0.09 ±0.06 0.07 ±0.03
+> Craftax 0.00 ±0.00 0.01 ±0.00 0.02 ±0.00
+> Aff. Acc (%) ↑
+> KeyDungeon 87 .4±0.090 .9±0.399 .9±0.2
+> Crafter 100 .0±0.0100 .0±0.0100 .0±0.0
+> Craftax 90 .8±0.089 .7±0.199 .6±0.0
+
+we run a controlled ablation on KeyDungeon novel-rule test sets. We compare four oracle graph conditions at test time: Table 8: 8-step degradation ratio on KeyDungeon novel rules under different oracle graph conditions. Mean ± std over 3 seeds. Lower is better.                   
+
+> Graph Condition Degradation Ratio Description Oracle-Current 1.12 ±0.02 ×GT graph for novel rules (correct) Oracle-Stale 1.17 ±0.02 ×Frozen training-time graph (stale) Oracle-Zero 6.06 ±1.25 ×All-zero graph Self-Evolved 1.34 ±0.31 ×Model’s own predicted graph
+
+The ground-truth graph (Oracle-Current, 1.12 ×) achieves the lowest degradation, confirming that correct affordance conditioning reduces imagination error and establishing Oracle AGWM as an upper bound. The stale training-time graph ( 1.17 ×) performs close to Oracle-Current: although semantically incorrect for novel rules, it preserves the dimension-activation patterns seen during training and introduces minimal distributional shift. The self-evolved graph ( 1.34 ×) closely approaches the oracle upper bound without ground-truth access; the 0.22 × gap demonstrates that the self-evolving mechanism captures novel rule structure effectively. All-zero graph conditioning ( 6.06 ×) is the worst condition: the model was trained with non-zero graphs, so an all-zero input at test time constitutes an OOD signal that severely disrupts imagination. 
+
+## F Hyperparameter Sensitivity 
+
+We evaluate sensitivity to the graph loss weight λgraph and the graph embedding dimension de on Craftax ( D=4 ), using 8-step degradation ratio and affordance prediction accuracy (Aff. Acc) as metrics. Results are reported as mean ± std over 3 seeds. Table 9: Effect of graph loss weight λgraph (graph embedding dimension fixed at de = 32 ). Degrada-tion ratio = MSE at step 8 / MSE at step 1; lower is better.                           
+
+> λgraph Degradation Ratio Aff. Acc 0.0 2.53 ±0.20 ×0.460
+> 0.1 2.00 ±0.15 ×0.935
+> 0.5 1.62 ±0.09 ×0.938
+> 1.0 1.61 ±0.06 ×0.939
+> 2.0 1.57 ±0.09 ×0.940
+> 5.0 1.59 ±0.01 ×0.941
+
+λgraph = 0 (no graph loss) yields aff. accuracy of only 0.46 and 2.53 × degradation, confirming the graph loss is essential. Once λgraph ≥ 0.5, degradation stabilizes within a 0.05 × band regardless of further increases, indicating the model is not sensitive to the exact value in this range. de has negligible effect: all four values achieve the same Aff. Acc (0.939) and degradation differences remain within 0.11 ×.14 Table 10: Effect of graph embedding dimension de (λgraph fixed at 1.0). Mean over 3 seeds.           
+
+> deDegradation Ratio Aff. Acc 81.69 ×0.939
+> 16 1.67 ×0.939
+> 32 1.58 ×0.939
+> 64 1.65 ×0.939
+
+## G Monotonicity Constraint Ablation 
+
+We ablate the monotonicity constraint on Craftax ( D=4 ), comparing four conditions: (1) Vanilla : no affordance graph; (2) Graph (no constraint) : graph-conditioned model with oracle graph targets, no OR-operation enforced at inference; (3) Graph-AR (no constraint) : same but with auto-regressive predicted graph; (4) AGWM (constrained) : full model with monotonicity OR-operation. Table 11: 8-step degradation ratio (MSE at step 8 / MSE at step 1) on Craftax. Mean ± std over 3 seeds. Lower is better.                   
+
+> Condition Degradation Ratio Notes Vanilla 51 .4±26 .8×no graph Graph (no constraint) 136 .3±176 .0×oracle graph, no OR-op Graph-AR (no constraint) 137 .1±177 .0×predicted graph, no OR-op AGWM (constrained) 1.10 ±0.01 ×full model
+
+The monotonicity constraint is decisive: AGWM holds at 1.10 × degradation across all three seeds (std = 0 .01 ), while all unconstrained variants diverge. Notably, graph-conditioned models without 
+
+the constraint perform far worse than Vanilla ( 136 .3× vs. 51 .4×). Without the OR-operation, the graph predictor can deactivate previously discovered affordances, introducing distribution shift that compounds more severely than having no graph at all. The constraint eliminates this failure mode by construction. 
+
+## H Compute Resources 
+
+All experiments were conducted on a single NVIDIA RTX 4090 GPU (24 GB VRAM). No distributed or cloud compute was used. 
+
+## I MiniHack LavaCross Details 
+
+MiniHack-LavaCross-v0 [Samvelyan et al., 2021] places the agent on a map separated from the goal by a lava corridor. A levitation potion is available nearby; drinking it activates the 
+
+lava_traversable affordance ( D=2 SC chain: find potion → drink potion → cross lava). The envi-ronment has 77 discrete actions. Imagination MSE is computed in the glyph-embedding space (16-dim per glyph × 21 ×79 grid) and is not directly comparable to pixel-space MSE in KeyDungeon/Crafter. Over 3 seeds, AGWM achieves 1021 .2 ± 102 .4 × 10 −3 MSE vs. Vanilla’s 1496 .2 ± 1116 .5 × 10 −3
+
+(1.47 × improvement). Notably, AGWM exhibits substantially lower cross-seed variance (std 102 .4)than Vanilla (std 1116 .5), indicating that affordance graph conditioning stabilizes imagination quality across random initializations. 15 Usage of Large Language Models 
+
+During the preparation of this manuscript, large language models were used solely for grammar checking and writing refinement. They were not used as any component of the AGWM method, did not contribute to experimental design or result analysis, and had no impact on the scientific content or conclusions of this paper. 16
