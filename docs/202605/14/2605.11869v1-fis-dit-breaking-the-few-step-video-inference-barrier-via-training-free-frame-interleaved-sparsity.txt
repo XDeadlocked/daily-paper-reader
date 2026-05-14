@@ -1,0 +1,320 @@
+Title: FIS-DiT: Breaking the Few-Step Video Inference Barrier via Training-Free Frame Interleaved Sparsity
+
+URL Source: https://arxiv.org/pdf/2605.11869v1
+
+Published Time: Wed, 13 May 2026 01:15:31 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# FIS-DiT: Breaking the Few-Step Video Inference Barrier via Training-Free Frame Interleaved Sparsity 
+
+Jian Tang 1∗ Jiawei Fan 1 Qingbin Liu 1 Zheng Wei 1
+
+> 1
+
+Platform and Content Group, Tencent 
+
+jackyjtang@tencent.com 
+
+# Abstract 
+
+While the overall inference latency of Video Diffusion Transformers (DiTs) can be substantially reduced through model distillation, per-step inference latency remains a critical bottleneck. Existing acceleration paradigms primarily exploit redundancy across the denoising trajectory; however, we identify a limitation where these step-wise strategies encounter diminishing returns in few-step regimes. In such scenarios, the scarcity of temporal states prevents effective feature reuse or predic-tive modeling, creating a formidable barrier to further acceleration. To overcome this, we propose Frame Interleaved Sparsity DiT (FIS-DiT), a training-free and operator-agnostic framework that shifts the optimization focus from the temporal trajectory to the latent frame dimension. Our approach is motivated by an intrinsic duality within this dimension: the existence of frame-wise sparsity that permits reduced computation, coupled with a structural consistency where each frame position remains equally vital to the global spatiotemporal context. Leveraging this insight, we implement Frame Interleaved Sparsity (FIS) as an execution strategy that manipulates frame subsets across the model hierarchy, refreshing all latent positions without requiring full-scale block computation. Empirical evaluations on Wan 2.2 and HunyuanVideo 1.5 demonstrate that FIS-DiT consistently achieves 2.11–2.41 × speedup with negligible degradation across VBench-Q and CLIP met-rics, providing a scalable and robust pathway toward real-time high-definition video generation. 
+
+# 1 Introduction 
+
+Recent advances in diffusion transformers (DiTs) have substantially improved the fidelity, motion realism, and temporal coherence of video generation [ 35 , 29 , 56 , 53 , 21 , 47 ]. Meanwhile, model distillation has greatly reduced the number of denoising steps required for high-quality synthesis, making few-step video generation increasingly practical [ 45 , 27 , 50 , 48 , 11 ]. However, fewer sampling steps do not eliminate the inference bottleneck of DiTs. For high-resolution video synthesis, each denoising step still requires expensive spatio-temporal Transformer computation over a large number of latent tokens. As the denoising trajectory is compressed to only a few steps, the dominant inference cost shifts from the length of the sampling trajectory to the intra-step latency of the DiT itself. Existing training-free acceleration methods mainly exploit redundancy along the denoising trajectory. They reuse, predict, cache, or skip intermediate states across timesteps, ranging from step-level reuse and skipping to block-level feature caching and token-level matching [ 30 , 55 , 28 , 24 , 8, 32 ]. Despite their different granularities, these methods share a common assumption: nearby denoising states are sufficiently redundant, so the computation at the current step can be safely approximated from adjacent states. 
+
+> ∗Corresponding author. Preprint.
+> arXiv:2605.11869v1 [cs.CV] 12 May 2026
+
+This assumption becomes fragile in few-step distilled DiTs. When the denoising process is com-pressed to only a handful of steps, the number of reusable temporal states is drastically reduced, while the feature gap between adjacent steps becomes much larger. As a result, cross-step matching, prediction, and caching become less reliable, and approximation errors can be amplified by the large denoising step size. This creates a fundamental barrier for few-step acceleration: once the trajectory becomes too sparse, further exploiting cross-timestep redundancy yields diminishing returns. To break this barrier, we shift the acceleration perspective from the denoising trajectory to the latent frame dimension. The latent frame dimension refers to the temporal axis of the video latent representation, where each latent frame contains a complete spatial token grid. Inspired by the strong correlation between neighboring video frames in video frame interpolation [ 18 , 1, 16 , 38 ], we ask whether similar redundancy also exists inside the intermediate latent representations of DiTs. Rather than generating a low-frame-rate video followed by pixel-space interpolation, we explore whether DiTs can sparsely compute only a subset of latent frames and restore the full latent sequence within the network hierarchy. Our analysis reveals three key properties of latent-frame dynamics in few-step DiTs. First, adjacent latent frames within the same Transformer block exhibit strong local temporal redundancy, suggesting that omitted frame states can be approximated from neighboring ones. Second, this redundancy is block-dependent: middle blocks are temporally stable and tolerant to sparse computation, while early and late blocks show larger frame-wise variations. Third, lightweight feature-level interpolation is sufficient to restore omitted latent states with negligible error. Based on these observations, we propose Frame Interleaved Sparsity DiT (FIS-DiT) , a training-free acceleration framework for few-step DiTs. Unlike cache-based methods that reuse historical states across timesteps, FIS-DiT reduces computation within each forward pass by sparsely evaluating latent frames and reconstructing the full sequence via lightweight interpolation. Our main contributions are summarized as follows: • New Acceleration Perspective: We observe that existing trajectory-based methods face dimin-ishing returns in few-step regimes and shift the focus from cross-step redundancy to within-step latent-frame sparsity. • FIS-DiT: We propose a training-free framework that sparsely computes complete latent-frame slices in stable blocks while preserving full computation in sensitive blocks, interleaves the computed frame subsets across layers to periodically refresh all frame positions, avoids additional feature-cache memory, and can be plugged into existing DiT inference pipelines without retraining. • Superior Performance: On the challenging 4-step distilled Wan 2.2 setting at 720p, FIS-DiT achieves a 2.11 ×–2.41 × inference speedup with negligible degradation on VBench-Q and CLIP metrics. 
+
+# 2 Related Work 
+
+2.1 Diffusion Models for Video Synthesis 
+
+Diffusion models have become foundational in generative modeling due to their ability to produce high-quality and diverse samples [ 44 , 14 , 46 , 34 , 10 ]. Latent diffusion models improve scalability by performing denoising in a compact latent space [ 39 ], while early video diffusion models extend image diffusion backbones with temporal modules for temporally coherent generation [ 15 , 43 , 13 , 2, 57 , 12 ]. Recently, diffusion transformers (DiTs) [ 35 ] have been increasingly adopted for video generation due to their scalability and modeling capacity. Modern video diffusion systems operate over dense spatio-temporal latent tokens and achieve strong fidelity, motion realism, and temporal coherence [ 51 ,5, 52 , 29 , 56 , 53 , 21 , 47 , 36 ]. However, this improved generation quality comes with substantial inference cost, as each denoising evaluation requires expensive Transformer computation over a large number of video latent tokens. 
+
+2.2 Efficiency Improvements in Diffusion Models 
+
+Existing efficiency improvements for diffusion models can be broadly categorized into reducing the number of sampling steps and reducing the computational cost per step. For sampling step 2reduction, fast SDE/ODE solvers and improved samplers accelerate diffusion inference without changing model weights [ 20 , 25 , 26 ], while distillation and consistency-based methods compress the denoising trajectory into only a few steps [ 41 , 45 , 27 ]. These ideas have also been extended to video generation [ 50 , 48 , 11 ]. However, few-step generation mainly shortens the denoising trajectory and does not directly reduce the cost of each remaining DiT forward pass. Training-free acceleration methods further improve inference efficiency without retraining pretrained models. A major family of methods exploits redundancy along the denoising trajectory by reusing, caching, broadcasting, or predicting intermediate computations across timesteps [ 30 , 22 , 55 , 28 , 24 ,8, 19 , 31 , 49 , 42 , 32 ]. For example, DeepCache reuses high-level features [ 30 ], PAB broadcasts redundant attention computation [ 55 ], and recent DiT-oriented methods design timestep-aware, residual-aware, profiling-based, or magnitude-aware caching policies [ 8, 28 , 24 , 19 , 31 , 42 , 49 , 32 ]. These methods are effective when adjacent denoising states are sufficiently dense and smooth, but their opportunity becomes limited when the trajectory is compressed to only a few steps. Reducing computation within a single network evaluation has also been studied through token pruning, pooling, learning, and merging in efficient vision Transformers [ 37 , 23 , 40 , 54 , 33 , 3 , 7], as well as token reduction for diffusion or multimodal inference [ 4, 6]. However, fine-grained token reduction may introduce irregular indexing, alter the spatial token structure, or complicate compatibility with efficient attention kernels such as FlashAttention [ 9]. Our work is also related to video frame interpolation [ 18 , 1 , 16 , 38 ], but differs in that we restore intermediate latent states inside the DiT hierarchy rather than interpolating output frames as post-processing. 
+
+Differences with Previous Methods. Prior cache-based methods exploit redundancy across denoising timesteps, an assumption that becomes fragile in few-step regimes where adjacent steps contain large semantic changes. FIS-DiT shifts the acceleration axis from cross-timestep reuse to within-step latent-frame sparsity, preserving the spatial token grid and the full-frame module interface. It is also complementary to timestep-oriented caching: caching reduces redundant steps along the trajectory, while FIS-DiT reduces frame-wise computation inside each remaining step. 
+
+# 3 Method 
+
+3.1 Preliminaries: Video Diffusion Transformers Latent Video Generation. Modern video diffusion models operate in a compressed latent space [ 39 ]. A pre-trained 3D VAE encodes a video into z0 ∈ RF ×C×H×W , and the generative process denoises 
+
+zT ∼ N (0 , I) stepwise until z0 is recovered. 
+
+DiT Architecture. The denoising network ϵθ (zt, t ) is parameterized by a Transformer (DiT) with 
+
+L stacked blocks {Φl}L−1 
+
+> l=0
+
+. Each block processes patchified tokens via sub-modules Φml (e.g., Spatial-Temporal Attention and FFNs). The global attention complexity scales quadratically with the sequence length O(( F · H · W )2), making full-frame evaluation prohibitively expensive for large F . 
+
+> (a) Wan 2.2 (40 blocks, 4 steps) (b) HunyuanVideo 1.5 (54 blocks, 8 steps)
+
+Figure 1: Prompt-agnostic frame dynamics. Adjacent-frame relative changes ∆rel  
+
+> i→i+1
+
+remain nearly uniform across time and prompts on both models. 33.2 Empirical Observations: Temporal Redundancy in DiTs 
+
+In this section, we empirically characterize the temporal redundancy of intermediate representations in video DiTs. In particular, we show that: (1) adjacent-frame transitions exhibit nearly uniform and prompt-invariant relative changes, (2) temporal redundancy is highly heterogeneous across network depth, and (3) in temporally stable blocks, linear interpolation incurs consistently bounded empirical errors. Let X(b,s,p ) 
+
+> i
+
+∈ RH×W ×D denote the feature tensor of the i-th frame at transformer block b, denoising step s, and prompt p, where H and W are the spatial dimensions and D is the channel dimension. For notational simplicity, we omit the superscript (b, s, p ) in the following definitions and assume that all quantities are computed at a fixed block, a fixed denoising step, and a fixed prompt. To quantify frame-to-frame change, we first reduce the channel dimension by computing the L2 norm of each spatial token: 
+
+Vi(h, w ) = ∥Xi(h, w )∥2, (1) where Xi(h, w ) ∈ RD denotes the feature vector at spatial location (h, w ), and Vi ∈ RH×W is the resulting spatial magnitude map of frame i.We then define the absolute adjacent-frame distance as the L2 distance between two consecutive spatial magnitude maps: 
+
+∆abs  
+
+> i→i+1
+
+= ∥Vi+1 − Vi∥2. (2) To obtain a scale-invariant measure, we normalize by the magnitude of the preceding frame, yielding the relative change :
+
+∆rel  
+
+> i→i+1
+
+= ∆abs 
+
+> i→i+1
+
+∥Vi∥2
+
+. (3) This normalized quantity measures the fractional change of the spatial feature magnitude from frame 
+
+i to frame i + 1 , making the comparison less sensitive to feature scale differences across blocks and denoising steps. 
+
+Prompt-Agnostic Adjacent-Frame Dynamics. We evaluate Eq. 3 on two architecturally distinct video DiTs: Wan 2.2 (40 blocks, 4 denoising steps) and HunyuanVideo 1.5 (54 blocks, 8 denoising steps). As shown in Fig. 1, the temporal curves {∆rel 
+
+> i→i+1
+
+}F −2 
+
+> i=0
+
+remain nearly flat on both models, indicating that feature evolution is distributed approximately uniformly across frames. Moreover, curves from diverse text prompts almost overlap, suggesting that this uniform temporal redundancy is an intrinsic property of the model dynamics, supporting the use of a static evenly spaced sparse policy.  
+
+> (a) Wan 2.2 (40 blocks, 4 steps) (b) HunyuanVideo 1.5 (54 blocks, 8 steps)
+
+Figure 2: Block-aware temporal heterogeneity. CV heatmaps show temporally stable middle blocks and larger fluctuations in head/tail blocks on (a) Wan 2.2 and (b) HunyuanVideo 1.5. 
+
+Block-Aware Heterogeneity. Although adjacent-frame changes are broadly uniform over time, their stability varies substantially across network depth. To quantify this effect, for each block b and denoising step s, we summarize the flatness of the temporal curve {∆rel 
+
+> i→i+1
+
+(b, s )}F −2 
+
+> i=0
+
+using the coefficient of variation: 
+
+μb,s = 1
+
+F − 1 
+
+> F−2
+
+X
+
+> i=0
+
+∆rel 
+
+> i→i+1
+
+(b, s ), σb,s = 1
+
+F − 1 
+
+> F−2
+
+X
+
+> i=0
+
+ ∆rel 
+
+> i→i+1
+
+(b, s ) − μb,s 
+
+2
+
+!1/2
+
+, (4) 
+
+CV b,s = σb,s 
+
+μb,s 
+
+, CV b,s = 1
+
+P
+
+> P
+
+X
+
+> p=1
+
+CV (p) 
+
+> b,s
+
+, (5) 4where P is the number of prompts. As shown in Fig. 2, the resulting heatmaps on both models reveal a consistent block-dependent pattern: middle blocks exhibit low CV values, indicating highly uniform adjacent-frame changes, while head and tail blocks display noticeably larger fluctuations. This heterogeneity directly motivates our block-aware design: sparse approximation is applied only to the stable middle block set M, while sensitive head and tail blocks retain full-frame computation.  
+
+> (a) Wan 2.2 (b) HunyuanVideo 1.5
+
+Figure 3: Interpolation error verification. Anchor frames (blue) incur <1% error; interpolated frames (red) show bounded, flat errors with no temporal drift. 
+
+Interpolation Error Verification. To verify whether skipped frames can be safely reconstructed, we measure the per-frame reconstruction error under sparse evaluation ( n=2 ). Let Yi and ˆYi denote the full-computation and sparse-evaluation outputs for frame i, respectively. The per-frame relative error is: 
+
+Ei = ∥ ˆVi − Vi∥2
+
+∥Vi∥2
+
+, (6) where Vi(h, w ) = ∥Yi(h, w )∥2 and ˆVi(h, w ) = ∥ ˆYi(h, w )∥2. As shown in Fig. 3, anchor frames incur negligible error ( Ei < 1% ), while interpolated frames exhibit bounded and temporally flat errors (mean 9.8% on Wan 2.2 and 2.0% on HunyuanVideo 1.5), confirming that linear interpolation is a safe reconstruction operator in temporally stable regions. These findings show that intra-step temporal redundancy is structured, prompt-invariant, and block-dependent, forming the basis of our inference strategy in Section 3.3. 
+
+3.3 The FIS-DiT Framework 
+
+FIS-DiT is a training-free sparse inference framework that replaces redundant full-frame computation with a sparse-compute-and-reconstruct paradigm. In safe regions, it computes only anchor frames, reconstructs skipped frames, interleaves anchor sets across layers, and disables sparsity in high-risk blocks or timesteps. 
+
+3.3.1 Interpolation-based Frame Reconstruction 
+
+Let Xl be the input feature sequence of module Φml in block l, and let F = {0, . . . , F − 1}. Given anchor set Al ⊆ F , FIS-DiT performs: 
+
+Xanc  
+
+> l
+
+= Gather (Xl, Al), (7) 
+
+Y anc  
+
+> l
+
+= Φ ml (Xanc  
+
+> l
+
+), (8) 
+
+Xl+1 = R(Y anc  
+
+> l
+
+, Al, F), (9) where R reconstructs the full frame sequence from sparse anchor outputs. The operator R is generic; since few-step video generation requires a training-free, low-overhead, and stable operator, we use local linear interpolation by default. For a skipped frame fu between neighboring anchors fa and fb, we compute: 
+
+Xl+1 (fu) = fb − fu
+
+fb − fa
+
+Y anc  
+
+> l
+
+(fa) + fu − fa
+
+fb − fa
+
+Y anc  
+
+> l
+
+(fb). (10) Anchor frames are directly copied from Y anc  
+
+> l
+
+. We always include the first and last frames as anchors, since boundary frames lack two-sided context and empirically show larger variations. 5Figure 4: Overview of FIS-DiT. 
+
+Hardware efficiency. Frame-level sparsity preserves contiguous spatial tokens within each selected frame, avoiding the fragmented layouts caused by unstructured token pruning. FIS-DiT can therefore reuse optimized dense kernels such as FlashAttention [9] without custom CUDA kernels. 
+
+3.3.2 Interleaved Anchor Scheduling 
+
+A fixed anchor set repeatedly excludes the same frames from nonlinear modules, causing error accumulation across layers. FIS-DiT instead interleaves anchor sets across sparse blocks. Let κ be the target anchor ratio and n = ⌈1/κ ⌉ be the anchor stride. For sparse block l, we define: 
+
+rl = ( l − l0) mod n, (11) where l0 is the first sparse block. The anchor set is: 
+
+Al = {f ∈ F | (f − rl) mod n = 0 } ∪ { 0, F − 1}. (12) Across any n consecutive sparse blocks, every non-boundary frame becomes an anchor exactly once, ensuring all frames are periodically refreshed by exact DiT computation. 
+
+3.3.3 Block- and Step-Aware Sparse Deployment 
+
+Since approximation risk is heterogeneous, FIS-DiT applies sparse computation only when both the block and timestep are safe. We partition DiT blocks into stable middle blocks M and sensitive head/tail blocks S:
+
+M ∪ S = {0, . . . , L − 1}, M ∩ S = ∅. (13) Sparse reconstruction is enabled only for l ∈ M , while l ∈ S retains full-frame computation. For timestep-level risk control, FIS-DiT disables sparsity in the final denoising steps, where low-noise refinement is sensitive to approximation errors. With total steps T and full-frame tail length Ttail , the global gate is: 
+
+G(l, t ) = 1[l ∈ M ] · 1[t ≤ T − Ttail ]. (14) The module computation becomes: 
+
+Xl+1 =
+
+R (Φ ml (Gather (Xl, Al)) , Al, F) , G(l, t ) = 1 ,
+
+Φml (Xl), G(l, t ) = 0 . (15) This gate allows FIS-DiT to accelerate stable regions while preserving full-frame computation in sensitive blocks and final denoising steps. 64 Experiments 
+
+4.1 Experimental Settings Base Models and Compared Methods. We evaluate FIS-DiT on two publicly available few-step video diffusion backbones: Wan 2.2 [ 47 ] (14B, 4-step T2V at 480p/720p) and HunyuanVideo 1.5 [ 21 ](8B, 8-step I2V at 480p). These models cover different scales, generation paradigms, and few-step regimes. We compare against representative step-level caching methods, including TeaCache [ 24 ]and MagCache [ 32 ]. Under their default and fast configurations, both methods fail to trigger caching in our few-step settings, yielding 1.00 × speedup. We therefore use MagCache as the primary baseline and further evaluate MagCache-Force, which relaxes the caching threshold to force step reuse at the cost of visual quality. 
+
+Figure 5: Qualitative comparison on Wan 2.2 under the 4-step 720p setting across three diverse prompts. 
+
+Evaluation Metrics. We report FLOPs, inference latency, and speedup to evaluate efficiency. For visual quality, we use CLIP-Score for text-video semantic alignment and VBench-Q [ 17 ] for comprehensive video quality, including temporal consistency, motion smoothness, visual fidelity, and aesthetics. The same evaluation pipeline is used for both backbones. 
+
+Implementation Details. All experiments are conducted on a single GPU with FlashAttention enabled: NVIDIA H20 for Wan 2.2 and NVIDIA L20 for HunyuanVideo 1.5. We evaluate 81-frame generation using 100 diverse prompts sampled from VBench [ 17 ]; for HunyuanVideo, each prompt is paired with a reference image for I2V evaluation. The anchor stride n controls the frame sparsity ratio, with κ = 1 /n , and we evaluate n ∈ { 2, 3, 4, 5}.The sensitive block set S is selected according to the CV heatmap in Fig. 2, and the final denoising step is kept dense with Ttail = 1 . Specifically, for Wan 2.2 (40 blocks, T = 4 ), we set S = {0, 38 , 39 }
+
+and apply sparsity to steps 0–2. For HunyuanVideo 1.5 (54 blocks, T = 8 ), we set S = {0–5, 51 –53 }
+
+and apply sparsity to steps 0–6. We denote the conservative setting n = 3 as FIS-Balanced and the aggressive setting n = 5 as FIS-Fast . We also evaluate FIS-Balanced + MagCache-Force to test complementarity between intra-step frame sparsity and inter-step caching. For MagCache, the error threshold is tuned per model and resolution for the best speed-quality trade-off. 
+
+4.2 Main Results and Visualization Quantitative Comparison. Table 1 compares FIS-DiT with MagCache on Wan 2.2-A14B and HunyuanVideo 1.5-8B under few-step generation settings. In these highly compressed trajectories, MagCache-Fast provides no acceleration, while MagCache-Force only achieves modest speedups of 7Table 1: Quantitative comparison of inference efficiency and visual quality. MagCache-Fast uses the default caching threshold; MagCache-Force relaxes the threshold to force step skipping. FIS-Balanced and FIS-Fast denote conservative and aggressive FIS-DiT configurations, respectively.                                                                                                               
+
+> Method Efficiency Visual Quality FLOPs (P) ↓Speedup ↑Latency (s) ↓CLIP ↑VBench-Q ↑
+> Wan 2.2-T2V-A14B + Lightning LoRA (T2V, 81 frames, 720p, T= 4 )Baseline 26.09 1.00 ×269.1 28.30 0.8846
+> MagCache-Fast [32] 26.09 1.00 ×269.1 28.30 0.8846
+> MagCache-Force 19.57 1.32 ×203.6 27.98 0.8803 FIS-Balanced 11.55 2.11 ×127.6 28.31 0.8845 FIS-Fast 10.39 2.41 ×111.7 28.26 0.8837 FIS-Balanced + MagCache-Force 9.87 2.48 ×108.7 28.28 0.8844
+> Wan 2.2-T2V-A14B + Lightning LoRA (T2V, 81 frames, 480p, T= 4 )Baseline 6.71 1.00 ×66.8 28.56 0.8778 MagCache-Fast [32] 6.71 1.00 ×66.8 28.56 0.8778 MagCache-Force 5.03 1.31 ×51.1 28.15 0.8732 FIS-Balanced 3.17 1.86 ×36.0 28.53 0.8780
+> FIS-Fast 2.83 2.09 ×32.0 28.50 0.8753 FIS-Balanced + MagCache-Force 2.67 2.18 ×30.7 28.51 0.8766
+> HunyuanVideo 1.5-8B + Step Distilled (I2V, 81 frames, 480p, T= 8 )Baseline 5.47 1.00 ×51.1 30.81 0.8065
+> MagCache-Fast [32] 5.47 1.00 ×51.1 30.81 0.8065
+> MagCache-Force 3.42 1.57 ×32.6 30.08 0.7992 FIS-Balanced 2.33 2.05 ×24.9 30.84 0.8060 FIS-Fast 2.06 2.40 ×21.3 30.61 0.7951 FIS-Balanced + MagCache-Force 2.14 2.34 ×21.8 30.53 0.7865
+
+1.31 ×–1.57 × with consistent quality degradation, e.g., CLIP drops from 28.30 to 27.98 on Wan 720p and from 30.81 to 30.08 on HunyuanVideo. This confirms that timestep-oriented caching has limited reuse opportunities when only a few denoising states are available. In contrast, FIS-DiT exploits intra-step latent-frame redundancy and achieves a stronger speed-quality trade-off. FIS-Balanced reaches 2.11 ×, 1.86 ×, and 2.05 × speedup on Wan 720p, Wan 480p, and HunyuanVideo, respectively, while maintaining comparable CLIP and VBench-Q scores close to the baseline. FIS-Fast further increases speedup up to 2.41 × with moderate quality loss. Since FIS-DiT does not store historical feature caches, it avoids additional cache memory and reduces computation within the current forward pass. Combining FIS-Balanced with MagCache-Force further improves Wan speedup up to 2.48 ×
+
+with minor quality degradation, indicating complementarity between intra-step sparsity and timestep-oriented caching; however, the larger VBench-Q drop on HunyuanVideo suggests that aggressive caching still requires careful threshold control. 
+
+Qualitative Comparison. Figure 5 shows qualitative comparisons on three representative prompts: misty wilderness, surfing, and blooming flower, covering atmospheric scenes, large motion, and fine-grained details. MagCache-Force introduces visible artifacts despite modest acceleration, such as reduced scene layering, structural distortion, and texture/color degradation. In contrast, FIS-Balanced preserves visual quality close to the baseline, while FIS-Fast maintains clear structures and details at over 2 × speedup. The combined FIS-Balanced + MagCache-Force setting remains visually close to the baseline at 2.48 × speedup, further supporting the complementarity observed in Table 1. 
+
+4.3 Ablation Studies 
+
+We conduct ablation studies on Wan 2.2-T2V-A14B + Lightning LoRA (4-step, 480p) to analyze two core designs of FIS-DiT: interleaved frame scheduling and risk-aware sparse deployment. 8Effectiveness of Interleaved Frame Scheduling. Table 2 compares interleaved frame scheduling with a non-interleaved variant that uses the same computed frame subset across all sparse blocks. Since both variants share the same stride n, they achieve comparable acceleration, isolating the effect of frame scheduling. Interleaving consistently improves visual quality: at n = 3 , it achieves a similar speedup to the non-interleaved variant (1.86 × vs. 1.87 ×) but improves CLIP from 27.42 to 28.53 and VBench-Q from 0.8621 to 0.8780. The advantage remains under more aggressive sparsity: at 
+
+n = 5 , interleaving maintains 28.50 CLIP and 0.8753 VBench-Q, while the non-interleaved variant drops to 26.08 and 0.8497. These results show that repeatedly sparsifying the same frame positions accumulates approximation errors, whereas interleaving periodically refreshes different frames with exact DiT computation. Table 2: Ablation on interleaved frame scheduling and stride n.                                             
+
+> Frame Scheduling Stride nLatency (s) ↓Speedup ↑CLIP ↑VBench-Q ↑
+> Baseline –66.8 1.00 ×28.56 0.8778 w/o Interleaving 335.7 1.87 ×27.42 0.8621 w/ Interleaving 336.0 1.86 ×28.53 0.8780
+> w/o Interleaving 433.4 2.00 ×26.61 0.8558 w/ Interleaving 433.8 1.98 ×28.51 0.8777 w/o Interleaving 531.6 2.11 ×26.08 0.8497 w/ Interleaving 532.0 2.09 ×28.50 0.8753
+
+Impact of Risk-Aware Sparse Deployment. Table 3 ablates the risk-aware sparse deployment strategy. Removing block-aware protection increases speedup from 1.86 × to 2.04 ×, but reduces VBench-Q from 0.8780 to 0.8731, which is consistent with the larger temporal fluctuations observed in head/tail blocks in Fig. 2. Removing step-aware protection further improves speedup to 2.36 ×, but causes a larger quality drop, with VBench-Q decreasing to 0.8586, indicating that final denoising steps are sensitive to sparse approximation. Removing both protections yields the highest speedup of 2.72 × and the lowest latency of 24.6s, but substantially degrades quality, reducing CLIP to 27.35 and VBench-Q to 0.8427. These results confirm that risk-aware sparse deployment is necessary for balancing efficiency and visual fidelity. Table 3: Ablation on risk-aware sparse deployment ( n = 3 ).                             
+
+> Configuration Speedup ↑Latency (s) ↓CLIP ↑VBench-Q ↑
+> Baseline 1.00 ×66.8 28.56 0.8778 w/o Block-aware Protection 2.04 ×32.8 28.35 0.8731 w/o Step-aware Protection 2.36 ×28.3 27.94 0.8586 w/o Risk-aware Deployment 2.72 ×24.6 27.35 0.8427 FIS-Balanced 1.86 ×36.0 28.53 0.8780
+
+# 5 Conclusion and Future Work 
+
+We present FIS-DiT, a training-free framework that overcomes the diminishing returns of trajectory-based acceleration in few-step regimes by exploiting intra-step latent-frame sparsity. Without any retraining or model modification, FIS-DiT achieves consistent ∼2× speedups across multiple backbones while reducing both computation and memory footprint with negligible quality loss. Furthermore, FIS-DiT is orthogonal to timestep-oriented caching methods and can be stacked with them for even greater acceleration, as verified in our experiments. These properties make FIS-DiT a practical and immediately deployable step toward real-time high-definition video generation. Future work will explore adaptive block-specific sparsity maps for finer efficiency-quality trade-offs, and more expressive reconstruction operators to further reduce approximation error and push toward higher speedup ratios. 9References 
+
+[1] Wenbo Bao, Wei-Sheng Lai, Chao Ma, Xiaoyun Zhang, Zhiyong Gao, and Ming-Hsuan Yang. Depth-aware video frame interpolation. In CVPR , 2019. [2] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In CVPR , 2023. [3] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. Token merging: Your vit but faster. In ICLR , 2023. [4] Daniel Bolya and Judy Hoffman. Token merging for fast stable diffusion. In CVPR Workshop ,2023. [5] Haoxin Chen, Menghan Xia, Yingqing He, Yong Zhang, Xiaodong Cun, Shaoshu Yang, Jinbo Xing, Yaofang Liu, Qifeng Chen, Xintao Wang, Chao Weng, and Ying Shan. Videocrafter1: Open diffusion models for high-quality video generation. arXiv preprint arXiv:2310.19512 ,2023. [6] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, and Baobao Chang. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In ECCV , 2024. [7] Mengzhao Chen, Wenqi Shao, Peng Xu, Mingbao Lin, Kaipeng Zhang, Fei Chao, Rongrong Ji, Yu Qiao, and Ping Luo. Diffrate: Differentiable compression rate for efficient vision transformers. In ICCV , 2023. [8] Pengtao Chen, Mingzhu Shen, Peng Ye, Jianjian Cao, Chongjun Tu, Christos-Savvas Bouganis, Yiren Zhao, and Tao Chen. δ-dit: A training-free acceleration method tailored for diffusion transformers. arXiv preprint arXiv:2406.01125 , 2024. [9] Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, and Christopher Ré. Flashattention: Fast and memory-efficient exact attention with io-awareness. In NeurIPS , 2022. [10] Prafulla Dhariwal and Alex Nichol. Diffusion models beat gans on image synthesis. In NeurIPS ,2021. [11] Zihan Ding, Chi Jin, Difan Liu, Haitian Zheng, Krishna Kumar Singh, Qiang Zhang, Yan Kang, Zhe Lin, and Yuchen Liu. Dollar: Few-step video generation via distillation and latent reward optimization. In ICCV , 2025. [12] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang, Yaohui Wang, Yu Qiao, Maneesh Agrawala, Dahua Lin, and Bo Dai. Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. In ICLR , 2024. [13] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P. Kingma, Ben Poole, Mohammad Norouzi, David J. Fleet, and Tim Salimans. Imagen video: High definition video generation with diffusion models. arXiv preprint arXiv:2210.02303 ,2022. [14] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In 
+
+NeurIPS , 2020. [15] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J. Fleet. Video diffusion models. In NeurIPS , 2022. [16] Zhewei Huang, Tianyuan Zhang, Wen Heng, Boxin Shi, and Shuchang Zhou. Real-time intermediate flow estimation for video frame interpolation. In ECCV , 2022. [17] Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chanpaisit, Yaohui Wang, Xinyuan Chen, Limin Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. Vbench: Comprehensive benchmark suite for video generative models. In CVPR , 2024. 10 [18] Huaizu Jiang, Deqing Sun, Varun Jampani, Ming-Hsuan Yang, Erik Learned-Miller, and Jan Kautz. Super slomo: High quality estimation of multiple intermediate frames for video interpolation. In CVPR , 2018. [19] Kumara Kahatapitiya, Haozhe Liu, Sen He, Ding Liu, Menglin Jia, Chenyang Zhang, Michael S. Ryoo, and Tian Xie. Adaptive caching for faster video generation with diffusion transformers. In ICCV , 2025. [20] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In NeurIPS , 2022. [21] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 , 2024. [22] Senmao Li, Taihang Hu, Joost van de Weijer, Fahad Shahbaz Khan, Tao Liu, Linxuan Li, Shiqi Yang, Yaxing Wang, Ming-Ming Cheng, and Jian Yang. Faster diffusion: Rethinking the role of the encoder for diffusion model inference. In NeurIPS , 2024. [23] Youwei Liang, Chongjian Ge, Zhan Tong, Yibing Song, Jue Wang, and Pengtao Xie. Not all patches are what you need: Expediting vision transformers via token reorganizations. In ICLR ,2022. [24] Feng Liu, Shiwei Zhang, Xiaofeng Wang, Yujie Wei, Haonan Qiu, Yuzhong Zhao, Yingya Zhang, Qixiang Ye, and Fang Wan. Timestep embedding tells: It’s time to cache for video diffusion model. In CVPR , 2025. [25] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. Dpm-solver: A fast ode solver for diffusion probabilistic model sampling in around 10 steps. In NeurIPS , 2022. [26] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. Dpm-solver++: Fast solver for guided sampling of diffusion probabilistic models. arXiv preprint arXiv:2211.01095 , 2022. [27] Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao. Latent consistency models: Synthesizing high-resolution images with few-step inference. arXiv preprint arXiv:2310.04378 ,2023. [28] Zhengyao Lv, Chenyang Si, Junhao Song, Zhenyu Yang, Yu Qiao, Ziwei Liu, and Kwan-Yee K. Wong. Fastercache: Training-free video diffusion model acceleration with high quality. In 
+
+ICLR , 2025. [29] Xin Ma, Yaohui Wang, Gengyun Jia, Xinyuan Chen, Ziwei Liu, Yuan-Fang Li, Cunjian Chen, and Yu Qiao. Latte: Latent diffusion transformer for video generation. arXiv preprint arXiv:2401.03048 , 2024. [30] Xinyin Ma, Gongfan Fang, and Xinchao Wang. Deepcache: Accelerating diffusion models for free. In CVPR , 2024. [31] Xuran Ma, Yexin Liu, Yaofu Liu, Xianfeng Wu, Mingzhe Zheng, Zihao Wang, Ser-Nam Lim, and Harry Yang. Model reveals what to cache: Profiling-based feature reuse for video diffusion models. In ICCV , 2025. [32] Zehong Ma, Longhui Wei, Feng Wang, Shiliang Zhang, and Qi Tian. Magcache: Fast video generation with magnitude-aware cache. arXiv preprint arXiv:2506.09045 , 2025. [33] Dmitrii Marin, Jen-Hao Rick Chang, Anurag Ranjan, Anish Prabhu, Mohammad Rastegari, and Oncel Tuzel. Token pooling in vision transformers for image classification. In WACV , 2023. [34] Alex Nichol and Prafulla Dhariwal. Improved denoising diffusion probabilistic models. In 
+
+ICML , 2021. [35] William Peebles and Saining Xie. Scalable diffusion models with transformers. In ICCV , 2023. 11 [36] Adam Polyak et al. Movie gen: A cast of media foundation models. arXiv preprint arXiv:2410.13720 , 2024. [37] Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. Dynamicvit: Efficient vision transformers with dynamic token sparsification. In NeurIPS , 2021. [38] Fitsum Reda, Janne Kontkanen, Eric Tabellion, Deqing Sun, Caroline Pantofaru, and Brian Curless. Film: Frame interpolation for large motion. In ECCV , 2022. [39] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In CVPR , 2022. [40] Michael S. Ryoo, AJ Piergiovanni, Anurag Arnab, Mostafa Dehghani, and Anelia Angelova. Tokenlearner: What can 8 learned tokens do for images and videos? In NeurIPS , 2021. [41] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. In ICLR , 2022. [42] Pratheba Selvaraju, Tianyu Ding, Tianyi Chen, Ilya Zharkov, and Luming Liang. Fora: Fast-forward caching in diffusion transformer acceleration. arXiv preprint arXiv:2407.01425 , 2024. [43] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, Devi Parikh, Sonal Gupta, and Yaniv Taigman. Make-a-video: Text-to-video generation without text-video data. arXiv preprint arXiv:2209.14792 , 2022. [44] Jascha Sohl-Dickstein, Eric A. Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In ICML , 2015. [45] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. In ICML ,2023. [46] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In ICLR ,2021. [47] Wan Team. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [48] Fu-Yun Wang, Zhaoyang Huang, Xiaoyu Shi, Weikang Bian, Guanglu Song, Yu Liu, and Hongsheng Li. Animatelcm: Accelerating the animation of personalized diffusion models and adapters with decoupled consistency learning. arXiv preprint arXiv:2402.00769 , 2024. [49] Jiangshan Wang, Kang Zhao, Jiayi Guo, Jiayu Wang, Hang Guo, Chenyang Zhu, Xiu Li, and Xiangyu Yue. Precisecache: Precise feature caching for efficient and high-fidelity video generation. arXiv preprint arXiv:2603.00976 , 2026. [50] Xiang Wang, Shiwei Zhang, Han Zhang, Yu Liu, Yingya Zhang, Changxin Gao, and Nong Sang. Videolcm: Video latent consistency model. arXiv preprint arXiv:2312.09109 , 2023. [51] Yaohui Wang, Xinyuan Chen, Xin Ma, Shangchen Zhou, Ziqi Huang, Yi Wang, Ceyuan Yang, Yinan He, Jiashuo Yu, Peiqing Yang, Yuwei Guo, Tianxing Wu, Chenyang Si, Yum-ing Jiang, Cunjian Chen, Chen Change Loy, Bo Dai, Dahua Lin, Yu Qiao, and Ziwei Liu. Lavie: High-quality video generation with cascaded latent diffusion models. arXiv preprint arXiv:2309.15103 , 2023. [52] Jinbo Xing, Menghan Xia, Yong Zhang, Haoxin Chen, Wangbo Yu, Hanyuan Liu, Gongye Liu, Xintao Wang, Ying Shan, and Tien-Tsin Wong. Dynamicrafter: Animating open-domain images with video diffusion priors. In ECCV , 2024. [53] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, Da Yin, Xiaotao Gu, Yuxuan Zhang, Weihan Wang, Yean Cheng, Ting Liu, Bin Xu, Yuxiao Dong, and Jie Tang. Cogvideox: Text-to-video diffusion models with an expert transformer. In ICLR , 2025. 12 [54] Hongxu Yin, Arash Vahdat, Jose Alvarez, Arun Mallya, Jan Kautz, and Pavlo Molchanov. A-vit: Adaptive tokens for efficient vision transformer. In CVPR , 2022. [55] Xuanlei Zhao, Xiaolong Jin, Kai Wang, and Yang You. Real-time video generation with pyramid attention broadcast. In ICLR , 2025. [56] Zangwei Zheng, Xiangyu Peng, Tianji Yang, Chenhui Shen, Shenggui Li, Hongxin Liu, Yukun Zhou, Tianyi Li, and Yang You. Open-sora: Democratizing efficient video production for all. 
+
+arXiv preprint arXiv:2412.20404 , 2024. [57] Daquan Zhou, Weimin Wang, Hanshu Yan, Weiwei Lv, Yizhe Zhu, and Jiashi Feng. Magicvideo: Efficient video generation with latent diffusion models. arXiv preprint arXiv:2211.11018 , 2022. 13
