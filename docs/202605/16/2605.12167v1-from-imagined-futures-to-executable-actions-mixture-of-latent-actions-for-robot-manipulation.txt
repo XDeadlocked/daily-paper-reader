@@ -1,0 +1,818 @@
+Title: From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation
+
+URL Source: https://arxiv.org/pdf/2605.12167v1
+
+Published Time: Wed, 13 May 2026 01:42:16 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation 
+
+Yajie Li * 1 2 Bozhou Zhang * 1 2 Chun Gu 1 2 Zipei Ma 1 2 Jiahui Zhang 1 2 Jiankang Deng 3 Xiatian Zhu 4
+
+Li Zhang 1 2 
+
+https://logosroboticsgroup.github.io/MoLA 
+
+# Abstract 
+
+Video generation models offer a promising imagi-nation mechanism for robot manipulation by pre-dicting long-horizon future observations, but ef-fectively exploiting these imagined futures for action execution remains challenging. Existing approaches either condition policies on predicted frames or directly decode generated videos into actions, both suffering from a mismatch between visual realism and control relevance. As a result, predicted observations emphasize perceptual fi-delity rather than action-centric causes of state transitions, leading to indirect and unstable con-trol. To address this gap, we propose MoLA 
+
+(Mixture of Latent Actions), a control-oriented interface that transforms imagined future videos into executable representations. Instead of pass-ing predicted frames directly to the policy, MoLA leverages a mixture of pretrained inverse dynam-ics models to infer a mixture of latent actions implied by generated visual transitions. These modality-aware inverse dynamics models capture complementary semantic, depth, and flow cues, providing a structured and physically grounded ac-tion representation that bridges video imagination and policy execution. We evaluate our approach on simulated benchmarks (LIBERO, CALVIN, and LIBERO-Plus) and real-world robot manip-ulation tasks, achieving consistent gains in task success, temporal consistency, and generalization. Code will be released. 
+
+> *
+
+Equal contribution 1School of Data Science, Fudan Uni-versity 2Shanghai Innovation Institute 3Imperial College Lon-don 4University of Surrey. Correspondence to: Li Zhang 
+
+<lizhangfd@fudan.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+# 1. Introduction 
+
+Vision–Language–Action (VLA) models (Brohan et al., 2022; Zitkovich et al., 2023; O’Neill et al., 2024; Bjorck et al., 2025; Black et al., 2025; Cheang et al., 2024) have be-come a powerful paradigm for robot manipulation, learning to act directly from perception and language understanding, as shown in Figure 1 (a). By tightly coupling visual under-standing with action prediction, VLA systems demonstrate strong generalization across tasks and settings. Alongside this direct perception-to-action route, another line of re-search explores imagination-based manipulation (Hu et al., 2025a; Liao et al., 2025; Feng et al., 2025b; Pai et al., 2025; Liang et al., 2025; Zhu et al., 2025; Chen et al., 2025a), where video generation models predict future observations to inform action selection, as shown in Figure 1 (b). Ad-vances in video generation enable models to forecast plau-sible scene evolutions, capturing task semantics and object interactions beyond the current observation. Existing ap-proaches typically follow one of two strategies: either using predicted frames as additional visual inputs to condition the policy (Hu et al., 2025a; Liao et al., 2025), or directly decod-ing generated futures into actions (Feng et al., 2025b; Chen et al., 2025a). The former leaves the burden of translating visual change into control to the action head, while the latter tightly couples execution to the accuracy of video prediction, making control highly sensitive to compounding prediction errors. As a result, effectively exploiting imagined futures for robot manipulation remains challenging. A fundamental challenge is that visual predictions are not inherently action-oriented. Video generation models are optimized for perceptual realism rather than manipulation-relevant structure. As a result, even accurate future videos may fail to expose the physical causes of state transitions, making the mapping from imagined images to actions indi-rect and unstable. This gap motivates inverse-dynamics-style latent action models (Ye et al., 2025; Chen et al., 2025e; Bu et al., 2025b; Baker et al., 2022; Lee et al., 2024; Schmidt & Jiang, 2024; Bruce et al., 2024), which model the action responsible for a transition between observations. 1       
+
+> arXiv:2605.12167v1 [cs.RO] 12 May 2026 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] Benchmarks & real-robot results
+> Predicted images
+> (a) VLA models (b) Video-Action models (c) Our MoLA
+> Action head
+> VLM Video model
+> Tokens Predicted images
+> Video
+> model
+> Mixture of
+> inverse dynamics models
+> Current
+> image
+> Task
+> instruction
+
+gra b bowl 
+
+> Executable action
+> Current
+> image
+> Task
+> instruction
+
+gra b bowl 
+
+> Action head
+> Current
+> image
+> Task
+> instruction
+
+gra b bowl    
+
+> Mixture of
+> latent actions
+> Action
+> head
+> OpenVLA Ours
+> Executable action Executable action
+> Figure 1. Differences among (a) Vision–Language–Action models, (b) Video-Action models, and (c) our MoLA . Our MoLA leverages a mixture of pretrained inverse dynamics models to infer a mixture of latent actions, which bridges video imagination and policy execution, enabling strong performance on both benchmarks and real-world robots.
+
+Following works such as LAPA (Ye et al., 2025) and Uni-VLA (Bu et al., 2025b), we use IDM terminology in this broader latent-action sense: the model infers latent actions from observation transitions, and these latent actions are later decoded into continuous controls rather than treated as executable actions. By explicitly modeling the causal link from perception to action, inverse dynamics extracts manipulation-relevant information from visual change. This property suggests a simple but powerful idea: imagined fu-ture frames can be converted into executable representations by inferring the actions implied by predicted transitions. While inverse dynamics has been explored in robot learning, existing uses are typically task-specific or limited in scale, and do not provide (i) inverse dynamics models pretrained on large-scale robot datasets that can robustly operate on generated futures, nor (ii) a modality-aware set of inverse dynamics models that explicitly captures complementary semantic, geometric, and motion cues. To make this connection robust, we pretrain inverse dynam-ics models on large-scale robot datasets (O’Neill et al., 2024; Bu et al., 2025a), enabling them to generalize across diverse manipulation behaviors and visual variations. Such pre-training allows the models to reliably infer actions not only from real observations but also from imperfect or generated future frames. Moreover, effective manipulation depends on complementary cues. Semantic changes convey task intent, depth captures geometric structure, and motion pat-terns reflect interaction dynamics. A single latent action representation is often insufficient. We therefore train three modality-aware inverse dynamics models, specialized for semantic (Ravi et al., 2024), depth (Yang et al., 2024a), and flow-based motion (Karaev et al., 2025) information, and combine their outputs as a mixture of latent actions. Based on this design, we propose MoLA (Mixture of Latent Actions), an imagination-based robot manipulation model whose core contribution is a latent-action interface between video generation and policy execution, as shown in Figure 1 (c). MoLA uses predicted future videos as an imagination space, converts them into a mixture of latent actions via pretrained inverse dynamics models, and conditions the policy on these action-centric representations. In doing so, MoLA enables reasoning over imagined futures directly in action space rather than image space. We evaluate MoLA on standard simulated manipula-tion benchmarks, including LIBERO (Liu et al., 2023a), CALVIN (Mees et al., 2022), and LIBERO-Plus (Fei et al., 2025), and further validate its effectiveness on real-world robot manipulation tasks. Results show consistent improve-ments in success rate, temporal consistency, and generaliza-tion over methods that directly condition on predicted visual futures. In summary, our main contributions are three-fold: (i) We introduce a latent-action interface for imagination-based robot manipulation, transforming predicted future videos into executable representations via inverse dynamics. (ii) 
+
+2From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+We propose MoLA, a manipulation model that couples video generation and action through a mixture of pretrained, modality-aware inverse dynamics models. (iii) We demon-strate the effectiveness of MoLA through extensive experi-ments on simulated benchmarks and real-world manipula-tion tasks. 
+
+# 2. Related work 
+
+2.1. Vision–Language–Action models 
+
+Vision–Language–Action (VLA) models aim to integrate vi-sual perception, language understanding, and action genera-tion to enable robots to perform diverse embodied tasks. Re-cent progress in large language models (Touvron et al., 2023; Brown et al., 2020; Roumeliotis & Tselikas, 2023; OpenAI, 2025), multimodal LLMs (OpenAI, 2023; Liu et al., 2023b; Qi et al., 2024), and large-scale robot datasets (O’Neill et al., 2024; Ebert et al., 2021; Khazatsky et al., 2024; Deng et al., 2025) has driven rapid advances in this area. Transformer-based architectures have emerged as the dominant paradigm for learning generalist robot policies from heterogeneous data, with Octo (Team et al., 2024) demonstrating strong generalization. In parallel, the RT series (Brohan et al., 2022; Zitkovich et al., 2023; Belkhale et al., 2024) pio-neered fine-tuning multimodal language models on robot demonstrations, inspiring a wide range of subsequent VLA systems (Black et al., 2025; Kim et al., 2024; Li et al., 2024b; Liu et al., 2025a). Beyond direct action prediction, several works incorporate planning by generating goal images or future videos to guide policy execution (Du et al., 2024; Hu et al., 2025a; Black et al., 2023; Wu et al., 2024). Despite promising results, many VLA methods rely heavily on large-scale action-labeled robot data and often involve redundant visual reconstruction (Zheng et al., 2025b), limiting scalabil-ity and abstraction. To address these issues, emerging efforts explore learning from internet-scale, action-free videos, en-abling more scalable policy learning without explicit action supervision. 
+
+2.2. Video-Action models 
+
+Video-Action models build upon predictive world modeling by using video generation as a core mechanism to cap-ture environment dynamics and guide robotic control. Re-cent advances in transformer-based world models improve long-horizon visual prediction and scalability (Chen et al., 2022; Wang et al., 2024; Robine et al., 2023), enabling high-fidelity future observation synthesis. Several robotics works directly employ video generation models as policy back-bones, decoding actions through inverse dynamics, tracking, or future-state matching (Black et al., 2023; Du et al., 2024; Hu et al., 2025a; Liang et al., 2024). Methods such as UniPi (Du et al., 2024), DREAMGEN (Jang et al., 2025), and joint co-generation frameworks (Guo et al., 2024; Zheng et al., 2025b) demonstrate improved temporal consistency by coupling future video prediction with action generation. Overall, Video-Action models highlight the potential of pre-dictive visual modeling to bridge perception, dynamics, and control within VLA systems. 
+
+2.3. Latent action models 
+
+Latent action models aim to reduce dependence on dense action annotations by learning compact representations that capture environment dynamics and agent behaviors. Early approaches learn variational latent spaces from action tra-jectories (Pu et al., 2016; Van Den Oord et al., 2017), while more recent methods such as VQ-BeT (Lee et al., 2024) and Quest (Mete et al., 2024) structure discrete action mani-folds for behavior generation. To exploit unlabeled videos, several works infer latent actions from visual dynamics using inverse and forward models (Rybkin et al., 2019; Edwards et al., 2019; Bruce et al., 2024). Methods such as Genie (Bruce et al., 2024), LAPO (Schmidt & Jiang, 2024), and DynaMo (Cui et al., 2024) learn latent actions directly from visual observations without explicit action supervision, particularly for manipulation tasks. Recent VLA-oriented approaches further integrate latent actions into multimodal policies, enabling transfer from large-scale human videos (Ye et al., 2025; Chen et al., 2024). How-ever, many latent action models rely on RGB reconstruction, which captures task-irrelevant appearance variations (Zhang et al., 2025a). To address this limitation, later works ex-plore alternative supervision signals such as self-supervised visual features (Bu et al., 2025b; Chen et al., 2025e), object-centric representations (Yang et al., 2025d), and semantic grounding through language (Clark et al., 2025). 
+
+# 3. Method 
+
+3.1. Overview 
+
+MoLA (Mixture of Latent Actions) is an imagination-based manipulation framework that uses MoIDM as a latent-action interface to transform predicted future visual trajectories into structured, executable action representations, as shown in Figure 2. Given the current observation and task in-struction, MoLA first employs a video generation model to synthesize future visual rollouts as an imagination space. These imagined futures are then processed by a mixture of modality-aware inverse dynamics models to infer comple-mentary latent actions that explain the underlying visual transitions. The resulting mixture of latent actions is fi-nally decoded into executable robot control commands by a diffusion-based action head. In the following sections, we first introduce the video gener-ation model used for future imagination (Section 3.2). We then describe the mixture of inverse dynamics models that 3From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] Pre  - training  Fine  - tuning 
+
+> MoIDM
+> Foundation
+> Model
+> Foundation
+> Model
+> Spatiotemporal
+> Transformer
+> VQ Codebook
+
+# ···            
+
+> Reconstruction
+> 𝑜 𝑡 𝑜 𝑡 +𝑘
+> Encoder
+> Decoder 1
+> 𝑜 𝑡 𝑜 𝑡 𝑜 𝑡 𝑜 𝑡 +𝑘 𝑜 𝑡 +𝑘 𝑜 𝑡 +𝑘
+> Decoder 2
+> 𝑜 𝑡 𝑜 𝑡 𝑜 𝑡 𝑜 𝑡 +𝑘 𝑜 𝑡 +𝑘 𝑜 𝑡 +𝑘
+> Spatiotemporal Transformer
+> VQ Codebook
+> MoIDM
+
+# ··· 
+
+> Action Head
+
+# ··· 
+
+> Video
+> Generation Model
+> 𝑜 𝑡
+
+# ···  𝑜 𝑡 +𝐻 𝑜 𝑡 +1
+
+> MLP
+
+Figure 2. Overview of MoLA. Left: Pretraining of the mixture of inverse dynamics models (MoIDM). Modality-specific inverse dynamics models (e.g., flow-aware, semantic-aware, and depth-aware IDMs) are independently trained to extract and discretize fine-grained motion information from pairs of current and future frames. Right: End-to-end fine-tuning of the full model. The frozen video generation model is integrated with the pretrained MoIDM and the action head, while MoIDM and the action head are jointly optimized to generate executable action sequences. 
+
+extracts modality-specific latent actions (Section 3.3), fol-lowed by the action head that generates executable policies from the latent action mixture (Section 3.4). The overall training procedure is presented in Section 3.5. 
+
+3.2. Video generation model 
+
+Our MoLA adopts Stable Video Diffusion (SVD) (Blattmann et al., 2023) as the video genera-tion backbone to provide visual imagination for robot manipulation. Given the current RGB observation orgb  
+
+> t
+
+and task instruction l, the model predicts a sequence of future frames ˆorgb  
+
+> t:t+H
+
+that captures the anticipated evolution of the scene under task execution. Following the latent diffusion framework, SVD encodes video clips into a compact latent space and performs condi-tional denoising to generate future visual trajectories. The denoising process is conditioned on the latent embedding of the current observation and the instruction representa-tion, enabling the model to synthesize task-consistent future rollouts. During inference, MoLA restricts the generation process to a single denoising step for efficiency. Despite this simplifica-tion, the predicted latent futures retain sufficient visual and motion-relevant information to reflect meaningful scene dy-namics for downstream action reasoning (Hu et al., 2025a). For multi-view robotic setups, future predictions are gener-ated independently for each camera stream. The video generation model serves as an imagination mod-ule that provides temporally coherent and visually infor-mative future rollouts, which are subsequently transformed into action-centric representations by the inverse dynamics models. 
+
+3.3. Mixture of inverse dynamics models (MoIDM) 
+
+Predicted future frames from the video generation model provide an imagination space, but they are not inherently action-centric. MoLA therefore introduces a mixture of modality-aware inverse dynamics models (MoIDM), which forms the core latent-action interface of the method by con-verting visual transitions into discrete latent actions between imagined futures and policy execution. We describe (i) the pretraining framework of each inverse dynamics model, and 
+
+(ii) how MoIDM is integrated into MoLA for joint fine-tuning with the action head. 
+
+Inverse dynamics pretraining. Each inverse dynamics model adopts a modality-specific spatiotemporal trans-former, together with a modality-specific VQ codebook (Van 4From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Den Oord et al., 2017) for discrete latent actions, as shown in the left part of Figure 2. Given a current RGB frame orgb 
+
+> t
+
+and a future RGB frame orgb 
+
+> t+k
+
+, we first extract RGB features using a ViT-based (Dosovitskiy, 2020) image encoder: 
+
+hrgb  
+
+> t
+
+= Ergb (orgb  
+
+> t
+
+), hrgb  
+
+> t+k
+
+= Ergb (orgb 
+
+> t+k
+
+). (1) To model the temporal interaction between the current and future observations, we introduce a set of learnable latent action queries, which are initialized and interact with the RGB features through a spatiotemporal transformer: 
+
+˜ht→t+k = T (m)
+
+q(m), h rgb  
+
+> t
+
+, h rgb 
+
+> t+k
+
+
+
+, (2) where q(m) denotes the latent action queries and T (m) de-notes the modality-specific spatiotemporal transformer that captures cross-frame correspondences. The transformer outputs are then mapped to discrete latent actions through a modality-specific vector-quantized code-book: 
+
+z(m) 
+
+> t→t+k
+
+= VQ (m)˜ht→t+k
+
+
+
+, (3) yielding compact action tokens that capture the causal tran-sition between the two frames. To induce modality awareness, each IDM is trained with distinct reconstruction targets. The predicted latent action is combined with the current RGB feature and decoded by a shared ViT-based RGB decoder to reconstruct the future RGB frame: 
+
+ˆorgb  
+
+> t+k
+
+= Drgb 
+
+
+
+hrgb  
+
+> t
+
+, z (m)
+
+> t→t+k
+
+
+
+, (4) which is optimized for all inverse dynamics models. In addition, modality-specific supervision is provided us-ing frozen foundation models. We employ Depth Any-thing v2 (Yang et al., 2024a) to extract depth features and depth ground-truth maps, SAM2 (Ravi et al., 2024) to ex-tract semantic features and segmentation targets, and Co-Tracker3 (Karaev et al., 2025) to extract motion flow fea-tures and motion flow targets. Let 
+
+h(m) 
+
+> t
+
+= F (m)(orgb  
+
+> t
+
+), g(m) 
+
+> t+k
+
+= F (m)(orgb 
+
+> t+k
+
+), (5) where F (m) denotes the corresponding foundation encoder and g(m) 
+
+> t+k
+
+represents the modality-specific future ground-truth. A ViT-based modality decoder then reconstructs the future modality representation: 
+
+ˆg(m) 
+
+> t+k
+
+= D(m)
+
+h(m) 
+
+> t
+
+, z (m)
+
+> t→t+k
+
+
+
+. (6) Each inverse dynamics model is pretrained independently with its own modality reconstruction objective, resulting in three specialized IDMs that share the same RGB-based ac-tion inference pipeline while becoming sensitive to semantic, geometric, or motion cues through distinct supervision. (a) LIBERO (b) CALVIN (c) LIBERO-Plus  
+
+> (d) Real-world UR5e robot
+> Figure 3. Experiments are conducted on the CALVIN ABC-D, LIBERO, and LIBERO-Plus benchmarks, as well as on a real-world UR5e robot. We evaluate MoLA across three simulated benchmarks and the real-world setup.
+
+Integration within MoLA (joint fine-tuning). In the MoLA framework, the video generation model is frozen and used to generate imagined future RGB rollouts ˆorgb  
+
+> t:t+H
+
+. For the predicted future frame ˆorgb 
+
+> t+k
+
+, MoIDM infers modality-specific discrete latent actions through the spatiotemporal transformer and modality-specific VQ codebooks, produc-ing a mixture of latent actions: 
+
+Zt→t+k =
+
+n
+
+z(sem )
+
+> t→t+k
+
+, z (depth )
+
+> t→t+k
+
+, z (flow )
+
+> t→t+k
+
+o
+
+. (7) All inferred latent actions, together with the corresponding generated visual features, are provided as conditioning in-puts to the action head. During downstream training, the parameters of MoIDM and the action head are jointly opti-mized end-to-end, allowing the latent actions to adapt to the characteristics of imagined futures and the control objective, while keeping the video generation model fixed, as shown in the right part of Figure 2. 
+
+3.4. Action head 
+
+We employ the Diffusion Transformer (Peebles & Xie, 2023; Reuss et al., 2024) architecture as the action decoding mod-ule, which is trained from scratch to generate executable control policies. The action head takes as input the mix-ture of latent action representations extracted from multiple pretrained inverse dynamics models, together with visual features of the predicted future frames generated by the video model, and predicts action sequences in a conditional generative manner. Instead of standard diffusion training, the model is optimized using a flow matching objective (Lip-man et al., 2023), which learns a continuous transformation from noisy action samples to clean target actions under the given conditional features. Through this process, the policy effectively captures complex and multimodal action distributions while enabling efficient and stable training. 5From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+3.5. Model training 
+
+We train MoLA in three stages to progressively align video imagination, latent action inference, and policy execution. 
+
+Stage I: Video generation model fine-tuning. We first fine-tune the video generation model on large-scale robot manipulation datasets to adapt it to task-specific visual dy-namics and viewpoints. The training datasets and configura-tions are summarized in Appendix Table 6. 
+
+Stage II: MoIDM pretraining. Next, we pretrain the mixture of inverse dynamics models using similar robot datasets as in Stage I. 
+
+Stage III: End-to-end fine-tuning. Finally, we integrate the frozen video generation model with MoIDM and the diffusion-based action head. The MoIDM and action head are jointly fine-tuned end-to-end using downstream manipu-lation demonstrations. 
+
+# 4. Experiments 
+
+In this section, we perform extensive experiments in both simulated and real-world settings to evaluate the effective-ness of our MoLA, as illustrated in Figure 3. 
+
+4.1. Implementation details 
+
+Model and training details, detailed ablation tables, and qual-itative analysis are provided in Appendix Sections A.1, A.2, and A.6. 
+
+4.2. Simulation benchmark experiments 
+
+4.2.1. B ENCHMARKS 
+
+We evaluate our approach on three widely used robotic manipulation benchmarks: CALVIN (Mees et al., 2022), LIBERO (Liu et al., 2023a), and LIBERO-Plus (Fei et al., 2025). CALVIN is a long-horizon, language-conditioned manipulation benchmark with multi-sensor demonstrations across four simulated environments; we follow the chal-lenging ABC-D split, training on environments A–C and evaluating on the unseen environment D. LIBERO consists of four lifelong learning task suites covering spatial reason-ing, object generalization, goal adaptation, and long-horizon planning; we pretrain on LIBERO-90 and fine-tune and eval-uate on each suite. LIBERO-Plus further extends LIBERO with controlled perturbations across seven dimensions to assess robustness, comprising 10,030 tasks. 4.2.2. R ESULTS AND ANALYSIS 
+
+We conduct systematic comparisons on the CALVIN and LIBERO. The experimental results clearly demonstrate the strong performance of MoLA: our method achieves the highest average success rate across all three benchmarks and exhibits superior performance on all tasks compared to existing approaches. The quantitative results on the CALVIN benchmark are re-ported in Table 1. Models marked with * indicate results quoted from previous work (Zhang et al., 2026), follow-ing the standard evaluation protocol. As shown in Table 2, MoLA achieves strong gains on all four LIBERO task suites. Representative failure cases and their visualizations are pro-vided in Appendix Section A.6. Furthermore, as shown in Table 3, on the large-scale 
+
+LIBERO-Plus benchmark comprising 10,030 tasks , MoLA achieves state-of-the-art performance across all task suites. Specifically, it outperforms the strongest baseline, OpenVLA-OFT+, by an average success rate margin of 
+
+13.2% , demonstrating a clear absolute performance advan-tage. These results indicate that MoLA possesses stronger multi-task learning capabilities and superior generalization performance in simulated environments. 4.2.3. D ATA EFFICIENCY 
+
+Acquiring large-scale robot interaction data is both expen-sive and time-consuming, motivating learning approaches that can effectively leverage limited supervision. To evaluate the data efficiency of our method, we benchmark it on the CALVIN ABC-D benchmark by fine-tuning pretrained poli-cies using varying fractions of the training set (10%, 20%, 50%, and 100%). As shown in Figure 4, our method con-sistently outperforms VPP across all data regimes. The ad-vantage is particularly pronounced in low-data settings, and these results indicate a stronger ability to leverage pretrained representations under limited supervision. Our method con-tinues to achieve superior performance at 50% and 100% of the training data, demonstrating both data efficiency and scalability. 
+
+4.3. Real-world experiments 
+
+4.3.1. E XPERIMENT SETUP AND BASELINES 
+
+For real-world experiments, we use a Universal Robots UR5e robotic arm. The setup includes a RealSense D455 camera providing third-person observations and a RealSense D405 camera mounted on the gripper to capture egocentric views. We collect 1,000 demonstration trajectories across five manipulation tasks, such as placing a bottle into a bin and grasping a bowl. During evaluation, each task is per-formed for 50 trials, with objects randomly initialized on the table at the beginning of each trial. In each trial, the robot is allowed up to 20 attempts to complete the task. A trial is considered successful if the task is completed within the allowed attempts; otherwise, it is counted as a failure. 6From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Table 1. Evaluation results on the CALVIN ABC-D benchmark. MoLA achieves strong performance on all tasks, demonstrating effective generalization. The best results are bolded . * indicates results reproduced by us or reported in previous work. Methods Task completed in a row Avg. Len. ↑
+
+1 2 3 4 53D Diffusor Actor (Ke et al., 2024) 92.2 78.7 63.9 51.2 41.2 3.27 OpenVLA (Kim et al., 2024) 91.3 77.8 62.0 52.1 43.5 3.27 UniVLA (Bu et al., 2025b) 95.5 85.8 75.4 66.9 56.5 3.80 
+
+π0∗ (Black et al., 2025) 93.8 85.0 76.7 68.1 59.9 3.84 
+
+π0.5∗ (Intelligence et al., 2025) 94.8 87.4 78.2 71.7 64.3 3.97 GR00T N1* (Bjorck et al., 2025) 94.2 86.1 79.6 73.9 66.8 4.01 CLOVER (Bu et al., 2024b) 96.0 83.5 70.8 57.5 45.4 3.53 UP-VLA (Zhang et al., 2025c) 92.8 86.5 81.5 76.9 69.9 4.08 Seer (Tian et al., 2025) 96.3 91.6 86.1 80.3 74.0 4.28 VPP (Hu et al., 2025a) 96.5 90.9 86.6 82.0 76.9 4.33 DreamVLA (Zhang et al., 2025e) 98.2 94.6 89.5 83.4 78.1 4.44 MoLA (Ours) 98.5 95.0 91.1 88.1 82.6 4.55 
+
+Table 2. Evaluation results on the LIBERO benchmark. MoLA achieves the best performance, surpassing previous approaches on all four task suites. References: Octo (Team et al., 2024), OpenVLA (Kim et al., 2024), SpatialVLA (Qu et al., 2025), CoT-VLA (Zhao et al., 2025a), VPP (Hu et al., 2025a). The best results are bolded . * indicates results reproduced by us. Methods Scores (%) Avg. ↑                                 
+
+> Spa. Obj. Goal Long Octo 78.9 85.7 84.6 51.1 75.1 OpenVLA 84.7 88.4 79.2 53.7 76.5 SpatialVLA 88.2 89.9 78.6 55.5 78.1 CoT-VLA 87.5 91.6 87.6 69.0 83.9 VPP* 85.0 95.0 92.0 91.5 90.9 MoLA (Ours) 93.0 99.5 99.5 96.0 97.0
+
+We evaluate both the baseline methods and our MoLA under two experimental settings, as shown in Appendix Figure 13. The first setting is in-distribution, where evaluation is con-ducted in environments consistent with the training scenar-ios to assess the model’s learning capability. The second setting is out-of-distribution, which aims to evaluate gener-alization performance and instruction-following ability. For the out-of-distribution setting, we introduce environmen-tal variations, including distracting objects and changes in lighting conditions. We compare our method with a policy learning model, Dif-fusion Policy (Chi et al., 2023), VLA models including OpenVLA (Kim et al., 2024) and π0.5 (Intelligence et al., 2025), as well as a Video-Action model, VPP (Hu et al., 2025a). For a fair comparison, all methods are fine-tuned on the same collected demonstration dataset. 4.3.2. R ESULTS AND ANALYSIS 
+
+We conduct real-world experimental comparisons between our MoLA and several baseline models, as shown in Table 4. Our method significantly outperforms the policy learning 
+
+Table 3. Evaluation results on the LIBERO-Plus bench-mark. MoLA surpasses the strongest baseline, OpenVLA-OFT+, by an average margin of 13.2 percentage points. References: OpenVLA (Kim et al., 2024), WorldVLA (Cen et al., 2025b), NORA (Hung et al., 2025), UniVLA (Bu et al., 2025b), π0 (Black et al., 2025), π0-Fast (Pertsch et al., 2025), RIPT-VLA (Tan et al., 2025b), OpenVLA-OFT (Kim et al., 2025), OpenVLA-OFT+ (Fei et al., 2025). Avg. denotes the overall task score and the best results are bolded .Methods Scores (%) Avg. ↑                                                     
+
+> Spa. Obj. Goal Long OpenVLA 19.4 14.0 15.1 14.3 15.6 WorldVLA 32.5 28.6 31.8 8.2 25.0 NORA 47.6 34.4 38.8 36.3 39.0 UniVLA 55.5 36.7 40.7 39.9 42.9
+> π060.7 61.4 44.9 48.4 53.6
+> π0-Fast 74.4 72.7 57.5 43.4 61.6 RIPT-VLA 85.8 64.3 58.0 67.5 68.4 OpenVLA-OFT 84.0 66.5 63.0 66.4 69.6 OpenVLA-OFT+ 86.1 84.5 70.7 77.7 79.5 MoLA (Ours) 97.5 96.3 85.1 91.8 92.7
+
+model Diffusion Policy (Chi et al., 2023) and the VLA model OpenVLA (Kim et al., 2024), and also demonstrates clear gains over the more directly comparable world-model-based baseline VPP (Hu et al., 2025a). The company-scale end-to-end VLA π0.5 (Intelligence et al., 2025) achieves the highest average score in this comparison, and we include it as a strong reference point rather than as a strict apples-to-apples comparator to the world-model-plus-interface setting studied here. Within that setting, the results highlight the effectiveness of the proposed mixture of latent actions in bridging video imagination and policy execution. 
+
+4.4. Ablation study 
+
+In this section, we perform a comprehensive ablation study to analyze the key design choices of MoLA. 
+
+Q1: How does each IDM contribute to performance? 
+
+7From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Table 4. Evaluation results on the real-world robot. We evaluate MoLA and the baseline methods under both in-distribution and out-of-distribution settings. Comparison among three model categories: policy learning methods, VLA models, and Video-Action models. Methods In-distribution Out-of-distribution Avg. ↑
+
+Place bottle Grab bowl Distracting objects Lighting changes Diffusion Policy (Chi et al., 2023) 44.0% 56.0% 28.0% 38.0% 41.5% OpenVLA (Kim et al., 2024) 52.0% 46.0% 24.0% 30.0% 38.0% 
+
+π0.5 (Intelligence et al., 2025) 82.0% 90.0% 64.0% 74.0% 77.5% VPP (Hu et al., 2025a) 66.0% 72.0% 52.0% 58.0% 62.0% MoLA (Ours) 76.0% 92.0% 60.0% 64.0% 73.0% 
+
+Table 5. Effect of MoIDM on CALVIN ABC-D. We progressively add different IDMs while keeping all other components fixed. The baseline aggregates predicted future visual features with a temporal Transformer and feeds them directly to the action head, without MoIDM or a VQ-VAE-style discrete latent-action bottleneck. Combination Flow Depth Sem. Task completed in a row Avg. Len. ↑
+
+1 2 3 4 5Baseline ✗ ✗ ✗ 95.9 90.4 85.1 80.0 72.8 4.24 Sem. only ✗ ✗ ✓ 95.4 90.7 86.1 82.2 76.8 4.31 Depth only ✗ ✓ ✗ 96.4 91.3 87.0 82.5 77.4 4.35 Flow only ✓ ✗ ✗ 95.6 91.7 88.2 84.6 79.2 4.39 Flow + Depth ✓ ✓ ✗ 97.1 93.1 89.3 85.5 80.9 4.46 All modalities ✓ ✓ ✓ 98.5 95.0 91.1 88.1 82.6 4.55 
+
+Figure 4. Data efficiency comparison on CALVIN ABC-D. Per-formance of pretrained policies fine-tuned using different fractions of the training data. 
+
+MoLA converts imagined future videos into action-centric representations via MoIDM. To isolate the contribution of each modality, we progressively add different IDMs while keeping all other components fixed. Here, the baseline ag-gregates future visual features predicted by the video model with a temporal Transformer and feeds the resulting repre-sentation directly to the action head. As shown in Table 5, among single-modality variants, the flow-aware IDM yields the largest improvement over directly conditioning the pol-icy on predicted frames, underscoring the importance of motion cues for modeling interaction dynamics. Adding the depth-aware IDM further boosts performance, since it encodes three-dimensional spatial structure. Finally, incor-porating the semantic-aware IDM achieves the best overall 96.4 
+
+> 90.9
+> 87.0
+> 78.9
+> 74.2
+
+(a) Effect of MoIDM pretrain-ing. 96.6 
+
+> 92.5
+> 87.8
+> 84.2
+> 78.9
+
+(b) Effect of MoIDM fine-tuning. 
+
+Figure 5. Ablation studies on MoIDM. These experiments illus-trate the impact of pretraining and fine-tuning strategies on model performance. 
+
+results by providing high-level object and task context. The weaker baseline also suggests that without IDM, the action head must learn the observation-to-action mapping directly from aggregated future visual features, which substantially increases the difficulty of control modeling. Performance improves monotonically as modalities are added, indicating that the three IDMs capture complementary aspects of imag-ined futures; additional comparisons against single-branch alternatives are provided in Appendix Table 13. 
+
+Q2: What is the role of MoIDM pretraining? 
+
+MoIDM in MoLA is pretrained on large-scale robot manip-ulation datasets. We assess the importance of pretraining by comparing against MoIDM trained from scratch under iden-tical downstream settings. As shown in Figure 5a, removing 8From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+pretraining results in substantial performance degradation across all benchmarks. MoIDM trained from scratch strug-gles to infer actions from generated future frames, resulting in uninformative latent actions that weakly condition the policy. 
+
+Q3: Should MoIDM be frozen during policy fine-tuning? 
+
+We further compare freezing pretrained MoIDM with joint fine-tuning during downstream training. As shown in Fig-ure 5b, freezing consistently underperforms joint optimiza-tion. While freezing preserves general representations, frozen MoIDM cannot adapt to the evolving policy, leading to misaligned latent actions. End-to-end fine-tuning allows MoIDM to co-adapt with both components, yielding task-aligned and physically grounded action representations. 
+
+Q4: What action head best translates latent actions into executable controls? 
+
+The discrete latent actions inferred by MoIDM serve as in-termediate cues distilled from imagined futures rather than final controls. The policy must still model a continuous, temporally correlated, and often multimodal action distri-bution. Appendix Table 11 compares the default DiT-based action head trained with flow matching against a lighter autoregressive Transformer over discretized action tokens. The autoregressive variant remains effective, confirming that the latent actions are informative, but it is consistently weaker than the DiT-based head, which better captures long-horizon dependencies, multimodality, and stable control under imperfect latent cues. 
+
+Q5: Can MoLA benefit from a stronger video generation backbone? 
+
+MoLA is not tied to Stable Video Diffusion and can natu-rally adopt stronger DiT-based video generators. Appendix Table 12 reports results obtained by replacing SVD with Wan2.2 5B (Wan et al., 2025) as the imagination backbone on CALVIN ABC-D. The improvement over the default backbone shows that MoLA is compatible with stronger video generators and can benefit from advances in the un-derlying imagination model. 
+
+Q6: Is the proposed multi-IDM decomposition neces-sary? 
+
+Appendix Table 13 compares the proposed three-IDM de-composition against several unified alternatives. The direct multimodal-input baseline feeds depth, semantic, and mo-tion flow features directly to the action head without an explicit inverse-dynamics-style bottleneck. Its weaker per-formance indicates that latent-action compression is the principal mechanism that connects imagined futures with executable control, while structured multimodal signals make this interface more physically grounded by encourag-ing semantic, geometric, and motion-aware decomposition. VGGT primarily provides geometric and spatial priors with-out explicit functional decomposition. A single RGB IDM entangles multiple factors and is more sensitive to control-irrelevant appearance variation. A shared multi-modal IDM forces all signals into a single codebook and latent space, which increases objective interference and representation trade-offs. In contrast, MoLA employs three specialized IDMs to preserve complementary inductive biases that the action head can fuse into more robust and interpretable action-centric latent representations. 
+
+Q7: Are explicit imagined futures necessary at inference time? 
+
+MoIDM itself does not predict future observations. Instead, it takes the current frame and an imagined future frame and extracts action-centric latent actions from the transition be-tween them. Appendix Table 14 isolates the role of explicit online imagined futures through two inference-time con-trols: feeding MoIDM either two identical current frames or the current frame together with a noisy version of itself. Both settings preserve MoIDM while removing the task-conditioned future transition cues supplied by the world model. The resulting performance degradation indicates that MoLA benefits from both latent action learning and explicit future cues during inference. 
+
+# 5. Conclusion 
+
+In this paper, we proposed MoLA, a latent-action interface within video-based imagination for robot manipulation, im-plemented through a mixture of pretrained, modality-aware inverse dynamics models. By converting predicted future observations into structured latent action representations, MoLA enables reasoning over imagined trajectories directly in action space, alleviating the mismatch between visual re-alism and control relevance. Extensive experiments on simu-lation benchmarks and real-world robotic tasks demonstrate consistent improvements in task success and generalization over strong baselines. These results highlight the effective-ness of leveraging complementary semantic, geometric, and motion cues for action-centric future reasoning. 
+
+# Acknowledgments 
+
+This work was supported in part by New Generation Arti-ficial Intelligence-National Science and Technology Major Project (2025ZD0123004), Ningbo grant (2025Z038) and National Natural Science Foundation of China (Grant No. 62376060). 9From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+# References 
+
+Agarwal, N., Ali, A., Bala, M., Balaji, Y., Barker, E., Cai, T., Chattopadhyay, P., Chen, Y., Cui, Y., Ding, Y., et al. Cosmos world foundation model platform for physical ai. 
+
+NeurIPS , 2025. Baker, B., Akkaya, I., Zhokov, P., Huizinga, J., Tang, J., Ecoffet, A., Houghton, B., Sampedro, R., and Clune, J. Video pretraining (vpt): Learning to act by watching un-labeled online videos. NeurIPS , 35:24639–24654, 2022. Belkhale, S., Ding, T., Xiao, T., Sermanet, P., Vuong, Q., Tompson, J., Chebotar, Y., Dwibedi, D., and Sadigh, D. Rt-h: Action hierarchies using language. arXiv preprint arXiv:2403.01823 , 2024. Bi, H., Tan, H., Xie, S., Wang, Z., Huang, S., Liu, H., Zhao, R., Feng, Y., Xiang, C., Rong, Y., et al. Mo-tus: A unified latent action world model. arXiv preprint arXiv:2512.13030 , 2025. Bjorck, J., Casta ˜neda, F., Cherniadev, N., Da, X., Ding, R., Fan, L., Fang, Y., Fox, D., Hu, F., Huang, S., et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. Black, K., Nakamoto, M., Atreya, P., Walke, H., Finn, C., Kumar, A., and Levine, S. Zero-shot robotic manipulation with pretrained image-editing diffusion models. arXiv preprint arXiv:2310.10639 , 2023. Black, K., Brown, N., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Groom, L., Hausman, K., Ichter, B., et al. 
+
+π0: A vision-language-action flow model for general robot control. RSS , 2025. Blattmann, A., Dockhorn, T., Kulal, S., Mendelevitch, D., Kilian, M., Lorenz, D., Levi, Y., English, Z., Voleti, V., Letts, A., et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. arXiv preprint arXiv:2311.15127 , 2023. Brohan, A., Brown, N., Carbajal, J., Chebotar, Y., Dabis, J., Finn, C., Gopalakrishnan, K., Hausman, K., Herzog, A., Hsu, J., et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. 
+
+NeurIPS , 33:1877–1901, 2020. Bruce, J., Dennis, M. D., Edwards, A., Parker-Holder, J., Shi, Y., Hughes, E., Lai, M., Mavalankar, A., Steiger-wald, R., Apps, C., et al. Genie: Generative interactive environments. In ICML , 2024. Bu, Q., Li, H., Chen, L., Cai, J., Zeng, J., Cui, H., Yao, M., and Qiao, Y. Towards synergistic, generalized, and efficient dual-system for robotic manipulation. arXiv preprint arXiv:2410.08001 , 2024a. Bu, Q., Zeng, J., Chen, L., Yang, Y., Zhou, G., Yan, J., Luo, P., Cui, H., Ma, Y., and Li, H. Closed-loop visuomotor control with generative expectation for robotic manipula-tion. NeurIPS , 37:139002–139029, 2024b. Bu, Q., Cai, J., Chen, L., Cui, X., Ding, Y., Feng, S., Gao, S., He, X., Hu, X., Huang, X., et al. Agibot world colosseo: A large-scale manipulation platform for scalable and in-telligent embodied systems. IROS , 2025a. Bu, Q., Yang, Y., Cai, J., Gao, S., Ren, G., Yao, M., Luo, P., and Li, H. Univla: Learning to act anywhere with task-centric latent actions. RSS , 2025b. Cai, J., Cai, Z., Cao, J., Chen, Y., He, Z., Jiang, L., Li, H., Li, H., Li, Y., Liu, Y., et al. Internvla-a1: Unifying under-standing, generation and action for robotic manipulation. 
+
+arXiv preprint arXiv:2601.02456 , 2026. Cen, J., Huang, S., Yuan, Y., Li, K., Yuan, H., Yu, C., Jiang, Y., Guo, J., Li, X., Luo, H., et al. Rynnvla-002: A unified vision-language-action and world model. arXiv preprint arXiv:2511.17502 , 2025a. Cen, J., Yu, C., Yuan, H., Jiang, Y., Huang, S., Guo, J., Li, X., Song, Y., Luo, H., Wang, F., et al. Worldvla: To-wards autoregressive action world model. arXiv preprint arXiv:2506.21539 , 2025b. Cheang, C.-L., Chen, G., Jing, Y., Kong, T., Li, H., Li, Y., Liu, Y., Wu, H., Xu, J., Yang, Y., et al. Gr-2: A generative video-language-action model with web-scale knowledge for robot manipulation. arXiv preprint arXiv:2410.06158 ,2024. Chen, B., Zhang, T., Geng, H., Song, K., Zhang, C., Li, P., Freeman, W. T., Malik, J., Abbeel, P., Tedrake, R., et al. Large video planner enables generalizable robot control. 
+
+arXiv preprint arXiv:2512.15840 , 2025a. Chen, C., Wu, Y.-F., Yoon, J., and Ahn, S. TransDreamer: Reinforcement learning with transformer world models. 
+
+arXiv preprint arXiv:2202.09481 , 2022. Chen, H., Sun, B., Zhang, A., Pollefeys, M., and Leuteneg-ger, S. Vidbot: Learning generalizable 3d actions from in-the-wild 2d human videos for zero-shot robotic manip-ulation. In CVPR , pp. 27661–27672, 2025b. Chen, T., Chen, Z., Chen, B., Cai, Z., Liu, Y., Li, Z., Liang, Q., Lin, X., Ge, Y., Gu, Z., et al. Robotwin 2.0: A scal-able data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation. 
+
+arXiv preprint arXiv:2506.18088 , 2025c. 10 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Chen, X., Guo, J., He, T., Zhang, C., Zhang, P., Yang, D. C., Zhao, L., and Bian, J. Igor: Image-goal representations are the atomic control units for foundation models in embodied ai. arXiv preprint arXiv:2411.00785 , 2024. Chen, X., Chen, Y., Fu, Y., Gao, N., Jia, J., Jin, W., Li, H., Mu, Y., Pang, J., Qiao, Y., et al. Internvla-m1: A spatially guided vision-language-action framework for generalist robot policy. arXiv preprint arXiv:2510.13778 , 2025d. Chen, Y., Ge, Y., Tang, W., Li, Y., Ge, Y., Ding, M., Shan, Y., and Liu, X. Moto: Latent motion token as the bridging language for learning robot manipulation from videos. In 
+
+ICCV , pp. 19752–19763, 2025e. Chen, Y., Tian, S., Liu, S., Zhou, Y., Li, H., and Zhao, D. Conrft: A reinforced fine-tuning method for vla models via consistency policy. RSS , 2025f. Chi, C., Xu, Z., Feng, S., Cousineau, E., Du, Y., Burchfiel, B., Tedrake, R., and Song, S. Diffusion policy: Visuomo-tor policy learning via action diffusion. The International Journal of Robotics Research , pp. 02783649241273668, 2023. Chi, X., Ge, K., Liu, J., Zhou, S., Jia, P., He, Z., Liu, Y., Li, T., Han, L., Han, S., et al. Mind: Unified visual imagination and control via hierarchical world models. 
+
+arXiv preprint arXiv:2506.18897 , 2025a. Chi, X., Jia, P., Fan, C.-K., Ju, X., Mi, W., Zhang, K., Qin, Z., Tian, W., Ge, K., Li, H., et al. Wow: Towards a world omniscient world model through embodied interaction. 
+
+arXiv preprint arXiv:2509.22642 , 2025b. Clark, J., Mirchandani, S., Sadigh, D., and Belkhale, S. Action-free reasoning for policy generalization. In 
+
+ICRA 2025 Workshop on Foundation Models and Neuro-Symbolic AI for Robotics , 2025. URL https:// openreview.net/forum?id=XTlFwamMo1 .Collins, J. A., Cheng, L., Aneja, K., Wilcox, A., Joffe, B., and Garg, A. Amplify: Actionless motion priors for robot learning from videos. arXiv preprint arXiv:2506.14198 ,2025. Cui, Z., Pan, H., Iyer, A., Haldar, S., and Pinto, L. Dynamo: In-domain dynamics pretraining for visuo-motor control. 
+
+NeurIPS , 37:33933–33961, 2024. Deng, S., Yan, M., Wei, S., Ma, H., Yang, Y., Chen, J., Zhang, Z., Yang, T., Zhang, X., Zhang, W., et al. Graspvla: a grasping foundation model pre-trained on billion-scale synthetic action data. CoRL , 2025. Dong, R., Han, C., Peng, Y., Qi, Z., Ge, Z., Yang, J., Zhao, L., Sun, J., Zhou, H., Wei, H., et al. Dreamllm: Syner-gistic multimodal comprehension and creation. In ICLR ,2024. Dosovitskiy, A. An image is worth 16x16 words: Trans-formers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. Du, Y., Yang, S., Dai, B., Dai, H., Nachum, O., Tenenbaum, J., Schuurmans, D., and Abbeel, P. Learning universal policies via text-guided video generation. NeurIPS , 36, 2024. Ebert, F., Yang, Y., Schmeckpeper, K., Bucher, B., Geor-gakis, G., Daniilidis, K., Finn, C., and Levine, S. Bridge data: Boosting generalization of robotic skills with cross-domain datasets. arXiv preprint arXiv:2109.13396 , 2021. Edwards, A., Sahni, H., Schroecker, Y., and Isbell, C. Im-itating latent policies from observation. In ICML , pp. 1755–1763. PMLR, 2019. Fan, L., Xu, Z., Cao, C., Zhang, W., Yuan, M., and Chen, J. Aim: Intent-aware unified world action modeling with spatial value maps. arXiv preprint arXiv:2604.11135 ,2026. Fan, S., Wu, K., Che, Z., Wang, X., Wu, D., Liao, F., Liu, N., Zhang, Y., Zhao, Z., Xu, Z., et al. Xr-1: Towards versatile vision-language-action models via learning unified vision-motion representations. arXiv preprint arXiv:2511.02776 ,2025. Fei, S., Wang, S., Shi, J., Dai, Z., Cai, J., Qian, P., Ji, L., He, X., Zhang, S., Fei, Z., et al. Libero-plus: In-depth robust-ness analysis of vision-language-action models. arXiv preprint arXiv:2510.13626 , 2025. Feng, Y., Han, J., Yang, Z., Yue, X., Levine, S., and Luo, J. Reflective planning: Vision-language models for multi-stage long-horizon robotic manipulation. arXiv preprint arXiv:2502.16707 , 2025a. Feng, Y., Tan, H., Mao, X., Xiang, C., Liu, G., Huang, S., Su, H., and Zhu, J. Vidar: Embodied video diffu-sion model for generalist manipulation. arXiv preprint arXiv:2507.12898 , 2025b. Gao, S., Zhou, S., Du, Y., Zhang, J., and Gan, C. Ada-world: Learning adaptable world models with latent ac-tions. ICML , 2025. Goyal, R., Ebrahimi Kahou, S., Michalski, V., Materzynska, J., Westphal, S., Kim, H., Haenel, V., Fruend, I., Yianilos, P., Mueller-Freitag, M., et al. The” something something” video database for learning and evaluating visual common sense. In ICCV , pp. 5842–5850, 2017. Gu, J., Kirmani, S., Wohlhart, P., Lu, Y., Arenas, M. G., Rao, K., Yu, W., Fu, C., Gopalakrishnan, K., Xu, Z., et al. Rt-trajectory: Robotic task generalization via hindsight trajectory sketches. arXiv preprint arXiv:2311.01977 ,2023. 11 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Guo, Y., Hu, Y., Zhang, J., Wang, Y.-J., Chen, X., Lu, C., and Chen, J. Prediction with action: Visual policy learning via joint denoising process. NeurIPS , 37:112386– 112410, 2024. Guo, Y., Shi, L. X., Chen, J., and Finn, C. Ctrl-world: A con-trollable generative world model for robot manipulation. 
+
+arXiv preprint arXiv:2510.10125 , 2025. Hou, Z., Zhang, T., Xiong, Y., Duan, H., Pu, H., Tong, R., Zhao, C., Zhu, X., Qiao, Y., Dai, J., et al. Dita: Scal-ing diffusion transformer for generalist vision-language-action policy. ICCV , 2025. Hu, Y., Guo, Y., Wang, P., Chen, X., Wang, Y.-J., Zhang, J., Sreenath, K., Lu, C., and Chen, J. Video prediction policy: A generalist robot policy with predictive visual representations. ICML , 2025a. Hu, Y., Lin, F., Sheng, P., Wen, C., You, J., and Gao, Y. Data scaling laws in imitation learning for robotic manipula-tion. ICLR , 2025b. Huang, H., Chen, X., Chen, Y., Li, H., Han, X., Wang, Z., Wang, T., Pang, J., and Zhao, Z. Roboground: Robotic manipulation with grounded vision-language priors. In 
+
+CVPR , pp. 22540–22550, 2025a. Huang, S., Chen, L., Zhou, P., Chen, S., Jiang, Z., Hu, Y., Liao, Y., Gao, P., Li, H., Yao, M., et al. Enerverse: Envi-sioning embodied future space for robotics manipulation. 
+
+NeurIPS , 2025b. Huang, S., Wu, J., Zhou, Q., Miao, S., and Long, M. Vid2world: Crafting video diffusion models to interactive world models. ICLR , 2026. Hung, C.-Y., Sun, Q., Hong, P., Zadeh, A., Li, C., Tan, U., Majumder, N., Poria, S., et al. Nora: A small open-sourced generalist vision language action model for em-bodied tasks. arXiv preprint arXiv:2504.19854 , 2025. Intelligence, P., Black, K., Brown, N., Darpinian, J., Dha-balia, K., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., et al. π0.5: a vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 ,2025. Jang, J., Ye, S., Lin, Z., Xiang, J., Bjorck, J., Fang, Y., Hu, F., Huang, S., Kundalia, K., Lin, Y.-C., et al. Dreamgen: Unlocking generalization in robot learning through video world models. CoRL , 2025. Jia, M., Qi, Z., Zhang, S., Zhang, W., Yu, X., He, J., Wang, H., and Yi, L. Omnispatial: Towards comprehensive spatial reasoning benchmark for vision language models. 
+
+ICLR , 2025a. Jia, Y., Liu, J., Chen, S., Gu, C., Wang, Z., Luo, L., Lee, L., Wang, P., Wang, Z., Zhang, R., et al. Lift3d foundation policy: Lifting 2d large-scale pretrained models for robust 3d robotic manipulation. CVPR , 2025b. Jiang, Y., Chen, S., Huang, S., Chen, L., Zhou, P., Liao, Y., He, X., Liu, C., Li, H., Yao, M., et al. Enerverse-ac: En-visioning embodied environments with action condition. 
+
+arXiv preprint arXiv:2505.09723 , 2025a. Jiang, Y., Huang, S., Xue, S., Zhao, Y., Cen, J., Leng, S., Li, K., Guo, J., Wang, K., Chen, M., et al. RynnVLA-001: Using human demonstrations to improve robot manipula-tion. arXiv preprint arXiv:2509.15212 , 2025b. Karaev, N., Makarov, Y., Wang, J., Neverova, N., Vedaldi, A., and Rupprecht, C. Cotracker3: Simpler and better point tracking by pseudo-labelling real videos. In ICCV ,pp. 6013–6022, 2025. Ke, T.-W., Gkanatsios, N., and Fragkiadaki, K. 3d diffuser actor: Policy diffusion with 3d scene representations. 
+
+CoRL , 2024. Khazatsky, A., Pertsch, K., Nair, S., Balakrishna, A., Dasari, S., Karamcheti, S., Nasiriany, S., Srirama, M. K., Chen, L. Y., Ellis, K., et al. Droid: A large-scale in-the-wild robot manipulation dataset. arXiv preprint arXiv:2403.12945 , 2024. Kim, M. J., Pertsch, K., Karamcheti, S., Xiao, T., Balakr-ishna, A., Nair, S., Rafailov, R., Foster, E., Lam, G., San-keti, P., et al. Openvla: An open-source vision-language-action model. CoRL , 2024. Kim, M. J., Finn, C., and Liang, P. Fine-tuning vision-language-action models: Optimizing speed and success. 
+
+RSS , 2025. Kim, M. J., Gao, Y., Lin, T.-Y., Lin, Y.-C., Ge, Y., Lam, G., Liang, P., Song, S., Liu, M.-Y., Finn, C., et al. Cosmos policy: Fine-tuning video models for visuomotor control and planning. arXiv preprint arXiv:2601.16163 , 2026. Lee, S., Wang, Y., Etukuru, H., Kim, H. J., Shafiullah, N. M. M., and Pinto, L. Behavior generation with latent actions. ICML , 2024. Li, C., Wen, J., Peng, Y., Peng, Y., and Zhu, Y. Pointvla: Injecting the 3d world into vision-language-action models. 
+
+IEEE Robotics and Automation Letters , 11(3):2506–2513, 2026a. Li, H., Yang, S., Chen, Y., Tian, Y., Yang, X., Chen, X., Wang, H., Wang, T., Zhao, F., Lin, D., et al. Cronusvla: Transferring latent motion across time for multi-frame prediction in manipulation. AAAI , 2026b. 12 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Li, H., Zuo, Y., Yu, J., Zhang, Y., Yang, Z., Zhang, K., Zhu, X., Zhang, Y., Chen, T., Cui, G., et al. Simplevla-rl: Scaling vla training via reinforcement learning. ICLR ,2026c. Li, L., Zhang, Q., Luo, Y., Yang, S., Wang, R., Han, F., Yu, M., Gao, Z., Xue, N., Zhu, X., et al. Causal world model-ing for robot control. arXiv preprint arXiv:2601.21998 ,2026d. Li, P., Chen, Y., Wu, H., Ma, X., Wu, X., Huang, Y., Wang, L., Kong, T., and Tan, T. Bridgevla: Input-output align-ment for efficient 3d manipulation learning with vision-language models. NeurIPS , 2025a. Li, Q., Liang, Y., Wang, Z., Luo, L., Chen, X., Liao, M., Wei, F., Deng, Y., Xu, S., Zhang, Y., et al. Cogact: A foundational vision-language-action model for synergiz-ing cognition and action in robotic manipulation. arXiv preprint arXiv:2411.19650 , 2024a. Li, S., Gao, Y., Sadigh, D., and Song, S. Unified video action model. RSS , 2025b. Li, X., Liu, M., Zhang, H., Yu, C., Xu, J., Wu, H., Cheang, C., Jing, Y., Zhang, W., Liu, H., et al. Vision-language foundation models as effective robot imitators. arXiv preprint arXiv:2311.01378 , 2023. Li, X., Li, P., Liu, M., Wang, D., Liu, J., Kang, B., Ma, X., Kong, T., Zhang, H., and Liu, H. Towards generalist robot policies: What matters in building vision-language-action models. arXiv preprint arXiv:2412.14058 , 2024b. Li, X., Xu, J., Zhang, M., Liu, J., Shen, Y., Ponomarenko, I., Xu, J., Heng, L., Huang, S., Zhang, S., et al. Object-centric prompt-driven vision-language-action model for robotic manipulation. In CVPR , pp. 27638–27648, 2025c. Li, Y., Deng, Y., Zhang, J., Jang, J., Memmel, M., Yu, R., Garrett, C. R., Ramos, F., Fox, D., Li, A., et al. Ham-ster: Hierarchical action models for open-world robot manipulation. ICLR , 2025d. Li, Y., Gong, Z., Li, H., Huang, X., Kang, H., Bai, G., and Ma, X. Robotic visual instruction. In CVPR , pp. 12155–12165, 2025e. Li, Z., Gao, X., Wang, X., and Fu, J. Latbot: Distilling universal latent actions for vision-language-action models. 
+
+arXiv preprint arXiv:2511.23034 , 2025f. Liang, J., Liu, R., Ozguroglu, E., Sudhakar, S., Dave, A., Tokmakov, P., Song, S., and Vondrick, C. Dreamitate: Real-world visuomotor policy learning via video genera-tion. CoRL , 2024. Liang, J., Tokmakov, P., Liu, R., Sudhakar, S., Shah, P., Ambrus, R., and Vondrick, C. Video generators are robot policies. arXiv preprint arXiv:2508.00795 , 2025. Liao, Y., Zhou, P., Huang, S., Yang, D., Chen, S., Jiang, Y., Hu, Y., Cai, J., Liu, S., Luo, J., et al. Genie envi-sioner: A unified world foundation platform for robotic manipulation. arXiv preprint arXiv:2508.05635 , 2025. Lin, K. Q., Li, L., Gao, D., Yang, Z., Wu, S., Bai, Z., Lei, S. W., Wang, L., and Shou, M. Z. Showui: One vision-language-action model for gui visual agent. In CVPR , pp. 19498–19508, 2025. Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. ICLR , 2023. Liu, B., Zhu, Y., Gao, C., Feng, Y., Liu, Q., Zhu, Y., and Stone, P. Libero: Benchmarking knowledge transfer for lifelong robot learning. NeurIPS , 36:44776–44791, 2023a. Liu, H., Li, C., Wu, Q., and Lee, Y. J. Visual instruction tuning. NeurIPS , 36:34892–34916, 2023b. Liu, J., Chen, H., An, P., Liu, Z., Zhang, R., Gu, C., Li, X., Guo, Z., Chen, S., Liu, M., et al. Hybridvla: Collaborative diffusion and autoregression in a unified vision-language-action model. arXiv preprint arXiv:2503.10631 , 2025a. Liu, S., Wu, L., Li, B., Tan, H., Chen, H., Wang, Z., Xu, K., Su, H., and Zhu, J. Rdt-1b: a diffusion foundation model for bimanual manipulation. ICLR , 2025b. Lu, G., Guo, W., Zhang, C., Zhou, Y., Jiang, H., Gao, Z., Tang, Y., and Wang, Z. Vla-rl: Towards masterful and general robotic manipulation with scalable reinforcement learning. arXiv preprint arXiv:2505.18719 , 2025a. Lu, G., Jia, B., Li, P., Chen, Y., Wang, Z., Tang, Y., and Huang, S. Gwm: Towards scalable gaussian world mod-els for robotic manipulation. In ICCV , pp. 9263–9274, 2025b. Luo, H., Feng, Y., Zhang, W., Zheng, S., Wang, Y., Yuan, H., Liu, J., Xu, C., Jin, Q., and Lu, Z. Being-h0: vision-language-action pretraining from large-scale hu-man videos. arXiv preprint arXiv:2507.15597 , 2025. Luo, H., Wang, Y., Zhang, W., Yuan, H., Feng, Y., Xu, H., Zheng, S., and Lu, Z. Joint-aligned latent action: To-wards scalable vla pretraining in the wild. arXiv preprint arXiv:2602.21736 , 2026. Lv, Q., Li, H., Deng, X., Shao, R., Li, Y., Hao, J., Gao, L., Wang, M. Y., and Nie, L. Spatial-temporal graph diffusion policy with kinematic modeling for bimanual robotic manipulation. In CVPR , pp. 17394–17404, 2025. 13 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Lyu, J., Liu, K., Zhang, X., Liao, H., Feng, Y., Zhu, W., Shen, T., Chen, J., Zhang, J., Dong, Y., et al. Lda-1b: Scaling latent dynamics action model via universal em-bodied data ingestion. arXiv preprint arXiv:2602.12215 ,2026. Ma, T., Zheng, J., Wang, Z., Jiang, C., Cui, A., Liang, J., and Yang, S. Dit4dit: Jointly modeling video dynamics and actions for generalizable robot control. arXiv preprint arXiv:2603.10448 , 2026. Ma, X., Xing, L., Zhang, H., Li, W., and Lu, S. Unify-ing perception and action: A hybrid-modality pipeline with implicit visual chain-of-thought for robotic action generation. arXiv preprint arXiv:2511.19859 , 2025. Mees, O., Hermann, L., Rosete-Beas, E., and Burgard, W. Calvin: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks. IEEE Robotics and Automation Letters , 7(3):7327–7334, 2022. Mete, A., Xue, H., Wilcox, A., Chen, Y., and Garg, A. Quest: Self-supervised skill abstractions for learning continuous control. NeurIPS , 37:4062–4089, 2024. Micheli, V., Alonso, E., and Fleuret, F. Transformers are sample-efficient world models. ICLR , 2023. Nasiriany, S., Xia, F., Yu, W., Xiao, T., Liang, J., Dasgupta, I., Xie, A., Driess, D., Wahid, A., Xu, Z., et al. Pivot: Iterative visual prompting elicits actionable knowledge for vlms. In ICML , pp. 37321–37341. PMLR, 2024. Nikulin, A., Zisman, I., Tarasov, D., Lyubaykin, N., Pol-ubarov, A., Kiselev, I., and Kurenkov, V. Latent action learning requires supervision in the presence of distrac-tors. ICML , 2025. OpenAI. Gpt-4v(ision) system card, 2023. URL https://openai.com/research/ gpt-4v-system-card .OpenAI. Openai o3 and o4-mini system card, 2025. URL https://openai.com/research/ o3-o4-mini-system-card .O’Neill, A., Rehman, A., Maddukuri, A., Gupta, A., Padalkar, A., Lee, A., Pooley, A., Gupta, A., Mandlekar, A., Jain, A., et al. Open x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collabora-tion 0. In ICRA , pp. 6892–6903. IEEE, 2024. Pai, J., Achenbach, L., Montesinos, V., Forrai, B., Mees, O., and Nava, E. mimic-video: Video-action models for generalizable robot control beyond vlas. arXiv preprint arXiv:2512.15692 , 2025. Pan, M., Zhang, J., Wu, T., Zhao, Y., Gao, W., and Dong, H. Omnimanip: Towards general robotic manipulation via object-centric interaction primitives as spatial constraints. In CVPR , pp. 17359–17369, 2025. Peebles, W. and Xie, S. Scalable diffusion models with transformers. In ICCV , pp. 4195–4205, 2023. Peng, B., Zhang, W., Xu, L., Qi, Z., Zhang, J., Liu, H., Zeng, W., and Jin, X. Reworld: Multi-dimensional reward modeling for embodied world models. arXiv preprint arXiv:2601.12428 , 2026. Peng, Y., Cui, Y., Tang, H., Qi, Z., Dong, R., Bai, J., Han, C., Ge, Z., Zhang, X., and Xia, S.-T. Dreambench++: A human-aligned benchmark for personalized image gener-ation. ICLR , 2025. Pertsch, K., Stachowicz, K., Ichter, B., Driess, D., Nair, S., Vuong, Q., Mees, O., Finn, C., and Levine, S. Fast: Efficient action tokenization for vision-language-action models. RSS , 2025. Pu, Y., Gan, Z., Henao, R., Yuan, X., Li, C., Stevens, A., and Carin, L. Variational autoencoder for deep learning of images, labels and captions. NeurIPS , 29, 2016. Qi, Z., Dong, R., Zhang, S., Geng, H., Han, C., Ge, Z., Yi, L., and Ma, K. Shapellm: Universal 3d object under-standing for embodied interaction. In ECCV , pp. 214–238. Springer, 2024. Qi, Z., Zhang, W., Ding, Y., Dong, R., Yu, X., Li, J., Xu, L., Li, B., He, X., Fan, G., et al. Sofar: Language-grounded orientation bridges spatial reasoning and object manipulation. NeurIPS , 2025. Qian, S., Mo, K., Blukis, V., Fouhey, D. F., Fox, D., and Goyal, A. 3d-mvp: 3d multiview pretraining for robotic manipulation. CVPR , 2025. Qu, D., Song, H., Chen, Q., Yao, Y., Ye, X., Ding, Y., Wang, Z., Gu, J., Zhao, B., Wang, D., et al. Spatialvla: Exploring spatial representations for visual-language-action model. 
+
+RSS , 2025. Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., R ¨adle, R., Rolland, C., Gustafson, L., et al. Sam 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714 , 2024. Reuss, M., Ya ˘gmurlu, ¨O. E., Wenzel, F., and Lioutikov, R. Multimodal diffusion transformer: Learning versatile behavior from multimodal goals. In RSS , 2024. Reuss, M., Zhou, H., R ¨uhle, M., Ya ˘gmurlu, ¨O. E., Otto, F., and Lioutikov, R. Flower: Democratizing generalist robot policies with efficient vision-language-action flow policies. CoRL , 2025. 14 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Robine, J., H ¨oftmann, M., Uelwer, T., and Harmeling, S. Transformer-based world models are happy with 100k interactions. ICLR , 2023. Roumeliotis, K. I. and Tselikas, N. D. Chatgpt and open-ai models: A preliminary review. Future Internet , 15(6): 192, 2023. Routray, S., Pan, H., Jain, U., Bahl, S., and Pathak, D. Vipra: Video prediction for robot actions. ICLR , 2026. Rybkin, O., Pertsch, K., Jaegle, A., Derpanis, K. G., and Daniilidis, K. Learning what you can do before doing any-thing. In ICLR , 2019. URL https://openreview. net/forum?id=SylPMnR9Ym .Schmidt, D. and Jiang, M. Learning to act without actions. 
+
+ICLR , 2024. Shen, Y., Wei, F., Du, Z., Liang, Y., Lu, Y., Yang, J., Zheng, N., and Guo, B. Videovla: Video generators can be generalizable robot manipulators. NeurIPS , 2025. Shukor, M., Aubakirova, D., Capuano, F., Kooijmans, P., Palma, S., Zouitine, A., Aractingi, M., Pascal, C., Russi, M., Marafioti, A., et al. Smolvla: A vision-language-action model for affordable and efficient robotics. arXiv preprint arXiv:2506.01844 , 2025. Song, H., Qu, D., Yao, Y., Chen, Q., Lv, Q., Tang, Y., Shi, M., Ren, G., Yao, M., Zhao, B., et al. Hume: Introducing system-2 thinking in visual-language-action model. arXiv preprint arXiv:2505.21432 , 2025. Sun, J., Zhang, W., Qi, Z., Ren, S., Liu, Z., Zhu, H., Sun, G., Jin, X., and Chen, Z. Vla-jepa: Enhancing vision-language-action model with latent world model. arXiv preprint arXiv:2602.10098 , 2026. Tan, H., Feng, Y., Mao, X., Huang, S., Liu, G., Hao, Z., Su, H., and Zhu, J. Anypos: Automated task-agnostic actions for bimanual manipulation. arXiv preprint arXiv:2507.12768 , 2025a. Tan, H., Zhou, E., Li, Z., Xu, Y., Ji, Y., Chen, X., Chi, C., Wang, P., Jia, H., Ao, Y., et al. Robobrain 2.5: Depth in sight, time in mind. arXiv preprint arXiv:2601.14352 ,2026. Tan, S., Dou, K., Zhao, Y., and Kr ¨ahenb ¨uhl, P. Interactive post-training for vision-language-action models. arXiv preprint arXiv:2505.17016 , 2025b. Team, G. R., Abeyruwan, S., Ainslie, J., Alayrac, J.-B., Arenas, M. G., Armstrong, T., Balakrishna, A., Baruch, R., Bauza, M., Blokzijl, M., et al. Gemini robotics: Bringing ai into the physical world. arXiv preprint arXiv:2503.20020 , 2025. Team, O. M., Ghosh, D., Walke, H., Pertsch, K., Black, K., Mees, O., Dasari, S., Hejna, J., Kreiman, T., Xu, C., et al. Octo: An open-source generalist robot policy. RSS , 2024. Tian, Y., Yang, S., Zeng, J., Wang, P., Lin, D., Dong, H., and Pang, J. Predictive inverse dynamics models are scalable learners for robotic manipulation. ICLR , 2025. Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.-A., Lacroix, T., Rozi `ere, B., Goyal, N., Hambro, E., Azhar, F., et al. Llama: Open and efficient foundation lan-guage models. arXiv preprint arXiv:2302.13971 , 2023. Van Den Oord, A., Vinyals, O., et al. Neural discrete repre-sentation learning. NeurIPS , 30, 2017. Wan, T., Wang, A., Ai, B., Wen, B., Mao, C., Xie, C.-W., Chen, D., Yu, F., Zhao, H., Yang, J., et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. Wang, X., Zhu, Z., Huang, G., Wang, B., Chen, X., and Lu, J. WorldDreamer: Towards general world models for video generation via predicting masked tokens. arXiv preprint arXiv:2401.09985 , 2024. Wen, C., Lin, X., So, J., Chen, K., Dou, Q., Gao, Y., and Abbeel, P. Any-point trajectory modeling for policy learn-ing. RSS , 2024a. Wen, C., Lin, X., So, J., Chen, K., Dou, Q., Gao, Y., and Abbeel, P. Any-point trajectory modeling for policy learn-ing. RSS , 2024b. Wen, J., Zhu, M., Zhu, Y., Tang, Z., Li, J., Zhou, Z., Li, C., Liu, X., Peng, Y., Shen, C., et al. Diffusion-vla: Generalizable and interpretable robot foundation model via self-generated reasoning. ICML , 2025a. Wen, J., Zhu, Y., Li, J., Zhu, M., Tang, Z., Wu, K., Xu, Z., Liu, N., Cheng, R., Shen, C., et al. Tinyvla: Towards fast, data-efficient vision-language-action models for robotic manipulation. IEEE Robotics and Automation Letters ,2025b. Wu, H., Jing, Y., Cheang, C., Chen, G., Xu, J., Li, X., Liu, M., Li, H., and Kong, T. Unleashing large-scale video generative pre-training for visual robot manipula-tion. ICLR , 2024. Wu, W., Li, Z., He, Y., Shou, M. Z., Shen, C., Cheng, L., Li, Y., Gao, T., and Zhang, D. Paragraph-to-image generation with information-enriched diffusion model. International Journal of Computer Vision , pp. 1–22, 2025a. Wu, Z., Zhou, Y., Xu, X., Wang, Z., and Yan, H. Moma-nipvla: Transferring vision-language-action models for general mobile manipulation. In CVPR , pp. 1714–1723, 2025b. 15 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Xu, R., Zhang, J., Guo, M., Wen, Y., Yang, H., Lin, M., Huang, J., Li, Z., Zhang, K., Wang, L., et al. A0: An affordance-aware hierarchical model for general robotic manipulation. arXiv preprint arXiv:2504.12636 , 2025. Yang, J., Shi, Y., Zhu, H., Liu, M., Ma, K., Wang, Y., Wu, G., He, T., and Wang, L. Como: Learning continuous latent motion from internet videos for scalable robot learning. 
+
+arXiv preprint arXiv:2505.17006 , 2025a. Yang, J., Shi, Y., Zhu, H., Liu, M., Ma, K., Wang, Y., Wu, G., He, T., and Wang, L. Como: Learning continuous latent motion from internet videos for scalable robot learning. 
+
+arXiv preprint arXiv:2505.17006 , 2025b. Yang, J., Zhu, H., Wang, Y., Wu, G., He, T., and Wang, L. Tra-moe: Learning trajectory prediction model from multiple domains for adaptive policy conditioning. In 
+
+CVPR , pp. 6960–6970, 2025c. Yang, J., Zhu, H., Wang, Y., Wu, G., He, T., and Wang, L. Tra-moe: Learning trajectory prediction model from multiple domains for adaptive policy conditioning. In 
+
+CVPR , pp. 6960–6970, 2025d. Yang, L., Kang, B., Huang, Z., Zhao, Z., Xu, X., Feng, J., and Zhao, H. Depth anything v2. NeurIPS , 37:21875– 21911, 2024a. Yang, M., Du, Y., Ghasemipour, K., Tompson, J., Schuur-mans, D., and Abbeel, P. Learning interactive real-world simulators. ICLR , 1(2):6, 2024b. Yang, Y., Li, X., Chen, Y., Song, J., Wang, Y., Xiao, Z., Su, J., Qiaoben, Y., Liu, P., and Deng, Z. Mantis: A versatile vision-language-action model with disentangled visual foresight. arXiv preprint arXiv:2511.16175 , 2025e. Ye, A., Wang, B., Ni, C., Huang, G., Zhao, G., Li, H., Li, H., Li, J., Lv, J., Liu, J., et al. Gigaworld-policy: An efficient action-centered world–action model. arXiv preprint arXiv:2603.17240 , 2026a. Ye, S., Jang, J., Jeon, B., Joo, S., Yang, J., Peng, B., Man-dlekar, A., Tan, R., Chao, Y.-W., Lin, B. Y., et al. Latent action pretraining from videos. ICLR , 2025. Ye, S., Ge, Y., Zheng, K., Gao, S., Yu, S., Kurian, G., Indupuru, S., Tan, Y. L., Zhu, C., Xiang, J., et al. World action models are zero-shot policies. arXiv preprint arXiv:2602.15922 , 2026b. Yuan, C., Zhou, R., Liu, M., Hu, Y., Wang, S., Yi, L., Zhang, S., Wen, C., and Gao, Y. Motiontrans: Human VR data en-able motion-level learning for robotic manipulation poli-cies. In Human to Robot: Workshop on Sensorizing, Mod-eling, and Learning from Humans , 2025. URL https: //openreview.net/forum?id=vr91mXmRHS .Yuan, T., Dong, Z., Liu, Y., and Zhao, H. Fast-wam: Do world action models need test-time future imagination? 
+
+arXiv preprint arXiv:2603.16666 , 2026. Zawalski, M., Chen, W., Pertsch, K., Mees, O., Finn, C., and Levine, S. Robotic control via embodied chain-of-thought reasoning. CoRL , 2024. Ze, Y., Zhang, G., Zhang, K., Hu, C., Wang, M., and Xu, H. 3d diffusion policy: Generalizable visuomotor policy learning via simple 3d representations. RSS , 2024. Zeng, J., Bu, Q., Wang, B., Xia, W., Chen, L., Dong, H., Song, H., Wang, D., Hu, D., Luo, P., et al. Learning manipulation by predicting interaction. RSS , 2024. Zhai, A., Liu, B., Fang, B., Cai, C., Ma, E., Yin, E., Wang, H., Zhou, H., Wang, J., Shi, L., et al. Igniting vlms toward the embodied space. arXiv preprint arXiv:2509.11766 ,2025. Zhang, C., Pearce, T., Zhang, P., Wang, K., Chen, X., Shen, W., Zhao, L., and Bian, J. What do latent action models actually learn? NeurIPS , 2025a. Zhang, H., Ding, P., Lyu, S., Peng, Y., and Wang, D. GEVRM: Goal-expressive video generation model for robust visual manipulation. In ICLR , 2025b. Zhang, J., Wang, K., Xu, R., Zhou, G., Hong, Y., Fang, X., Wu, Q., Zhang, Z., and Wang, H. Navid: Video-based vlm plans the next step for vision-and-language navigation. RSS , 2024a. Zhang, J., Guo, Y., Hu, Y., Chen, X., Zhu, X., and Chen, J. Up-vla: A unified understanding and prediction model for embodied agent. ICML , 2025c. Zhang, K., Ren, P., Lin, B., Lin, J., Ma, S., Xu, H., and Liang, X. Pivot-r: Primitive-driven waypoint-aware world model for robotic manipulation. NeurIPS , 37:54105– 54136, 2024b. Zhang, W., Hu, T., Qiao, Y., Zhang, H., Qin, Y., Li, Y., Liu, J., Kong, T., Liu, L., and Ma, X. Chain-of-action: Tra-jectory autoregressive modeling for robotic manipulation. 
+
+NeurIPS , 2025d. Zhang, W., Liu, H., Qi, Z., Wang, Y., Yu, X., Zhang, J., Dong, R., He, J., Lu, F., Wang, H., et al. Dreamvla: a vision-language-action model dreamed with comprehen-sive world knowledge. NeurIPS , 2025e. Zhang, W., Zhang, B., Qi, Z., Zeng, W., Jin, X., and Zhang, L. Disentangled robot learning via separate forward and inverse dynamics pretraining. ICLR , 2026. 16 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Zhang, Z., Zheng, K., Chen, Z., Jang, J., Li, Y., Han, S., Wang, C., Ding, M., Fox, D., and Yao, H. Grape: Gen-eralizing robot policy via preference alignment. arXiv preprint arXiv:2411.19309 , 2024c. Zhao, Q., Lu, Y., Kim, M. J., Fu, Z., Zhang, Z., Wu, Y., Li, Z., Ma, Q., Han, S., Finn, C., et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In CVPR , pp. 1702–1713, 2025a. Zhao, Q., Lu, Y., Kim, M. J., Fu, Z., Zhang, Z., Wu, Y., Li, Z., Ma, Q., Han, S., Finn, C., et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In CVPR , pp. 1702–1713, 2025b. Zhen, H., Qiu, X., Chen, P., Yang, J., Yan, X., Du, Y., Hong, Y., and Gan, C. 3d-vla: A 3d vision-language-action generative world model. ICML , 2024a. Zhen, H., Qiu, X., Chen, P., Yang, J., Yan, X., Du, Y., Hong, Y., and Gan, C. 3d-vla: A 3d vision-language-action gen-erative world model. arXiv preprint arXiv:2403.09631 ,2024b. Zhen, H., Sun, Q., Zhang, H., Li, J., Zhou, S., Du, Y., and Gan, C. Tesseract: learning 4d embodied world models. 
+
+ICCV , 2025. Zheng, J., Li, J., Liu, D., Zheng, Y., Wang, Z., Ou, Z., Liu, Y., Liu, J., Zhang, Y.-Q., and Zhan, X. Universal actions for enhanced embodied foundation models. In CVPR , pp. 22508–22519, 2025a. Zheng, J., Li, J., Wang, Z., Liu, D., Kang, X., Feng, Y., Zheng, Y., Zou, J., Chen, Y., Zeng, J., et al. X-vla: Soft-prompted transformer as scalable cross-embodiment vision-language-action model. ICLR , 2026. Zheng, R., Wang, J., Reed, S., Bjorck, J., Fang, Y., Hu, F., Jang, J., Kundalia, K., Lin, Z., Magne, L., et al. Flare: Robot learning with implicit world modeling. arXiv preprint arXiv:2505.15659 , 2025b. Zhou, J., Ma, T., Lin, K.-Y., Wang, Z., Qiu, R., and Liang, J. Mitigating the human-robot domain discrepancy in visual pre-training for robotic manipulation. In CVPR ,pp. 22551–22561, 2025a. Zhou, P., Chen, L., Chen, S., Chen, D., Zhao, W., Jin, R., Ren, G., and Luo, J. Act2goal: From world model to general goal-conditioned policy. arXiv preprint arXiv:2512.23541 , 2025b. Zhou, Z., Zhu, Y., Zhu, M., Wen, J., Liu, N., Xu, Z., Meng, W., Peng, Y., Shen, C., Feng, F., et al. Chatvla: Uni-fied multimodal understanding and robot control with vision-language-action model. In EMNLP , pp. 5377– 5395, 2025c. Zhu, C., Yu, R., Feng, S., Burchfiel, B., Shah, P., and Gupta, A. Unified world models: Coupling video and action diffusion for pretraining on large robotic datasets. RSS ,2025. Zitkovich, B., Yu, T., Xu, S., Xu, P., Xiao, T., Xia, F., Wu, J., Wohlhart, P., Welker, S., Wahid, A., et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In CoRL , pp. 2165–2183. PMLR, 2023. 17 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+# A. Appendix 
+
+A.1. Training, inference, and model details   
+
+> Table 6. Dataset statistics in the video generation model pretraining. Number of trajectories used from each dataset during video generation model pretraining.
+
+Training dataset mixture Trajectory numbers 
+
+Something-something-v2 (Goyal et al., 2017) 170,962 RT-1 (Brohan et al., 2022) 84,236 Bridge (Ebert et al., 2021) 27,196 CALVIN-ABC (Mees et al., 2022) 19,120 LIBERO (Liu et al., 2023a) 6,500 LIBERO-Plus (Fei et al., 2025) 14,347 
+
+Video generation model pretraining details. During the pretraining of the video generation model, we used a mixture of human manipulation datasets and robotic video datasets, including Something-something-v2 (Goyal et al., 2017), RT-1 (Brohan et al., 2022), Bridge (Ebert et al., 2021), CALVIN (Mees et al., 2022), LIBERO (Liu et al., 2023a), and LIBERO-Plus (Fei et al., 2025). To balance the contribution of each dataset during training, we sample trajectories proportionally to ensure diverse coverage of both human and robotic interactions. This strategy helps the model generalize better across different types of video content. Detailed dataset statistics and sampling configurations are summarized in Table 6. 
+
+MoIDM pretraining details. MoIDM is built by independently training modality-specific IDMs, including depth-aware, flow-aware, and semantic-aware variants. During standalone training on each benchmark dataset, each IDM uses decoders to reconstruct both its corresponding modality-specific representation (e.g., depth maps, semantic segmentation, or optical flow) and RGB frames, thereby enforcing motion consistency across modalities. When incorporated into the full model, the decoders are removed, retaining only the spatiotemporal Transformer and the VQ codebook. 
+
+MoLA finetuning details. During the MoLA finetuning phase, the video generation model is frozen, and only MoIDM and the action head are jointly finetuned to adapt to downstream control tasks. The model and training parameters for all components of MoLA are summarized in Table 7. 
+
+Inference time and model size. As shown in Table 8, we evaluate the module-level inference time of MoLA on the CALVIN (Mees et al., 2022) benchmark and report the model size. This measurement corresponds to the same model configuration used throughout the paper. All experiments in Table 8 are conducted on an NVIDIA GeForce RTX 4090 GPU, with each component’s timing averaged over five runs. 
+
+Real-world inference cost. The remaining experiments use the same model configuration and 256 × 256 visual inputs, leading to highly similar inference cost. To make deployment overhead more explicit, Table 9 reports module-level latency in the real-world setting. All timing results in this table are measured on an NVIDIA GeForce RTX 4090 GPU and averaged over ten runs. 
+
+Effect of video diffusion inference steps. Table 10 studies the effect of the number of video diffusion denoising steps at test time. One-step denoising already provides highly effective control-relevant signals while offering by far the lowest inference cost. Increasing the number of denoising steps does not yield a monotonic performance gain, indicating that MoLA does not require photorealistic future video, but rather compact future hypotheses that preserve the temporal structure most useful for action inference. All timing results in Table 10 are measured on an NVIDIA GeForce RTX 4090 GPU and averaged over ten runs. 18 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Table 7. Model and training parameters of MoLA. 
+
+(a) Model Parameters Module Name Value 
+
+Video generation model Type Stable Video Diffusion Language shape 20 × 512 
+
+Image shape 256 × 256 
+
+Spatiotemporal transformer Num queries 8
+
+Num layers 4
+
+Hidden size 768 
+
+Num heads 12 
+
+VQ codebook Num codes 128 
+
+Latent dim 32 
+
+Action head Type Diffusion Transformer Latent dim 384 
+
+Condition shape 225 × 384 
+
+Num heads 8
+
+Encoder layers 4
+
+Decoder layers 4
+
+Sampling steps 10 
+
+(b) Training Parameters Module Name Value 
+
+Video generation model GPU NVIDIA H100 Number of GPUs 8Pretraining time 5 days Num frames 16 Inference steps 30 Batch size 6Optimizer AdamW Learning rate 5 × 10 −6
+
+Weight decay 0Training steps 500,000 Mixture of inverse dynamics models GPU NVIDIA H100 Number of GPUs 8Pretraining time 16 hours Batch size 256 Optimizer AdamW Lr max 1 × 10 −4
+
+Lr schedule cosine decay Weight decay 1 × 10 −4
+
+Warmup steps 1000 Epoch 20 MoLA GPU NVIDIA H100 Number of GPUs 8Finetuning time 20 hours Batch size 32 Optimizer AdamW Learning rate 1 × 10 −4
+
+Weight decay 5 × 10 −2
+
+Epoch 20 
+
+A.2. Additional ablations A.3. Limitations and future work 
+
+While MoLA effectively bridges imagined futures and executable actions through latent action representations, it does not explicitly incorporate high-level semantic reasoning or task understanding. Without large language models, the system 19 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026]  
+
+> Table 8. The inference time and model size of our MoLA.
+
+Model part Inference time Model size 
+
+Video generation model 79.85 ms 1.53 B Mixture of inverse dynamics models 12.93 ms 90.58 M Action head 8.26 ms 22.90 M                                        
+
+> Table 9. Module-level inference time in the real-world setting. Model part Real-world inference time
+> Video generation model 81.23 ms Mixture of inverse dynamics models 11.05 ms Action head 9.62 ms
+> Table 10. Effect of the number of video diffusion denoising steps at test time. Number of video diffusion inference steps Avg. Len. ↑Total inference time
+> 14.55 0.1296 s 24.52 0.2431 s 10 4.56 1.1659 s 20 4.49 2.3185 s
+> Table 11. Comparison of action heads on CALVIN ABC-D. The latent actions remain the same, while only the final action generation head is changed. The best results are bolded .Action head Task completed in a row Avg. Len. ↑
+> 12345AR token Transformer 95.7 91.4 88.6 85.1 78.9 4.40 DiT + flow matching 98.5 95.0 91.1 88.1 82.6 4.55
+
+remains limited in its ability to interpret complex instructions, reason over long-horizon goals, and adapt to novel scenarios beyond visual dynamics. In future work, we plan to integrate MoLA with large language models to enable stronger semantic grounding and decision-making. Moreover, leveraging large-scale human demonstration data and internet-scale videos offers a promising direction to further enhance generalization and scalability for real-world robotic manipulation. 
+
+A.4. A thorough literature review Vision–Language–Action models Vision–Language–Action (VLA) models aim to unify visual perception, language understanding, and action generation to enable robots to perform diverse embodied tasks. With the rapid progress of large language models (LLMs) (Touvron et al., 2023; Brown et al., 2020; Roumeliotis & Tselikas, 2023; OpenAI, 2025), multimodal LLMs (OpenAI, 2023; Liu et al., 2023b; Dong et al., 2024; Qi et al., 2024; Peng et al., 2025), and the availability of large-scale robot datasets (O’Neill et al., 2024; Ebert et al., 2021; Khazatsky et al., 2024; Deng et al., 2025), VLAs have become a central research direction in robot learning. Recent works leverage transformer-based architectures to learn generalist robot policies from large-scale heterogeneous data, with Octo (Team et al., 2024) demonstrating strong generalization capabilities. In contrast, the RT series (Brohan et al., 2022; Zitkovich et al., 2023; Belkhale et al., 2024) pioneers the fine-tuning of multimodal large language models on robot demonstrations, achieving strong performance in both accuracy and generalization, and inspiring numerous subsequent improvements (Li et al., 2023; Black et al., 2025; Team et al., 2024; Kim et al., 2024; Li et al., 2024a; Lin et al., 2025; Zhang et al., 2024a; Wen et al., 2025b; Qu et al., 2025; Li et al., 2024b; Liu et al., 2025a; Intelligence et al., 2025; Bu et al., 2025a; Reuss et al., 2025; Song et al., 2025; Li et al., 2023; Wu et al., 2024; Jia et al., 2025a; Qi et al., 2025). Beyond direct action prediction, some methods incorporate planning mechanisms through goal images or future video generation to guide policy execution (Du et al., 2024; Zawalski et al., 2024; Zhen et al., 2024a; Nasiriany et al., 2024; Gu et al., 2023; Zhang et al., 2024b; Wen et al., 2024a; Hu et al., 2025a; Black et al., 2023; Wu et al., 2024; Bu et al., 2024b). Despite promising results, these approaches often suffer from redundant visual reconstruction (Zheng et al., 2025b) and 20 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026]                                                                                           
+
+> Table 12. Comparison of video generation backbones on CALVIN ABC-D. MoLA is compatible with stronger imagination backbones and benefits from improved future prediction quality. The best results are bolded .Video model Task completed in a row Avg. Len. ↑
+> 12345SVD 98.5 95.0 91.1 88.1 82.6 4.55 Wan2.2 5B 99.1 95.8 92.0 88.5 83.2 4.59
+> Table 13. Comparing alternative IDM designs on CALVIN ABC-D. We compare the proposed three-IDM decomposition against several single-branch alternatives. The best results are bolded .Methods Task completed in a row Avg. Len. ↑
+> 12345Direct multimodal inputs 95.8 91.0 86.4 82.1 75.0 4.30 Single VGGT IDM 95.8 91.0 85.5 81.2 74.1 4.28 Single RGB IDM 96.2 91.1 86.5 82.6 74.9 4.31 Single IDM w/ multi-modality loss 96.5 91.0 87.5 82.4 77.4 4.35 MoLA (three specialized IDMs) 98.5 95.0 91.1 88.1 82.6 4.55
+> Table 14. Inference-time controls for explicit future conditioning on CALVIN ABC-D. MoIDM itself is preserved, while the task-conditioned imagined future is replaced by either an identical current frame or a noisy version of the current frame. The best results are bolded .Methods Task completed in a row Avg. Len. ↑
+> 12345Noisy-frame MoIDM 94.0 88.9 83.3 77.4 70.7 4.14 Same-frame MoIDM 95.1 90.4 84.9 79.6 72.2 4.22 MoLA 98.5 95.0 91.1 88.1 82.6 4.55
+
+limited ability to capture high-level spatial and semantic abstractions. Moreover, many existing VLA methods rely heavily on large-scale robot interaction data with ground-truth action annotations, which constrains scalability. In contrast, emerging works explore learning directly from internet-scale, action-free videos, enabling more scalable VLA training without explicit action supervision (Yang et al., 2025c; Zhou et al., 2025a; Luo et al., 2025). Recently, extensive efforts have focused on pushing the upper limits of VLA capabilities from multiple perspectives, including incorporating 3D information (Qian et al., 2025; Jia et al., 2025b; Pan et al., 2025; Ze et al., 2024; Zhen et al., 2024b; Li et al., 2026a), integrating future prediction mechanisms (Zhao et al., 2025b; Cen et al., 2025a; Cai et al., 2026), leveraging reinforcement learning (Li et al., 2026c; Chen et al., 2025f; Lu et al., 2025a), enhancing reasoning abilities (Tan et al., 2026; Team et al., 2025; Wen et al., 2025a; Zhou et al., 2025c; Zhai et al., 2025), bridging the simulation-to-reality gap (Deng et al., 2025), improving instruction understanding (Li et al., 2025e;c), enabling cross-embodiment generalization (Zheng et al., 2025a; 2026), optimizing representations (Huang et al., 2025a; Lv et al., 2025; Chen et al., 2025b; Wen et al., 2024b; Zeng et al., 2024; Li et al., 2025d; Zhang et al., 2024c; Li et al., 2025a), supporting long-horizon manipulation (Bu et al., 2024b; Feng et al., 2025a; Zhang et al., 2025d), facilitating multi-system collaboration (Bu et al., 2024a; Xu et al., 2025; Chi et al., 2025a; Liu et al., 2025a; Bi et al., 2025), studying scaling laws (Hu et al., 2025b; Hou et al., 2025; Chen et al., 2025d), improving efficiency (Hung et al., 2025; Shukor et al., 2025), and modeling temporal information (Li et al., 2026b). In addition, some works investigate VLA deployment across more diverse robot embodiments (Wu et al., 2025b; Chen et al., 2025c; Liu et al., 2025b). 
+
+Video-Action models World models learn internal representations of the environment (Chen et al., 2022; Robine et al., 2023; Wang et al., 2024; Peng et al., 2026) that enable agents to predict future states and make informed decisions. Recent advances have significantly improved the scalability and expressiveness of world models by adopting transformer-based architectures capable of modeling long-horizon dynamics (Wu et al., 2025a; Robine et al., 2023; Micheli et al., 2023). These developments establish world models as a powerful paradigm for learning environment dynamics from visual experience. Building upon world models, recent research has explored Video-Action models, which leverage video generation mod-21 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+els (Agarwal et al., 2025; Wan et al., 2025; Blattmann et al., 2023; Chi et al., 2025b; Huang et al., 2026; Zhen et al., 2025; Gao et al., 2025; Lu et al., 2025b; Guo et al., 2025) as a core mechanism for robotic action prediction and control. In robotics, several works directly employ video generation models as policy backbones, decoding actions through tracking, inverse dynamics, or future-state matching (Black et al., 2023; Du et al., 2024; Yang et al., 2024b; Hu et al., 2025a; Liang et al., 2024; Liao et al., 2025; Tan et al., 2025a; Feng et al., 2025b; Huang et al., 2025b; Yang et al., 2025b; Routray et al., 2026; Shen et al., 2025; Zhou et al., 2025b; Jiang et al., 2025a; Fan et al., 2026; Sun et al., 2026). Methods such as UniPi (Du et al., 2024), DREAMGEN (Jang et al., 2025), and GeVRLM (Zhang et al., 2025b) generate future observations to guide action generation, while joint frameworks co-generate future frames and actions to improve temporal consistency and policy learning (Guo et al., 2024; Zheng et al., 2025b; Li et al., 2025b). Future video prediction has also been widely adopted as a pretraining objective, as demonstrated in GR-2 (Cheang et al., 2024), VPP (Hu et al., 2025a), and RynnVLA-001 (Jiang et al., 2025b). Collectively, these approaches position Video-Action models as a unifying framework that bridges world modeling, video generation, and vision–language–action learning, highlighting the potential of predictive visual modeling to connect perception, dynamics, and action. 
+
+Latent action models Latent action models aim to reduce reliance on dense action annotations by learning compact representations that capture environment dynamics and agent behaviors. Early approaches focus on learning variational latent spaces (Pu et al., 2016; Van Den Oord et al., 2017) from action trajectories, structuring action manifolds for behavior generation and task adaptation, as exemplified by VQ-BeT (Lee et al., 2024) and Quest (Mete et al., 2024). To exploit unlabeled videos, several works infer latent actions from visual dynamics by coupling inverse and forward dynamics models, learning latent variables that explain next-frame transitions (Rybkin et al., 2019; Edwards et al., 2019; Bruce et al., 2024; Bu et al., 2025a). Genie (Bruce et al., 2024) adopts a causal formulation to extract latent actions via next-frame prediction, while LAPO (Schmidt & Jiang, 2024) and DynaMo (Cui et al., 2024) learn latent actions directly from visual observations without explicit action supervision, particularly for manipulation tasks. Recent methods such as LAPA (Ye et al., 2025) and IGOR (Chen et al., 2024) introduce unsupervised pretraining schemes for learning discrete latent actions within Vision–Language–Action models, enabling knowledge transfer from large-scale human videos. Most visual latent action models (Ma et al., 2025; Fan et al., 2025; Li et al., 2025f; Yang et al., 2025e) rely on RGB reconstruction, which inevitably captures task-irrelevant appearance variations (Zhang et al., 2025a). To mitigate this issue, subsequent works explore alternative supervision signals, including self-supervised visual features such as DINOv2 (Bu et al., 2025b; Chen et al., 2025e; Yang et al., 2025a), object-centric keypoints (Yang et al., 2025d; Collins et al., 2025; Yuan et al., 2025), and language-based objectives that provide semantic grounding (Clark et al., 2025). LAOM (Nikulin et al., 2025) further incorporates sparse action labels to bias latent representations toward controllable robotic behaviors. 
+
+Future-aware control and representation learning Recent work on future-aware control spans both world action models and VLA-style future-aware representation learning. Within the world action model literature, VPP (Hu et al., 2025a), mimic-video (Pai et al., 2025), Genie Envisioner (Liao et al., 2025), and DiT4DiT (Ma et al., 2026) employ separate components to model future dynamics and action, whereas LingBot-VA (Li et al., 2026d) and Motus (Bi et al., 2025) couple the two more tightly through unified architectures. A parallel direction uses a single model to jointly generate future video and action, as exemplified by Unified Video Action Model (Li et al., 2025b), DreamZero (Ye et al., 2026b), GigaWorld-Policy (Ye et al., 2026a), and Cosmos Policy (Kim et al., 2026). Vidar (Feng et al., 2025b) and Large Video Planner (Chen et al., 2025a) first generate imagined visual futures and then convert them into executable actions through inverse-dynamics-style adaptation or retargeting. Large-scale pretraining for world action models is explored by Unified World Models (Zhu et al., 2025) and LDA-1B (Lyu et al., 2026), while Fast-WAM (Yuan et al., 2026) studies how to reduce test-time computation. In parallel, VLA-JEPA (Sun et al., 2026) and Joint-Aligned Latent Action (Luo et al., 2026) employ future-aware objectives primarily for representation shaping or training-time supervision within VLA frameworks. Relative to these directions, MoLA is most closely related to world action models that retain an explicit future-imagination module, while differing in its use of multiple pretrained IDMs as a latent-action interface between imagined video and control. 
+
+A.5. Discussion Architectural role of latent actions. Within this design space, methods also differ in how latent actions participate in downstream control. For example, ViPRA (Routray et al., 2026) combines large-scale robot-video pretraining with latent-action, but its latent action tokenization primarily serves as an auxiliary signal for shaping the representations learned 22 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+by a large video-language model during pretraining. By contrast, MoLA uses an explicit IDM-style latent-action interface during downstream training and inference: imagined futures are first compressed into latent actions, and these latent actions are then consumed by the action head to generate executable controls. Accordingly, MoLA is better characterized as a world-model-plus-action-head architecture with a dedicated latent-action interface, rather than a VLM-centric route. 
+
+A.6. Qualitative results Video generation results Figure 6 shows qualitative results of our video generation model for both the primary and wrist camera views. The model generates coherent and visually plausible future frames, accurately capturing object movements, interactions, and robot motions. These high-quality predictions provide a reliable foundation for the subsequent MoLA, ensuring that the inferred latent actions are grounded in realistic imagined futures. Overall, the results demonstrate that our video prediction model effectively supports action-centric reasoning for robot manipulation. 
+
+Qualitative analysis of one-step denoising. Figure 7 provides a qualitative illustration of the one-step denoising regime used in MoLA. Even with a single denoising step, the video model preserves the temporal structure most relevant to control and still provides MoIDM with reliable transition cues for extracting action-relevant latent actions. In MoLA, the video generation module is designed to provide a compact and task-relevant future hypothesis rather than a photorealistic video prediction. A small number of denoising steps can therefore be advantageous, as it may suppress redundant texture and appearance details and encourage the model to focus on control-critical dynamics. 
+
+MoIDM reconstruction results. We visualize the reconstruction quality of MoIDM on RGB frames, depth maps, and optical flow to assess its ability to capture modality-specific information. As shown in Figure 8, each modality-specific IDM produces highly accurate reconstructions, preserving both spatial structures and motion dynamics. These results indicate that MoIDM effectively encodes essential features across multiple modalities, supporting consistent and coherent spatiotemporal representations. 
+
+MoIDM attention heatmaps. We visualize the attention heatmaps of MoIDM to examine its capability to capture action-related information. Figure 9 illustrates that across different datasets in both simulated and real-world environments, the model consistently focuses its attention on the robot arm region at each time step. This observation further indicates that MoIDM contributes to improving the model’s understanding of actions and facilitates effective alignment between action semantics and actual execution. 
+
+Benchmarks. We visualize the experimental results on the CALVIN, LIBERO, and LIBERO-Plus benchmarks. As shown in Figure 10, the results demonstrate that our method achieves strong performance across all benchmarks, accurately understanding and following given instructions to complete diverse tasks in a coherent and stable manner. 
+
+Failure cases. We further conduct a qualitative analysis of several failure cases through visualization. As illustrated in Figure 11, since our method generates action sequences via video prediction based on a world model, it exhibits certain limitations in reasoning and error correction under complex scenarios, compared to approaches that rely on explicit reasoning and policy generation with large language models. In most cases, the model is able to correctly understand and execute the given instructions; however, in rare situations involving unexpected state changes (e.g., a mug tipping over) or execution deviations (e.g., grasping an incorrect object), the model struggles to perform timely self-correction, which may lead to task failure. These observations indicate that there remains room for improvement in enhancing robustness to anomalous situations and error correction capabilities. 
+
+Sensitivity to video generation quality. Figure 12 presents two representative cases for analyzing sensitivity to video generation quality. In the first case, the generated future deviates from the task-relevant evolution and leads to task failure. In the second case, the generated video contains action prediction errors, yet the policy still succeeds. These examples show that video generation quality affects downstream execution, but not in an absolute manner. Systematic errors in imagined futures can bias the latent actions extracted by MoIDM and consequently mislead the action head. At the same time, MoLA remains relatively robust because it does not map generated video to control at the pixel level. Instead, MoIDM compresses future visual transitions into action-centric latent actions, from which the action head can still recover reasonable actions by exploiting preserved dynamical cues under imperfect conditional representations. 23 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 
+
+Real-world qualitative analysis. We provide qualitative results to evaluate the real-world generalization ability of our method. Figure 13 illustrates the training and evaluation settings used in our real-world experiments. As shown in Figure 14, under in-distribution conditions, the model is able to accurately interpret instructions and consistently execute tasks in a stable and coherent manner, demonstrating reliable real-world performance. More importantly, our method exhibits strong generalization capability under out-of-distribution settings. As illustrated in Figures 15 and 16, the model successfully handles novel object appearances, unseen object configurations, and variations in the environment that are not observed during training. Despite these distribution shifts, the model is able to generate reasonable action sequences and complete tasks without additional fine-tuning. These qualitative results indicate that our approach learns robust action representations that transfer effectively to real-world scenarios, highlighting its strong generalization ability beyond the training distribution. 
+
+High-precision continuous control. We further evaluate MoLA on a more complex real-world task that serves as a more direct test of fine manipulation. This setting requires tighter pose control, stronger contact stability, and more consistent temporal coordination, making it substantially more demanding than the other real-world tasks considered in this work. As illustrated in Figure 17, MoLA achieves a 45% success rate on this task, demonstrating that the proposed action-centric interface remains effective under challenging continuous control settings. Primary view (CALVIN) 
+
+Wrist view ( LIBERO )  
+
+> Figure 6. Qualitative results of the video generation model on primary and wrist views.
+
+Open the middle drawer of the cabinet   
+
+> Figure 7. Qualitative analysis of one-step denoising. A single denoising step preserves control-relevant temporal structure and provides MoIDM with reliable transition cues, even without producing a fully photorealistic future video.
+
+24 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] 𝑂 𝑡  
+
+> 𝑓𝑙𝑜𝑤
+
+𝑂 𝑡 +𝑘 
+
+> 𝑓𝑙𝑜𝑤
+
+𝑂 𝑡 +𝑘 
+
+> 𝑓𝑙𝑜𝑤 ’
+
+𝑂 𝑡  
+
+> 𝑟𝑔𝑏
+
+𝑂 𝑡 +𝑘 
+
+> 𝑟𝑔𝑏
+
+𝑂 𝑡 +𝑘 
+
+> 𝑟𝑔𝑏 ’
+
+𝑂 𝑡  
+
+> 𝑑𝑒𝑝𝑡ℎ
+
+𝑂 𝑡 +𝑘 
+
+> 𝑑𝑒𝑝𝑡ℎ
+
+𝑂 𝑡 +𝑘 
+
+> 𝑑𝑒𝑝𝑡ℎ ’
+
+Figure 8. Reconstruction results of MoIDM. The semantic-aware IDM performs feature-level reconstruction without visualization. 𝑜 𝑡  𝑜 𝑡 +𝑘  𝑜 𝑡  𝑜 𝑡 +𝑘  𝑜 𝑡  𝑜 𝑡 +𝑘 
+
+CALVIN  LIBERO  Open X -Embodiments 
+
+Figure 9. Visualization results of MoIDM attention heatmaps. The attention consistently localizes on action-critical regions. 
+
+25 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] stack the grasped block 
+
+CALVIN 
+
+take the pink block and rotate it to the right 
+
+CALVIN 
+
+put both the alphabet soup and the tomato sauce in the basket 
+
+LIBERO 
+
+pick up the black bowl from table center and place it on the plate 
+
+LIBERO 
+
+turn on the stove and put the moka pot on it 
+
+LIBERO -Plus 
+
+put the black bowl in the bottom drawer of the cabinet and close it 
+
+LIBERO -Plus   
+
+> Figure 10. Qualitative results on the CALVIN, LIBERO, and LIBERO-Plus benchmarks.
+
+26 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] put the yellow and white mug in the microwave and close it 
+
+pick up the black bowl on the ramekin and place it on the plate 
+
+Figure 11. Qualitative results of failure cases. 
+
+27 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] Pick up the alphabet soup and place it in the basket 
+
+Video 
+
+Execution 
+
+Open the middle drawer of the cabinet 
+
+Video 
+
+Execution 
+
+Figure 12. Sensitivity of MoLA to video generation quality. In one case, the generated future deviates from the task-relevant evolution and causes failure; in the other, the policy still succeeds despite action prediction errors in the generated video. 
+
+28 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] (a) Training 
+
+grab the bowl to 
+
+the side 
+
+place the yellow 
+
+bottle into the bin 
+
+place the purple 
+
+bottle into the bin 
+
+grab the bowl into 
+
+the box 
+
+place the blue 
+
+bottle into the bin 
+
+## (b) In-distribution evaluation 
+
+## (c) Out-of-distribution evaluation 
+
+Distracting objects 
+
+Changes in lighting conditions 
+
+Figure 13. Training and evaluation settings for our real-world experiments. 
+
+29 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] place the yellow bottle into the bin 
+
+place the purple bottle into the bin 
+
+grab the bowl to the side 
+
+grab the bowl into the box 
+
+Figure 14. Qualitative results of in-distribution real-world evaluation. 
+
+30 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] Distracting objects 
+
+grab the bowl to the side 
+
+grab the bowl to the side 
+
+place the yellow bottle into the bin 
+
+grab the bowl into the box 
+
+Figure 15. Qualitative results of out-of-distribution real-world evaluation. 
+
+31 From Imagined Futures to Executable Actions: Mixture of Latent Actions for Robot Manipulation [ICML 2026] place the purple bottle into the bin 
+
+place the yellow bottle into the bin 
+
+place the blue bottle into the bin 
+
+place the yellow bottle into the bin 
+
+Changes in lighting conditions 
+
+Figure 16. Qualitative results of out-of-distribution real-world evaluation. pour water from a teapot into a glass 
+
+Figure 17. High-precision continuous control on a more complex real-world task. The task requires tighter pose control, stronger contact stability, and more consistent temporal coordination. 
+
+32

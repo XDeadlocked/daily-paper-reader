@@ -1,0 +1,659 @@
+Title: Delta Forcing: Trust Region Steering for Interactive Autoregressive Video Generation
+
+URL Source: https://arxiv.org/pdf/2605.14382v1
+
+Published Time: Fri, 15 May 2026 00:36:25 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+## DELTA FORCING : Trust Region Steering for Interactive Autoregressive Video Generation 
+
+Yuheng Wu ∗
+
+KAIST 
+
+yuhengwu@kaist.ac.kr 
+
+Xiangbo Gao 
+
+Texas A&M University 
+
+xiangbog@tamu.edu 
+
+Tianhao Chen 
+
+KAIST 
+
+thchen@kaist.ac.kr 
+
+Xinghao Chen 
+
+University of Washington 
+
+cxh42@uw.edu 
+
+Qing Yin 
+
+Visko Platform 
+
+yin@visko.ai 
+
+Zhengzhong Tu †
+
+Texas A&M University 
+
+tzz@tamu.edu 
+
+Dongman Lee 
+
+KAIST 
+
+dlee@kaist.ac.kr 
+
+Abstract 
+
+Interactive real-time autoregressive video generation is essential for applications such as content creation and world modeling, where visual content must adapt to dynamically evolving event conditions. A fundamental challenge lies in balanc-ing reactivity and stability : models must respond promptly to new events while maintaining temporal coherence over long horizons. Existing approaches distill bidirectional models into autoregressive generators and further adapt them via streaming long tuning, yet often exhibit persistent drift after condition changes. We identify the cause as conditional bias , where the teacher may provide condition-aligned but trajectory-agnostic guidance, biasing generation toward locally valid yet globally inconsistent modes. Inspired by Trust Region Policy Optimization, we propose Delta Forcing, a simple yet effective framework that constrains unreliable teacher supervision within an adaptive trust region. Specifically, Delta Forcing estimates transition consistency from the latent delta between teacher and generator trajectories, and uses it to balance teacher supervision with a monotonic continuity objective. This suppress unreliable teacher-induced shifts while preserving respon-siveness to new events. Extensive experiments demonstrate that Delta Forcing significantly improves consistency while maintaining event reactivity. 
+
+1 Introduction 
+
+Interactive streaming video generation is emerging as a fundamental capability for applications such as real-time content creation and world modeling, where visual content must be continuously generated under dynamically evolving event conditions ( e.g ., prompts, actions, or control signals). Unlike offline generic video generation [ 1, 2 , 3 , 4, 5, 6, 7, 8 ], this setting introduces a fundamental tension between reactivity and stability : the model must respond instantaneously to new events while simultaneously preserving temporal consistency across events. To make such systems practical, existing approaches typically adopt a two-stage pipeline. In stage 1 ,high-quality but computationally expensive bidirectional models are distilled into efficient few-step                 
+
+> ∗Work conducted when intern at Visko Platform
+> †Project Lead 40th Conference on Neural Information Processing Systems (NeurIPS 2026).
+> arXiv:2605.14382v1 [cs.CV] 14 May 2026 As a frozen teacher, its score function in DMD
+> may become biased under condition changes Real
+> teacher
+> Gen/Fake  Real
+> teacher
+> Gen/Fake
+> Event@1 Event@2 Event@3
+> generator score target score given
+> different condition
+> new event@2
+> new event@3
+> 2
+> 1
+> 1
+> 2
+> drift
+> drift
+> ideal score
+> awizard … …a dragon appears ……ball of light …
+> ayoung girl … …grandfather enters … …talk back …
+> 1
+> 2
+> 2
+> 1
+
+Figure 1: Left: Under evolving events, the frozen teacher, biased toward certain patterns, remains condition-aware but trajectory-agnostic, inducing conditional bias that deviates from the historical trajectory. Right: Decoding both the real teacher model ( i.e ., Wan2.1-14B-T2V [ 1]) and generator (MemFlow [16]) shows that the generator’s drift closely follows these teacher-induced shifts. autoregressive diffusion transformer (AR-DiT) generators via forcing-based approaches, such as Diffusion Forcing [ 9], Self-Forcing [ 10 , 11 ], and Causal Forcing [ 12 ] which commonly trained with distribution matching objectives [ 13 , 14 ]. In stage 2 , methods such as LongLive [ 15 ] and MemFlow [ 16 ] further apply streaming long tuning , fine-tuning such generators on long sequences with evolving event conditions to enable runtime interactivity. Despite these advances, a persistent failure mode remains in current pipelines. The generated content, while still semantically aligned with the updated event conditions, gradually drifts in scene layout, object appearance and etc . This persists even in memory-aware generators ( e.g ., MemFlow [ 16 ]) that are explicitly designed to preserve long-term consistency. Previous studies [ 15 , 16 , 10 , 12 , 17 ]often attribute such degradation to the accumulation of autoregressive generation errors. In contrast, we identify a more fundamental cause: a systematic bias introduced across events by the teacher model during stage 2 training. Existing approaches implicitly assume that the teacher provides reliable supervision under evolving event conditions, and thus enforce alignment with the teacher distribution at each event equally . However, during stage 2 training, the teacher itself may accumulate errors and exhibit biased behavior, which in turn propagates to the student and induces drift. Empirically, when a new event is introduced ( e.g ., “...grandfather enters...” →“...talk back...”), the teacher may shift toward a condition-dependent distribution that faithfully reflects the updated semantics but fails to account for the previously generated trajectory ( e.g ., “dark blue clothes” →“white clothes”) as indicated by ➊. Consequently, when such guidance is directly enforced via DMD [ 13 , 14 ] (as indicated by ➋), the model is repeatedly driven toward condition-consistent yet trajectory-inconsistent states. We term this phenomenon conditional bias , where condition-driven shifts in the teacher distribution, coupled with inherent data priors, systematically steer generation toward trajectory-inconsistent modes. In this work, we propose Delta Forcing , a framework that restores the balance between reactivity 
+
+and stability under conditional bias. Instead of directly matching the teacher’s potentially biased distribution, we shift to reliability-aware transition modeling by examining the transition it induces between consecutive latent states. Inspired by trust-region policy optimization [ 18 ], where updates are constrained to a region in which the approximation remains reliable, we treat each teacher-induced transition as a candidate update and assess whether it falls within a trajectory-consistent trust region. Concretely, we introduce a delta-based mechanism that gauges the semantic shift of the teacher-induced transition relative to the generator’s history-grounded trajectory, and uses this signal to modulate supervision online: transitions within the trust region are reinforced, while those that deviate are suppressed. This adaptive scheme effectively filters out bias-induced guidance, enabling the model to maintain coherent long-term evolution while remaining responsive to new conditions. In summary, our contributions are threefold. First , we identify conditional bias in interactive multi-event streaming video generation, a failure mode in which event-driven condition updates steer the teacher toward trajectory-inconsistent modes, corrupting student supervision. Second , inspired by trust-region policy optimization, we propose Delta Forcing, a reliability-aware framework that introduces a delta-based mechanism to modulate supervision online, reinforcing trajectory-consistent 2guidance while suppressing bias-induced deviations. Third , extensive experiments demonstrate that Delta Forcing substantially improves temporal stability while preserving event reactivity in long-horizon multi-event scenarios. 
+
+2 Related Work 
+
+2.1 Stability in Real-time Streaming Video Generation 
+
+Real-time streaming video generation requires producing temporally coherent content over long horizons under causal constraints, a setting fundamentally more demanding than offline generation. A promising paradigm distills a strong pretrained bidirectional DiT into a causal, few-step generator capable of efficient AR synthesis [ 19 , 9, 10 , 17 , 20 , 12 , 21 , 22 , 23 , 24 , 25 , 26 ]. The central challenge in this paradigm is temporal stability : errors accumulate over rollouts and manifest as content drift and structural inconsistency, a gap that widens with generation length. A line of work addresses this by narrowing the discrepancy between training and inference. Diffusion Forcing [ 9] trains a causal model with independent per-token noise levels, unifying clean past and noisy future frames to enable stable rollout beyond the training horizon. Self-Forcing [ 10 ] closes the train-test gap at its source by conditioning each frame on self-generated rollouts during training. Context Forcing [ 20 ]reveals a student–teacher context mismatch in streaming tuning and trains the AR student with a long-context teacher. Causal Forcing [ 12 ] identifies that distilling an AR student from a bidirectional teacher violates frame-level ODE injectivity and addresses this by initializing from an AR teacher, substantially recovering generation quality. Rolling Forcing [ 21 ] jointly denoises a rolling window of frames with progressively increasing noise levels, anchoring global consistency via an attention sink over initial-frame KV states to sustain stability across multi-minute streams. Reward Forcing [ 22 ]targets the complementary issue that distilled models suffer diminished motion dynamics, introducing a rewarded distribution matching objective that biases training toward high-reward, high-motion samples. As illustrated in Fig. 2(a), despite their differences, these methods share a common assumption: the student is aligned with teacher guidance under a fixed condition. This assumption breaks down in interactive settings where conditions evolve dynamically. 
+
+2.2 Reactivity in Interactive Streaming Video Generation (a) Standard DMD (Self -Forcing, Causal -Forcing, etc )
+
+Interactive Long Sequence Consistency 
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+> Generator
+> Generator
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+(b) Streaming Long Tuning ( LongLive /MemFlow )
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+> Generator
+> Generator
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+Interactive Long Sequence Consistency 
+
+(c) Delta Forcing (Ours) 
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+> Generator
+> Generator
+
+Fake 
+
+Score 
+
+Real 
+
+Score 
+
+Delta Forcing 
+
+Interactive Long Sequence Consistency 
+
+> <latexit  sha1_base64="KcklaECksfXTVforlhM5AE/FywE=">AAACeXichVHLSgMxFD0dX7W+6mMhuFGLUgRLRkXFVcGNS22tCraUmTG1Q+fFTFqoQ3/AH3DhRgUR9TPc+AMu/ARxWcGFLrydDoiKekOSk5N7bk4S1TF0TzD2GJE6Oru6e6K9sb7+gcGh+PDIjmdXXY3nNNuw3T1V8bihWzwndGHwPcfliqkafFetrLf2d2vc9XTb2hZ1hxdM5dDSS7qmCKKK8bG8qYiyEP56uWpVir41LzcaxXiCpVgQkz+BHIIEwti041fI4wA2NFRhgsOCIGxAgUdtHzIYHOIK8IlzCenBPkcDMdJWKYtThkJshcZDWu2HrEXrVk0vUGt0ikHdJeUkZtgDu2ZNds9u2RN7/7WWH9RoeanTrLa13CkOHY9nX/9VmTQLlD9Vf3oWKGE18KqTdydgWrfQ2vra0Ukzu5aZ8WfZBXsm/+fskd3RDazai3a5xTOniNEHyN+f+yfYWUjJy6nlraVEOhl+RRQTmEaS3nsFaWxgEzk69whnuMZN5E2akpLSXDtVioSaUXwJafEDo2SSYg==</latexit>
+> Chunk n→1
+> <latexit  sha1_base64="vzEl8ttaf7g1blEi+Sry1shP0ZQ=">AAACd3ichVHLSgMxFD0dX7U+OupGcGGxKK5KRqSKq4Ibl31YFVTKzBjt0HkxkxZ16A/4Ay4EQUGq+Blu/AEX/QRxWUEEF96OA6Ki3pDk5OSem5NEc03DF4y1Y1JPb1//QHwwMTQ8MpqUx8Y3fKfu6bysO6bjbWmqz03D5mVhCJNvuR5XLc3km1pttbu/2eCebzj2ujhy+a6lHtjGvqGrgqiKPL5jqaIqRLBardu1SmA3mxU5zTIsjNRPoEQgjSjyjtzCDvbgQEcdFjhsCMImVPjUtqGAwSVuFwFxHiEj3OdoIkHaOmVxylCJrdF4QKvtiLVp3a3ph2qdTjGpe6RMYZY9sBvWYffslj2yt19rBWGNrpcjmrUPLXcryZPJ0su/Kotmgeqn6k/PAvtYDr0a5N0Nme4t9A994/i0U1opzgZz7JI9kf8L1mZ3dAO78axfFXjxDAn6AOX7c/8EGwsZJZvJFhbTufnoK+KYwgzm6b2XkMMa8ijTuYc4RwvXsVdpWpqTolwpFmkm8CUk5R2N1JHw</latexit>
+> Chunk n
+> <latexit  sha1_base64="vzEl8ttaf7g1blEi+Sry1shP0ZQ=">AAACd3ichVHLSgMxFD0dX7U+OupGcGGxKK5KRqSKq4Ibl31YFVTKzBjt0HkxkxZ16A/4Ay4EQUGq+Blu/AEX/QRxWUEEF96OA6Ki3pDk5OSem5NEc03DF4y1Y1JPb1//QHwwMTQ8MpqUx8Y3fKfu6bysO6bjbWmqz03D5mVhCJNvuR5XLc3km1pttbu/2eCebzj2ujhy+a6lHtjGvqGrgqiKPL5jqaIqRLBardu1SmA3mxU5zTIsjNRPoEQgjSjyjtzCDvbgQEcdFjhsCMImVPjUtqGAwSVuFwFxHiEj3OdoIkHaOmVxylCJrdF4QKvtiLVp3a3ph2qdTjGpe6RMYZY9sBvWYffslj2yt19rBWGNrpcjmrUPLXcryZPJ0su/Kotmgeqn6k/PAvtYDr0a5N0Nme4t9A994/i0U1opzgZz7JI9kf8L1mZ3dAO78axfFXjxDAn6AOX7c/8EGwsZJZvJFhbTufnoK+KYwgzm6b2XkMMa8ijTuYc4RwvXsVdpWpqTolwpFmkm8CUk5R2N1JHw</latexit>
+> Chunk n
+> <latexit  sha1_base64="vzEl8ttaf7g1blEi+Sry1shP0ZQ=">AAACd3ichVHLSgMxFD0dX7U+OupGcGGxKK5KRqSKq4Ibl31YFVTKzBjt0HkxkxZ16A/4Ay4EQUGq+Blu/AEX/QRxWUEEF96OA6Ki3pDk5OSem5NEc03DF4y1Y1JPb1//QHwwMTQ8MpqUx8Y3fKfu6bysO6bjbWmqz03D5mVhCJNvuR5XLc3km1pttbu/2eCebzj2ujhy+a6lHtjGvqGrgqiKPL5jqaIqRLBardu1SmA3mxU5zTIsjNRPoEQgjSjyjtzCDvbgQEcdFjhsCMImVPjUtqGAwSVuFwFxHiEj3OdoIkHaOmVxylCJrdF4QKvtiLVp3a3ph2qdTjGpe6RMYZY9sBvWYffslj2yt19rBWGNrpcjmrUPLXcryZPJ0su/Kotmgeqn6k/PAvtYDr0a5N0Nme4t9A994/i0U1opzgZz7JI9kf8L1mZ3dAO78axfFXjxDAn6AOX7c/8EGwsZJZvJFhbTufnoK+KYwgzm6b2XkMMa8ijTuYc4RwvXsVdpWpqTolwpFmkm8CUk5R2N1JHw</latexit>
+> Chunk n
+> <latexit  sha1_base64="KcklaECksfXTVforlhM5AE/FywE=">AAACeXichVHLSgMxFD0dX7W+6mMhuFGLUgRLRkXFVcGNS22tCraUmTG1Q+fFTFqoQ3/AH3DhRgUR9TPc+AMu/ARxWcGFLrydDoiKekOSk5N7bk4S1TF0TzD2GJE6Oru6e6K9sb7+gcGh+PDIjmdXXY3nNNuw3T1V8bihWzwndGHwPcfliqkafFetrLf2d2vc9XTb2hZ1hxdM5dDSS7qmCKKK8bG8qYiyEP56uWpVir41LzcaxXiCpVgQkz+BHIIEwti041fI4wA2NFRhgsOCIGxAgUdtHzIYHOIK8IlzCenBPkcDMdJWKYtThkJshcZDWu2HrEXrVk0vUGt0ikHdJeUkZtgDu2ZNds9u2RN7/7WWH9RoeanTrLa13CkOHY9nX/9VmTQLlD9Vf3oWKGE18KqTdydgWrfQ2vra0Ukzu5aZ8WfZBXsm/+fskd3RDazai3a5xTOniNEHyN+f+yfYWUjJy6nlraVEOhl+RRQTmEaS3nsFaWxgEzk69whnuMZN5E2akpLSXDtVioSaUXwJafEDo2SSYg==</latexit>
+> Chunk n→1
+> <latexit  sha1_base64="KcklaECksfXTVforlhM5AE/FywE=">AAACeXichVHLSgMxFD0dX7W+6mMhuFGLUgRLRkXFVcGNS22tCraUmTG1Q+fFTFqoQ3/AH3DhRgUR9TPc+AMu/ARxWcGFLrydDoiKekOSk5N7bk4S1TF0TzD2GJE6Oru6e6K9sb7+gcGh+PDIjmdXXY3nNNuw3T1V8bihWzwndGHwPcfliqkafFetrLf2d2vc9XTb2hZ1hxdM5dDSS7qmCKKK8bG8qYiyEP56uWpVir41LzcaxXiCpVgQkz+BHIIEwti041fI4wA2NFRhgsOCIGxAgUdtHzIYHOIK8IlzCenBPkcDMdJWKYtThkJshcZDWu2HrEXrVk0vUGt0ikHdJeUkZtgDu2ZNds9u2RN7/7WWH9RoeanTrLa13CkOHY9nX/9VmTQLlD9Vf3oWKGE18KqTdydgWrfQ2vra0Ukzu5aZ8WfZBXsm/+fskd3RDazai3a5xTOniNEHyN+f+yfYWUjJy6nlraVEOhl+RRQTmEaS3nsFaWxgEzk69whnuMZN5E2akpLSXDtVioSaUXwJafEDo2SSYg==</latexit>
+> Chunk n→1
+
+<latexit sha1_base64="WQkaF04HJrUniWfdauEEOLX0awU=">AAACdXichVHLSgMxFD0d3/U16kYQoVgVN9aMSBVXBTcu+7AqqJSZMbaD82ImLdShP+APuNCNQhXxM9z4Ay78BHFZwY0Lb6cDoqLekOTk5J6bk0RzTcMXjD3FpK7unt6+/oH44NDwyKg8Nr7tO1VP50XdMR1vV1N9bho2LwpDmHzX9bhqaSbf0Y432vs7Ne75hmNvibrLDyy1bBtHhq4KokqyvG+poiJEoJcCvqg0GiU5yVIsjMRPoEQgiSiyjnyDfRzCgY4qLHDYEIRNqPCp7UEBg0vcAQLiPEJGuM/RQJy0VcrilKESe0xjmVZ7EWvTul3TD9U6nWJS90iZwBx7ZLesxR7YHXtm77/WCsIabS91mrWOlrul0dPJwtu/Kotmgcqn6k/PAkdYC70a5N0NmfYt9I6+dnLWKqzn54J5dsVeyP8le2L3dAO79qo3czx/jjh9gPL9uX+C7eWUkk6lcyvJTCr6in5MYQYL9N6ryGATWRTp3Bou0MR17E2almal+U6qFIs0E/gS0tIHs/iQoQ==</latexit> 
+
+ce→1
+
+<latexit sha1_base64="uIXl6ukMO2jBelh8NUd1j7cPrYs=">AAACcXichVHLSgMxFD0d3/VVdaO4KS2KIJSMiIorwY3Lam0VWi0zY9TgvJhJCzr0B/wBBVcWRMTPcOMPuOgniMsKblx4ZzogKuoNSU5O7rk5SXTXFL5krJVQurp7evv6B5KDQ8Mjo6mx8ZLv1DyDFw3HdLxdXfO5KWxelEKafNf1uGbpJt/RT9bD/Z0693zh2Nvy1OV7lnZki0NhaJKo/YqlyWMpA6Ma8EajmsqyHIsi/ROoMcgijryTukUFB3BgoAYLHDYkYRMafGplqGBwidtDQJxHSET7HA0kSVujLE4ZGrEnNB7RqhyzNq3Dmn6kNugUk7pHyjRm2BO7Y232yO7ZM3v/tVYQ1Qi9nNKsd7TcrY6eTxbe/lVZNEscf6r+9CxxiJXIqyDvbsSEtzA6+vrZRbuwujUTzLImeyH/16zFHugGdv3VuNnkW1dI0geo35/7Jygt5NSl3NLmYnYtF39FP6aRwRy99zLWsIE8inSuh0tco5loK1NKWsl0UpVErJnAl1DmPwAbHI/+</latexit> 
+
+ce
+
+<latexit sha1_base64="WQkaF04HJrUniWfdauEEOLX0awU=">AAACdXichVHLSgMxFD0d3/U16kYQoVgVN9aMSBVXBTcu+7AqqJSZMbaD82ImLdShP+APuNCNQhXxM9z4Ay78BHFZwY0Lb6cDoqLekOTk5J6bk0RzTcMXjD3FpK7unt6+/oH44NDwyKg8Nr7tO1VP50XdMR1vV1N9bho2LwpDmHzX9bhqaSbf0Y432vs7Ne75hmNvibrLDyy1bBtHhq4KokqyvG+poiJEoJcCvqg0GiU5yVIsjMRPoEQgiSiyjnyDfRzCgY4qLHDYEIRNqPCp7UEBg0vcAQLiPEJGuM/RQJy0VcrilKESe0xjmVZ7EWvTul3TD9U6nWJS90iZwBx7ZLesxR7YHXtm77/WCsIabS91mrWOlrul0dPJwtu/Kotmgcqn6k/PAkdYC70a5N0NmfYt9I6+dnLWKqzn54J5dsVeyP8le2L3dAO79qo3czx/jjh9gPL9uX+C7eWUkk6lcyvJTCr6in5MYQYL9N6ryGATWRTp3Bou0MR17E2almal+U6qFIs0E/gS0tIHs/iQoQ==</latexit> 
+
+ce→1
+
+<latexit sha1_base64="WQkaF04HJrUniWfdauEEOLX0awU=">AAACdXichVHLSgMxFD0d3/U16kYQoVgVN9aMSBVXBTcu+7AqqJSZMbaD82ImLdShP+APuNCNQhXxM9z4Ay78BHFZwY0Lb6cDoqLekOTk5J6bk0RzTcMXjD3FpK7unt6+/oH44NDwyKg8Nr7tO1VP50XdMR1vV1N9bho2LwpDmHzX9bhqaSbf0Y432vs7Ne75hmNvibrLDyy1bBtHhq4KokqyvG+poiJEoJcCvqg0GiU5yVIsjMRPoEQgiSiyjnyDfRzCgY4qLHDYEIRNqPCp7UEBg0vcAQLiPEJGuM/RQJy0VcrilKESe0xjmVZ7EWvTul3TD9U6nWJS90iZwBx7ZLesxR7YHXtm77/WCsIabS91mrWOlrul0dPJwtu/Kotmgcqn6k/PAkdYC70a5N0NmfYt9I6+dnLWKqzn54J5dsVeyP8le2L3dAO79qo3czx/jjh9gPL9uX+C7eWUkk6lcyvJTCr6in5MYQYL9N6ryGATWRTp3Bou0MR17E2almal+U6qFIs0E/gS0tIHs/iQoQ==</latexit> 
+
+ce→1
+
+<latexit sha1_base64="uIXl6ukMO2jBelh8NUd1j7cPrYs=">AAACcXichVHLSgMxFD0d3/VVdaO4KS2KIJSMiIorwY3Lam0VWi0zY9TgvJhJCzr0B/wBBVcWRMTPcOMPuOgniMsKblx4ZzogKuoNSU5O7rk5SXTXFL5krJVQurp7evv6B5KDQ8Mjo6mx8ZLv1DyDFw3HdLxdXfO5KWxelEKafNf1uGbpJt/RT9bD/Z0693zh2Nvy1OV7lnZki0NhaJKo/YqlyWMpA6Ma8EajmsqyHIsi/ROoMcgijryTukUFB3BgoAYLHDYkYRMafGplqGBwidtDQJxHSET7HA0kSVujLE4ZGrEnNB7RqhyzNq3Dmn6kNugUk7pHyjRm2BO7Y232yO7ZM3v/tVYQ1Qi9nNKsd7TcrY6eTxbe/lVZNEscf6r+9CxxiJXIqyDvbsSEtzA6+vrZRbuwujUTzLImeyH/16zFHugGdv3VuNnkW1dI0geo35/7Jygt5NSl3NLmYnYtF39FP6aRwRy99zLWsIE8inSuh0tco5loK1NKWsl0UpVErJnAl1DmPwAbHI/+</latexit> 
+
+ce
+
+<latexit sha1_base64="uIXl6ukMO2jBelh8NUd1j7cPrYs=">AAACcXichVHLSgMxFD0d3/VVdaO4KS2KIJSMiIorwY3Lam0VWi0zY9TgvJhJCzr0B/wBBVcWRMTPcOMPuOgniMsKblx4ZzogKuoNSU5O7rk5SXTXFL5krJVQurp7evv6B5KDQ8Mjo6mx8ZLv1DyDFw3HdLxdXfO5KWxelEKafNf1uGbpJt/RT9bD/Z0693zh2Nvy1OV7lnZki0NhaJKo/YqlyWMpA6Ma8EajmsqyHIsi/ROoMcgijryTukUFB3BgoAYLHDYkYRMafGplqGBwidtDQJxHSET7HA0kSVujLE4ZGrEnNB7RqhyzNq3Dmn6kNugUk7pHyjRm2BO7Y232yO7ZM3v/tVYQ1Qi9nNKsd7TcrY6eTxbe/lVZNEscf6r+9CxxiJXIqyDvbsSEtzA6+vrZRbuwujUTzLImeyH/16zFHugGdv3VuNnkW1dI0geo35/7Jygt5NSl3NLmYnYtF39FP6aRwRy99zLWsIE8inSuh0tco5loK1NKWsl0UpVErJnAl1DmPwAbHI/+</latexit> 
+
+ce
+
+Figure 2: (a) Standard DMD fails to handle condi-tion changes. (b) Streaming Long Tuning improves interactivity but still suffers from biased guidance, and (c) our method enforces transition consistency to mitigate conditional bias and preserve temporal coherence. A complementary line of work extends AR video generation to interactive settings, where conditions evolve dynamically and the model must adapt to each new event without sacrificing temporal consistency. Early efforts approach in-teractivity through architectural and scheduling design. SkyReels-V2 [ 27 ] provides a diffusion-forcing substrate for long rollouts but assumes a fixed, pre-specified condition and does not ad-dress mid-rollout event changes. MAGI-1 [ 28 ]scales AR generation via chunk-wise prediction and exposes chunk-wise prompting as a control-lability hook, but each prompt switch requires per-transition tuning of the KV attention range rather than being learned from streaming su-pervision. A more principled approach targets reactivity through streaming long tuning , as il-lustrated in Fig. 2(b): the generator is fine-tuned on long self-rollouts with evolving conditions, directly aligning training with interactive infer-ence. LongLive [ 15 ] augments this with a KV-recache mechanism that updates stale context while preserving visual continuity at each event boundary. MemFlow [ 16 ] replaces fixed mem-ory strategies with prompt-guided dynamic re-trieval of relevant historical context, improving narrative coherence across scene switches. Despite these advances, training on evolving conditions 3does not resolve the underlying supervision problem: at each event boundary, the teacher is steered to-ward a new condition-dependent distribution that may contradict the established trajectory, providing biased guidance that propagates through subsequent generation. 
+
+3 Motivation Study 
+
+In this paper, we study interactive multi-event streaming video generation, where a streaming generated video must adapt to dynamically evolving event conditions in real time. Unlike multi-shot generation [ 29 , 30 , 31 , 32 ], which transitions between events via hard cuts, our setting demands smooth, uncut evolution across events [ 33 , 34 , 35 , 36 , 37 , 38 , 39 ]. We therefore begin with a key question: when drift emerges, where does the corrupting signal actually come from? 
+
+Preliminaries: enabling interactivity in streaming video generation. We follow LongLive [ 15 ], which adopts a two-stage recipe. In the first stage , a causal, chunk-level and few-step autoregressive student Gθ with parameters θ is adapted from a bidirectional diffusion teacher [ 10 , 12 ] via Self-Forcing DMD pipeline [ 10 , 12 , 13 , 14 ]. DMD aligns the student’s induced distribution pfake with the teacher’s p⋆ by minimizing the time-averaged reverse KL, whose gradient takes the score-difference form 
+
+∇θ LDMD = −E
+
+ s⋆(x, t ) − sfake (x, t ) ∂G θ
+
+∂θ 
+
+
+
+, (1) where x is a noisy sample obtained by perturbing Gθ (z) at noise level t (with z a Gaussian latent), and 
+
+s⋆, sfake are the scores ∇x log p⋆t and ∇x log pfake ,t estimated by the frozen teacher and a learnable fake critic, respectively. This stage yields a low-latency AR student, but it is trained on short clips with a single static condition and offers no mechanism for handling event transitions. In the second stage , to enable multi-event interaction in training itself, LongLive adopts streaming long tuning ,which extends rollouts to long sequences containing condition switches. Let e ∈ { 1, 2, . . . } index events along a trajectory, ce the condition ( e.g ., prompt) at event e, and he−1 the cached history accumulated before event e. At each event, the student rolls out a new chunk on top of its own history under the updated condition, and DMD supervision is applied locally: 
+
+Lstream = Ee
+
+KL  pfake (x | he−1, ce) p⋆(x | ce) , (2) This rolling schedule exposes the student to its own self-generated history across events while bounding each gradient step to a single chunk. 
+
+Observation: student drift is inherited from the teacher. To identify the source of drift, we decode both the teacher’s predicted outputs and the student’s generations into pixel space and compare their trajectories. As illustrated in Fig. 1(right), although DMD aligns distributions rather than pixels, the student tracks the teacher at the semantic level: whenever the teacher’s output shifts to a new semantic mode in response to an updated ce (e.g ., a change in object appearance, spatial layout, or scene composition), the student’s subsequent generations drift in the same direction. We further visualize this inconsistency and the accompanying semantic jumps in the latent feature trajectories of current SOTA models [ 15 , 16 , 22 ] in Appendix A. Drift is inherited from the teacher’s supervision signal and exemplified across events. 
+
+Diagnosis: trajectory-agnostic supervision under history-aware dynamics. The ideal generative target depends on both he−1 and ce:
+
+p⋆(x | he−1, ce), s⋆(x, t | he−1, ce) = ∇x log p⋆t (x | he−1, ce), (3) where s⋆(x, t | he−1, ce) is the history-aware teacher score. Under this target, event transitions act as local deformations of the trajectory, with state and update direction consistent with the incoming history. Pretrained video teachers ( e.g ., Wan [ 1], Hunyuan [ 2]), however, are trained on short clips with a single static condition and provide no mechanism for cross-event conditional changes. The teacher therefore may drift across events, which is transferred through distillation into the student. 
+
+Mechanism: conditional bias. Because the teacher cannot distinguish among incoming histories, the score the student effectively matches is the history-marginalized 
+
+¯s⋆(x, t | ce) = Ehe−1∼p(·| ce)[s⋆(x, t | he−1, ce)] . (4) Trajectory-dependent information is averaged out, so the student is no longer constrained to follow its incoming trajectory and is instead pulled toward condition-consistent modes that may correspond 4to entirely different ones (Fig. 1). We refer to this gap as conditional bias . Defining the per-event bias b(x, t ; e) ≜ s⋆(x, t | he−1, ce) − ¯s⋆(x, t | ce), the resulting gradient decomposes as 
+
+∇θ Lbiased DMD = −E
+
+ ¯s⋆ − sfake 
+
+ ∂G θ
+
+∂θ 
+
+
+
+− E
+
+
+
+b(x, t ; e) ∂G θ
+
+∂θ 
+
+| {z }
+
+> conditional bias
+
+, (5) where the first term is the nominal DMD update against the marginalized teacher and the second is the spurious direction induced by the history–condition mismatch. 
+
+Motivation: trust regions for unreliable teachers. Temporal incoherence is therefore not a capacity or optimization issue, but a structural mismatch in supervision: teacher guidance that is not reliably trajectory-conditioned cannot be trusted uniformly across events. A very direct solution is therefore to accept a teacher update only when it is consistent with the generator’s established trajectory. We draw inspiration from TRPO [ 18 ], which constrains policy updates to a region where the underlying advantage estimate remains trustworthy. This trust-region principle motivates the reliability-aware design of Delta Forcing, detailed in Sec. 4. 
+
+4 Method 
+
+From principle to design. The trust-region principle from Sec. 3 prescribes when to trust the teacher, but not what to do when the teacher cannot be trusted. We resolve this by exploiting an asymmetry between the two scores in DMD: sreal is frozen and, once biased, persistently pulls Gθ
+
+off-trajectory; sfake is dynamically updated on samples from Gθ [ 14 ] and therefore accumulates momentum reflecting the actual generation history. This suggests a two-part design: adaptively modulate the real score’s influence by its reliability, and fall back on the fake trajectory’s own momentum which is bias-free by construction when reliability is low. We thus formulate the Delta Forcing objective as 
+
+L = wk LDMD + (1 − wk) Lcont , (6) 
+
+Algorithm 1 Delta Forcing           
+
+> Require: Causal video generator Gθ, Prompt set P
+> Require: Video length lvideo , Chunk length lchunk
+> Require: Φ,μ,s
+
+1: while not converged do 
+
+2: Initialize KV cache C ← [] 
+
+3: Initialize current video length l ← 0
+
+4: Sample (p, p next ) ∼ P 
+
+5: Sample switch index τ
+
+6: τ ← τ · lchunk 
+
+7: if l ≥ lvideo then 
+
+8: C ← [] ; l ← 0
+
+9: Resample (p, p next ) and τ
+
+10: end if 
+
+11: pactive ←  
+
+> (
+> p, l < τ pnext ,otherwise
+
+12: if l = τ then 
+
+13: C ← recache (Gθ , v, C, p active )
+
+14: end if 
+
+15: x(k) ← generate_next_chunk (Gθ , C, p active )
+
+16: L ← DMD_Loss (Gθ , x(k), p active ) -
+
+17: (ˆ x(k)real , LDMD ) ← DMD_Loss (Gθ , x(k), p active ) +
+
+18: f fake    
+
+> k←Φ( x(k)fake )+
+
+19: f real    
+
+> k←Φ(ˆ x(k)real )+
+
+20: δfake        
+
+> k←ffake
+> k−ffake
+> k−1+
+
+21: δreal        
+
+> k←freal
+> k−freal
+> k−1+
+
+22: ρk ← ∥ δreal     
+
+> k−δfake
+> k∥2+
+
+23: wk ← σ(−(ρk − μ) · s) +
+
+24: Lcont ← ∥ f fake      
+
+> k−ffake
+> k−1∥22+
+
+25: L ← wk LDMD + (1 − wk ) Lcont +
+
+26: L.backward () 
+
+27: update generator parameter θ
+
+28: l ← l + lchunk 
+
+29: end while 
+
+where wk ∈ (0 , 1) is an online reliability weight realizing the trust-region radius and 
+
+Lcont is a bias-immune continuity loss grounded in the fake trajectory’s momentum. Under this formulation, two questions remain: (i) how to define Lcont to faithfully capture this momen-tum, and (ii) how to estimate wk online to detect when the real score is biased. We address each in turn. 
+
+Observation 1. The fake trajectory carries a history-grounded, bias-free signal that the real score lacks. Following the chunk-wise autore-gressive paradigm of LongLive [ 15 ], the gener-ator produces fake latent chunks 
+
+x(k)fake ∼ Gθ
+
+ Ck, ce(k)
+
+ , (7) where Ck is the accumulated KV cache encod-ing the trajectory history he(k)−1 and e(k) is the event index at chunk k. Because Ck is built entirely from the generator’s own past out-puts, the chunk-to-chunk evolution of x(k)fake en-codes where generation has been independently of what the frozen real score advocates. This is precisely the fall-back signal anticipated in Eq. (6) : bias-free by construction, and informa-tive exactly when sreal is not. 
+
+Design 1: Monotonic improvement via conti-nuity loss on the fake trajectory. To turn this 5momentum into a usable supervision signal, we summarize each fake chunk by a semantic descriptor via a frozen DINO [ 40 , 41 ] feature extractor Φ and penalize abrupt deviations between consecutive descriptors: 
+
+Lcont = f fake  
+
+> k
+
+− f fake  
+
+> k−1
+> 22
+
+, f fake  
+
+> k
+
+= Φ 
+
+
+
+x(k)fake 
+
+
+
+. (8) 
+
+Lcont involves neither sreal nor ˆx(k)real , and is therefore immune to b(x, t ; e) by construction. Rather than prescribing where the fake trajectory should go, it preserves the trajectory’s own momentum by penalizing deviations from its prior evolution, realizing the “fall-back” branch of our objective. 
+
+Observation 2. Real score reliability is observable: bias surfaces as abrupt semantic jumps in the teacher’s chunk-to-chunk evolution. Empirically, conditional bias does not manifest as uniform noise but as sharp discontinuities: the teacher’s denoised estimate ˆx(k)real shifts smoothly across most chunks but jumps suddenly when the new condition ce overrides the trajectory history. Between such jumps, the teacher’s evolution remains consistent with the student’s history-grounded fake trajectory. At a jump, the two diverge sharply. Real score reliability is therefore not a hidden quantity to be inferred from training dynamics, but a locally observable property of the teacher’s chunk-level evolution, reducing online estimation of wk to detecting when this evolution becomes non-smooth. 
+
+Design 2: Adaptive trust region from latent-delta discrepancy. Observation 2 turns wk from an abstract reliability weight into a concrete quantity: a measure of how closely the teacher’s chunk-to-chunk evolution tracks the student’s. We instantiate it in two steps (i) measure this evolution discrepancy in a semantic feature space, and (ii) translate it into the trust-region radius of Eq. (6). 
+
+Smoothness measurement. At each chunk k, we encode both x(k)fake and ˆx(k)real with the DINO [ 40 , 41 ]feature extractor Φ and take consecutive differences across events: 
+
+δfake  
+
+> k
+
+= Φ 
+
+
+
+ˆx(k)fake 
+
+
+
+− Φ
+
+
+
+ˆx(k−1) fake 
+
+
+
+, (9) 
+
+δreal  
+
+> k
+
+= Φ 
+
+
+
+ˆx(k)real 
+
+
+
+− Φ
+
+
+
+ˆx(k−1) real 
+
+
+
+. (10) which serve as the empirical counterparts of ∆s⋆e and ∆se 
+
+> real
+
+from Sec. 3. The DINO feature space exposes the abrupt jumps identified in Observation 2 while remaining insensitive to pixel-level noise. 
+
+Trust-region gating. We let the discrepancy between the two deltas define the radius of a trust region in latent trajectory space, within which the DMD gradient is permitted to steer the generator: 
+
+ρk = δreal  
+
+> k
+
+− δfake  
+
+> k2
+
+, wk = σ(−(ρk − μ) · s) , (11) where μ and s control the detection threshold and the sharpness of the transition. When ρk is small, the teacher evolves in step with the student’s history, the trust region is wide ( wk → 1), and the DMD update proceeds in full. When ρk spikes, conditional bias is active, the trust region collapses (wk → 0), and supervision falls back on Lcont . Unlike classical trust regions defined in parameter space, ours lives directly in the observable latent trajectory space: it requires no second-order gradient information and is computable online from a single feature-space distance, making it a lightweight realization of the “adaptive modulation” branch of our objective. 
+
+Delta Forcing. Substituting Designs 1 and 2 into Eq. (6) gives the complete Delta Forcing objective, as in Alg. 1. The two branches, (i) adaptive modulation of the real score and (ii) fall-back on the fake trajectory’s momentum, are now realized by wk and Lcont , respectively, and coordinate through a single online quantity ρk. Within a stable event, ρk is small, wk → 1, and training reduces to standard DMD. When the frozen real score shifts abruptly, the fake trajectory continues its prior momentum, 
+
+ρk spikes, wk → 0, and Lcont takes over to preserve that momentum. As the new condition stabilizes, real and fake deltas realign, ρk subsides, and the DMD term gradually reasserts itself. 
+
+5 Experiments 
+
+5.1 Implementation Details Implementation. We build Delta Forcing on top of LongLive [ 15 ]. The generator is WAN-2.1-1.3B-T2V [ 1] and the teacher is WAN-2.1-14B-T2V [ 1], which natively produces 5-second clips at 16 FPS 6Table 1: Comparisons with Long-CLIP Score [ 47 ] and VideoAlign [ 46 ] metrics across different video generation baselines. 
+
+Model #Params Long-CLIP Score ↑ VideoAlign ↑
+
+0-10s 10-20s 20-30s 30-40s 40-50s 50-60s Avg. VQ MQ TA Total 
+
+Diffusion Forcing Causal 
+
+SkyReels-V2 [27] 1.3B 27.08 25.29 24.42 24.25 23.88 23.79 24.79 2.24 3.45 -0.20 5.49 MAGI-1 [28] 4.5B 27.15 25.25 23.73 23.67 23.40 23.61 24.47 1.95 1.53 -0.83 2.66 
+
+Distilled Causal 
+
+LongLive [15] 1.3B 27.69 26.39 25.68 25.53 25.35 25.66 26.05 2.67 3.96 0.50 7.13 MemFlow [16] 1.3B 27.27 26.47 25.44 25.36 25.27 25.13 25.82 2.83 4.10 0.54 7.46 Reward Forcing [22] 1.3B 27.58 25.04 24.35 23.95 23.80 23.75 24.75 2.72 4.18 0.04 6.94 Delta Forcing (Ours) 1.3B 28.13 26.48 25.70 25.58 25.25 25.26 26.07 2.75 4.18 0.61 7.55 
+
+and 832 × 480 resolution. Training proceeds in two stages as LongLive [ 15 ]. In Stage 1, we replace the original Self Forcing [ 10 ] initialization with Causal Forcing [ 12 ] for the context window and frame sink, and train for 700 steps with learning rates of 2 × 10 −6 for the generator and 4 × 10 −7 for 
+
+Sfake . In Stage 2, we apply Delta Forcing together with Streaming Long Tuning for an additional 3,000 steps, with learning rates of 1 × 10 −5 and 2 × 10 −6, respectively. All of our experiments are conducted on Nvidia H100. 
+
+Baselines. We compare Delta Forcing against two families of methods at a comparable scale: open-source causal video generators, including SkyReels-V2 [ 27 ] and MAGI-1 [ 28 ], and distilled causal video generators including LongLive [ 15 ], MemFlow [ 16 ], and Reward Forcing [ 22 ]. For a fair comparison, all distilled causal baselines are initialized following the Causal Forcing [ 12 ], and Reward Forcing is further trained under Streaming Long Tuning to enhance interactive generation capability. 
+
+Evaluation. We evaluate Delta Forcing along four complementary axes. ➊ We adopt VBench [ 42 ,43 , 44 ] to assess overall performance. Specifically, we adopt six dimensions: Subject Consistency, Background Consistency, Aesthetic Quality, Motion Smoothness, Dynamic Degree, and Imaging Quality. ➋ We measure instruction-following ability using Long-CLIP [ 45 ]. ➌ We further evaluate human-preference alignment with VideoAlign [ 46 ], which scores visual quality (VQ), motion quality (MQ), and text alignment (TA). ➍ Finally, we conduct a user study to obtain direct human preference evaluation. All experiments are conducted on the MemFlow benchmark [ 16 ], which contains 100 sequences, each consisting of six sequential 10-second events and forming a 60-second video. 
+
+5.2 Quantitative Results 
+
+➊ Results on VBench [42]. Table 2: Comparisons with related representative open-source autoregressive video generation models of similar parameter sizes on VBench [42].                                                    
+
+> Model #Params Evaluation Scores ↑
+> Subject Background Motion Aesthetic Imaging Dynamic Consistency Consistency Smoothness Quality Quality Degree
+> Diffusion Forcing Causal
+> SkyReels-V2 [27] 1.3B 91.64 92.88 98.46 56.97 64.33 88.37 MAGI-1 [28] 4.5B 92.63 91.20 98.43 59.18 65.12 82.04
+> Distilled Causal
+> LongLive [15] 1.3B 94.97 93.37 98.37 58.95 72.59 90.93 MemFlow [16] 1.3B 93.19 92.03 97.17 55.91 69.57 91.71 Reward Forcing [ 22 ]1.3B 95.55 93.40 98.51 56.32 74.99 93.16
+> Delta Forcing (Ours) 1.3B 96.60 94.63 98.78 58.98 72.72 92.18
+
+As shown in Table 2, Delta Forcing at-tains the best subject and background consistency within the distilled-causal group while matching competing methods on motion smoothness, aes-thetic quality, and imaging quality. The large gains on transition-sensitive consistency without trading off per-ceptual or motion quality indicates that the improvements come from more stable cross-event trajectory evo-lution under repeated condition up-dates rather than from a shift along any single perceptual axis. Methods optimized for instantaneous responsiveness remain highly reactive but accumulate transition mis-7match over long horizons. Our trust-region supervision directly targets this trade-off by suppressing trajectory-incompatible teacher updates across events. 
+
+➋ Delta Forcing maintains instruction-following capability. Since commonly adopted prompt-enhancement strategies [ 1, 2 ] typically produce prompts that are more detailed and substantially longer than standard CLIP-style captions [ 47 ], we measure prompt–video alignment for each interaction chunk using Long-CLIP [ 45 ]. This metric directly evaluates whether the model can follow newly arriving prompts as the conditioning signal evolves over time. As shown in Table 1, Delta Forcing remains consistently top-ranked or near top-ranked from early to late windows, indicating that transition-aware supervision preserves responsiveness while improving long-horizon stability. 
+
+➌ Delta Forcing achieves stronger human preference. We further evaluate Delta Forcing using VideoAlign [ 46 ], a reward model trained from human feedback, to better capture perceptual quality and human preference in interactive generation. To make the evaluation boundary-sensitive, we concatenate each generated interaction chunk with the final 1-second segment of the preceding interaction and score the resulting stitched clip. This protocol explicitly emphasizes event continuity, where conditional bias is most likely to induce drift. As shown in Table 1, Delta Forcing achieves the best overall VideoAlign score, with the highest motion quality and text alignment, while remaining competitive in visual quality. Table 3: User Study. Evaluation results on human preference via average rank.                         
+
+> Model Aesthetic ↓Dynamic ↓Naturalness ∗↓Average ↓
+> LongLive 2.83 2.39 2.56 2.59 MemFlow 2.61 3.17 2.94 2.91 Reward Forcing 2.39 2.50 2.72 2.54 Delta Forcing (Ours) 2.17 1.94 1.78 1.96
+> ∗Naturalness is evaluated from a multi-event perspective, measuring the smoothness and coherence of transitions across events.
+
+➍ User Study. We conduct a side-by-side user study with 20 participants to as-sess quality in multi-event streaming gen-eration. In each trial, participants view four videos generated under the same se-quence of event-driven prompts and rank them along three criteria: aesthetic qual-ity, dynamic quality, and multi-event nat-uralness. Because this ranking is cogni-tively demanding, each participant com-pletes only three trials, randomly sampled from the full set. Video order within each trial is randomized. All methods are evaluated on identical prompt schedules, enabling direct comparison of both responsiveness to condition changes and temporal consistency across event boundaries. The user-study interface is shown in Appendix C. As summarized in Table 3, Delta Forcing attains the best (lowest) average rank across all three criteria, indicating a clear human preference. The margin is largest on dynamic quality and multi-event naturalness, consistent with our method’s design goal of preserving coherent motion and producing smoother transitions under evolving conditions. 
+
+5.3 Qualitative Results 
+
+Figure 3 presents qualitative comparisons for multi-event generation. The regions highlighted by purple circles reveal the failure patterns in existing methods: the generated content drifts across events, manifesting as changes in object identity, scene layout, and overall structure. This clearly indicates that the trajectory is not smoothly evolved, but instead repeatedly redirected toward different modes after each event. Although MemFlow [ 16 ] incorporates memory mechanisms that can partially recover from drift ( e.g ., in Fig. 3, Example 1, the appearance returns closer to the initial state from 40– 50s to 50–60s), it still fails to maintain consistent trajectories due to biased supervision. This suggests that memory alone is insufficient when the teacher guidance itself is not history-aware. In contrast, Delta Forcing, despite being built upon a memoryless generator following LongLive [ 15 ], maintains consistent object identity, structure, and motion across events. The generated trajectory evolves smoothly without abrupt deviations, demonstrating that our method effectively suppresses biased teacher guidance and preserves trajectory-consistent dynamics. We further provide latent-trajectory visualizations in Appendix A.4 to empirically validate Delta Forcing’s effectiveness. 
+
+5.4 Ablation Studies Without continual loss (Design 1). In this experiment, we remove the monotonic continual loss, i.e ., 
+
+(1 − wk)Lcont , and only retain the adaptive trust-region regulation on the DMD objective. As shown in Fig. 4(row 2), the object appearance and local motion remain relatively consistent, suggesting that 80~10s 10~20s 20~30s 30~40s 40~50s 50~60s      
+
+> LongLive MemFLow
+> Reward
+> Forcing Ours
+> 0~10s 10~20s 20~30s 30~40s 40~50s 50~60s
+> LongLive MemFLow
+> Reward
+> Forcing Ours
+
+1) 
+
+2)        
+
+> appearance drift
+> appearance drift
+> appearance drift
+> layout drift
+> appearance drift
+> appearance drift
+> layout drift
+
+Figure 3: Qualitative results. Each 10s segment corresponds to one event and the full event prompts are listed in Appendix B. the trust-region mechanism can still suppress part of the unreliable teacher guidance. However, the global scene layout gradually drifts during generation. This indicates that, without the continual loss, the model lacks an explicit constraint to anchor its current prediction to the accumulated trajectory, and thus can still be biased by condition-aligned but trajectory-agnostic teacher supervision. w/o D1 w/o D2    
+
+> scene drift
+> camera pan up
+> D1+D2
+> 0~10s 10~20s 20~30s 30~40s
+> Teacher
+
+Figure 4: Ablation study. 
+
+Without adaptive trust regions (Design 2). We then remove the adaptive trust-region weight wk
+
+from the original DMD loss, so that teacher su-pervision is no longer selectively suppressed ac-cording to its reliability. As shown in Fig. 4(row 3), the camera consistently pans upward, reveal-ing a typical mode-seeking failure in AR-DiT distillation. We hypothesize that this degenera-tion arises because biased DMD gradients are applied without normalized reliability control, allowing certain motion directions to be exces-sively amplified and eventually dominate the generation trajectory. Similar failures are also observed in Reward Forcing [ 22 ], where dynamics-oriented reward scaling can over-strengthen motion-related gradients and lead to persistent camera panning in multi-event settings. This suggests that the original DMD objective should not be uniformly encouraged under evolving conditions. Instead, it must be regulated by normalized adaptive weights to prevent unreliable teacher guidance, consistent with recent findings [48, 49]. 96 Conclusion 
+
+We identify conditional bias as a structural failure mode in distillation-based streaming video gener-ation: the teacher is condition-aware but trajectory-agnostic, so distribution-matching supervision repeatedly steers the student toward condition-consistent but trajectory-inconsistent modes, accumu-lating drift across event boundaries. We propose Delta Forcing, a reliability-aware framework that compares each teacher-induced transition with the generator’s history-grounded evolution, reinforcing supervision within a trajectory-consistent trust region and suppressing guidance that deviates from it. Extensive experiments show that Delta Forcing substantially improves temporal stability while preserving event reactivity in long-horizon real-time interactive multi-event video generation. 
+
+Limitations. Our current training remains limited in scale, including model capacity, data diversity, and interaction complexity. Further scaling is needed to better assess the robustness and generality of transition-aware supervision in context-switchable real-time video generation. 
+
+References 
+
+[1] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [2] Bing Wu, Chang Zou, Changlin Li, Duojun Huang, Fang Yang, Hao Tan, Jack Peng, Jianbing Wu, Jiangfeng Xiong, Jie Jiang, et al. Hunyuanvideo 1.5 technical report. arXiv preprint arXiv:2511.18870 , 2025. [3] Yoav HaCohen, Nisan Chiprut, Benny Brazowski, Daniel Shalem, Dudu Moshe, Eitan Richard-son, Eran Levin, Guy Shiran, Nir Zabari, Ori Gordon, et al. Ltx-video: Realtime video latent diffusion. arXiv preprint arXiv:2501.00103 , 2024. [4] Team Seedance, De Chen, Liyang Chen, Xin Chen, Ying Chen, Zhuo Chen, Zhuowei Chen, Feng Cheng, Tianheng Cheng, Yufeng Cheng, et al. Seedance 2.0: Advancing video generation for world complexity. arXiv preprint arXiv:2604.14148 , 2026. [5] Kling Team, Jialu Chen, Yuanzheng Ci, Xiangyu Du, Zipeng Feng, Kun Gai, Sainan Guo, Feng Han, Jingbin He, Kang He, et al. Kling-omni technical report. arXiv preprint arXiv:2512.16776 ,2025. [6] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue, Yufei Guo, Leo Jing, David Schnurr, Joe Taylor, Troy Luhman, Eric Luhman, et al. Video generation models as world simulators. 
+
+OpenAI Blog , 1(8):1, 2024. [7] Bin Lin, Yunyang Ge, Xinhua Cheng, Zongjian Li, Bin Zhu, Shaodong Wang, Xianyi He, Yang Ye, Shenghai Yuan, Liuhan Chen, et al. Open-sora plan: Open-source large video generation model. arXiv preprint arXiv:2412.00131 , 2024. [8] Fan Bao, Chendong Xiang, Gang Yue, Guande He, Hongzhou Zhu, Kaiwen Zheng, Min Zhao, Shilong Liu, Yaole Wang, and Jun Zhu. Vidu: a highly consistent, dynamic and skilled text-to-video generator with diffusion models. arXiv preprint arXiv:2405.04233 , 2024. [9] Boyuan Chen, Diego Marti Monso, Yilun Du, Max Simchowitz, Russ Tedrake, and Vincent Sitzmann. Diffusion Forcing: Next-token Prediction Meets Full-Sequence Diffusion, December 2024. [10] Xun Huang, Zhengqi Li, Guande He, Mingyuan Zhou, and Eli Shechtman. Self Forcing: Bridging the Train-Test Gap in Autoregressive Video Diffusion, November 2025. [11] Tianwei Yin, Qiang Zhang, Richard Zhang, William T. Freeman, Fredo Durand, Eli Shechtman, and Xun Huang. From Slow Bidirectional to Fast Autoregressive Video Diffusion Models, September 2025. [12] Hongzhou Zhu, Min Zhao, Guande He, Hang Su, Chongxuan Li, and Jun Zhu. Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Generation, February 2026. 10 [13] Tianwei Yin, Michaël Gharbi, Richard Zhang, Eli Shechtman, Fredo Durand, William T. Freeman, and Taesung Park. One-step Diffusion with Distribution Matching Distillation, October 2024. [14] Tianwei Yin, Michaël Gharbi, Taesung Park, Richard Zhang, Eli Shechtman, Fredo Durand, and William T Freeman. Improved distribution matching distillation for fast image synthesis. 
+
+Advances in neural information processing systems , 37:47455–47487, 2024. [15] Shuai Yang, Wei Huang, Ruihang Chu, Yicheng Xiao, Yuyang Zhao, Xianbang Wang, Muyang Li, Enze Xie, Yingcong Chen, Yao Lu, Song Han, and Yukang Chen. LongLive: Real-time Interactive Long Video Generation, October 2025. [16] Sihui Ji, Xi Chen, Shuai Yang, Xin Tao, Pengfei Wan, and Hengshuang Zhao. MemFlow: Flowing adaptive memory for consistent and efficient long video narratives, December 2025. [17] Justin Cui, Jie Wu, Ming Li, Tao Yang, Xiaojie Li, Rui Wang, Andrew Bai, Yuanhao Ban, and Cho-Jui Hsieh. Self-forcing++: Towards minute-scale high-quality video generation. arXiv preprint arXiv:2510.02283 , 2025. [18] John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. Trust region policy optimization. In International conference on machine learning , pages 1889–1897. PMLR, 2015. [19] Junchao Huang, Ziyang Ye, Xinting Hu, Tianyu He, Guiyu Zhang, Shaoshuai Shi, Jiang Bian, and Li Jiang. Live: Long-horizon interactive video world modeling. arXiv preprint arXiv:2602.03747 , 2026. [20] Shuo Chen, Cong Wei, Sun Sun, Ping Nie, Kai Zhou, Ge Zhang, Ming-Hsuan Yang, and Wenhu Chen. Context forcing: Consistent autoregressive video generation with long context. arXiv preprint arXiv:2602.06028 , 2026. [21] Kunhao Liu, Wenbo Hu, Jiale Xu, Ying Shan, and Shijian Lu. Rolling forcing: Autoregressive long video diffusion in real time, September 2025. [22] Yunhong Lu, Yanhong Zeng, Haobo Li, Hao Ouyang, Qiuyu Wang, Ka Leong Cheng, Jiapeng Zhu, Hengyuan Cao, Zhipeng Zhang, Xing Zhu, Yujun Shen, and Min Zhang. Reward Forc-ing: Efficient Streaming Video Generation with Rewarded Distribution Matching Distillation, December 2025. [23] Yang Yang, Tianyi Zhang, Wei Huang, Jinwei Chen, Boxi Wu, Xiaofei He, Deng Cai, Bo Li, and Peng-Tao Jiang. Anchor forcing: Anchor memory and tri-region rope for interactive streaming video diffusion. arXiv preprint arXiv:2603.13405 , 2026. [24] Jintao Chen, Chengyu Bai, Xinda Xue, Mu Xu, et al. Grounded forcing: Bridging time-independent semantics and proximal dynamics in autoregressive video synthesis. arXiv preprint arXiv:2604.06939 , 2026. [25] Jinxiu Liu, Xuanming Liu, Kangfu Mei, Yandong Wen, Ming-HsuanYang, and Weiyang Liu. Streaming autoregressive video generation via diagonal distillation, 2026. [26] Kai Zou, Dian Zheng, Hongbo Liu, Tiankai Hang, Bin Liu, and Nenghai Yu. Hiar: Efficient au-toregressive long video generation via hierarchical denoising. arXiv preprint arXiv:2603.08703 ,2026. [27] Guibin Chen, Dixuan Lin, Jiangping Yang, Chunze Lin, Junchen Zhu, Mingyuan Fan, Hao Zhang, Sheng Chen, Zheng Chen, Chengcheng Ma, et al. Skyreels-v2: infinite-length film generative model (2025). URL https://arxiv. org/abs/2504.13074 .[28] Hansi Teng, Hongyu Jia, Lei Sun, Lingzhi Li, Maolin Li, Mingqiu Tang, Shuai Han, Tianning Zhang, WQ Zhang, Weifeng Luo, et al. Magi-1: Autoregressive video generation at scale. arXiv preprint arXiv:2505.13211 , 2025. [29] Yawen Luo, Xiaoyu Shi, Junhao Zhuang, Yutian Chen, Quande Liu, Xintao Wang, Pengfei Wan, and Tianfan Xue. Shotstream: Streaming multi-shot video generation for interactive storytelling. 
+
+arXiv preprint arXiv:2603.25746 , 2026. 11 [30] Jiahao Wang, Hualian Sheng, Sijia Cai, Weizhan Zhang, Caixia Yan, Yachuang Feng, Bing Deng, and Jieping Ye. Echoshot: Multi-shot portrait video generation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [31] Xiaoxue Wu, Bingjie Gao, Yu Qiao, Yaohui Wang, and Xinyuan Chen. Cinetrans: Learning to generate videos with cinematic transitions via masked diffusion models. arXiv preprint arXiv:2508.11484 , 2025. [32] Tianhao Qi, Jianlong Yuan, Wanquan Feng, Shancheng Fang, Jiawei Liu, SiYu Zhou, Qian He, Hongtao Xie, and Yongdong Zhang. Maskˆ 2dit: Dual mask-based diffusion transformer for multi-scene long video generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 18837–18846, 2025. [33] Gordon Chen, Ziqi Huang, and Ziwei Liu. Prompt relay: Inference-time temporal control for multi-event video generation. arXiv preprint arXiv:2604.10030 , 2026. [34] Ziyi Wu, Aliaksandr Siarohin, Willi Menapace, Ivan Skorokhodov, Yuwei Fang, Varnith Chordia, Igor Gilitschenski, and Sergey Tulyakov. Mind the time: Temporally-controlled multi-event video generation. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pages 23989–24000, 2025. [35] Sharath Girish, Viacheslav Ivanov, Tsai-Shien Chen, Hao Chen, Aliaksandr Siarohin, and Sergey Tulyakov. Alchemint: Fine-grained temporal control for multi-reference consistent video generation. arXiv preprint arXiv:2512.10943 , 2025. [36] Qianxun Xu, Chenxi Song, Yujun Cai, and Chi Zhang. Switchcraft: Training-free multi-event video generation with attention controls. arXiv preprint arXiv:2602.23956 , 2026. [37] Gyeongrok Oh, Jaehwan Jeong, Sieun Kim, Wonmin Byeon, Jinkyu Kim, Sungwoong Kim, and Sangpil Kim. Mevg: Multi-event video generation with text-to-video models. In European Conference on computer vision , pages 401–418. Springer, 2024. [38] Hongyu Zhang, Yufan Deng, Zilin Pan, Peng-Tao Jiang, Bo Li, Qibin Hou, Zhiyang Dou, Zhen Dong, and Daquan Zhou. Ts-attn: Temporal-wise separable attention for multi-event video generation. arXiv preprint arXiv:2604.19473 , 2026. [39] Minghong Cai, Xiaodong Cun, Xiaoyu Li, Wenze Liu, Zhaoyang Zhang, Yong Zhang, Ying Shan, and Xiangyu Yue. Ditctrl: Exploring attention control in multi-modal diffusion trans-former for tuning-free multi-prompt longer video generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 7763–7772, 2025. [40] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 , 2023. [41] Oriane Siméoni, Huy V. Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, Francisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timothée Darcet, Théo Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Hervé Jégou, Patrick Labatut, and Piotr Bojanowski. DINOv3, 2025. [42] Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chanpaisit, Yaohui Wang, Xinyuan Chen, Limin Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. VBench: Comprehensive benchmark suite for video generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. [43] Dian Zheng, Ziqi Huang, Hongbo Liu, Kai Zou, Yinan He, Fan Zhang, Yuanhan Zhang, Jingwen He, Wei-Shi Zheng, Yu Qiao, and Ziwei Liu. VBench-2.0: Advancing video generation benchmark suite for intrinsic faithfulness. arXiv preprint arXiv:2503.21755 , 2025. 12 [44] Ziqi Huang, Fan Zhang, Xiaojie Xu, Yinan He, Jiashuo Yu, Ziyue Dong, Qianli Ma, Nattapol Chanpaisit, Chenyang Si, Yuming Jiang, Yaohui Wang, Xinyuan Chen, Ying-Cong Chen, Limin Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. VBench++: Comprehensive and versatile benchmark suite for video generative models. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2025. [45] Beichen Zhang, Pan Zhang, Xiaoyi Dong, Yuhang Zang, and Jiaqi Wang. Long-clip: Unlocking the long-text capability of clip. arXiv preprint arXiv:2403.15378 , 2024. [46] Jie Liu, Gongye Liu, Jiajun Liang, Ziyang Yuan, Xiaokun Liu, Mingwu Zheng, Xiele Wu, Qiulin Wang, Menghan Xia, Xintao Wang, et al. Improving video generation with human feedback. arXiv preprint arXiv:2501.13918 , 2025. [47] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning ,pages 8748–8763. PmLR, 2021. [48] Dengyang Jiang, Dongyang Liu, Zanyi Wang, Qilong Wu, Liuzhuozheng Li, Hengzhuang Li, Xin Jin, David Liu, Changsheng Lu, Zhen Li, et al. Distribution matching distillation meets reinforcement learning. arXiv preprint arXiv:2511.13649 , 2025. [49] Lichen Bai, Zikai Zhou, Shitong Shao, Wenliang Zhong, Shuo Yang, Shuo Chen, Bojun Chen, and Zeke Xie. Optimizing few-step generation with adaptive matching distillation. arXiv preprint arXiv:2602.07345 , 2026. [50] Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-sne. Journal of Machine Learning Research , 9(86):2579–2605, 2008. [51] L. McInnes, J. Healy, and J. Melville. UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. ArXiv e-prints , February 2018. 13 A Motivation Study via Latent Trajectory Visualization 
+
+To supplement our motivation analysis, we provide a latent-space diagnostic that reveals how existing interactive streaming video generation methods behave under evolving event conditions. Concretely, we extract the denoised latent feature of every generated frame prior to VAE decoding and visualize the temporal trajectory of these latent states in a two-dimensional PCA space. This analysis offers direct evidence of whether the generation process evolves smoothly across prompt switches or instead exhibits drift, collapse, or mode-seeking behavior. 
+
+A.1 What Should a Good Trajectory Look Like? 
+
+Before presenting the visualization protocol and results, we first establish the criteria against which trajectories should be evaluated. From the perspective of interactive multi-event video generation, a well-behaved latent trajectory should satisfy two complementary properties: • Within-interaction aggregation. Frames belonging to the same prompt interval should form a compact local cluster, reflecting stable identity, scene layout, and motion style. Such aggregation indicates that the model maintains a coherent visual state while generating temporally continuous frames under a fixed condition. • Smooth cross-interaction displacement. When the prompt changes, the trajectory should move from the previous local region toward a new one in a gradual and structured manner. The displacement should be sufficient to reflect the semantic shift, yet not so abrupt as to break temporal continuity. In other words, a desirable trajectory should resemble a sequence of compact local groups connected by smooth bridges. This structure reflects the central trade-off of our problem: within-interaction stability and between-interaction responsiveness must coexist. Excessively small displacement implies insufficient adaptation, whereas abrupt jumps indicate loss of temporal consistency. With these criteria in mind, we now describe the visualization protocol and examine whether existing methods satisfy them. 
+
+A.2 Visualization Implementations Latent extraction and projection. For each model, we generate a video under the same multi-event interaction setting in which the prompt changes at fixed intervals. Suppose the video contains T
+
+frames divided into K interaction segments, with each segment corresponding to one sub-prompt. Let zt ∈ Rd denote the denoised latent representation of frame t before VAE decoding. We collect the full latent sequence: 
+
+Z = {z1, z2, . . . , zT }. (12) We fit PCA on Z and project each frame-level latent into a two-dimensional space: 
+
+˜zt = W⊤(zt − μ), ˜zt ∈ R2, (13) where μ is the empirical mean of the sequence and W ∈ Rd×2 contains the top two principal directions. The projected points {˜zt}Tt=1 are connected in temporal order to form a trajectory, with different colors denoting different interaction segments. We additionally annotate the start and end of selected segments to facilitate reading of transition patterns. To ensure fair comparison, all methods share the same prompt schedule, switching timestamps, and latent extraction stage. 
+
+Choice of projection method. We adopt PCA rather than t-SNE [ 50 ] or UMAP [ 51 ] because our objective is not cluster discovery but temporal trajectory analysis . This distinction has three concrete implications. First , PCA preserves the global geometry of the latent space. As a linear projection along the directions of maximal variance, it maintains relative distances and directional relationships. t-SNE and UMAP prioritize local neighborhood fidelity and can substantially distort global arrangement, which is acceptable for cluster visualization but problematic when assessing whether a sequence follows a coherent trajectory. Second , PCA faithfully reflects transition characteristics . Because it preserves large-scale directional variation, the projected trajectory allows us to inspect transition magnitude, smoothness, and cross-event displacement without the artificial stretching or compression 14 interaction@1 interaction@2 interaction@3 interaction@4 interaction@5    
+
+> LongLive MemFlow Reward Forcing
+> 12
+> 3
+
+Figure 5: Latent trajectory visualization via PCA under multi-event prompt switching. We project frame-wise denoised latent features (before VAE decoding) into a two-dimensional PCA space and connect them in temporal order. Different colors denote different interaction segments. Left exhibits short and narrow transitions across prompt switches, indicating insufficient semantic displacement despite changed conditions. Middle: shows irregular and scattered patterns with no clear temporal structure, indicating severe inter-event drift. Right evolves with persistent motion regardless of interaction boundaries, suggesting mode-seeking dynamics in which within-event and cross-event transitions become indistinguishable. Comparing against the desirable properties defined in Section A.1, none of these methods achieves both within-interaction aggregation and smooth cross-interaction displacement. that nonlinear methods may introduce. A smooth trajectory that appears fragmented, or an abrupt jump that appears mild, would directly undermine our diagnostic purpose. Third , PCA is deterministic and reproducible . t-SNE and UMAP are sensitive to perplexity, neighborhood size, initialization, and random seed. Since our conclusions depend on comparing trajectory patterns across methods under identical conditions, we require a projection whose behavior is stable across runs. 
+
+A.3 Empirical Observations 
+
+Figure 5 presents the PCA trajectories of three representative methods under consecutive prompt switching. We evaluate each against the desirable properties established in Section A.1. 
+
+❶ Under-reactive transitions. The trajectory exhibits short, concentrated transitions across the first several prompt segments. Despite clear shifts in the semantic condition, the latent path displaces only modestly, remaining anchored to preceding states rather than moving toward the new event condition. With respect to our criteria, this method partially satisfies within-interaction aggregation but fails on cross-interaction displacement: the trajectory appears temporally smooth, yet the displacement is too weak to reflect the actual semantic change. This pattern indicates an under-reactive transition mode in which continuity is preserved at the cost of insufficient adaptation. 
+
+❷ Unstructured drift. The trajectory exhibits a markedly different failure. Rather than forming a structured progression, latent states scatter across the projected space without directional regularity. Consecutive prompt transitions correspond to abrupt jumps, and the overall path lacks coherent temporal organization. This method violates both desirable properties: within-interaction frames do not form compact clusters, and cross-interaction transitions are neither smooth nor controlled. The behavior is consistent with severe inter-event drift, where the model is repeatedly pulled toward different condition-consistent modes without maintaining a stable connection to the prior trajectory. 
+
+❸ Mode-seeking persistence. The trajectory continues moving along a similar pattern regardless of whether frames belong to the current interaction or a new one, making within-event and cross-event transitions largely indistinguishable. Against our criteria, this method fails primarily on within-interaction aggregation: instead of forming compact local clusters for each prompt interval, the trajectory is dominated by a persistent motion tendency—particularly camera motion—that overrides event-conditioned structure. The model follows an internally favored motion pattern rather than reorganizing around each new event, constituting a form of mode-seeking dynamics. 15 LongLive MemFlow Reward Forcing Delta Forcing (ours) 
+
+> Example (1) Example (2)
+
+Figure 6: Extended latent trajectory comparison. Each row shows one example under the same multi-event prompt schedule, comparing three baselines (columns 1–3) against Delta Forcing (column 4). Red arrows highlight segments where Delta Forcing exhibits compact within-interaction clusters connected by smooth cross-interaction transitions, consistent with the desirable properties established in Section A.1. 
+
+A.4 Further Latent Trajectory Comparisons 
+
+To verify that the trajectory patterns identified in Section A.3 are consistent beyond a single instance, we extend the PCA-based latent trajectory analysis to additional examples and include Delta Forcing for comparison. Figure 6 presents two representative cases (rows), each comparing three baselines against Delta Forcing (rightmost column) under the same multi-event prompt schedule. Across both examples, the baseline methods reproduce the failure modes previously identified. These patterns are consistent with the under-reactive, unstructured-drift, and mode-seeking behaviors discussed in Section A.3, confirming that these failure modes are systematic rather than instance-specific. In contrast, Delta Forcing (rightmost column, red arrows) produces trajectories that more closely satisfy the desirable properties defined in Section A.1. Within each interaction segment, the latent states remain relatively aggregated, forming compact local clusters. Across prompt switches, the trajectory transitions smoothly to a new region with sufficient displacement to reflect the semantic change. This combination of intra-state stability and responsive inter-state transitions provides latent-space evidence that Delta Forcing better balances within-interaction coherence and between-interaction adaptability. 
+
+B Experiment Details 
+
+Benchmark Description. This benchmark evaluates a video generation model’s ability to produce long-form, narratively coherent video by decomposing a one-minute scene into six consecutive 10-second segments. Unlike single-shot text-to-video benchmarks that evaluate isolated clips, this benchmark stresses the model’s capacity for cross-event consistency: maintaining stable character identity, environmental continuity, and a progressive storyline as the timeline unfolds. 
+
+Formulation. Each test case is a sequence of prompts {P1, P 2, . . . , P N } where each prompt Pi
+
+corresponds to a fixed-length window [ti, t i + ∆ t) with ∆t = 10 seconds. The full benchmark sample spans N · ∆t = 60 seconds with N = 6 segments. Adjacent prompts Pi and Pi+1 describe 
+
+consecutive events in the same continuous scene — there are no cuts, scene changes, or temporal jumps between segments. Persistent entities (characters, setting, key objects) are explicitly re-described in every prompt to anchor visual identity, while the action and state evolve incrementally .16 Example@1 — Young Wizard & Dragon 
+
+00:00 – 00:10 : A young wizard with a pointed hat and a sparkling robe is practicing magic in an ancient, stone-walled chamber. He waves a wooden wand, causing small objects on a table to float in the air. The chamber is lit by flickering torchlight, casting long shadows. 
+
+00:10 – 00:20 : A young wizard with a pointed hat in an ancient, stone-walled chamber continues to levitate objects with his wand. A small, scaly dragon with shimmering green wings flies into the chamber through a high window and lands on his shoulder. The wizard looks surprised but pleased. 
+
+00:20 – 00:30 : A young wizard with a pointed hat and a small green dragon on his shoulder practice magic together in the ancient, stone-walled chamber. He points his wand at a dusty book, and the dragon lets out a tiny puff of smoke, causing the book to flip open. The torchlight flickers on the walls. 
+
+00:30 – 00:40 : A young wizard with a pointed hat and a small green dragon on his shoulder in the ancient, stone-walled chamber laugh as the dragon sneezes, sending a shower of harmless sparks onto the floating objects. The wizard pats the dragon’s head affectionately. 
+
+00:40 – 00:50 : A young wizard with a pointed hat and a small green dragon on his shoulder in the ancient, stone-walled chamber work together to create a larger spell. The wizard chants an incantation while the dragon flaps its wings, and a ball of swirling light forms between them. 
+
+00:50 – 01:00 : A young wizard with a pointed hat and a small green dragon on his shoulder in the ancient, stone-walled chamber watch as the ball of light floats up to the ceiling and bursts into a shower of magical stars. They look at each other and share a triumphant smile. 
+
+Example@2 — Park Ranger & Fawn 
+
+00:00 – 00:10 : A park ranger in a green uniform is walking along a dirt trail in a vast, sun-drenched national park. The landscape is filled with towering redwood trees and ferns. The air is clear and crisp. 
+
+00:10 – 00:20 : The park ranger walking in the vast national park discovers a small, orphaned fawn huddled at the base of a giant redwood tree. The fawn looks weak and scared. The forest is quiet. 
+
+00:20 – 00:30 : The park ranger and the small, orphaned fawn are in the vast national park. The ranger kneels down slowly, speaking in a soft, calm voice to avoid frightening the animal further. The redwood trees tower over them. 
+
+00:30 – 00:40 : The park ranger in the vast national park gently scoops up the small, orphaned fawn into their arms. The fawn is light and fragile. The sun filters through the massive redwood canopy. 
+
+00:40 – 00:50 : The park ranger in the vast national park carries the small, orphaned fawn carefully, cradling it against their uniform as they begin the long walk back to the ranger station. The forest path is dappled with sunlight. 
+
+00:50 – 01:00 : The park ranger walks with purpose through the vast national park, a protector of the forest and its creatures, carrying the small, orphaned fawn to safety. The giant redwood trees stand as silent witnesses. 
+
+C User Study 
+
+Figure 7 shows the web-based interface used for our human evaluation. For each trial, participants are shown a single text prompt at the top, followed by four videos generated by the compared models (anonymized as Model A–D, with order randomized per trial). The videos are displayed side-by-side with synchronized playback controlled by shared Play and Restart buttons, allowing direct visual comparison. Below the videos, an evaluation guide briefly defines the three criteria: Aesthetic 
+
+17 Quality (visual appeal, composition, lighting, and clarity), Dynamic Quality (meaningfulness and prompt-consistency of motion), and Multi-Event Naturalness (smoothness of transitions across narrative stages while preserving identity consistency). Participants are instructed to evaluate each criterion independently rather than producing a single overall judgment. For each criterion, they rank the four models from best to worst by dragging labeled chips into an ordered slot row, and submit rankings per trial. 
+
+Figure 7: User study interface. 
+
+D Social Impact 
+
+Delta Forcing aims to improve interactive real-time video generation by enhancing long-horizon stability and responsiveness under dynamically changing event conditions. This capability can benefit creative workflows in areas such as short-form content creation, filmmaking, game development, virtual environments, and world-model-based simulation, where users require controllable and temporally coherent visual generation over extended interactions. By reducing drift and improving consistency across event transitions, Delta Forcing may help lower the cost of video production and enable more flexible human-AI co-creation. At the same time, more controllable and coherent video generation may also increase the risk of misuse, including the creation of misleading synthetic media, impersonation, or deceptive content. These risks highlight the importance of responsible 18 deployment, including provenance tracking, watermarking, content moderation, and clear disclosure when generated videos are used in public-facing scenarios. We view these safeguards as essential complements to technical progress in interactive video generation. 19

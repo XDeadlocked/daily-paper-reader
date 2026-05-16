@@ -1,0 +1,445 @@
+Title: CoReDiT: Spatial Coherence-Guided Token Pruning and Reconstruction for Efficient Diffusion Transformers
+
+URL Source: https://arxiv.org/pdf/2605.14191v1
+
+Published Time: Fri, 15 May 2026 00:22:02 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# CoReDiT: Spatial Coherence-Guided Token Pruning and Reconstruction for Efficient Diffusion Transformers 
+
+## Zhuojin Li * Hsin-Pai Cheng Hong Cai Shizhong Han Fatih Porikli Qualcomm AI Research †
+
+{zhuoli,hsinpaic,hongcai,shizhan,fporikli }@qti.qualcomm.com 
+
+## Abstract 
+
+Diffusion Transformers (DiTs) deliver remarkable im-age and video generation quality but incur high compu-tational cost, limiting scalability and on-device deploy-ment. We introduce CoReDiT, a structured token prun-ing framework for DiTs across vision tasks. CoReDiT uses a linear-time spatial coherence score to estimate lo-cal redundancy in the latent token lattice and skips high-coherence (redundant) tokens in self-attention. To main-tain a dense representation and avoid visual discontinuities, we reconstruct skipped attention outputs via coherence-guided aggregation of spatially neighboring retained to-kens. We further introduce a progressive, block-adaptive pruning schedule that increases pruning gradually and al-locates larger budgets to blocks and denoising steps with higher redundancy. Across state-of-the-art diffusion back-bones including PixArt-α and MagicDrive-V2, CoReDiT achieves up to 55% self-attention FLOPs reduction and inference speedups of 1.33 × on cloud GPUs and 1.72 ×
+
+on mobile NPUs, while maintaining high visual quality. Notably, CoReDiT also increases on-device memory head-room, enabling higher-resolution generation. 
+
+## 1. Introduction 
+
+Diffusion models learn to synthesize data through an iter-ative denoising process, and have achieved state-of-the-art results across various generative applications, such as con-ditional image generation, image editing (inpainting and super-resolution) and video synthesis. Building on this success, Diffusion Transformers (DiTs) [21] replace con-volutional U-Nets with attention-based backbones that ef-fectively model long-range dependencies among tokenized patches; this architecture scale effectively with model size and facilitate the incorporation of conditioning from various modalities (e.g., class labels, text, and depth maps). 
+
+> *Work done during internship at Qualcomm AI Research.
+> †Qualcomm AI Research is an initiative of Qualcomm Technologies, Inc.
+
+However, these benefits come with demanding com-putational cost. Self-attention scales quadratically with the number of tokens, making high-resolution images and multi-frame videos particularly expensive and often im-practical on compute- and memory-constrained mobile plat-forms. Empirically, a large fraction of tokens correspond to visually redundant or low-saliency regions (e.g., uniform backgrounds and smooth textures), suggesting substantial room for compute reduction. Prior work reduces inference cost by pruning or merging tokens using attention-based saliency [12, 27], feature similarity [2], or learned rout-ing/predictors [23, 34]. However, several challenges limit their applicability to diffusion inference: (1) localizing low-saliency tokens efficiently and effectively, (2) preserving vi-sual semantics for the tokens that do not participate in at-tention, and (3) determining a pruning schedule that adapts across transformer blocks and denoising timesteps. 
+
+Contributions: To address these challenges, we propose CoReDiT, a token pruning framework for accelerating pre-trained DiTs that targets self-attention while preserving out-put fidelity. CoReDiT consists of three components: (1) 
+
+Spatial coherence-based selector (Sec. 3.1): We observe that redundant tokens in low-saliency regions are highly similar to their spatial neighbors. To exploit this, we parti-tion the token lattice into small, non-overlapping grids and estimate a spatial coherence score for each token, based on its feature similarity to tokens in the same grid. This score can be implemented with linear-time, hardware-friendly re-ductions (e.g., grid means and dot products), adding min-imal overhead while reliably selecting redundant tokens (with high coherence) to bypass attention. (2) Coherence-based reconstruction (Sec. 3.2): Skipping tokens can break local spatial continuity, leading to artifacts in the generated outputs. To preserve a dense token lattice for subsequent blocks, we reconstruct skipped tokens from retained neigh-bors using similarity-weighted aggregation within a local neighborhood. This content-aware interpolation (unlike ze-roing or naive forwarding) preserves visual semantics and mitigates artifacts while maintaining compatibility with the original DiT architecture. (3) Progressive, block-adaptive pruning (Sec. 3.3): Pruning tolerance varies across blocks 
+
+> arXiv:2605.14191v1 [cs.CV] 13 May 2026
+
+and timesteps: different blocks carry varying semantic im-portance, and late diffusion steps are typically less tolerant than early ones [34]. Hence, we fine-tune with a progressive schedule that automatically allocates the pruning budget to the most redundant blocks. At regular intervals during fine-tuning, we estimate a timestep-weighted redundancy score for each transformer block and increment the pruning ratio of the block with the highest redundancy; gradually increas-ing the pruning ratio enables fast recovery after each update and ensures stable adaptation. Combining these components results in an efficient pruning pipeline that reduces attention computation while preserving high-fidelity generation. Across text-to-image and video generation, CoReDiT enables higher-resolution synthesis and stable conditional alignment, achieving up to 55% reduction in self-attention FLOPs and wall-clock speedups of 1.33 × on cloud GPUs and 1.72 × on mobile devices. 
+
+## 2. Related Work 
+
+Diffusion Models. Diffusion models have demonstrated impressive generative performance across image, video, and 3D domains. Early works commonly adopt U-Net backbones [11, 25], and latent diffusion [24] improves scal-ability by denoising in a compressed latent space. Recently, Diffusion Transformers (DiTs) [21] replace U-Net archi-tectures with stacks of transformer blocks, offering better scalability to high resolution and flexible conditioning, but incurring high inference cost from quadratic attention and multi-step denoising. 
+
+Efficient Diffusion Transformers. Prior studies have improved the efficiency of DiTs along several comple-mentary directions: (1) Token reduction within a timestep .Training-free token reduction often merges or downsam-ples tokens to reduce the effective sequence length, in-cluding token merging methods (e.g., ToMe [1]) and diffusion-specific variants (e.g., ToMA [18]) that aim to reduce merge overhead. Other training-free strategies re-duce attention cost by downsampling only key/value to-kens (e.g., ToDo [28]). Learning-based methods learn per-layer/timestep keep ratios or token routers for content gen-eration, including DiffCR [34] and dynamic token-density schemes such as FlexDiT [5]. A key challenge in DiTs (vs. ViTs) is that naively discarding tokens can introduce spatial discontinuities (texture breaks, boundary artifacts), motivating approaches that either preserve structure via merge/unmerge or explicitly reconstruct skipped content. (2) Cross-timestep caching and feature reuse . Caching-based methods exploit temporal redundancy across de-noising steps by reusing intermediate features with se-lective refresh [19, 31]. Recent DiT-specific works fur-ther cache at finer granularity (e.g., token-wise feature caching in ToCa [39]). These approaches primarily tar-get cross-step redundancy and are conceptually orthogo-nal to within-step token reduction. (3) Dynamic compu-tation and conditional routing. Dynamic DiT architec-tures adjust compute across timesteps and/or spatial re-gions, e.g., DyDiT [38] uses timestep-wise dynamic width and spatial token skipping, while DiffCR [34] fine-tunes to-ken routers with differentiable compression ratios. Com-pared to token reduction, these methods introduce explicit routing modules and typically optimize a dynamic com-pute graph. (4) Sparse/structured attention kernels. An-other line accelerates DiTs by replacing full attention with sparse attention patterns and hardware-efficient kernels, in-cluding training-free profiling-based sparse attention (e.g., Sparse VideoGen [32]) and trainable sparse attention (e.g., VSA [35]). These methods change the attention operator itself rather than reducing the token set, and can be com-plementary to token pruning/merging. (5) Weight-pruning and architecture editing . Beyond tokens, structured and un-structured pruning remove channels, heads, or even full DiT blocks, with brief recovery fine-tuning or lightweight cali-bration to retain quality [8]. Other work (e.g., grafting [4]) edits the architectures of pretrained DiTs to explore more efficient backbones under small compute budgets; these approaches are naturally complementary to token sparsity methods. 
+
+Positioning of CoReDiT. CoReDiT is a post-training 
+
+method that targets within-timestep redundancy in DiT la-tent grids: it performs structured token skipping guided by local spatial coherence, and reconstructs skipped tokens to preserve a full lattice for subsequent layers. This dif-fers from caching-based methods (e.g., FasterCache/ToCa) that exploit cross-timestep reuse , from dynamic routing ap-proaches (e.g., FlexDiT/DiffCR) that introduce learnable routing policies, and from token-merging methods (e.g., ToMe) that explicitly merge/unmerge tokens. Compared to purely training-free schemes, CoReDiT uses lightweight fine-tuning to learn block/timestep-specific pruning sched-ules to improve hardware-relevant speed/quality trade-offs. 
+
+## 3. Proposed Approach: CoReDiT 
+
+Fig. 1 summarizes the workflow of CoReDiT: In each trans-former block, we partition the input tokens (patch embed-dings) X into a retained set XR and a skipped set XS ac-cording to a spatial coherence score that quantifies local re-dundancy of each token; only XR participates in multi-head self-attention, producing YR = MHSA (XR) (Sec. 3.1). For skipped tokens XS , we synthesize their attention out-puts YS using nearby retained outputs YR with coherence-guided weights (Sec. 3.2). Importantly, attention among re-tained tokens remains global ; locality is used only for ef-ficient selection and reconstruction, not to impose a local-attention pattern. To determine which block to prune more aggressively, we learn a progressive, block-adaptive prun-Spatial     
+
+> Coherence
+> Score
+> Linear
+> Linear
+> Linear
+> MatMul
+> MatMul
+> Reconstruct
+> 𝑋
+> 𝑄
+> 𝐾
+> 𝑉
+> 𝑌 =(𝑌 !,𝑌 ")
+> 𝑋 "
+> 𝑌 "
+> 𝐴
+> 𝑋 !Discarded
+
+Figure 1. Workflow of CoReDiT. In each transformer block, input tokens X are partitioned into retained tokens XR and skipped to-kens XS using the proposed spatial coherence score that captures 
+
+local redundancy (Sec. 3.1). Only the retained tokens XR partici-pate in self-attention, reducing attention compute by skipping XS .We then reconstruct the missing attention outputs YS from nearby retained outputs YR via coherence-guided aggregation (Sec. 3.2), preserving a dense token lattice for subsequent blocks. Finally, we learn an adaptive pruning-ratio schedule via coherence-guided progressive pruning during lightweight fine-tuning (Sec. 3.3). 
+
+ing schedule during fine-tuning of a pretrained DiT, based on the estimated redundancy statistics (Sec. 3.3). 
+
+3.1. Token Selection 
+
+Motivation. A common token pruning criterion is at-tention score-based importance [12, 27]: Let A =
+
+softmax ( QK T
+
+> √dk
+
+) denote the attention matrix, where the column-sum in A measures the total attention a token receives. As Fig. 2a shows, pruning high-attention to-kens severely damages visual semantics (salient regions), whereas pruning low-attention tokens tends to be less harm-ful (background regions). However, computing global at-tention score A requires quadratic time and memory in to-ken count, which substantially offsets pruning gains. Our key observation is that low-saliency tokens typically exhibit 
+
+strong local redundancy : their embeddings are highly sim-ilar to spatially nearby tokens. Motivated by this, we de-sign an efficient selection score based on local similarity that avoids forming the full N × N attention matrix. 
+
+Spatial Coherence (SC). Given N tokens X = {xi}Ni=1 
+
+reshaped into a 2D spatial lattice H ×W (given N = HW ), we partition tokens into non-overlapping spatial grids of size w × w to estimate local (rather than global) similarity (Fig. 2b). For a token xi, define its spatial coherence (SC) as the mean cosine similarity to tokens in the same grid: 
+
+SC (xi) := 1
+
+|G (i)|
+
+X
+
+> j∈G (i)
+
+sim (xi, x j ) (1) where G(i) indexes tokens in the same grid as token xi.Specifically, we adopt cosine similarity sim (xi, x j ) =   
+
+> xTixj
+> || xi|| 2|| xj|| 2
+
+due to its computational efficiency and strong empirical performance in prior work [2]. Averaging within each grid normalizes SC values across blocks with differ-ent w, enabling comparisons in our block-adaptive schedule (Sec. 3.3). 
+
+Efficient computation and overhead. Naively comput-ing within-grid pairwise similarities costs O(w2N ) dot products. Instead, let ˆxi = xi 
+
+> || xi|| 2
+
+denote the normal-ized token embedding, and ˆgi = 1
+
+> |G (i)|
+
+P 
+
+> j∈G (i)
+
+ˆxj denote the mean normalized embeddings within the grid of token 
+
+xi. Then we can compute the spatial coherence score effi-ciently: 
+
+SC (xi) = 1
+
+|G (i)|
+
+X
+
+> j∈G (i)
+
+ˆxiT ˆxj = ˆxiT
+
+|G (i)|
+
+X
+
+> j∈G (i)
+
+ˆxj = ˆ xiT ˆgi.
+
+(2) Essentially, the spatial coherence is an inner product be-tween a token’s normalized embedding and the mean nor-malized embedding of its grid. Thus, SC can be computed with one reduction per grid plus one dot product per token, i.e., O(N ) time, which is linear in token count, regardless of grid size w.
+
+Selection rule. High SC indicates a token is well-explained by nearby patches (redundant), so we skip the top-K tokens by SC: 
+
+XS = Top K
+
+ {SC (xi)}Ni=1 
+
+ , XR = X \ XS (3) where K = r(l, s ) · N is determined by the pruning ratio 
+
+r(l, s ) for block l and timestep s. Empirically, as shown in Fig. 2b, high-SC tokens (brighter colors) concentrate in backgrounds, while boundaries/textures tend to have lower SC. Note that our proposed spatial coherence is not only used for token selection, but also utilized to update skipped tokens and guide our progressive pruning (Sec. 3.3). 
+
+3.2. Token Reconstruction 
+
+Motivation. Unlike ViTs for discriminative tasks (e.g., classification and object detection) where dropping tokens can be tolerated [15], generative DiTs require spatially co-herent representations at every block and timestep. Naively skipping tokens in MHSA can introduce discontinuities (in-consistent textures, distorted boundaries), as in Fig. 3a. We therefore reconstruct the missing attention outputs for skipped tokens using nearby retained outputs, preserving a dense lattice for subsequent blocks. Because our selec-tor preferentially skips redundant (high-SC) tokens, these tokens are particularly well-suited to reconstruction from neighbors. 
+
+Coherence-based reconstruction. Let XR be tokens re-tained for attention and YR = MHSA (XR). For a skipped token xi ∈ XS , a natural reconstruction is similarity-weighted aggregation over nearby retained tokens: 
+
+yi =
+
+P 
+
+> j∈S (i)
+
+sim (xi, x j ) yj
+
+P 
+
+> k∈S (i)
+
+sim (xi, x k) (4) (a) Token pruning with attention scores-based importance: removing tokens with the lowest scores (left) vs. the highest scores (right). 0.1  
+
+> 0.2
+> 0.3
+> 0.4
+> Spatial Coherence
+> (b)
+
+Example generated from PixArt-α-1024. Left: image with grid partition overlay. Right: computed SC scores over 64 × 64 tokens. Figure 2. Token selection motivation and visualization.  
+
+> (a)
+
+Simply skipping tokens  
+
+> (b)
+
+Visual artifacts on border 0.15  
+
+> 0.30
+> 0.45
+> 0.60
+> Spatial Coherence
+> (c)
+
+m-stride token re-tention Figure 3. Issues and proposed improvements. (a) Naively skip-ping tokens causes inconsistent textures, which can be mitigated by token reconstruction. (b) Using a fixed grid size during parti-tioning causes visual artifacts along grid borders; alternating grid sizes across consecutive blocks mitigates these artifacts. (c) m-stride token retention ensures at least one token is retained in each sub-grid to serve as a reconstruction anchor. 
+
+where S(i) denotes retained tokens in a local neighborhood of xi. Intuitively, the transformation result of a token should be more alike to that of a token with a higher similarity. However, computing sim (xi, x j ) per pair adds non-trivial overhead. 
+
+Approximate sim (xi, x j ) with SC (xj ). Skipped tokens are selected to have high coherence within their grid (Sec. 3.1), meaning ˆxi is close to the grid mean ˆgi. For-mally, define ϵi = ∥ ˆxi − ˆgi∥2; high-SC implies small ϵi.Then for any j ∈ G (i):
+
+sim (xi, x j ) = ˆ xiT ˆxj = ˆ giT ˆxj +( ˆ xi− ˆgi)T ˆxj = SC (xj )+ O(ϵi)
+
+(5) since ∥ ˆxj ∥2 = 1 bounds the residual term by ϵi. Thus, for the tokens we prune (high-SC, small ϵi), using SC (xj )
+
+yields a close approximation to similarity-based weights while avoiding pairwise similarity computation. We there-fore approximate Eq. (4) as: 
+
+yi ≈
+
+P 
+
+> j∈S (i)
+
+SC (xj ) yj
+
+P 
+
+> k∈S (i)
+
+SC (xk) . (6) 
+
+Sub-grids and complexity. If S(i) spans an entire grid, Eq. (6) may over-smooth and reduce spatial variation. We address this by subdividing each w × w grid into smaller 
+
+sub-grids of size ws × ws and defining S(i) as retained tokens in the same sub-grid as xi. This preserves local-ity at boundaries while keeping computation linear. Re-construction uses only local weighted sums over at most 
+
+w2 
+
+> s
+
+tokens per skipped token; with small ws (e.g., 3), the overhead is modest and scales linearly with token count, i.e., O(N ). Notably, this locality is only for reconstruction; MHSA among XR is still global, so CoReDiT does not im-pose a local attention pattern. 
+
+Micro designs. (1) Alternating grid size: Fixed grid boundaries can introduce border artifacts due to limited inter-grid mixing in reconstruction (Fig. 3b). We mitigate this by alternating grid sizes across blocks (e.g., for 64 × 64 
+
+tokens, alternate grid size 16 × 16 and 9 × 9), so boundaries shift and information can propagate across grid borders over consecutive blocks. This strategy enables cross-border in-formation flow over consecutive blocks, eliminating visible discontinuities. (2) m-stride token retention: In highly re-dundant regions, an entire sub-grid could be skipped, leav-ing no anchors for reconstruction. We therefore enforce re-taining at least one token per m positions ( m ≤ ws) by protecting a deterministic stride pattern. For block index 
+
+l, we retain tokens at spatial coordinates [i, j ] satisfying 
+
+(i + j − l) mod m = 0 by subtracting a large offset from their SC so they are never selected into XS .
+
+3.3. Pruning Ratio Schedule 
+
+Motivation. Token redundancy varies across both de-noising timesteps and transformer blocks. Fig. 4 depicts the evolution of spatial coherence across denoising steps and blocks. As shown, early steps display broadly ele-vated coherence (coarse structure), mid steps accentuate background redundancy, and late steps concentrate low-coherence pockets around edges and details [5, 34]; besides, within a timestep, different blocks exhibit different degrees of locality [4]. Motivated by this, we propose adapting the Denoising Steps            
+
+> Blocks
+> 14710 13 16 19 22 25 28
+> 19  17  15  13  11  9 7 5 3 1Figure 4. SC score evolution across transformer blocks and de-noising timesteps (brighter = higher SC) for generating the image in Fig. 2b. (a) Early timestep in the first block: representations are noise-dominated and exhibit high local redundancy. (b) Early timestep in the last block: weaker spatial structure and reduced lo-cality. (c) Late timestep in the first block: refined spatial details with clearer object-level coherence. (d) Late timestep in the last block: partial refinement with moderate spatial structure. These patterns indicate that redundancy varies with both timestep and block, motivating adaptive pruning ratios across depth and denois-ing phase.
+
+pruning ratio across blocks based on the statistics observed from real data. Specifically, we adopt progressive prun-ing during fine-tuning: gradually increasing pruning bud-gets while prioritizing blocks/timesteps with higher mea-sured redundancy. This progressive design also conforms to the empirical finding in [33]: Applying a large pruning ratio abruptly to a pretrained model can be hard to recover, while progressive pruning leads to better results at compa-rable pruning levels. 
+
+Coherence-based progressive pruning. Let K(l, s ) = 
+
+r(l, s ) · N denote the number of tokens pruned in block l at denoising step s. During fine-tuning, we increase K(l, s ) in increments of ∆k every T training iterations until reaching a target budget. To decide which block to increase next, we sort the SC scores in block l in descending order, {SC li}Ni=1 .We estimate the redundancy of the next ∆k candidate to-kens as: 
+
+∆Rl =
+
+> K(l,s )+∆ k
+
+X
+
+> i=K(l,s )+1
+
+SC li, (7) where ∆Rl is computed on the current minibatch. Every 
+
+T fine-tuning iterations, we assign the next increment ∆k
+
+to the block with largest ∆Rl, i.e., the block whose next pruned tokens are most redundant. 
+
+Timestep-wise decay. Pruning schedule should also re-flect denoising phase: Early timesteps are noise-dominated and set global structure (more redundancy), while late timesteps refine local details (less redundancy). Accord-ingly, we adopt more aggressive pruning early and reduce pruning late. In principle, one could learn a distinct pruning ratio for each denoising step. However, changing r(l, s )
+
+across steps changes how many tokens are retained and therefore modifies the execution path of MHSA and re-construction. Implementing a fully step-specific schedule would require instantiating (and often caching) many step-dependent computation graphs and associated buffers (e.g., on mobile NPUs), which increases memory footprint and engineering complexity. We therefore adopt a lightweight two-phase decay that captures the major redundancy shift from early (noise-dominated) to late (detail-refinement) de-noising, inspired by prior studies [5, 34], while requiring only two graphs per block and keeping memory overhead low: r(l, s ) = 
+
+(
+
+r(l), 1 ≤ s ≤ s0
+
+c · r(l), s0 < s ≤ S where r(l) is the base pruning ratio for block l, S is the total number of de-noising steps, s0 is the phase boundary, and 0 < c < 1 is the late-phase decay. 
+
+Empirical study. We demonstrate progressive pruning on PixArt-α-1024 by increasing the pruned tokens by ∆k =64 every T = 15 fine-tuning steps, with a per-block cap of 60% tokens. Fig. 5a shows that blocks differ substantially in redundancy at initialization. Consequently, the learned schedule (Fig. 5b) allocates higher pruning ratios to con-sistently redundant blocks while keeping low-redundancy blocks lightly pruned (e.g., blocks 5 and 7). As a result, CoReDiT rapidly reduces attention and end-to-end FLOPs (Fig. 6a) while maintaining generation quality (Fig. 6b). 
+
+## 4. Results 
+
+4.1. Experimental Setup 
+
+Models and training datasets. For text-to-image gener-ation, we apply CoReDiT to the official checkpoints of PixArt-α-1024 [6] and PixArt-Σ-2048 [7]. We perform lightweight fine-tuning with progressive pruning on the 10K synthetic dataset from CLEAR [17], where images are gen-erated by FLUX.1-dev [13]. For video generation, we apply CoReDiT to MagicDrive-V2 [9] and fine-tune the released third-stage checkpoint on nuScenes [3]. 1 3 5 7 9 11 13 15 17 19 21 23 25 27  
+
+> Block Index
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Redundancy Score
+> ×10 4(a)
+
+Block-wise redundancy of the next ∆k candidate pruned tokens at initialization (computed via Eq. (7)). 1k 3k 5k 7k 9k 11k 13k 15k  
+
+> Fine-Tuning Steps
+> 1
+> 3
+> 5
+> 7
+> 9
+> 11
+> 13
+> 15
+> 17
+> 19
+> 21
+> 23
+> 25
+> 27
+> Block Index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Pruning Ratio
+> (b)
+
+Learned pruning ratios over fine-tuning. Figure 5. Coherence-guided progressive pruning across trans-former blocks for PixArt-α-1024. Higher redundancy blocks re-ceive larger pruning ratios as fine-tuning proceeds. 0k 2k 4k 6k 8k 10k 12k 14k 16k  
+
+> Fine-Tuning Steps
+> 40%
+> 60%
+> 80%
+> 100%
+> Percent Retained (%)
+> Token Count
+> Attention FLOPs
+> End-to-End FLOPs
+> (a)
+
+Efficiency during progressive pruning: retained-token ratio, at-tention FLOPs, and end-to-end FLOPs. 0k 2k 4k 6k 8k 10k 12k 14k 16k   
+
+> Fine-Tuning Steps
+> 27
+> 28
+> 29
+> 30
+> FID
+> CoReDiT
+> PixArt--1024
+> (b)
+
+Quality during progressive pruning (FID). Red dot: pretrained baseline; blue curve: CoReDiT during fine-tuning. Figure 6. Progressive pruning dynamics for PixArt-α-1024: effi-ciency gains and quality trend over fine-tuning. 
+
+Progressive pruning configuration. For PixArt-α-1024, we fine-tune with batch size of 20 on a single Nvidia H100 GPU; forPixArt-Σ-2048, we use a total batch size of 40 across 8 Nvidia H100 GPUs. Unless otherwise stated, we update the pruning schedule every T = 15 fine-tuning steps by pruning additional ∆k = 64 tokens in the se-lected block, with a per-block pruning ratio cap of 60% ;we use a two-phase timestep schedule with decay c = 0 .25 
+
+and S − s0 = 5 , i.e., decay only in the final 5 denoising steps, as detailed in Sec. 3.3. Following CLEAR [17], we apply distillation during fine-tuning using both model out-put loss Lpred and the pruned-block loss Lattn : Ldistill =
+
+Lori + αL pred + βL attn , following their hyperparameters 
+
+α = β = 0 .5. For MagicDrive-V2, we prune only the 
+
+spatial transformer blocks, since they represent the main computational bottleneck, with a significantly higher token count than the temporal blocks. We fine-tune the third-stage checkpoint with SP size of 8 across 8 Nvidia H100 GPUs. 
+
+Evaluation metrics. For text-to-image generation, fol-lowing CLEAR [17], we evaluate on 10k caption-image pairs randomly sampled from MSCOCO 2014 valida-tion [16] using FID [10], CLIP text similarity [22], and In-ception Score (IS) [26]. For video generation, we report FVD [29], LPIPS [36], PSNR, and SSIM [30] for video quality; we also evaluate conditional alignment using BEV-Former [14] with mAP and mIoU. 
+
+4.2. Main Results: PixArt-α-1024 
+
+Quality metrics. Tab. 1 compares PixArt-α-1024 with representative token-reduction and caching baselines [1, 8, 20, 37]. At r = 40% average pruning, CoReDiT re-duces self-attention FLOPs by 48% (24% total FLOPs) while maintaining quality close to the baseline (FID 28.7 vs. 27.3). Notably, CLIP and IS remain competitive, indicating that semantic alignment is preserved under substantial at-tention compute reduction. With distillation, CoReDiT fur-ther narrows the FID gap (27.4) with only minor changes in IS. Fig. 7 shows that CoReDiT preserves global semantics and fine details without introducing noticeable artifacts at 40% pruning. 
+
+Efficiency and latency. Tab. 2 reports both self-attention and end-to-end latency on Nvidia H100 GPUs under two attention backends: (i) highly-optimized kernels XFORM -
+
+> ERS
+
+.MEMORY EFFICIENT ATTENTION (Efficient Attn) and (ii) PyTorch native attention implementations (Native Attn). With 45% pruning, CoReDiT reduces self-attention latency by 26% under the efficient attention backend, but end-to-end latency improves by 11% because non-attention com-ponents (e.g., FFN/MLP, I/O, and kernel launch overheads) remain unchanged. Under native attention, latency im-provements track the reduced quadratic attention cost more closely (37% in self-attention and 25% end-to-end). Beyond GPU inference, Fig. 8 shows per-block latency on Qualcomm Snapdragon 8 Elite NPUs. At 50% prun-ing, CoReDiT achieves up to 1.72 × per-block speedup at Model FLOPs Reduction Image Quality Self-Attn End-to-end FID ↓ CLIP ↑ IS ↑                                                                     
+
+> PixArt-α-1024 --27.3 31.6 37.77 ToMeSD (25% ratio) [1] --7% 174.6 30.2 11.68 DiffPruning [8] --9% 34.6 32.0 -EcoDiff [37] --9% 32.2 32.0 -DeepCache (N=2) [20] --25% 31.6 33.1 37.44 CoReDiT ( r= 40% )-48% -24% 28.7 32.1 37.96 CoReDiT ( r= 40% ) + distillation -48% -24% 27.4 31.9 36.85 CoReDiT ( r= 45% )-55% -28% 29.3 31.9 36.67 CoReDiT ( r= 45% ) + distillation -55% -28% 28.5 31.9 36.65 Table 1. Results on PixArt-α-1024, where rdenotes the average pruning ratio (across blocks and timesteps) in CoReDiT.
+> Model FLOPs Reduction Latency (Efficient Attn) Latency (Native Attn) Self-Attn End-to-end Self-Attn End-to-end Self-Attn End-to-end
+> PixArt-α-1024 --0.68s 1.68s 2.16s 3.17s CoReDiT ( r= 45% )-55% -28% 0.50s (-26%) 1.50s (-11%) 1.36s (-37%) 2.38s (-25%) Table 2. Comparison of FLOPs and latency on Nvidia H100 GPUs, measured with batch size 64.
+
+1600 resolution. Notably, the baseline PixArt-α encoun-ters out-of-memory (OOM) error at resolutions above 1600, whereas CoReDiT runs up to 1920 resolution and matches the baseline latency at 1600. These results indicate that structured attention skipping can provide not only runtime gains but also meaningful memory headroom for higher-resolution deployment. 
+
+4.3. High Resolution: PixArt-Σ-2048 
+
+We apply CoReDiT to PixArt-Σ-2048 to evaluate high-resolution image generation. As shown in Tab. 3, at an aver-age pruning level of 23%, CoReDiT reduces self-attention FLOPs by 32% (25% total FLOPs), translating into a 22% reduction in self-attention latency and a 15% end-to-end la-tency reduction (batch size 32, memory-efficient attention). Quality remains high: CLIP remains the same, while FID and IS exhibit only a modest drop (26.0 vs. 28.0 and 37.49 vs. 36.52, respectively). We attribute part of this gap to a resolution-domain mismatch: our fine-tuning dataset is at 1K (upscaled to 2K) while evaluation uses native 2K images. Upscaled 1K data can under-represent 2K high-frequency details and long-range structures; fine-tuning on native 2K images is expected to narrow the remaining qual-ity gap. 
+
+4.4. Video Generation: MagicDrive-V2 
+
+We extend CoReDiT, which is broadly applicable across vision tasks and agnostic to input modalities, to the state-of-the-art video generation DiT for autonomous driving -MagicDrive-V2 [9]. We prune only spatial transformer blocks and achieve a 39% self-attention FLOPs reduc-tion (8% total FLOPs at the full-model level) as shown in Tab. 4. Despite this reduction, CoReDiT preserves strong per-frame quality (PSNR, LPIPS, and SSIM remain clost to the baseline) and maintains conditional aligment, as mea-sured by BEVFormer mAP and mIoU. Currently, CoReDiT is applied only to spatial trans-former blocks in which each frame is processed indepen-dently. Consequently, we observed a drop in FVD, which reflects temporal consistency in the generated video. Future work will focus on integrating temporal consistency objec-tives, such as cross-frame coherence, to mitigate this limita-tion. We expect such enhancements will improve FVD per-formance while maintaining the computational efficiency demonstrated by our current approach. 
+
+4.5. Ablation Study 
+
+Tab. 5 presents our ablation studies to evaluate key compo-nents of CoReDiT on PixArt-α-1024 (all with distillation): (1) Random Token Selection. To evaluate the importance of spatial-coherence-based token selection, we conduct exper-iments of randomly sampling tokens to skip in each block; this yields extremely poor quality (FID 644.5 at 23% prun-ing), proving that spatial-coherence based selection is ef-fective. (2) Skipping Tokens without Reconstruction. To il-lustrate the contribution of reconstruction, we disable it and simply skip selected tokens. At 30% pruning ratio, FID de-grades to 30.4, indicating that reconstruction is necessary to preserve semantic fidelity. (3) Uniform Pruning then Fine-tuning. To justify the effectiveness of progressive pruning, we apply a uniform 50% per-block pruning to the pretrained model and then fine-tune; this results in worse FID 32.3 at average 40 .6% pruning, highlighting the advantage of pro-gressive, block-adaptive pruning. (a) Pretrained PixArt-α-1024 model [6].  
+
+> (b)
+
+Proposed CoReDiT with 40% FLOPs Pruning. The semantics are preserved and no additional artifacts. Figure 7. Qualitative comparison to PixArt-α-1024. 
+
+Model (ratio) FLOPs Reduction Latency Image Quality Self-Attn End-to-end Self-Attn End-to-end FID ↓ CLIP ↑ IS ↑
+
+PixArt-Σ-2048 - - 4.62s 6.68s 26.0 31.4 37.49 CoReDiT ( r = 23% )+ distillation -32% -25% 3.61s (-22%) 5.67s (-15%) 28.0 31.4 36.52 
+
+Table 3. Results on PixArt-Σ-2048, with latency measured on Nvidia H100 GPUs using Efficient Attention. 
+
+Model FLOPs Reduction Video Quality Cond. Alignment Self-Attn End-to-end PSNR ↑ LPIPS ↓ SSIM ↑ FVD ↓ mAP ↑ mIoU ↑
+
+MagicDrive-V2 - - 14.28 0.422 0.372 107.8 18.4% 21.5% CoReDiT ( r = 26% ) -39% -8% 14.25 0.424 0.378 119.8 18.1% 21.2% Table 4. Video generation results on video quality and conditional alignment via 3D object detection. 1024  
+
+> 1152
+> 1280
+> 1408
+> 1536
+> 1600
+> 1664
+> 1792
+> 1920
+> Input Resolution
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> Latency (ms)
+> CoReDiT
+> PixArt-
+> PixArt-OOM
+
+Figure 8. Per-block latency comparison on Qualcomm Snap-dragon 8 Elite NPUs. OOM: out-of-memory. 
+
+## 5. Conclusion 
+
+We introduce CoReDiT, a token pruning framework for DiTs that exploits spatial coherence as a practical signal of local redundancy. CoReDiT combines (1) an efficient pre-attention selector that skips high-coherence tokens, (2) a coherence-guided reconstruction operator that preserves a dense token lattice and mitigates pruning artifacts, and (3) a progressive, block-adaptive pruning schedule that al-locates pruning where redundancy is highest across blocks 
+
+Experiment Image Quality FID ↓ CLIP ↑ IS ↑
+
+PixArt-α-1024 27.3 31.6 37.77 CoReDiT ( r = 45% ) 28.5 31.9 36.65 Random selection ( r = 23% ) 644.5 21.5 1.00 Disable reconstruction ( r = 30% ) 30.4 31.7 34.20 Uniform ratio ( r = 41% ) 32.3 31.5 33.68 Table 5. Ablation study on PixArt-α-1024, with distillation in all experiments. 
+
+and denoising steps. Experiments on state-of-the-art image and video generators demonstrate substantial reductions in self-attention compute and measurable end-to-end speedups on both cloud GPUs and mobile NPUs, while maintain-ing strong perceptual quality and conditional alignment. In future work, we plan to (1) further reduce non-attention overhead by extending efficiency to FFN/MLP components, and (2) improve video temporal consistency by incorporat-ing cross-frame coherence objectives and pruning strategies that explicitly model temporal redundancy. References 
+
+[1] Daniel Bolya and Judy Hoffman. Token merging for fast sta-ble diffusion. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 4599–4603, 2023. 2, 6, 7 [2] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. To-ken merging: Your vit but faster. arXiv preprint arXiv:2210.09461 , 2022. 1, 3 [3] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Gi-ancarlo Baldan, and Oscar Beijbom. nuscenes: A multi-modal dataset for autonomous driving. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11621–11631, 2020. 5 [4] Keshigeyan Chandrasegaran, Michael Poli, Daniel Y Fu, Dongjun Kim, Lea M Hadzic, Manling Li, Agrim Gupta, Stefano Massaroli, Azalia Mirhoseini, Juan Carlos Niebles, et al. Exploring diffusion transformer designs via grafting. 
+
+arXiv preprint arXiv:2506.05340 , 2025. 2, 4 [5] Shuning Chang, Pichao Wang, Jiasheng Tang, and Yi Yang. Flexdit: Dynamic token density control for diffusion trans-former. arXiv preprint arXiv:2412.06028 , 2024. 2, 4, 5 [6] Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo, Huchuan Lu, et al. Pixart-α: Fast training of diffusion transformer for photorealistic text-to-image synthesis. arXiv preprint arXiv:2310.00426 , 2023. 5, 8 [7] Junsong Chen, Chongjian Ge, Enze Xie, Yue Wu, Lewei Yao, Xiaozhe Ren, Zhongdao Wang, Ping Luo, Huchuan Lu, and Zhenguo Li. Pixart-σ: Weak-to-strong training of diffusion transformer for 4k text-to-image generation. In 
+
+European Conference on Computer Vision , pages 74–91. Springer, 2024. 5 [8] Gongfan Fang, Xinyin Ma, and Xinchao Wang. Structural pruning for diffusion models. In Advances in Neural Infor-mation Processing Systems , 2023. 2, 6, 7 [9] Ruiyuan Gao, Kai Chen, Bo Xiao, Lanqing Hong, Zhen-guo Li, and Qiang Xu. Magicdrive-v2: High-resolution long video generation for autonomous driving with adaptive con-trol. arXiv preprint arXiv:2411.13807 , 2024. 5, 7 [10] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilib-rium. Advances in neural information processing systems ,30, 2017. 6 [11] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising dif-fusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. 2 [12] Sehoon Kim, Sheng Shen, David Thorsley, Amir Gholami, Woosuk Kwon, Joseph Hassoun, and Kurt Keutzer. Learned token pruning for transformers. In Proceedings of the 28th ACM SIGKDD conference on knowledge discovery and data mining , pages 784–794, 2022. 1, 3 [13] Black Forest Labs. Flux. https://github.com/ black-forest-labs/flux , 2024. 5 [14] Zhiqi Li, Wenhai Wang, Hongyang Li, Enze Xie, Chong-hao Sima, Tong Lu, Yu Qiao, and Jifeng Dai. Bevformer: Learning bird’s-eye-view representation from multi-camera images via spatiotemporal transformers. arXiv preprint arXiv:2203.17270 , 2022. 6 [15] Youwei Liang, Chongjian Ge, Zhan Tong, Yibing Song, Jue Wang, and Pengtao Xie. Not all patches are what you need: Expediting vision transformers via token reorganiza-tions. arXiv preprint arXiv:2202.07800 , 2022. 3 [16] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ ar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In 
+
+European conference on computer vision , pages 740–755. Springer, 2014. 6 [17] Songhua Liu, Zhenxiong Tan, and Xinchao Wang. Clear: Conv-like linearization revs pre-trained diffusion transform-ers up. arXiv preprint arXiv:2412.16112 , 2024. 5, 6 [18] Wenbo Lu, Shaoyi Zheng, Yuxuan Xia, and Shengjie Wang. Toma: Token merge with attention for diffusion models. 
+
+arXiv preprint arXiv:2509.10918 , 2025. 2 [19] Zhengyao Lv, Chenyang Si, Junhao Song, Zhenyu Yang, Yu Qiao, Ziwei Liu, and Kwan-Yee K Wong. Fastercache: Training-free video diffusion model acceleration with high quality. arXiv preprint arXiv:2410.19355 , 2024. 2 [20] Xinyin Ma, Gongfan Fang, and Xinchao Wang. Deepcache: Accelerating diffusion models for free. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 15762–15772, 2024. 6, 7 [21] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF inter-national conference on computer vision , pages 4195–4205, 2023. 1, 2 [22] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervi-sion. In International conference on machine learning , pages 8748–8763. PmLR, 2021. 6 [23] Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. Dynamicvit: Efficient vision transformers with dynamic token sparsification. Advances in neural information processing systems , 34:13937–13949, 2021. 1 [24] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj¨ orn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. 2 [25] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmen-tation. In International Conference on Medical image com-puting and computer-assisted intervention , pages 234–241. Springer, 2015. 2 [26] Tim Salimans, Ian Goodfellow, Wojciech Zaremba, et al. Im-proved techniques for training gans. Advances in neural in-formation processing systems , 29, 2016. 6 [27] Manish Kumar Singh, Rajeev Yasarla, Hong Cai, Mingu Lee, and Fatih Porikli. Tosa: Token selective atten-tion for efficient vision transformers. arXiv preprint arXiv:2406.08816 , 2024. 1, 3 [28] Ethan Smith, Nayan Saxena, and Aninda Saha. Todo: Token downsampling for efficient generation of high-resolution im-ages. arXiv preprint arXiv:2402.13573 , 2024. 2 [29] Thomas Unterthiner, Sjoerd Van Steenkiste, Karol Kurach, Raphael Marinier, Marcin Michalski, and Sylvain Gelly. To-wards accurate generative models of video: A new metric & challenges. arXiv preprint arXiv:1812.01717 , 2018. 6 [30] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Si-moncelli. Image quality assessment: from error visibility to structural similarity. IEEE transactions on image processing ,13(4):600–612, 2004. 6 [31] Felix Wimbauer, Bichen Wu, Edgar Schoenfeld, et al. Cache me if you can: Accelerating diffusion models through block caching. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 6211– 6220, 2024. 2 [32] Haocheng Xi, Shuo Yang, Yilong Zhao, Chenfeng Xu, Muyang Li, Xiuyu Li, Yujun Lin, Han Cai, Jintao Zhang, Dacheng Li, et al. Sparse videogen: Accelerating video diffusion transformers with spatial-temporal sparsity. arXiv preprint arXiv:2502.01776 , 2025. 2 [33] Huanrui Yang, Hongxu Yin, Maying Shen, Pavlo Molchanov, Hai Li, and Jan Kautz. Global vision trans-former pruning with hessian-aware saliency. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18547–18557, 2023. 5 [34] Haoran You, Connelly Barnes, Yuqian Zhou, Yan Kang, Zhenbang Du, Wei Zhou, Lingzhi Zhang, Yotam Nitzan, Xi-aoyang Liu, Zhe Lin, et al. Layer-and timestep-adaptive dif-ferentiable token compression ratios for efficient diffusion transformers. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 18072–18082, 2025. 1, 2, 4, 5 [35] Peiyuan Zhang, Yongqi Chen, Haofeng Huang, Will Lin, Zhengzhong Liu, Ion Stoica, Eric Xing, and Hao Zhang. Vsa: Faster video diffusion with trainable sparse attention. 
+
+arXiv preprint arXiv:2505.13389 , 2025. 2 [36] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shecht-man, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE conference on computer vision and pattern recogni-tion , pages 586–595, 2018. 6 [37] Yang Zhang, Er Jin, Yanfei Dong, Ashkan Khakzar, Philip Torr, Johannes Stegmaier, and Kenji Kawaguchi. Effort-less efficiency: Low-cost pruning of diffusion models. arXiv preprint arXiv:2412.02852 , 2024. 6, 7 [38] Wangbo Zhao, Yizeng Han, Jiasheng Tang, Kai Wang, Yib-ing Song, Gao Huang, Fan Wang, and Yang You. Dynamic diffusion transformer. ICLR , 2025. 2 [39] Chang Zou, Xuyang Liu, Ting Liu, Siteng Huang, and Lin-feng Zhang. Accelerating diffusion transformers with token-wise feature caching. arXiv preprint arXiv:2410.05317 ,2024. 2
