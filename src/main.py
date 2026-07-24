@@ -21,7 +21,7 @@ except Exception:  # pragma: no cover
 
 SRC_DIR = os.path.dirname(__file__)
 ROOT_DIR = os.path.abspath(os.path.join(SRC_DIR, ".."))
-CONFIG_FILE = os.path.join(ROOT_DIR, "config.yaml")
+CONFIG_FILE = os.getenv("DPR_CONFIG_FILE") or os.path.join(ROOT_DIR, "config.yaml")
 LONG_RANGE_DAYS_THRESHOLD = 10
 MAIN_DEFAULT_DAYS = 9
 SKIMS_FETCH_DAYS_THRESHOLD = 11
@@ -576,9 +576,11 @@ def main() -> None:
     profile_tag = str(args.profile_tag or os.getenv("DPR_FILTER_PROFILE_TAG") or "").strip()
     if profile_tag:
         os.environ["DPR_FILTER_PROFILE_TAG"] = profile_tag
+        os.environ["DPR_INCLUDE_CONFERENCE_ONLY_PROFILES"] = "1"
         print(f"[INFO] profile_tag={profile_tag}", flush=True)
     else:
         os.environ.pop("DPR_FILTER_PROFILE_TAG", None)
+        os.environ.pop("DPR_INCLUDE_CONFERENCE_ONLY_PROFILES", None)
     fetch_mode = (args.fetch_mode or "auto").strip().lower()
     if fetch_mode == "skims":
         use_skims_mode = True
@@ -676,7 +678,7 @@ def main() -> None:
     if trace_ids:
         print_trace_retrieval("RRF", rrf_path, trace_ids)
     run_step(
-        "Step 3 - Local Rerank",
+        "Step 3 - Rerank",
         [python, os.path.join(SRC_DIR, "3.rank_papers.py")],
     )
     if trace_ids:

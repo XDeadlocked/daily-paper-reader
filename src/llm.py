@@ -14,6 +14,19 @@ import requests
 """
 
 # 单次实验级别的全局 token 统计（需由调用方在实验开始前手动 reset）
+DEFAULT_MAX_OUTPUT_TOKENS = 393216
+
+
+def resolve_max_output_tokens(default: int = DEFAULT_MAX_OUTPUT_TOKENS) -> int:
+    raw = os.getenv("DPR_LLM_MAX_OUTPUT_TOKENS") or os.getenv("LLM_MAX_OUTPUT_TOKENS")
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return default
+
+
 GLOBAL_TOKENS = {
     'prompt': 0,    # 提示词（prompt）部分 token
     'thinking': 0,  # 推理/思维链部分 token（reasoning_tokens）
@@ -81,7 +94,7 @@ class LLMClient:
         # 实例级别的累计耗时（秒）
         self._cum_time_seconds: float = 0.0
         self.kwargs: Dict[str, Any] = {
-            'max_tokens': 4000,  # 更安全的默认值，避免超过部分模型上限
+            'max_tokens': resolve_max_output_tokens(),
             'temperature': 0.6,
             'top_p': 0.3,
             'top_k': 50,
@@ -141,6 +154,20 @@ class LLMClient:
         except Exception:
             pass
         return 'llm'
+
+    @staticmethod
+    def _is_authentication_error(exc: Exception) -> bool:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code in (401, 403):
+            return True
+        message = str(exc or "").lower()
+        return any(token in message for token in (
+            "authentication fails",
+            "invalid api key",
+            "authorization required",
+            "unauthorized",
+        ))
 
     @staticmethod
     def _extract_text_content(value: Any) -> str:
@@ -499,10 +526,11 @@ class LLMClient:
         if response_format is not None:
             payload['response_format'] = response_format
 
-        # 对输出 token 上限做保护（部分模型 4k 上限，统一取不超过 10000）
+        # 对输出 token 上限做保护；DeepSeek V4 支持更长输出，默认按 384K 预留。
         try:
-            if isinstance(payload.get('max_tokens'), int) and payload['max_tokens'] > 10000:
-                payload['max_tokens'] = 10000
+            max_output_tokens = resolve_max_output_tokens()
+            if isinstance(payload.get('max_tokens'), int) and payload['max_tokens'] > max_output_tokens:
+                payload['max_tokens'] = max_output_tokens
         except Exception:
             pass
 
@@ -616,6 +644,19 @@ class LLMClient:
 
             except Exception as e:
                 last_error = e
+                if self._is_authentication_error(e):
+                    print(
+                        "LLM 鉴权失败：当前 API Key 无效或无权限，请在本地配置中更新 DeepSeek API Key 后重试。"
+                    )
+                    if hasattr(e, "response") and e.response is not None:
+                        try:
+                            print("错误详情(JSON):", e.response.json())
+                        except ValueError:
+                            try:
+                                print("错误详情(TEXT):", e.response.text[:500])
+                            except Exception:
+                                pass
+                    raise
                 if response_format is not None and self._is_structured_output_unsupported_error(e):
                     raise
                 if attempt_idx < len(request_bases):
@@ -743,10 +784,10 @@ def parse_provider_model(model_str: str) -> Tuple[str, str]:
 
     规则：第一个 '/' 之前为提供商（大小写不敏感），之后的全部为模型名（大小写敏感，允许包含 '/').
     示例：
-    - "deepseek/deepseek-chat" -> ("deepseek", "deepseek-chat")
+    - "deepseek/deepseek-v4-flash" -> ("deepseek", "deepseek-v4-flash")
     """
     if not isinstance(model_str, str) or '/' not in model_str:
-        raise ValueError("缺少模型提供商：请使用 'deepseek/model' 格式，例如 'deepseek/deepseek-chat'")
+        raise ValueError("缺少模型提供商：请使用 'deepseek/model' 格式，例如 'deepseek/deepseek-v4-flash'")
     provider, model = model_str.split('/', 1)
     return provider.lower(), model
 

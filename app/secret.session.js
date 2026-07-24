@@ -2,6 +2,7 @@
 (function () {
   const STORAGE_KEY_MODE = 'dpr_secret_access_mode_v1'; // 已不再使用，仅保留兼容
   const STORAGE_KEY_PASS = 'dpr_secret_password_v1';
+  const STORAGE_KEY_LOCAL_SECRET = 'dpr_local_secret_private_v1';
   const SECRET_FILE_URL = 'secret.private';
   const SECRET_OVERLAY_ANIMATION_MS = 280;
   const FORCE_GUEST_DOMAIN_TOKEN = 'ziwenhahaha';
@@ -11,6 +12,107 @@
     return normalized.includes(FORCE_GUEST_DOMAIN_TOKEN);
   };
   const FORCE_GUEST_MODE = isForceGuestDomain(window && window.location && window.location.hostname);
+  const isLocalDebugHost = () => {
+    const host = String((window.location && window.location.hostname) || '').toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  };
+
+  const getCurrentDirectoryUrl = () => {
+    const loc = window.location || {};
+    const origin = String(loc.origin || '');
+    const pathname = String(loc.pathname || '/');
+    if (!origin) return '';
+    const dirPath = pathname.endsWith('/')
+      ? pathname
+      : pathname.includes('.')
+        ? pathname.replace(/\/[^/]*$/, '/')
+        : `${pathname}/`;
+    return `${origin}${dirPath}`;
+  };
+
+  const getStaticSecretFileUrl = () => {
+    const currentDir = getCurrentDirectoryUrl();
+    return currentDir ? new URL(SECRET_FILE_URL, currentDir).href : SECRET_FILE_URL;
+  };
+
+  async function fetchStaticSecretPayload() {
+    const url = getStaticSecretFileUrl();
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      if (!resp || !resp.ok) {
+        throw new Error(`HTTP ${resp ? resp.status : 0} ${url}`);
+      }
+      return await resp.json();
+    } catch (e) {
+      console.warn('[SECRET] 未能读取静态 secret.private：', e);
+    }
+    return null;
+  }
+
+  const getLocalApiUrl = (path) => {
+    const base = String(window.DPR_LOCAL_API_BASE || '').trim().replace(/\/$/, '');
+    if (base) return `${base}${path}`;
+    const protocol = String((window.location && window.location.protocol) || 'http:');
+    const hostname = String((window.location && window.location.hostname) || '127.0.0.1');
+    return `${protocol}//${hostname}:8567${path}`;
+  };
+
+  function loadLocalSecretPayload() {
+    if (!isLocalDebugHost()) return null;
+    try {
+      if (!window.localStorage) return null;
+      const raw = window.localStorage.getItem(STORAGE_KEY_LOCAL_SECRET);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.payload ? parsed.payload : parsed;
+    } catch (e) {
+      console.error('[SECRET] 读取本地 secret.private 失败：', e);
+      return null;
+    }
+  }
+
+  function saveLocalSecretPayload(payload) {
+    if (!isLocalDebugHost()) return false;
+    try {
+      if (!window.localStorage) return false;
+      window.localStorage.setItem(
+        STORAGE_KEY_LOCAL_SECRET,
+        JSON.stringify({ payload, savedAt: new Date().toISOString() }),
+      );
+      return true;
+    } catch (e) {
+      console.error('[SECRET] 保存本地 secret.private 失败：', e);
+      return false;
+    }
+  }
+
+  async function saveLocalSecretPayloadToDisk(payload, secretPlain) {
+    if (!isLocalDebugHost()) return false;
+    const body = { payload };
+    if (secretPlain && typeof secretPlain === 'object') {
+      body.secret = secretPlain;
+    }
+    const res = await fetch(getLocalApiUrl('/api/local/secret'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error((data && data.error) || `写入本地 secret.private 失败：HTTP ${res.status}`);
+    }
+    saveLocalSecretPayload(payload);
+    return true;
+  }
+
+  async function loadLocalSecretPayloadPreferred(staticPayload) {
+    if (staticPayload) return staticPayload;
+    if (!isLocalDebugHost()) return null;
+    return loadLocalSecretPayload();
+  }
 
   const setAccessMode = (mode, detail) => {
     window.DPR_ACCESS_MODE = mode;
@@ -38,6 +140,13 @@
 
   const openSecretOverlay = (overlayEl) => {
     if (!overlayEl) return;
+    try {
+      if (typeof window.DPRHideInitialSplash === 'function') {
+        window.DPRHideInitialSplash();
+      }
+    } catch {
+      // ignore
+    }
     if (secretOverlayHideTimer) {
       clearTimeout(secretOverlayHideTimer);
       secretOverlayHideTimer = null;
@@ -199,18 +308,29 @@
       const defaults = Array.isArray(utils.DEFAULT_DEEPSEEK_CHAT_MODELS)
         ? utils.DEFAULT_DEEPSEEK_CHAT_MODELS
         : [
-            'deepseek-chat',
-            'deepseek-reasoner',
+            'deepseek-v4-flash',
+            'deepseek-v4-pro',
           ];
     return sanitizeModelList(defaults, 99);
   };
   const RERANKER_PROFILES = [
+    {
+      value: 'public-zwwen-rerank',
+      label: '公益 Rerank（zwwen.online）',
+      provider: 'public_zwwen',
+      model: 'Qwen/Qwen3-Reranker-0.6B',
+      baseUrl: 'https://zwwen.online/rerank',
+      requiresApiKey: false,
+      testApiKey: '26932a86d772001af60cbd9d2c162bfda3a90e094f797f3d6806f6077478b27a',
+      note: '默认推荐；使用 zwwen.online 公益 rerank 服务。',
+    },
     {
       value: 'local-qwen3-0.6b',
       label: '本地 Qwen3-Reranker-0.6B',
       provider: 'local',
       model: 'Qwen/Qwen3-Reranker-0.6B',
       baseUrl: '',
+      requiresApiKey: false,
       note: '无需 reranker API Key，GitHub Actions 在 CPU 上加载本地模型。',
     },
     {
@@ -219,19 +339,12 @@
       provider: 'siliconflow',
       model: 'Qwen/Qwen3-Reranker-0.6B',
       baseUrl: 'https://api.siliconflow.cn/v1/rerank',
+      requiresApiKey: true,
       note: '速度快、成本低；需要硅基流动 API Key。',
-    },
-    {
-      value: 'blt-qwen3-4b',
-      label: 'BLT Qwen3-Reranker-4B',
-      provider: 'blt',
-      model: 'qwen3-reranker-4b',
-      baseUrl: '',
-      note: '可复用上方 BLT API Key；如有独立 rerank 服务，也可以单独填写。',
     },
   ];
   const DEFAULT_RERANKER_PROFILE =
-    RERANKER_PROFILES.find((item) => item.value === 'blt-qwen3-4b') ||
+    RERANKER_PROFILES.find((item) => item.value === 'public-zwwen-rerank') ||
     RERANKER_PROFILES[0];
   const findRerankerProfile = (value) => {
     const normalized = normalizeText(value || '').toLowerCase().replace(/_/g, '-');
@@ -247,7 +360,7 @@
     const model = normalizeText(reranker.model || '');
     const inferredProfile =
       reranker.profile ||
-      (provider === 'blt' || model === 'qwen3-reranker-4b' ? 'blt-qwen3-4b' : '');
+      '';
     const profile = findRerankerProfile(inferredProfile);
     return {
       profile: profile.value,
@@ -380,6 +493,19 @@
     return results;
   }
 
+  async function readRepoOwnerJson() {
+    const candidates = ['.repo-owner.json', 'docs/.repo-owner.json', '/.repo-owner.json'];
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && data.owner && data.repo) return data;
+      } catch { }
+    }
+    return null;
+  }
+
   // 使用 GitHub Token 推断目标仓库 owner/repo（与订阅面板保持一致的推断规则）
   async function detectGithubRepoFromToken(token) {
     const userRes = await fetch('https://api.github.com/user', {
@@ -405,35 +531,48 @@
       repoOwner = login;
       repoName = 'daily-paper-reader';
     } else {
-      const githubPagesMatch = currentUrl.match(
-        /https?:\/\/([^.]+)\.github\.io\/([^\/]+)/,
-      );
-      if (githubPagesMatch) {
-        repoOwner = githubPagesMatch[1];
-        repoName = githubPagesMatch[2];
-      } else {
-        // 其它域名：尝试从 config.yaml 中读取
-        try {
-          const res = await fetch('/config.yaml');
-          if (res.ok) {
-            const text = await res.text();
-            const yaml =
-              window.jsyaml || window.jsYaml || window.jsYAML || window.jsYml;
-            if (yaml && typeof yaml.load === 'function') {
-              const cfg = yaml.load(text) || {};
-              const githubCfg = (cfg && cfg.github) || {};
-              if (githubCfg && typeof githubCfg === 'object') {
-                if (githubCfg.owner) repoOwner = String(githubCfg.owner);
-                if (githubCfg.repo) repoName = String(githubCfg.repo);
-              }
-            }
-          }
-        } catch {
-          // 忽略 config.yaml 读取失败，后续用兜底逻辑
+      const repoMeta = await readRepoOwnerJson();
+      if (repoMeta) {
+        repoOwner = repoMeta.owner;
+        repoName = repoMeta.repo;
+        if (login && repoMeta.owner && login.toLowerCase() !== repoMeta.owner.toLowerCase()) {
+          throw new Error(
+            `Token 用户 ${login} 与站点所有者 ${repoMeta.owner} 不一致`,
+          );
         }
+      } else {
+        const githubPagesMatch = currentUrl.match(
+          /https?:\/\/([^.]+)\.github\.io\/([^\/]+)/,
+        );
+        if (githubPagesMatch) {
+          repoOwner = githubPagesMatch[1];
+          repoName = githubPagesMatch[2];
+        } else {
+          try {
+            const candidates = ['config.yaml', 'docs/config.yaml', '../config.yaml', '/config.yaml'];
+            for (const cfgUrl of candidates) {
+              try {
+                const res = await fetch(cfgUrl, { cache: 'no-store' });
+                if (!res.ok) continue;
+                const text = await res.text();
+                const yaml =
+                  window.jsyaml || window.jsYaml || window.jsYAML || window.jsYml;
+                if (yaml && typeof yaml.load === 'function') {
+                  const cfg = yaml.load(text) || {};
+                  const githubCfg = (cfg && cfg.github) || {};
+                  if (githubCfg && typeof githubCfg === 'object') {
+                    if (githubCfg.owner) repoOwner = String(githubCfg.owner);
+                    if (githubCfg.repo) repoName = String(githubCfg.repo);
+                    if (repoOwner || repoName) break;
+                  }
+                }
+              } catch { }
+            }
+          } catch { }
 
-        if (!repoOwner) {
-          repoOwner = login;
+          if (!repoOwner) {
+            repoOwner = login;
+          }
         }
       }
     }
@@ -449,6 +588,18 @@
   // 可选 progress 回调用于在 UI 中展示上传进度：progress(currentIndex, total, secretName)
   async function saveSummarizeSecretsToGithub(token, options, progress) {
     try {
+      if (!window.sodium && typeof window.DPRLoadAssets === 'function') {
+        await window.DPRLoadAssets([
+          {
+            type: 'script',
+            path: 'app/vendor/libsodium/0.7.10/dist/modules/libsodium.js',
+          },
+          {
+            type: 'script',
+            path: 'app/vendor/libsodium-wrappers/0.7.9/dist/modules/libsodium-wrappers.js',
+          },
+        ]);
+      }
       // 等待 libsodium-wrappers 就绪（通过 CDN 注入全局 sodium）
       if (!window.sodium || !window.sodium.ready) {
         if (
@@ -542,13 +693,7 @@
       const secretNameDeepSeekBase = 'DEEPSEEK_BASE_URL';
       const secretNameDeepSeekModel = 'DEEPSEEK_MODEL';
       const secretNameLlmPrimaryBase = 'LLM_PRIMARY_BASE_URL';
-      const secretNameBltSummaryModel = 'BLT_SUMMARY_MODEL';
-      const secretNameBltFilterModel = 'BLT_FILTER_MODEL';
-      const secretNameBltRewriteModel = 'BLT_REWRITE_MODEL';
       const secretNameSkipRerank = 'DPR_SKIP_RERANK';
-      const secretNameRerankKey = 'Reranker_LLM_API_KEY';
-      const secretNameRerankUrl = 'Reranker_LLM_BASE_URL';
-      const secretNameLegacyRerankModel = 'Reranker_LLM_MODEL';
       const secretNameLocalRerankModel = 'LOCAL_RERANK_MODEL';
       const secretNameRerankProfile = 'RERANK_PROFILE';
       const secretNameRerankProvider = 'RERANK_PROVIDER';
@@ -558,8 +703,6 @@
       const secretNameSiliconFlowKey = 'SILICONFLOW_API_KEY';
       const secretNameSiliconFlowUrl = 'SILICONFLOW_RERANK_URL';
       const secretNameSiliconFlowInterval = 'SILICONFLOW_RERANK_MIN_INTERVAL_SECONDS';
-      const secretNameBltRerankKey = 'BLT_RERANK_API_KEY';
-      const secretNameBltRerankUrl = 'BLT_RERANK_BASE_URL';
 
       const putSecret = async (name, encrypted) => {
         const body = {
@@ -599,9 +742,6 @@
         { name: secretNameDeepSeekBase, value: summarizedBaseUrl },
         { name: secretNameDeepSeekModel, value: summarizedModel },
         { name: secretNameLlmPrimaryBase, value: summarizedBaseUrl },
-        { name: secretNameBltSummaryModel, value: summarizedModel },
-        { name: secretNameBltFilterModel, value: filterModel || summarizedModel },
-        { name: secretNameBltRewriteModel, value: rewriteModel || summarizedModel },
         { name: secretNameSkipRerank, value: skipRerank ? 'true' : 'false' },
         { name: secretNameLocalRerankModel, value: localRerankModel },
         { name: secretNameRerankProfile, value: rerankerProfile },
@@ -626,20 +766,11 @@
         });
         secrets.push({ name: secretNameSiliconFlowInterval, value: '8' });
       }
-      if (rerankerProvider === 'blt') {
-        if (rerankerApiKey) {
-          secrets.push({ name: secretNameBltRerankKey, value: rerankerApiKey });
-        }
-        if (rerankerBaseUrl) {
-          secrets.push({ name: secretNameBltRerankUrl, value: rerankerBaseUrl });
-        }
-      }
-
       if (!skipRerank && rerankerProvider !== 'local' && rerankerApiKey && rerankerBaseUrl && rerankerModel) {
         secrets.push(
-          { name: secretNameRerankKey, value: rerankerApiKey },
-          { name: secretNameRerankUrl, value: rerankerBaseUrl },
-          { name: secretNameLegacyRerankModel, value: rerankerModel },
+          { name: secretNameRerankApiKey, value: rerankerApiKey },
+          { name: secretNameRerankBaseUrl, value: rerankerBaseUrl },
+          { name: secretNameRerankModel, value: rerankerModel },
         );
       }
 
@@ -950,11 +1081,11 @@
         unlockBtn.disabled = true;
         guestBtn.disabled = true;
         try {
-          const resp = await fetch(SECRET_FILE_URL, { cache: 'no-store' });
-          if (!resp.ok) {
-            throw new Error(`获取 secret.private 失败，HTTP ${resp.status}`);
+          const staticPayload = await fetchStaticSecretPayload();
+          if (!staticPayload) {
+            throw new Error('获取 secret.private 失败');
           }
-          const payload = await resp.json();
+          const payload = await loadLocalSecretPayloadPreferred(staticPayload);
           const secret = await decryptSecret(pwd, payload);
           // 将解密后的配置保存在内存中，不落盘，同时记住密码以便下次自动解锁
           window.decoded_secret_private = secret;
@@ -990,31 +1121,27 @@
         window.decoded_secret_private && typeof window.decoded_secret_private === 'object'
           ? window.decoded_secret_private
           : {};
-      const currentProviderType = inferProviderType(currentSecret);
       const currentSummaryLLM = resolveSummaryLLM(currentSecret) || {};
       const currentChatEntry =
         Array.isArray(currentSecret.chatLLMs) && currentSecret.chatLLMs.length
           ? currentSecret.chatLLMs[0] || {}
           : {};
       const currentReranker = resolveRerankerConfig(currentSecret);
-      const defaultPlatoModels = getDefaultPlatoChatModels();
-      const platoSummaryModels = [
-        {
-          value: 'deepseek-chat',
-          label: 'DeepSeek Chat · 默认推荐',
-        },
-        {
-          value: 'deepseek-reasoner',
-          label: 'DeepSeek Reasoner · 推理模型',
-        },
-      ];
 
       const initialGithubToken = normalizeText(
         currentSecret.github && currentSecret.github.token,
       );
       const initialApiKey = normalizeText(currentSummaryLLM.apiKey || '');
       const initialDeepSeekModel =
-        normalizeText(currentSummaryLLM.model || '') || 'deepseek-chat';
+        normalizeText(currentSummaryLLM.model || '') || 'deepseek-v4-flash';
+      const deepseekSummaryModels = getDefaultDeepSeekChatModels().map((model) => ({
+        value: model,
+        label: model === 'deepseek-v4-flash'
+          ? 'DeepSeek V4 Flash · 默认推荐'
+          : model === 'deepseek-v4-pro'
+            ? 'DeepSeek V4 Pro · 高性能模型'
+            : model,
+      }));
 
       modal.innerHTML = `
         <h2 style="margin-top:0;">🛡️ 新配置指引 · 第二步</h2>
@@ -1107,103 +1234,25 @@
                     style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px;"
                   />
                 </div>
+                <button id="secret-setup-reranker-test" type="button" class="secret-gate-btn secondary secret-setup-step2-actions">
+                  测试 Reranker
+                </button>
+                <div id="secret-setup-reranker-test-status" style="min-height:18px; font-size:12px; color:#999; margin-top:6px;">
+                  将发送一次最小 rerank 请求验证 API Key、Base URL 与模型是否可用。
+                </div>
               </div>
               <div id="secret-setup-reranker-status" style="font-size:12px; color:#666; line-height:1.6;"></div>
               <input type="radio" name="secret-setup-provider" value="deepseek" checked style="display:none;" />
             </div>
 
-            <div class="secret-setup-step2-block">
-              <div class="secret-setup-step2-title">Reranker</div>
-              <p class="secret-setup-step2-note">
-                Step 3 使用 Qwen3 reranker 对候选论文重排。请选择本地模型或远端服务。
-              </p>
-              <select id="secret-setup-reranker-profile" class="secret-setup-select" style="margin-bottom:8px;"></select>
-              <div id="secret-setup-reranker-remote-fields" style="display:none;">
-                <div class="secret-setup-input-row" style="margin-bottom:6px;">
-                  <input
-                    id="secret-setup-reranker-api-key"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="Reranker API Key"
-                    style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px;"
-                  />
-                </div>
-                <div class="secret-setup-input-row" style="margin-bottom:6px;">
-                  <input
-                    id="secret-setup-reranker-base-url"
-                    type="text"
-                    autocomplete="off"
-                    placeholder="Rerank Base URL，例如 https://api.siliconflow.cn/v1/rerank"
-                    style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px;"
-                  />
-                </div>
-              </div>
-              <div id="secret-setup-reranker-status" style="font-size:12px; color:#666; line-height:1.6;"></div>
-            </div>
-
-            <div id="secret-setup-custom-section" class="secret-setup-step2-block">
-              <div class="secret-setup-step2-title">OpenAI-compatible 聊天配置</div>
-              <p class="secret-setup-step2-note">
-                预设会自动填写 <code>Base URL</code> 与推荐模型；API Key 仍需你自行输入。这里的模型仅供聊天区使用。
-              </p>
-              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-                <button id="secret-setup-preset-deepseek" type="button" class="secret-gate-btn secondary">
-                  填入 DeepSeek 预设
-                </button>
-                <button id="secret-setup-preset-glm" type="button" class="secret-gate-btn secondary">
-                  填入 GLM 预设
-                </button>
-                <button id="secret-setup-preset-minimax" type="button" class="secret-gate-btn secondary">
-                  填入 MiniMax 预设
-                </button>
-                <button id="secret-setup-preset-kimi" type="button" class="secret-gate-btn secondary">
-                  填入 Kimi 预设
-                </button>
-                <button id="secret-setup-preset-openai" type="button" class="secret-gate-btn secondary">
-                  填入 OpenAI 预设
-                </button>
-              </div>
-              <input
-                id="secret-setup-custom-api-key"
-                type="password"
-                autocomplete="off"
-                placeholder="聊天 API Key"
-                style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
-              />
-              <input
-                id="secret-setup-custom-base-url"
-                type="text"
-                autocomplete="off"
-                placeholder="聊天 Base URL，例如 https://api.openai.com/v1"
-                style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
-              />
-              <input
-                id="secret-setup-custom-model-1"
-                type="text"
-                autocomplete="off"
-                placeholder="聊天模型 1（默认）"
-                style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
-              />
-              <input
-                id="secret-setup-custom-model-2"
-                type="text"
-                autocomplete="off"
-                placeholder="聊天模型 2（可选）"
-                style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
-              />
-              <input
-                id="secret-setup-custom-model-3"
-                type="text"
-                autocomplete="off"
-                placeholder="聊天模型 3（可选）"
-                style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
-              />
-              <button id="secret-setup-custom-test" type="button" class="secret-gate-btn secondary secret-setup-step2-actions">
-                测试当前配置
-              </button>
-              <div id="secret-setup-custom-status" style="min-height:18px; font-size:12px; color:#999; margin-top:6px;">
-                将依次用已填写聊天模型发送 <code>hello world</code>，检查接口与模型是否可用。
-              </div>
+            <div id="secret-setup-custom-section" style="display:none;">
+              <input id="secret-setup-custom-api-key" type="hidden" />
+              <input id="secret-setup-custom-base-url" type="hidden" />
+              <input id="secret-setup-custom-model-1" type="hidden" />
+              <input id="secret-setup-custom-model-2" type="hidden" />
+              <input id="secret-setup-custom-model-3" type="hidden" />
+              <button id="secret-setup-custom-test" type="button" style="display:none;"></button>
+              <div id="secret-setup-custom-status" style="display:none;"></div>
             </div>
           </div>
         </div>
@@ -1231,29 +1280,24 @@
         document.querySelectorAll('input[name="secret-setup-provider"]'),
       );
       const deepseekSection = document.getElementById('secret-setup-deepseek-section');
-      const customSection = document.getElementById('secret-setup-custom-section');
-      const platoInput = document.getElementById('secret-setup-plato');
-      const platoVerifyBtn = document.getElementById('secret-setup-plato-verify');
-      const platoTestBtn = document.getElementById('secret-setup-plato-test');
-      const platoStatusEl = document.getElementById('secret-setup-plato-status');
-      const platoModelsWrap = document.getElementById('secret-setup-plato-models');
+      const deepseekInput = document.getElementById('secret-setup-deepseek');
+      const deepseekVerifyBtn = document.getElementById('secret-setup-deepseek-verify');
+      const deepseekTestBtn = document.getElementById('secret-setup-deepseek-test');
+      const deepseekStatusEl = document.getElementById('secret-setup-deepseek-status');
+      const deepseekModelSelect = document.getElementById('secret-setup-deepseek-model-select');
       const customApiKeyInput = document.getElementById('secret-setup-custom-api-key');
       const customBaseUrlInput = document.getElementById('secret-setup-custom-base-url');
       const customModel1Input = document.getElementById('secret-setup-custom-model-1');
       const customModel2Input = document.getElementById('secret-setup-custom-model-2');
       const customModel3Input = document.getElementById('secret-setup-custom-model-3');
-      const platoModelSelect = document.getElementById('secret-setup-plato-model-select');
-      const deepseekPresetBtn = document.getElementById('secret-setup-preset-deepseek');
-      const glmPresetBtn = document.getElementById('secret-setup-preset-glm');
-      const minimaxPresetBtn = document.getElementById('secret-setup-preset-minimax');
-      const kimiPresetBtn = document.getElementById('secret-setup-preset-kimi');
-      const openaiPresetBtn = document.getElementById('secret-setup-preset-openai');
       const customTestBtn = document.getElementById('secret-setup-custom-test');
       const customStatusEl = document.getElementById('secret-setup-custom-status');
       const rerankerProfileSelect = document.getElementById('secret-setup-reranker-profile');
       const rerankerRemoteFields = document.getElementById('secret-setup-reranker-remote-fields');
       const rerankerApiKeyInput = document.getElementById('secret-setup-reranker-api-key');
       const rerankerBaseUrlInput = document.getElementById('secret-setup-reranker-base-url');
+      const rerankerTestBtn = document.getElementById('secret-setup-reranker-test');
+      const rerankerTestStatusEl = document.getElementById('secret-setup-reranker-test-status');
       const rerankerStatusEl = document.getElementById('secret-setup-reranker-status');
       const errorEl = document.getElementById('secret-setup-error');
       const backBtn = document.getElementById('secret-setup-back');
@@ -1266,29 +1310,24 @@
         !githubStatusEl ||
         !providerInputs.length ||
         !deepseekSection ||
-        !customSection ||
-        !platoInput ||
-        !platoVerifyBtn ||
-        !platoTestBtn ||
-        !platoStatusEl ||
-        !platoModelsWrap ||
-        !platoModelSelect ||
+        !deepseekInput ||
+        !deepseekVerifyBtn ||
+        !deepseekTestBtn ||
+        !deepseekStatusEl ||
+        !deepseekModelSelect ||
         !customApiKeyInput ||
         !customBaseUrlInput ||
         !customModel1Input ||
         !customModel2Input ||
         !customModel3Input ||
-        !deepseekPresetBtn ||
-        !glmPresetBtn ||
-        !minimaxPresetBtn ||
-        !kimiPresetBtn ||
-        !openaiPresetBtn ||
         !customTestBtn ||
         !customStatusEl ||
         !rerankerProfileSelect ||
         !rerankerRemoteFields ||
         !rerankerApiKeyInput ||
         !rerankerBaseUrlInput ||
+        !rerankerTestBtn ||
+        !rerankerTestStatusEl ||
         !rerankerStatusEl ||
         !errorEl ||
         !backBtn ||
@@ -1306,11 +1345,11 @@
       deepseekInput.value = initialApiKey;
 
       providerInputs.forEach((input) => {
-        input.checked = input.value === currentProviderType;
+        input.checked = input.value === 'deepseek';
       });
-      deepseekModelSelect.value = initialDeepSeekModel || 'deepseek-chat';
+      deepseekModelSelect.value = initialDeepSeekModel || 'deepseek-v4-flash';
       if (!deepseekModelSelect.value) {
-        deepseekModelSelect.value = 'deepseek-chat';
+        deepseekModelSelect.value = 'deepseek-v4-flash';
       }
       rerankerProfileSelect.innerHTML = RERANKER_PROFILES
         .map(
@@ -1340,14 +1379,32 @@
       const selectedRerankerProfile = () => {
         return findRerankerProfile(rerankerProfileSelect.value);
       };
+      const rerankerRequiresApiKey = (profile) => {
+        return profile.provider !== 'local' && profile.requiresApiKey !== false;
+      };
       const syncRerankerFields = () => {
         const profile = selectedRerankerProfile();
         const isRemote = profile.provider !== 'local';
+        const requiresApiKey = rerankerRequiresApiKey(profile);
         const previousProfile = findRerankerProfile(
           rerankerBaseUrlInput.getAttribute('data-reranker-profile') || '',
         );
         const currentBaseUrl = normalizeText(rerankerBaseUrlInput.value || '');
         rerankerRemoteFields.style.display = isRemote ? 'block' : 'none';
+        if (isRemote) {
+          rerankerApiKeyInput.closest('.secret-setup-input-row').style.display = requiresApiKey ? 'block' : 'none';
+          rerankerApiKeyInput.disabled = !requiresApiKey;
+          rerankerApiKeyInput.placeholder = requiresApiKey
+            ? 'Reranker API Key'
+            : '公益 Reranker 无需 API Key';
+          if (!requiresApiKey) {
+            rerankerApiKeyInput.value = '';
+          }
+        } else {
+          rerankerApiKeyInput.closest('.secret-setup-input-row').style.display = 'none';
+          rerankerApiKeyInput.disabled = true;
+          rerankerApiKeyInput.value = '';
+        }
         if (
           isRemote &&
           (!currentBaseUrl || currentBaseUrl === previousProfile.baseUrl)
@@ -1362,7 +1419,6 @@
       };
       const syncProviderSections = () => {
         deepseekSection.style.display = 'block';
-        customSection.style.display = 'none';
       };
 
       const resetGithubStatus = () => {
@@ -1377,20 +1433,30 @@
           '将通过一次 <code>hello world</code> 请求检查 DeepSeek 配置可用性。';
         deepseekStatusEl.style.color = '#999';
       };
-
+      const resetCustomStatus = () => {
+        customStatusEl.innerHTML =
+          '将依次用已填写聊天模型发送 <code>hello world</code>，检查接口与模型是否可用。';
+        customStatusEl.style.color = '#999';
+      };
+      const resetRerankerTestStatus = () => {
+        const profile = selectedRerankerProfile();
+        rerankerTestStatusEl.textContent = rerankerRequiresApiKey(profile)
+          ? '将发送一次最小 rerank 请求验证 API Key、Base URL 与模型是否可用。'
+          : '将发送一次最小 rerank 请求验证 Base URL 与模型是否可用。';
+        rerankerTestStatusEl.style.color = '#999';
+      };
       const buildRerankerDraft = (fallbackApiKey, fallbackBaseUrl) => {
         const profile = selectedRerankerProfile();
         const typedApiKey = normalizeText(rerankerApiKeyInput.value || '');
         const typedBaseUrl = normalizeBaseUrlForStorage(
           rerankerBaseUrlInput.value || profile.baseUrl || '',
         );
-        const apiKey =
-          profile.provider === 'blt' ? (typedApiKey || fallbackApiKey) : typedApiKey;
-        const baseUrl =
-          profile.provider === 'blt' ? (typedBaseUrl || fallbackBaseUrl) : typedBaseUrl;
+        const apiKey = typedApiKey;
+        const baseUrl = typedBaseUrl;
+        const requiresApiKey = rerankerRequiresApiKey(profile);
 
-        if (profile.provider === 'siliconflow' && !apiKey) {
-          throw new Error('选择硅基流动 reranker 时需要填写 Reranker API Key。');
+        if (requiresApiKey && !apiKey) {
+          throw new Error(`选择 ${profile.label} 时需要填写 Reranker API Key。`);
         }
         if (profile.provider !== 'local' && !baseUrl) {
           throw new Error(`请选择 ${profile.label} 时需要填写 Rerank Base URL。`);
@@ -1401,43 +1467,35 @@
           type: profile.provider,
           provider: profile.provider,
           model: profile.model,
-          apiKey: profile.provider === 'local' ? '' : apiKey,
+          apiKey: requiresApiKey ? apiKey : '',
+          testApiKey: profile.testApiKey || '',
           baseUrl: profile.provider === 'local' ? '' : baseUrl,
         };
+      };
+      const buildRerankEndpoint = (baseUrl) => {
+        const raw = normalizeBaseUrlForStorage(baseUrl || '');
+        if (!raw) return '';
+        if (/\/rerank$/i.test(raw)) return raw;
+        if (/\/v\d+$/i.test(raw)) return `${raw}/rerank`;
+        return `${raw}/v1/rerank`;
       };
 
       const collectProviderDraft = () => {
         const apiKey = normalizeText(deepseekInput.value);
         const model = selectedDeepSeekModel();
-        const rerankerProfile = selectedRerankerProfile();
-        const rerankerApiKey = normalizeText(rerankerApiKeyInput.value || '');
-        const rerankerBaseUrl = normalizeBaseUrlForStorage(rerankerBaseUrlInput.value || rerankerProfile.baseUrl || '');
         if (!apiKey) {
           throw new Error('请先输入 DeepSeek API Key。');
         }
         if (!model) {
           throw new Error('请选择用于工作流总结的大模型。');
         }
-        const reranker = buildRerankerDraft(apiKey, getDefaultPlatoBaseUrl());
-        if (provider === 'plato') {
-          return {
-            providerType: 'plato',
-            summaryApiKey: apiKey,
-            summaryBaseUrl: getDefaultPlatoBaseUrl(),
-            summaryModel: model,
-            chatModels: defaultPlatoModels,
-            rewriteModel: 'gemini-3-flash-preview',
-            filterModel: 'gemini-3-flash-preview-nothinking',
-            skipRerank: false,
-            reranker,
-          };
-        }
+        const reranker = buildRerankerDraft(apiKey, getDefaultDeepSeekBaseUrl());
         return {
           providerType: 'deepseek',
           summaryApiKey: apiKey,
           summaryBaseUrl: getDefaultDeepSeekBaseUrl(),
           summaryModel: model,
-          chatModels: defaultDeepSeekModels,
+          chatModels: getDefaultDeepSeekChatModels(),
           skipRerank: false,
           reranker: {
             ...reranker,
@@ -1479,14 +1537,79 @@
 
       syncProviderSections();
       syncRerankerFields();
+      resetRerankerTestStatus();
 
       bindResetOnInput([githubInput], resetGithubStatus);
-      bindResetOnInput([platoInput, platoModelSelect], resetPlatoStatus);
+      bindResetOnInput([deepseekInput, deepseekModelSelect], resetDeepSeekStatus);
       bindResetOnInput(
         [customApiKeyInput, customBaseUrlInput, customModel1Input, customModel2Input, customModel3Input],
         resetCustomStatus,
       );
+      bindResetOnInput([rerankerApiKeyInput, rerankerBaseUrlInput], resetRerankerTestStatus);
       rerankerProfileSelect.addEventListener('change', syncRerankerFields);
+      rerankerProfileSelect.addEventListener('change', resetRerankerTestStatus);
+      rerankerTestBtn.addEventListener('click', async () => {
+        let draft = null;
+        try {
+          draft = buildRerankerDraft('', '');
+        } catch (e) {
+          rerankerTestStatusEl.textContent = `❌ ${e.message || e}`;
+          rerankerTestStatusEl.style.color = '#c00';
+          return;
+        }
+        if (draft.provider === 'local') {
+          rerankerTestStatusEl.textContent = '当前选择为本地 reranker，无需远端测试。';
+          rerankerTestStatusEl.style.color = '#666';
+          return;
+        }
+        const endpoint = buildRerankEndpoint(draft.baseUrl);
+        if (!endpoint) {
+          rerankerTestStatusEl.textContent = '❌ 请填写 Rerank Base URL。';
+          rerankerTestStatusEl.style.color = '#c00';
+          return;
+        }
+        rerankerTestBtn.disabled = true;
+        rerankerTestStatusEl.textContent = '正在测试远端 Reranker...';
+        rerankerTestStatusEl.style.color = '#666';
+        try {
+          const headers = {
+            'Content-Type': 'application/json',
+          };
+          const authApiKey = draft.apiKey || draft.testApiKey || '';
+          if (authApiKey) {
+            headers.Authorization = `Bearer ${authApiKey}`;
+          }
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: draft.model,
+              query: 'Which paper is about neural machine translation?',
+              documents: [
+                'Attention Is All You Need introduces the Transformer architecture for sequence modeling.',
+                'A recipe for sourdough bread with flour and water.',
+              ],
+              top_n: 1,
+              return_documents: false,
+            }),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` - ${text.slice(0, 180)}` : ''}`);
+          }
+          const data = await res.json().catch(() => null);
+          if (!data || !Array.isArray(data.results)) {
+            throw new Error('响应缺少 results 字段。');
+          }
+          rerankerTestStatusEl.textContent = `✅ Reranker 可用：返回 ${data.results.length} 条结果。`;
+          rerankerTestStatusEl.style.color = '#28a745';
+        } catch (e) {
+          rerankerTestStatusEl.textContent = `❌ 测试失败：${e.message || e}`;
+          rerankerTestStatusEl.style.color = '#c00';
+        } finally {
+          rerankerTestBtn.disabled = false;
+        }
+      });
       providerInputs.forEach((input) => {
         input.addEventListener('change', () => {
           syncProviderSections();
@@ -1539,7 +1662,18 @@
             );
           }
           const userData = await res.json().catch(() => ({}));
-          githubStatusEl.innerHTML = `✅ 验证成功：用户 ${userData.login || ''}，权限：${scopeList.join(', ')}<br>Gist 分享：已开启。`;
+          const login = userData.login || '';
+          let repoInfo = '';
+          const repoMeta = await readRepoOwnerJson();
+          if (repoMeta) {
+            if (login && repoMeta.owner && login.toLowerCase() !== repoMeta.owner.toLowerCase()) {
+              throw new Error(
+                `Token 用户 ${login} 与站点所有者 ${repoMeta.owner} 不一致，请使用站点所有者的 Token。`,
+              );
+            }
+            repoInfo = `<br>仓库：${repoMeta.owner}/${repoMeta.repo}`;
+          }
+          githubStatusEl.innerHTML = `✅ 验证成功：用户 ${login}，权限：${scopeList.join(', ')}${repoInfo}<br>Gist 分享：已开启。`;
           githubStatusEl.style.color = '#28a745';
           githubOk = true;
         } catch (e) {
@@ -1596,7 +1730,8 @@
 
       genBtn.addEventListener('click', async () => {
         const githubToken = normalizeText(githubInput.value);
-        if (!githubToken || !githubOk) {
+        const localOnly = isLocalDebugHost();
+        if (!localOnly && (!githubToken || !githubOk)) {
           setErrorText('请先填写并通过验证 GitHub Token。', '#c00');
           return;
         }
@@ -1632,9 +1767,9 @@
           },
           rerankerLLM: providerDraft.reranker
             ? {
-                profile: providerDraft.reranker.profile || 'local-qwen3-0.6b',
-                provider: providerDraft.reranker.provider || providerDraft.reranker.type || 'local',
-                type: providerDraft.reranker.type || providerDraft.reranker.provider || 'local',
+                profile: providerDraft.reranker.profile || DEFAULT_RERANKER_PROFILE.value,
+                provider: providerDraft.reranker.provider || providerDraft.reranker.type || DEFAULT_RERANKER_PROFILE.provider,
+                type: providerDraft.reranker.type || providerDraft.reranker.provider || DEFAULT_RERANKER_PROFILE.provider,
                 apiKey: providerDraft.reranker.apiKey,
                 baseUrl: providerDraft.reranker.baseUrl,
                 model: providerDraft.reranker.model,
@@ -1652,64 +1787,76 @@
         };
 
         try {
-          setErrorText('正在准备写入 GitHub Secrets...', '#666');
+          setErrorText(localOnly ? '正在生成本地加密配置...' : '正在准备写入 GitHub Secrets...', '#666');
           genBtn.disabled = true;
 
-          const secretsOk = await saveSummarizeSecretsToGithub(
-            githubToken,
-            {
-              providerType: providerDraft.providerType,
-              summarizedApiKey: providerDraft.summaryApiKey,
-              summarizedBaseUrl: providerDraft.summaryBaseUrl,
-              summarizedModel: providerDraft.summaryModel,
-              filterModel: providerDraft.filterModel,
-              rewriteModel: providerDraft.rewriteModel,
-              skipRerank: providerDraft.skipRerank,
-              localRerankModel: 'Qwen/Qwen3-Reranker-0.6B',
-              rerankerProfile: providerDraft.reranker && providerDraft.reranker.profile,
-              rerankerProvider: providerDraft.reranker && providerDraft.reranker.provider,
-              rerankerModel: providerDraft.reranker && providerDraft.reranker.model,
-              rerankerApiKey: providerDraft.reranker && providerDraft.reranker.apiKey,
-              rerankerBaseUrl: providerDraft.reranker && providerDraft.reranker.baseUrl,
-            },
-            (current, total, secretName) => {
-              setErrorText(`(${current}/${total}) 正在上传 GitHub Secret：${secretName}...`, '#666');
-            },
-          );
-          if (!secretsOk) {
-            setErrorText(
-              '❌ 写入 GitHub Secrets 失败，请检查网络、Token 权限（需 Classic PAT + repo/workflow/gist）或稍后重试。',
-              '#c00',
+          if (!localOnly) {
+            const secretsOk = await saveSummarizeSecretsToGithub(
+              githubToken,
+              {
+                providerType: providerDraft.providerType,
+                summarizedApiKey: providerDraft.summaryApiKey,
+                summarizedBaseUrl: providerDraft.summaryBaseUrl,
+                summarizedModel: providerDraft.summaryModel,
+                filterModel: providerDraft.filterModel,
+                rewriteModel: providerDraft.rewriteModel,
+                skipRerank: providerDraft.skipRerank,
+                localRerankModel: 'Qwen/Qwen3-Reranker-0.6B',
+                rerankerProfile: providerDraft.reranker && providerDraft.reranker.profile,
+                rerankerProvider: providerDraft.reranker && providerDraft.reranker.provider,
+                rerankerModel: providerDraft.reranker && providerDraft.reranker.model,
+                rerankerApiKey: providerDraft.reranker && providerDraft.reranker.apiKey,
+                rerankerBaseUrl: providerDraft.reranker && providerDraft.reranker.baseUrl,
+              },
+              (current, total, secretName) => {
+                setErrorText(`(${current}/${total}) 正在上传 GitHub Secret：${secretName}...`, '#666');
+              },
             );
-            return;
+            if (!secretsOk) {
+              setErrorText(
+                '❌ 写入 GitHub Secrets 失败，请检查网络、Token 权限（需 Classic PAT + repo/workflow/gist）或稍后重试。',
+                '#c00',
+              );
+              return;
+            }
           }
 
-          setErrorText('GitHub Secrets 上传完成，正在生成加密配置 secret.private...', '#666');
+          setErrorText(localOnly ? '正在保存到浏览器本地...' : 'GitHub Secrets 上传完成，正在生成加密配置 secret.private...', '#666');
           const payload = await createEncryptedSecret(password, plainConfig);
           window.decoded_secret_private = plainConfig;
           setMode('full');
 
-          const blob = new Blob([JSON.stringify(payload, null, 2)], {
-            type: 'application/json',
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'secret.private';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }, 0);
+          if (localOnly) {
+            try {
+              await saveLocalSecretPayloadToDisk(payload, plainConfig);
+            } catch (e) {
+              console.error(e);
+              setErrorText('❌ 保存到本地 secret.private 失败，请确认本地后端已启动。', '#c00');
+              return;
+            }
+          } else {
+            const blob = new Blob([JSON.stringify(payload, null, 2)], {
+              type: 'application/json',
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'secret.private';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }, 0);
 
-          setErrorText('正在将 secret.private 推送到 GitHub 仓库根目录...', '#666');
-          const commitOk = await saveSecretPrivateToGithubRepo(githubToken, payload);
-          if (!commitOk) {
-            setErrorText(
-              '⚠️ 已生成本地 secret.private，但自动推送到 GitHub 仓库失败，请稍后手动提交或检查 Token/网络。',
-              '#c00',
-            );
+            setErrorText('正在将 secret.private 推送到 GitHub 仓库根目录...', '#666');
+            const commitOk = await saveSecretPrivateToGithubRepo(githubToken, payload);
+            if (!commitOk) {
+              setErrorText(
+                '⚠️ 已生成本地 secret.private，但自动推送到 GitHub 仓库失败，请稍后手动提交或检查 Token/网络。',
+                '#c00',
+              );
+            }
           }
 
           hide();
@@ -1842,8 +1989,11 @@
         const savedPwd = loadSavedPassword();
         openSecretOverlay(overlay);
         // 确保浮层可见
-        if (!savedPwd) {
-          // 没有保存密码：从第 1 步开始完整向导
+        if (hasSecretFile && !savedPwd) {
+          // 已有 secret.private 但浏览器没有保存密码时，必须先解锁，不能回到初始化向导。
+          renderUnlockUI();
+        } else if (!savedPwd) {
+          // 没有 secret.private 且没有保存密码：从第 1 步开始完整向导。
           renderInitStep1();
         } else {
           // 已保存密码：直接进入第 2 步配置向导
@@ -1884,24 +2034,28 @@
     }
 
     if (!overlay) return;
+    try {
+      window.DPRSecretSetup = window.DPRSecretSetup || {};
+      const earlyOpenStep2 = function () {
+        setupOverlay(true);
+        openSecretOverlay(overlay);
+        const formalOpenStep2 = window.DPRSecretSetup && window.DPRSecretSetup.openStep2;
+        if (typeof formalOpenStep2 === 'function' && formalOpenStep2 !== earlyOpenStep2) {
+          formalOpenStep2();
+        }
+      };
+      window.DPRSecretSetup.openStep2 = earlyOpenStep2;
+    } catch {
+      // 初始化早期兜底入口失败时，后续 setupOverlay 仍会尝试注册正式入口。
+    }
 
     // 检查是否已经存在 secret.private（用于区分“解锁”与“初始化”）
     (async () => {
       try {
-        const resp = await fetch(SECRET_FILE_URL, {
-          method: 'GET',
-          cache: 'no-store',
-        });
-        let hasSecret = false;
-        if (resp.ok) {
-          try {
-            // 不再依赖 content-type，只要能成功解析为 JSON，就认为是合法的 secret.private
-            await resp.clone().json();
-            hasSecret = true;
-          } catch {
-            hasSecret = false;
-          }
-        }
+        const staticPayload = await fetchStaticSecretPayload();
+        let hasSecret = Boolean(staticPayload);
+        const localPayload = await loadLocalSecretPayloadPreferred(staticPayload);
+        hasSecret = hasSecret || Boolean(localPayload);
 
         window.DPR_ACCESS_MODE = 'locked';
 
@@ -1911,15 +2065,10 @@
           const savedPwd = loadSavedPassword();
           if (savedPwd) {
             try {
-              const resp2 = await fetch(SECRET_FILE_URL, {
-                cache: 'no-store',
-              });
-              if (!resp2.ok) {
-                throw new Error(
-                  `获取 secret.private 失败，HTTP ${resp2.status}`,
-                );
+              const payload = localPayload || staticPayload || await fetchStaticSecretPayload();
+              if (!payload) {
+                throw new Error('获取 secret.private 失败');
               }
-              const payload = await resp2.json();
               const secret = await decryptSecret(savedPwd, payload);
               window.decoded_secret_private = secret;
               // 这里不在 setupOverlay 作用域内，直接标记全局访问模式为 full 并广播事件

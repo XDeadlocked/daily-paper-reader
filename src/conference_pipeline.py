@@ -18,7 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from conference_retrieval import build_years_token, output_paths, parse_conferences, parse_years
+from conference_retrieval import (
+    build_years_token,
+    conference_pairs_to_filter_pairs,
+    output_paths,
+    parse_conference_pairs,
+    parse_conferences,
+    parse_years,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -67,11 +74,64 @@ def write_manifest(path: Path, payload: Dict[str, Any]) -> None:
     log(f"[INFO] 已写入会议检索 manifest：{path}")
 
 
+def _score_from_item(item: Dict[str, Any]) -> float:
+    for key in ("score", "star_rating"):
+        try:
+            return float(item.get(key))
+        except Exception:
+            continue
+    return 0.0
+
+
+def prune_llm_result(path: Path, min_score: float) -> Dict[str, int]:
+    if min_score < 0 or not path.exists():
+        return {"kept": 0, "dropped": 0}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f) or {}
+    if not isinstance(data, dict):
+        return {"kept": 0, "dropped": 0}
+
+    ranked = data.get("llm_ranked") if isinstance(data.get("llm_ranked"), list) else []
+    kept_ranked = [item for item in ranked if isinstance(item, dict) and _score_from_item(item) >= min_score]
+    kept_ids = {str(item.get("paper_id") or "").strip() for item in kept_ranked if str(item.get("paper_id") or "").strip()}
+
+    papers = data.get("papers") if isinstance(data.get("papers"), list) else []
+    data["papers"] = [
+        item for item in papers
+        if isinstance(item, dict) and str(item.get("id") or "").strip() in kept_ids
+    ]
+    data["llm_ranked"] = kept_ranked
+
+    queries = data.get("queries") if isinstance(data.get("queries"), list) else []
+    for query in queries:
+        if not isinstance(query, dict):
+            continue
+        sim_scores = query.get("sim_scores")
+        if isinstance(sim_scores, dict):
+            query["sim_scores"] = {k: v for k, v in sim_scores.items() if str(k).strip() in kept_ids}
+        ranked_items = query.get("ranked")
+        if isinstance(ranked_items, list):
+            query["ranked"] = [
+                item for item in ranked_items
+                if isinstance(item, dict) and str(item.get("paper_id") or "").strip() in kept_ids
+            ]
+
+    data["display_min_score"] = min_score
+    data["pruned_at"] = datetime.now(timezone.utc).isoformat()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    dropped = max(len(ranked) - len(kept_ranked), 0)
+    log(f"[INFO] 会议 LLM 结果已按 score >= {min_score:g} 裁剪：kept={len(kept_ranked)} dropped={dropped}")
+    return {"kept": len(kept_ranked), "dropped": dropped}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="会议论文检索闭环：Supabase 召回 + RRF + 可选 rerank。")
     parser.add_argument("--config", type=str, default=str(ROOT_DIR / "config.yaml"))
     parser.add_argument("--conferences", "--conference", dest="conferences", type=str, required=True)
     parser.add_argument("--years", type=str, required=True)
+    parser.add_argument("--conference-pairs", type=str, default="")
     parser.add_argument("--top-k", type=int, default=50, help="BM25 / embedding 每个查询保留候选数。")
     parser.add_argument("--rrf-top-n", type=int, default=200, help="RRF 每个查询保留候选数。")
     parser.add_argument("--output-dir", type=str, default=str(ROOT_DIR / "archive" / TODAY_STR / "filtered"))
@@ -87,10 +147,23 @@ def main() -> None:
     parser.add_argument("--llm-min-star", type=int, default=4)
     parser.add_argument("--llm-batch-size", type=int, default=10)
     parser.add_argument("--llm-filter-concurrency", type=int, default=2)
+    parser.add_argument("--display-min-score", type=float, default=4.0, help="会议论文进入最终展示与本地落盘结果的最低 LLM 分数。")
     args = parser.parse_args()
 
-    conferences = parse_conferences(args.conferences)
-    years = parse_years(args.years)
+    pair_specs = parse_conference_pairs(args.conference_pairs) if str(args.conference_pairs or "").strip() else []
+    if pair_specs:
+        conferences = []
+        years = []
+        for conference, year in pair_specs:
+            if conference not in conferences:
+                conferences.append(conference)
+            if year not in years:
+                years.append(year)
+        filter_pairs = conference_pairs_to_filter_pairs(pair_specs)
+    else:
+        conferences = parse_conferences(args.conferences)
+        years = parse_years(args.years)
+        filter_pairs = []
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():
         output_dir = ROOT_DIR / output_dir
@@ -124,6 +197,8 @@ def main() -> None:
         "--embedding-max-length",
         str(max(int(args.embedding_max_length or 1), 1)),
     ]
+    if filter_pairs:
+        retrieval_cmd.extend(["--conference-pairs", ",".join(filter_pairs)])
     run_step("Conference Supabase retrieval", retrieval_cmd)
 
     rrf_cmd = [
@@ -187,11 +262,13 @@ def main() -> None:
         if args.config and str(args.config).strip() != "-":
             llm_cmd.extend(["--config", args.config])
         run_step("Conference DeepSeek refine", llm_cmd)
+        prune_llm_result(llm_path, float(args.display_min_score))
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "conferences": conferences,
         "years": years,
+        "conference_pairs": filter_pairs,
         "top_k": max(int(args.top_k or 1), 1),
         "rrf_top_n": max(int(args.rrf_top_n or 1), 1),
         "run_rerank": should_run_rerank,
