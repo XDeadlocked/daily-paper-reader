@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-15 ~ 2026-07-24</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-24</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 41 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>30</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-24 18:19:23 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-24 21:35:59 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦机器人动作表示与视频生成评估，精读30篇高分论文，其中两篇锚定方法获9.0满分。</p>
-<p>最值得关注的是：“语义锚定”与“表征锚定”为机器人操控提供可泛化框架，以及“VGIF-Score”首次实现视频生成中时空指令的细粒度诊断。</p>
-<p>建议普通读者优先阅读精读中的两篇锚定论文，理解机器人如何将自然语言映射为可靠动作，再速读VGIF-Score以把握视频评估新标准。</p>
+<p>今日聚焦机器人策略与视频生成，9分精读论文《RoboTTT: Context Scaling for Robot Policies》和《FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation》值得重点关注。最值得读的方向：机器人策略的上下文缩放技术，以及视频生成中自适应稀疏注意力的负载平衡方法。建议普通读者优先阅读RoboTTT和FVAttn，并顺带留意速读中基于约束优化与流匹配的运动生成工作。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">30 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Generalizable VLA Finetuning via Representation Anchoring and Language-Action Alignment">Generalizable VLA Finetuning via Representation Anchoring and Language-Action Alignment</span></li><li><span class="dpr-home-dashboard-paper-title" title="Semantic Anchoring for Robotic Action Representations">Semantic Anchoring for Robotic Action Representations</span></li><li><span class="dpr-home-dashboard-paper-title" title="GigaWorld-Policy-0.5: A Faster and Stronger WAM Empowered by AutoResearch">GigaWorld-Policy-0.5: A Faster and Stronger WAM Empowered by AutoResearch</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RoboTTT: Context Scaling for Robot Policies">RoboTTT: Context Scaling for Robot Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation">FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution">PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>30</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VGIF-Score: Interpretable and Diagnostic Evaluation of Spatio-Temporal Instruction Following in Video Generation">VGIF-Score: Interpretable and Diagnostic Evaluation of Spatio-Temporal Instruction Following in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Kaleido: Algorithm-Hardware Co-Design for Video Diffusion Transformers by Exploiting Latent Space Correlations">Kaleido: Algorithm-Hardware Co-Design for Video Diffusion Transformers by Exploiting Latent Space Correlations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Robust Execution in Robotic Manipulation with Agentic Reinforcement Learning">Learning Robust Execution in Robotic Manipulation with Agentic Reinforcement Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ConFlow: Constraints-Guided Learning with Flow Matching for Motion Generation">ConFlow: Constraints-Guided Learning with Flow Matching for Motion Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Motion Planning with Model-Based Diffusion via Constraint Optimization and Adaptive Scheduling">Motion Planning with Model-Based Diffusion via Constraint Optimization and Adaptive Scheduling</span></li><li><span class="dpr-home-dashboard-paper-title" title="PE-Field 4D: Video Generation Models as Canvas">PE-Field 4D: Video Generation Models as Canvas</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
