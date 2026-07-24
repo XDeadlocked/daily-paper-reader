@@ -1,0 +1,649 @@
+Title: CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking
+
+URL Source: https://arxiv.org/pdf/2607.15004v1
+
+Published Time: Fri, 17 Jul 2026 01:43:45 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# COS FLY -VLA: A S PATIALLY AWARE 
+
+# VISION -L ANGUAGE -A CTION MODEL FOR UAV T RACKING 
+
+Ruilong Ren 1∗ Songsheng Cheng 1∗ Yunpeng Zhou 2 Hanxuan Chen 1 Xiangyue Wang 1†
+
+Tianle Zeng 3 Shuai Yuan 4 Binbo Li 4 Hanzhong Guo 5 Ji Pei 1 Da Zhang 1† Kangli Wang 1†
+
+> 1
+
+Autel Robotics 2Northeast Normal University 3Southern University of Science and Technology 
+
+> 4
+
+Peking University 5University of Hong Kong 
+
+wangxiangyue@autelrobotics.com 
+
+## ABSTRACT 
+
+Dynamic target tracking is essential for Unmanned Aerial Vehicles (UAVs) operating in complex urban environments, where both the target and the camera viewpoint change continuously. Existing Vision-Language-Action (VLA) policies can track visible targets effectively, but their performance often degrades when buildings, vegetation, or roadside objects block the line of sight. During sustained occlusion, a policy may lose the target state, execute actions toward an incorrect region, and amplify this error through subsequent observations until re-acquisition becomes impossible. In this work, we formulate occlusion-robust UAV tracking as a closed-loop recovery problem: the policy must maintain a spatial hypothesis about an unseen target, predict where it may reappear, and correct errors induced by its own previous actions. To this end, we present CosFly-VLA , a spatially aware VLA model that jointly grounds the target, estimates its visibility, and generates continuous flight actions through a structured prediction interface. To train this policy, we use a large-scale recipe over diverse data sources. Spatially Grounded Continued Pretraining (CPT) on a 500k mixed pool injects UAV-view depth, distance, and 3-D spatial reasoning. A three-stage Curriculum-based Supervised Fine-Tuning (SFT) process then specializes the tracker through multi-head warm-up followed by two-stage curriculum learning over natural and hard / long-occlusion data. Chain-of-Thought (CoT) training subsequently teaches recovery-oriented reasoning traces before structured answers. Finally, a closed-loop Reinforcement Learning (RL) stage optimizes tracking behavior with a multi-component reward covering stand-off tracking, grounding quality, collision avoidance, and task success. We evaluate CosFly-VLA with occlusion-graded open-loop windows and closed-loop CARLA rollouts on seen and unseen maps. Relative to OpenVLA, CosFly-VLA-0.8B reduces open-loop Average Displacement Error (ADE) by 34.1% on seen-test and 35.3% on unseen-test. Closed-loop optimization improves Success Rate (SR) by 29.8% (+17 percentage points) and 2.5% 
+
+(+2 points), respectively. These results demonstrate progress from visible-frame imitation toward spatially grounded action-closed-loop control, evaluated under a shared oracle state history. 
+
+Keywords Unmanned Aerial Vehicle · Target Tracking · Vision-Language-Action · Spatially Grounded Pretraining ·
+
+Curriculum Learning · Reinforcement Learning 
+
+## 1 Introduction 
+
+Dynamic target tracking is a representative closed-loop embodied task for autonomous Unmanned Aerial Vehicles (UAVs). While continuously perceiving and localizing a moving target, a UAV must cope with viewpoint changes, relative-position changes, collision risks induced by its own motion, and it must adjust its flight strategy in real time. This capability is valuable for search-and-rescue, inspection, traffic monitoring, cinematography, delivery, and pursuit [ 23 , 21 , 47 , 52 ]. In low-altitude urban flight, however, tracking failures often arise not from ordinary visible-frame localization errors, but from recurring occlusion. A target may be temporarily hidden by buildings, trees, 
+
+> ∗
+
+Equal contribution. 
+
+> †
+
+Corresponding authors. arXiv:2607.15004v1 [cs.RO] 16 Jul 2026 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking CoT Thinking   
+
+> Target fully hidden behind the
+> building and roadside canopy ...
+> Persistent occlusion with no ...
+> Deeply occluded, expected on
+> the right side, where the
+> building ... Increase right yaw to
+> orbit to the building's side,
+> descend slightly to widen the
+> downward view, ready for the
+> target to reappear ...
+> Visibility: False
+> Target: [372,442; 452,560]
+> Actions (8-step) [dx, dy, dz, dyaw]:
+> [0.04, -0.95, -0.02, -1.80]; ...
+> Visibility : True
+> Target : [612,444;688,560]
+> Actions (8-step) [dx, dy, dz, dyaw]:
+> [0.18, -0.60, -0.02, -0.25]; ...
+
+Instruction                         
+
+> You are adrone navigation expert.
+> Given five sequential observation
+> frames and the drone ego-state
+> history, predict ... if the target is
+> clearly visible, answer directly; if it is
+> occluded, first reason in
+> <think>...</think>, then output the
+> final <answer>...</answer>.
+
+Figure 1: Task overview. The blue trajectory denotes the pedestrian’s motion, and the green trajectory denotes the UAV’s executed flight path. At each step, the agent observes five egocentric frames, previous target boxes, and the task prompt. It predicts three synchronized outputs: target visibility, the current-frame bounding box, and an 8-step 4-DoF waypoint action chunk. When the target is visible, the policy can answer directly from visual evidence; when the target is occluded, CoT reasoning estimates the likely re-acquisition region before emitting the structured answer. vehicles, or crowds. Once the visual cue disappears from the field of view, conventional detection–re-identification (ReID)–control pipelines [ 34 , 29 , 44 , 59 , 28 , 64 , 63 , 49 ] may lose the stable identity evidence needed for recovery. At that point, tracking is no longer simply a matter of “seeing and following” the target; it becomes a closed-loop decision problem under occlusion. The agent must infer where an unseen target may have moved, keep acting without direct visual observation, and re-acquire the target before tracking errors continue to accumulate. Vision-Language-Action (VLA) models offer a natural modeling route for this setting. By coupling the semantic understanding and spatial priors of pretrained Vision-Language Models (VLMs) with policy modules that directly generate actions, VLA models have shown strong potential in robot manipulation, general control, and embodied navigation [ 6 , 5, 24 , 51 , 4, 20 , 19 , 69 , 43 , 27 , 7, 30 , 16 ]. This paradigm has also been extended to UAV mission generation, fuzzy-instruction navigation, onboard inference, drone racing, aerial manipulation, and UAV vision-language tasks [ 46 , 48 , 60 , 41 , 54 , 35 , 39 , 33 , 25 , 18 , 10 , 9 ]. Recent aerial tracking work, including UAV-Track VLA [ 71 ], TrackVLA-style embodied trackers, and open-world drone active tracking [ 53 , 32 , 56 , 12 , 45 ], further shows that VLA policies can support complex tracking and pursuit tasks. Yet, from the perspective of sustained occlusion, existing studies have not made the sequence of target disappearance, reasoning under occlusion, and target re-acquisition the central object of training and evaluation. When the target leaves the field of view for an extended period, the model must use spatial priors to maintain reasonable actions, suppress drift caused by its own previous actions, and stably re-acquire the target after occlusion. Sustained occlusion exposes three limitations in existing training pipelines. First, the model needs stronger aerial spatial reasoning. After the target disappears from the image, its likely reappearance depends on depth relations, relative scale, height difference, motion direction, and occlusion ordering under the UAV viewpoint; yet generic vision-language pretraining does not necessarily provide sufficient supervision for these UAV-specific geometric cues. Aerial spatial and reasoning datasets already provide related signals, spanning fine-grained grounding, embodied 3-D spatial concepts, multi-UAV perception, aerial mathematical reasoning, high-resolution aerial Visual Question Answering (VQA), and aerial captioning [ 76 , 13 , 68 , 77 , 26 , 3]. They are usually treated, however, as perception or question-answering benchmarks rather than as pretraining supervision for an action-producing tracker. Second, the training data must preserve enough long-occlusion samples. Many window-construction pipelines discard samples in which the target is invisible in most historical frames, but such samples provide the supervision needed to learn post-occlusion recovery behavior. Third, target re-acquisition must be optimized in closed loop. Once the model makes an incorrect prediction 2CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking at one step, its action changes the subsequent observation distribution. Recovery performance therefore cannot rely on offline supervision alone; it must be trained and evaluated on the state distribution induced by the policy’s own rollouts. Building on these observations, we present CosFly-VLA , an occlusion-recovery-oriented and spatially aware UAV VLA tracking framework (Figure 1). The task interface asks the policy to infer visibility, localize the current target box, and output an 8-step Four-Degree-of-Freedom (4-DoF) waypoint-delta action chunk from five Red-Green-Blue (RGB) frames, language instructions, and state history. CosFly-VLA uses Qwen3.5 [ 38 ] as the vision-language backbone, extracts hidden states related to action planning, target localization, and visibility estimation through meta-query spans, and decodes the three structured outputs with decoupled heads. To strengthen spatial reasoning when the target is invisible, we introduce Spatially Grounded Continued Pretraining (CPT) over aerial spatial-reasoning data. The tracker is then specialized with a three-stage Curriculum-based Supervised Fine-Tuning (SFT) process: multi-head warm-up followed by two-stage curriculum learning over natural and hard / long-occlusion data. Chain-of-Thought (CoT) training then teaches recovery-oriented reasoning, and closed-loop Reinforcement Learning (RL) trains the policy on the observation distribution induced by its own actions, using rewards tied to stand-off tracking, grounding quality, collision avoidance, and task success. To keep the evaluation aligned with the core failure mode, we use occlusion-graded open-loop windows and closed-loop CARLA rollouts over seen-test and unseen-test splits. Relative to OpenVLA, CosFly-VLA-0.8B (SFT+CoT) reduces open-loop Average Displacement Error (ADE) by 34.1% / 35.3% on the two splits; the cumulative training-recipe ablation associates the strongest cross-map gain with the step that adds spatially grounded CPT and the largest seen-test Hard gain with the step that adds CoT supervision. Also relative to OpenVLA, the RL-tuned variant improves closed-loop Success Rate (SR) by 29.8% / 2.5% and reduces rollout ADE by 10.0% / 8.7% on seen-test / unseen-test. The contributions of this paper are summarized as follows: • We revisit dynamic UAV target tracking from the perspective of sustained occlusion rather than visible-frame following. We formulate occlusion-robust tracking as a closed-loop recovery problem that requires target-state preservation, drift suppression, and post-occlusion re-acquisition, and define reproducible Easy / Medium / Hard protocols at both the open-loop window and closed-loop episode levels. • We introduce CosFly-VLA , a spatially aware VLA model for UAV target tracking. A meta-query interface connects shared multimodal representations to decoupled action, target-box, and visibility pathways, enabling the model to jointly perform continuous flight control, spatial grounding, and target-state estimation under partial observability. • We design a progressive training recipe that combines Spatially Grounded Continued Pretraining, three-stage Curriculum-based Supervised Fine-Tuning, dedicated Chain-of-Thought training, and closed-loop Reinforcement Learning. These stages successively introduce aerial geometric priors, structured tracking behavior, recovery-oriented reasoning, and adaptation to the observation distribution induced by the policy’s own actions. • We evaluate CosFly-VLA on occlusion-graded seen-test and unseen-test splits through structured open-loop prediction and executed CARLA rollouts. Comparisons with general VLM/VLA baselines, cumulative training-recipe ablations, and qualitative trajectories demonstrate improvements in waypoint prediction, target grounding, closed-loop success, and cross-map generalization. 
+
+## 2 Related Work 
+
+VLA models for embodied AI. General-purpose VLA models align visual observations, language instructions, and action outputs within a unified policy, providing an important architectural foundation for CosFly-VLA. The RT series [6, 5], OpenVLA and Octo [24, 51], and the π0 / π0.5 / π0.6 family [4, 20, 19] show how pretrained multimodal backbones can be coupled with robot-control modules to generate executable actions from visual and language inputs. Other studies add reasoning, memory, dual-process modeling, dexterous manipulation, action chunking, continuous action modeling, and flow-matching policies [ 16 , 43 , 27 , 7, 30 , 69 , 73 ], while navigation and autonomous-driving systems adapt similar ideas to longer-horizon decisions [ 70 , 2 , 50 , 22 ]. CosFly-VLA builds on this direction through a frozen vision-language backbone, a continuous flow-matching action expert, and task-specific hidden-state routing. Its focus, however, is different from general manipulation or navigation: the policy must continue acting while the target is invisible, and it must jointly predict motion, target location, and visibility for closed-loop recovery. 
+
+Embodied visual tracking and UAV active tracking. Visual tracking is increasingly viewed as a closed-loop problem that requires perception, decision-making, and control to be coordinated over time [ 63 , 64 , 74 , 61 ]. TrackVLA / TrackVLA++ [ 53 , 32 ], EZREAL [ 65 ], HIET [ 56 ], and related vision-language-model advisor and active-perception 3CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking systems [ 57 , 58 , 75 , 2] introduce language-conditioned policies, reasoning, and memory mechanisms into embodied tracking. These works mainly target ground robots or indoor agents, whose motion patterns, camera geometry, and occlusion structures differ from those of low-altitude UAVs. UAV tracking, in contrast, has often been organized around detection, redetection, re-identification, tracking, and control modules [ 34 , 29 , 44 , 59 , 28 , 63 , 64 , 49 ], with end-to-end active-tracking systems such as D-VAT [ 12 ] and GC-VAT [ 45 ] exploring learned pursuit policies. UAV-Track VLA [ 71 ]further demonstrates that VLA modeling is promising for aerial active tracking. CosFly-VLA is complementary to these efforts: building on CosFly-Track [ 55 , 8], it makes sustained target disappearance and post-occlusion re-acquisition the organizing principle for data mining, evaluation, and closed-loop training. The model explicitly keeps long-occlusion windows, decouples action, bounding-box, and visibility prediction through meta-query routing, and optimizes recovery on the observation distribution induced by its own actions. 
+
+UAV vision-language navigation and aerial spatial data. Beyond active tracking, UAV VLA research has advanced in mission generation, fuzzy-instruction navigation, onboard inference, drone racing, and aerial manipulation [ 46 , 48 ,60 , 41 , 54 , 35 , 39 , 33 , 25 , 18 , 67 , 66 ]. Related surveys and roadmaps situate these tasks within the broader framework of UAV autonomy [ 23 , 21 , 52 , 47 , 22 , 10 ]. Systems such as AerialVLA [ 62 ], WorldVLN [ 72 ], AwareVLN [ 15 ], and UAV-Flow [ 54 ] mainly focus on instruction following, navigation decisions, or action learning toward static goals. They provide useful foundations for UAV vision-language control, but they are not centered on dynamic targets that may disappear for extended periods. At the same time, aerial spatial vision-language datasets provide supervision signals that are valuable for occlusion recovery: AirSpatial [ 76 ] covers aerial grounding and metric relations, Open3DVQA-v2 [ 13 ] studies embodied 3-D spatial concepts, AirCopBench [ 68 ] targets multi-UAV perception, AVI-Math [ 77 ]emphasizes aerial mathematical reasoning, HRVQA [ 26 ] covers high-resolution aerial visual question answering, and CapERA [ 3 ] provides aerial event captions. CosFly-VLA repurposes these sources from perception or question-answering benchmarks into continued-pretraining supervision for a closed-loop tracking policy, giving the backbone aerial-viewpoint priors over spatial relations, scale, and distance before supervised learning and reinforcement learning. 
+
+## 3 Task Formulation 
+
+Task definition. We formulate UAV dynamic target tracking as the closed-loop pursuit of a moving target by a single quadrotor agent equipped with an egocentric monocular camera. The task is intentionally structured as a joint perception-and-control problem. At decision step t, the policy πθ receives a short visual history, a language task / target prompt, and textual state history, then emits the current target grounding, an action chunk, and a visibility estimate, as summarized in Eq. 1: 
+
+ot = ( It−K+1: t, l, s prev  
+
+> t
+
+), ˆyt = ( ˆbt, ∆t+1: t+Ha , ˆvt). (1) Here It−K+1: t is a K=5 -frame RGB stream at 640 ×360 resolution (width × height, with H=360 and W =640 ), 
+
+l is the language task / target prompt, and sprev  
+
+> t
+
+contains 4-DoF UAV poses, previous target boxes, and visibility flags. The output ˆyt consists of the current Qwen-style target box ˆbt, an Ha=8 future waypoint-delta action chunk 
+
+∆t+1: t+Ha ∈ RHa×4, and a target-visibility probability ˆvt. Each action delta is (∆ x, ∆y, ∆z, ∆yaw) in the controller’s world-frame convention. At deployment, we use a receding-horizon controller with Hc=1 : only the first predicted delta is executed before the next observation arrives. Unless otherwise stated, sprev  
+
+> t
+
+is populated from ground-truth state history in both open-loop and closed-loop evaluation; robustness to predicted-state feedback is left to future work (Section 7). 
+
+Closed-loop occlusion-graded difficulty. Because occlusion is the central problem we target, the closed-loop protocol grades each episode by a geometric visibility test rather than by model predictions. At frame t, we cast five line-of-sight (LOS) rays from the UAV camera position to the target center, head, feet, left side, and right side. A ray is counted as blocked if scene geometry intersects it at least 0.5 m before the target point. Let vis _frac t be the fraction of the five rays that remain unblocked, and let dt be the UAV–target distance in meters. A frame is marked invisible if fewer than three rays are unblocked or the target falls outside the valid distance gate (2 , 50) m. For an episode of T frames, define 
+
+χocc  
+
+> t
+
+= 1[vis _frac t < 0.6 ∨ dt /∈ (2 , 50)] , occ _rate = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+χocc  
+
+> t
+
+. (2) We use Easy for occ _rate < 5% , Medium for 5% ≤ occ _rate < 20% , and Hard for occ _rate ≥ 20% ; Hard episodes with occ _rate > 70% are filtered because nearly always-invisible targets do not define a meaningful tracking problem. We also record the longest contiguous occlusion duration, occ _streak _s, as an auxiliary diagnostic. This episode-level protocol is distinct from the open-loop window-level grading in Section 5.1, but both are designed to separate ordinary visible-target following from the recovery regimes that motivate CosFly-VLA. 4CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Vision-Language-Model Backbone   
+
+> Meta-Query Hidden States
+> BBox Head Visibility Head LLM Decoder Action Head
+
+Vision Encoder Text Encoder        
+
+> Observations Instructions
+> Embodied Prompt
+> Interleaved Image-Text Embeddings Meta-Query Embeddings
+> N×12
+> Self-Attention
+> Cross-Attention
+> Feed-Forward MLP
+> MLP
+> Velocity Field
+> Nois e
+> CoT Reasoning Target Bbox Target Visibility Predicted Waypoints (x, y, z, yaw) ×8
+> "critical_components": "...",
+> "reasoning_trace": "...",
+> "current_target_state": "...",
+> "flight_plan": "..."
+
+(a) The Overall Model Framework 
+
+(b) DiT-based Action Head 
+
+(c) Flow Matching Process 
+
+er prompt:        
+
+> Meta Queries
+> Noise
+> x_0
+> Interpolate x_t
+> Expert
+> x_1
+> Pred v_theta
+> Sample
+> x_0
+> Clean
+> Act ion
+> DiT Model
+> GT v_theta
+> Training Process
+> Inference Process
+> Timestep
+> t
+> FM Loss
+> . . .
+> Euler Integration over Flow Field
+> Timestep
+> Action Q uery Hidden States
+> AdaLN
+> . . .
+> t = T Task-related Status Info t = T-1 t = T-2 t = T-3 t = T-4
+> act: <boi_action>...<eoi_action>
+> box: <boi_bbox>...<eoi_bbox>
+> vis: <boi_vis>...<eoi_vis>
+> You are a drone
+> navigation expert.
+> Given ... Predict the ...
+> and the next 8
+> waypoint deltas ...
+> BBox Hidden States Visibility Hidden States Action Hidden States
+> Text Hidden States
+
+Figure 2: CosFly-VLA architecture. Multi-frame observations, language instructions, state history, and boundary-tagged meta-query tokens are encoded by a frozen Qwen3.5 backbone with LoRA adapters. The meta-query hidden states are routed to three structured prediction heads: a 12-layer flow-matching DiT action expert for the 8-step 4-DoF waypoint-delta action chunk, a MLP bounding-box head, and a visibility head. The reasoning path shown in the diagram corresponds to CoT text generation and is not used as an additional control head. The right panels show the DiT action head and its flow-matching training / inference process. 
+
+## 4 Method 
+
+4.1 Framework Overview 
+
+CosFly-VLA converts the closed-loop tracking state in Section 3 into three synchronized outputs: the current target box, an 8-step 4-DoF waypoint-delta action chunk, and the target-visibility score. This decomposition matches the structure of UAV tracking: grounding anchors the visible target, action prediction drives the controller, and visibility estimation tells the policy when recovery should rely more on spatial and temporal context than on appearance. The framework keeps Qwen3.5 as a frozen backbone Φ with Low-Rank Adaptation (LoRA) [ 17 ], and attaches three lightweight task heads through a meta-query interface (Figure 2). The backbone encodes multi-frame RGB observations, the language prompt, UAV pose history, and previous boxes into a shared visual-text-state representation; meta-query spans then route task-specific hidden states to a flow-matching Diffusion Transformer (DiT) action expert, a Multilayer Perceptron (MLP) bounding-box (bbox) head, and an MLP visibility head. This avoids brittle JSON-like text decoding by producing structured boxes, visibility scores, and waypoint chunks directly from task-specific hidden states. 
+
+4.2 Model Architecture 
+
+CosFly-VLA adopts a backbone–heads architecture that separates shared multimodal understanding from task-specific continuous prediction. The visual-language backbone is responsible for encoding the image history, language prompt, UAV pose history, and previous target boxes into a unified representation. The task-specific heads then read different subsets of this representation through meta-query spans and decode the quantities required by closed-loop tracking: the 8-step waypoint-delta action chunk, the current target box, and target visibility. This organization preserves the general reasoning capacity of Qwen3.5 while giving the action, grounding, and visibility pathways enough specialization to handle the different failure modes of UAV tracking. 
+
+4.2.1 Visual and Language Backbone 
+
+CosFly-VLA uses Qwen3.5 as the shared visual-language backbone for high-level scene understanding, target semantics, and state-history integration. Given the observation tuple ot = ( It−K+1: t, l, s prev 
+
+t ), the model receives multi-frame RGB observations, a language task / target prompt, historical UAV poses, and previous target boxes. These heterogeneous inputs are organized as a unified multimodal sequence, so the backbone can jointly encode visual appearance, linguistic 5CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking VLM Decoder                        
+
+> (a) Spatially Grounded CPT
+> Images Prompt
+> VLM Encoder
+> Multi-task Heads
+> Multi-head Warm-up Curriculum Learning
+> (c) C oT Training
+> CoT Prompt
+> (b) Curriculum-based SFT (d) Closed-loop RL
+> Action
+> Head
+> Environment
+> Reward
+> Spatial-grounded Answer
+> Other
+> Heads
+> VLM E ncoder
+> ... ...
+> ... ...
+> Images Prompt
+> ... ...
+> VLM Encoder
+> VLM Decoder VLM Decoder
+> ... ...
+> Multi-task Heads
+> VLM Encoder
+> VLM Decoder
+> Multi-task Heads
+> ... ...
+> Images Prompt
+> ... ...
+> ...
+> Vis. BBox Action
+> ... ... ...
+> Vis. BBox Action
+> ... ... ...
+> Vis. BBox Action
+> ... ... ...
+> CoT
+> VLM Encoder
+> VLM Decoder
+> ...
+> Vis. BBox Action
+> ... ...
+
+Figure 3: CosFly-VLA training recipe. (a) Spatially Grounded CPT adapts the Qwen3.5 backbone with aerial spatial-perception supervision. (b) Curriculum-based SFT is a three-stage supervised process: multi-head warm-up, natural-distribution curriculum learning, and hard / long-occlusion curriculum learning. (c) CoT Training teaches the model to emit recovery-oriented reasoning traces before structured answers. (d) Closed-loop RL updates the action head through interaction with the environment and tracking-oriented rewards, while the other components remain fixed. target intent, and temporal state cues. This shared representation is essential for UAV tracking: when the target is visible, the model can rely on appearance and grounding; when the target is occluded, it must instead use scene layout, historical motion, and language-conditioned target identity to maintain a recoverable belief state. We keep the Qwen3.5 backbone frozen across the task-specific stages (SFT, CoT, and RL) and adapt it with LoRA adapters ( r=16 , α=32 , dropout 0.05 on the query / key / value / output projections of every attention layer). This design preserves the backbone’s pretrained multimodal reasoning capacity while limiting the number of trainable parameters introduced by the UAV tracking task. The remaining trainable interface is deliberately small: newly introduced meta-query embeddings and lightweight connectors translate the shared hidden sequence into task-specific representations. This separation avoids over-specializing the backbone to one control convention and makes the same representation usable by the action, grounding, and visibility branches. 
+
+4.2.2 Task-Specific Heads Meta-query routing. To expose task-specific hidden states without serializing numeric answers through the language channel, we introduce three boundary-tagged meta-query groups, one per prediction family τ ∈ { act , box , vis }, with span lengths Ma=16 , Mb=16 , and Mv =1 :
+
+[<boi_ τ >] qτ 
+
+> 1
+
+, q τ 
+
+> 2
+
+, . . . , q τMτ [<eoi_ τ >], τ ∈ { act , box , vis }. (3) The query block is placed after the <think> . . . </think> block but before <answer> , so the task heads can condition on the reasoning trace without seeing the numeric answer tokens. Let h ∈ RB×L×d denote the final backbone hidden states. We extract the task-specific spans 
+
+h(τ ) = Pick( h, ⟨boi_ τ ⟩, ⟨eoi_ τ ⟩) ∈ RB×Mτ ×d, τ ∈ { act , box , vis }, (4) and pass each span through a connector C(τ ) with Root Mean Square Layer Normalization (RMSNorm) and a Linear– Gaussian Error Linear Unit (GELU)–Linear projection, yielding z(τ ) = C(τ )(h(τ )). The evaluated 0.8B configuration uses a 2-layer / 8-head Transformer connector; scaling to larger backbones would use a shallower connector to fit the memory budget, which we leave to future work. The connector is the architectural boundary between shared Qwen3.5 features and task-specific decoding: action queries focus on future control, bbox queries focus on spatial grounding, and the single visibility query focuses on whether appearance evidence should be trusted. 
+
+Flow-matching action expert. The action branch is responsible for producing the 8-step 4-DoF waypoint-delta action chunk consumed by the UAV controller. We implement Ψact as a 12-layer DiT-style flow-matching expert with adaptive Layer Normalization (adaLN) modulation [ 36 ] and per-block cross-attention to zact . Instead of directly regressing a deterministic displacement vector, the expert learns a rectified-flow velocity field over normalized action chunks. This is better suited to UAV tracking than text-token action decoding because it models a continuous trajectory distribution while remaining conditioned on the same language and visual context as the grounding heads. At inference, explicit Euler integration generates the action chunk, and a kinematic-feasibility clamp KC( ·) limits velocity, acceleration, and yaw-rate components before the first delta is executed by the receding-horizon controller. 6CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Table 1: CPT-stage data composition. Spatially grounded CPT uses a 70% / 30% mixture of internal UAV trajectory data and external aerial spatial-VL data. External datasets are used only for CPT, not for the SFT training pool.                   
+
+> Source Samples Role in CPT
+> Internal UAV trajectory pipeline 350,000 UAV tracking, grounding, free-form captioning, negative examples, long-horizon look-ahead AirSpatial [76] 45,000 Aerial grounding, distance, size, color, type and 3-D relation cues Open3DVQA-v2 [13] 37,500 Embodied 3-D spatial concepts and perspective reasoning HRVQA [26] 30,000 High-resolution remote-sensing QA and scene reasoning AVI-Math [77] 15,000 Aerial geometry, counting and algebra reasoning AirCopBench [68] 11,250 Multi-UAV collaborative perception and reasoning CapERA [3] 11,250 Aerial single-frame description / captioning
+> Total ∼500,000 Balanced by task and answer bucket
+
+Grounding and visibility heads. The bbox and visibility branches provide the visual grounding signals that close the loop between perception and action. They are intentionally lightweight because their role is to decode structured state from task-specific hidden representations rather than to perform another round of language modeling. The bbox head predicts the current target location needed for visual feedback, while the visibility head estimates whether the current observation contains reliable appearance evidence. The two heads operate on their connector outputs as 
+
+ˆbt = Ψ box (mean( zbox )) , ˆvt = sigmoid(Ψ vis (zvis  
+
+> 1
+
+)) . (5) 
+
+Ψbox and Ψvis are 2-layer MLPs with GELU and LayerNorm. Box targets follow the Qwen grounding convention on a 
+
+0–1000 grid and are normalized internally as b/ 1000 rather than raw pixels. The visibility head outputs a probability that is used both as a supervised signal and as a diagnostic of whether the controller should trust appearance-based evidence. This is particularly important in long-occlusion windows, where a high-quality policy must keep acting even when the current frame no longer contains a reliable target observation. 
+
+4.3 Training Recipe 
+
+Training CosFly-VLA requires more than fitting waypoint and bbox labels on visible-target frames. The policy must first acquire UAV-view spatial priors, then learn the structured tracking interface and recovery-oriented reasoning traces, and finally practice recovery under its own closed-loop feedback. Therefore, we use four successive phases (as shown in Figure 3): spatially grounded CPT, three-stage curriculum SFT, CoT training, and closed-loop RL. CPT adapts the full backbone (including the vision encoder) to aerial depth, distance, and 3-D relation cues; SFT then freezes the backbone and specializes the decoupled heads through multi-head warm-up and two-stage curriculum learning; CoT training teaches reasoning traces before structured answers; and RL exposes the policy to drift, collision, and recovery events on-policy that do not appear in ordinary offline supervision. 
+
+Spatially grounded continued pretraining. The first phase addresses a missing prerequisite for occlusion recovery: when the target is not visible, the policy must rely on scene geometry rather than appearance. Generic Qwen3.5 pretraining provides broad multimodal understanding, but it is not specifically optimized for UAV-view spatial relations, object scale, altitude cues, red-box grounding, or occlusion ordering. We therefore use spatially grounded continued pretraining as an upstream adaptation stage before any task-specific action head is trained. The CPT data uses internal UAV trajectories as the main source because those samples are closest to dynamic tracking, red-box grounding, long-horizon reasoning, and hard negative recognition. It adds six external aerial spatial-VL datasets to broaden the backbone’s aerial semantics and geometry priors. The final mixture is balanced to roughly 500k samples, with 70% internal trajectory samples and 30% external aerial data. All sources are converted into the same JavaScript Object Notation Lines (JSONL) schema, with fields such as images, messages, task, source, and extra metadata kept compatible with the downstream SFT entry point. CPT updates all backbone parameters, including the vision encoder; the resulting weights are saved directly as a spatially aligned backbone for the supervised curriculum. CPT is designed to inject five capabilities that are difficult to learn from visible-frame tracking windows alone: aerial 3-D spatial relations, metric distance and size estimation, object attribute grounding, aerial mathematical / counting reasoning, and caption-level scene description. Table 1 summarizes the data composition and the role of each source. Table 2 summarizes the scale and role of each training phase, including the CoT reasoning data. 
+
+Curriculum-based supervised fine-tuning. The second phase turns the spatially aligned backbone into a structured UAV tracking policy. A single end-to-end SFT run is unstable because the action, bbox, and visibility paths have different loss scales, convergence speeds, and sample requirements. We therefore use a three-stage curriculum. First, 7CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Table 2: Training data statistics. The release follows CPT → three-stage curriculum SFT → CoT training → closed-loop RL. SFT is Town10HD pedestrian-only in this baseline release; RL uses a separate multi-map split.               
+
+> Phase Scale Data / split role
+> CPT ∼500k samples 70% internal UAV trajectory data + 30% six external aerial spatial-VL datasets Three-stage SFT 5,861 clean trajectories / 1,740,278 samples Town10HD pedestrian-only pool; multi-head warm-up + natural curriculum + hard / long-occlusion curriculum Long-occ mining 233,437 candidates Relaxed miner admits 1,307 windows with 4-of-5 invisible inputs and 5,254 with 5-of-5 invisible inputs CoT training 19,066 samples Teacher-generated reasoning traces for hard / long-occlusion re-covery; λlm = 0 .1
+> RL 550 paths + 20 calibration / 104,250 frames 11-map split: 440 train + 110 test; 20 historical calibration paths are separate
+
+multi-head warm-up initializes the action, bbox, and visibility paths with the backbone frozen and LoRA disabled, so the task heads learn to read useful hidden states before backbone adaptation begins. Second, the warmed heads are reloaded into a unified multitask model, LoRA is enabled, and the policy is trained on the natural tracking distribution. Third, the curriculum shifts the data distribution toward rare maneuvers and occlusion-heavy windows, including an explicit 15% long-occlusion quota. This three-stage SFT process trains the structured tracker; CoT training then follows as a dedicated reasoning phase rather than as an additional SFT stage. Buckets in Stage 3 are assigned by a fixed priority rule over the K+Ha window: 
+
+g(·) = argmax  long_occ ≻ avoid_tight ≻ avoid_loose ≻ sharp_turn 
+
+≻ short_occ ≻ turn ≻ small/alt ≻ cruise . (6) The key indicators are long_occ (≥ 4 invisible frames in the 5-frame window), sharp_turn (cumulative yaw ≥ 30 ◦), 
+
+avoid_tight (small obstacle distance while heading changes), and altitude / small-target cues. Stage-3 weights follow a 1:1 .5:2:3 ratio over cruise / turn / loose-avoidance / tight-avoidance buckets, so samples that most often lead to closed-loop failure exert larger training pressure than ordinary cruising windows. The supervised objective follows the same multi-head structure. The action head is trained with a rectified-flow target over normalized action chunks. Given a ground-truth waypoint tensor x1 ∈ [−1, 1] Ha×4 with Ha=8 , Gaussian noise 
+
+x0 ∼ N (0 , I ), and t ∼ U [0 , 1] , we form xt = (1 − t)x0 + tx 1 and train the DiT to predict the constant flow direction: 
+
+Lact = Ex1,x 0,t 
+
+h
+
+Ψact (xt, t, z act pool , z act ) − (x1 − x0) 22
+
+i
+
+, (7) where zact pool = mean( zact ) conditions the global adaLN path and the full zact sequence supplies cross-attention keys and values. The bbox head uses an ℓ1 term plus Generalized Intersection-over-Union (GIoU) on normalized Qwen-style coordinates, and the visibility head uses binary cross-entropy. The full SFT loss is 
+
+L = X
+
+> i∈B
+
+w(gi)λaL(i) 
+
+> act
+
++ λbL(i) 
+
+> box
+
++ λv L(i)
+
+> vis
+
+ + λlm Llm , (8) where w(gi) is the curriculum bucket weight. Unless otherwise stated during SFT, (λa, λ b, λ v , λ lm ) =(1 .0, 1.0, 0.05 , 0.0) . The CoT phase sets λlm = 0 .1, with the language-modeling loss masked away from meta-query positions, so reasoning supervision can be learned without routing control supervision via the language head. 
+
+Chain-of-thought training. After the structured SFT curriculum, we train on CoT samples generated by a Qwen3.5-397B teacher [ 38 ] in 8-bit floating-point (FP8) precision. These samples ask the assistant to produce a reasoning trace in <think> . . . </think> before the structured <answer> . This phase teaches interpretable recovery reasoning for hard and long-occlusion cases while keeping action, bbox, and visibility supervision attached to the decoupled heads. 
+
+Long-occlusion data mining. The SFT data pipeline starts from 6,785 raw Town10HD trajectories, removes 97 UAV-collision trajectories, applies target-clean filtering, and retains only trajectories with nbad < 5, where nbad 
+
+counts frames that fail the target-validity check. This leaves 5,861 clean trajectories, from which JSONL generation produces 1,740,278 multimodal samples. The default window builder uses max_invisible=2 , which is reasonable for visible-target imitation but removes many windows needed for re-acquisition. We therefore add a relaxed miner with 
+
+max_invisible=4 , min_visible_history=0 , and max_alt_jump=3.0 m . It surfaces 233,437 candidate windows, including 1,307 windows with 4-of-5 invisible inputs and 5,254 windows with 5-of-5 invisible inputs. These windows are routed into the hard and long-occlusion buckets so the model sees disappearance as a first-class training case rather than as a filtering error. Figure 4 illustrates the rollout collection, reward computation, group-relative update, and policy hot-reload loop. 8CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Closed-loop Online Environment 
+
+On-Policy Service    
+
+> Trajectory 0
+> Trajectory 3
+> Expert Trajectory
+> Rollouts Collection
+> VLM Backbone ️
+> Action Head
+> Actions
+> Observations
+> & Rewards
+> Reward
+> Distance IoU
+> Success Collision
+> Hold 28m
+> Standoff
+> Dense Reward
+> Sparse Reward
+> . . . .
+> . . . . Done!
+> Trainable
+> Frozen
+> . . .
+> +
+> Align to
+> Target
+> Policy Update
+> G×
+> A0
+> A1
+> A4
+> A3
+> G×
+> A2
+> Expert-Guided GRPO
+> Advantage Computation
+
+Figure 4: Closed-loop reinforcement learning pipeline. Starting from the SFT checkpoint, CosFly-VLA is served as an action-head policy in the CARLA environment. The rollout collector gathers multiple on-policy trajectories and one expert anchor for each start condition, computes rewards from stand-off distance, target IoU, success, and collision terms, and transfers the trajectories to the trainer. The trainer computes group-relative advantages, updates the trainable action head while the backbone remains frozen, and hot-reloads the updated head for the next collection round. 
+
+Closed-loop reinforcement learning. The final phase targets the gap between offline supervision and closed-loop deployment, where predicted boxes and actions would be fed back into future observations and small errors can compound into drift, collision, or failure to re-acquire an occluded target. In this paper, RL optimizes the action head under action-induced observation shift, while the box/visibility history used for evaluation remains ground truth. We therefore fine-tune the SFT policy with a closed-loop reinforcement fine-tuning pipeline, denoted CosFly-RFT. The policy is initialized from the SFT checkpoint, keeps the Qwen3.5 backbone and meta-query connectors frozen, and updates the flow-matching DiT action expert through Expert-Guided Flow-Policy Optimization (EG-FPO). This design combines three well-established ideas: flow / diffusion-style continuous action generation for robot policies [ 31 , 11 , 4], Proximal Policy Optimization (PPO)-style likelihood-ratio clipping for stable on-policy updates [ 40 ], and group-relative advantage normalization from Group Relative Policy Optimization (GRPO) [42]. Rollout collection is performed in a heterogeneous closed-loop system. A CARLA simulator service exposes reset and step endpoints; a rollout collector maintains the 5-frame observation window and UAV pose history; and an action-head service returns the deterministic action mean, bbox, and visibility for each state. For each path, the collector samples K on-policy trajectories from a fixed-variance Gaussian proxy around the deterministic flow mean, 
+
+a ∼ N (μθ (s), diag( σ2)) . This Gaussian proxy follows the standard continuous-control policy-gradient practice used in PPO-style methods [ 40 ]: the flow model supplies the mean action chunk μθ (s), while the fixed diagonal variance gives a tractable log-probability for ratio-based updates without replacing the underlying flow-matching decoder. Each group is augmented with one expert-replay trajectory that acts as a high-return anchor, preventing the group advantage from collapsing when all online rollouts fail. Completed rollout JSONs are transferred to the training machine; after each update, the new action head is hot-reloaded into the serving process, and the next iteration collects rollouts with the updated policy version. The reward is computed step by step in the simulator and combines dense tracking terms with sparse terminal events. In the main implementation, the dense terms reward maintaining the target stand-off distance and aligning the predicted bbox with the ground-truth target box, while terminal terms penalize collision and reward successful completion: 
+
+rt = −wd
+
+|dt − d∗|
+
+d∗ + wiou IoU( ˆbt, b GT  
+
+> t
+
+) + rcoll  
+
+> t
+
++ rsucc  
+
+> t
+
+, (9) 9CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Table 3: Open-loop evaluation data statistics. Held-out 5-frame windows are graded by the number of invisible frames in the four-frame history: Easy = 0, Medium = 1–2, and Hard = 3–4. Both evaluation sets are rebalanced toward occlusion relative to their natural pools, which are dominated by fully visible windows (89.7% Easy in seen-test and 94.2% in unseen-test); the unseen-test Medium and Hard slices retain every available window.                
+
+> Occlusion slice (evaluated) Split Window pool Evaluated Easy Medium Hard
+> seen-test 173,169 10,000 5,000 3,000 2,000 unseen-test 35,580 4,152 2,076 789 1,287
+
+where d∗ = 28 m, wd = 1 .0, wiou = 0 .5, collision contributes a terminal penalty, and success contributes a terminal bonus. This reward is deliberately tracking-oriented: it rewards the UAV for keeping an appropriate stand-off distance, keeping the target visually grounded, avoiding obstacles, and completing the episode. For a group G containing K online trajectories and one expert anchor, each trajectory return is Ri = P 
+
+> t
+
+ri,t . Following the critic-free normalization idea in GRPO [42], the group-relative advantage is 
+
+ˆAi = Ri − μG
+
+σG + ϵ , μG = 1
+
+|G| 
+
+X
+
+> j∈G
+
+Rj , σG =
+
+s 1
+
+|G| 
+
+X
+
+> j∈G
+
+(Rj − μG )2. (10) where ϵ is a small numerical stabilizer. The advantage is broadcast to every step of the corresponding trajectory. The policy ratio follows the PPO likelihood-ratio form [ 40 ], but is computed with the fixed-variance Gaussian surrogate around the flow-integrated action mean: 
+
+ρi,t (θ) = exp(log πθ (ai,t |si,t ) − log πθold (ai,t |si,t )) , (11) where ai,t is the sampled action chunk, μθ (s) is obtained by deterministic flow integration, and σ is recorded during rollout collection. The action expert is updated with a PPO-style clipped surrogate [40], 
+
+LEG -FPO (θ) = −Ei,t 
+
+h
+
+min 
+
+
+
+ρi,t ˆAi, clip( ρi,t , 1 − δ, 1 + δ) ˆAi
+
+i 
+
+, (12) with δ = 0 .2. In practice, we also use dual clipping for negative-advantage outliers and an online-only Kullback–Leibler (KL) early stop, excluding expert steps from the KL monitor because large expert ratios are expected to pull the policy toward the anchor. A Behavior Cloning (BC) v0.1 diagnostic improved bbox IoU but caused a collision regression, so the final closed-loop RL path warm-starts directly from the SFT checkpoint. The RL split contains 550 paths across 11 maps (440 train and 110 test), plus 20 separate historical calibration paths. 
+
+## 5 Experiments 
+
+5.1 Evaluation Protocol and Metrics 
+
+Table 3 summarizes the open-loop evaluation pools and their occlusion-rebalanced subsets. We evaluate CosFly-VLA in two complementary regimes that share one split convention. Open-loop evaluation scores structured predictions on held-out 5-frame windows: the model receives identical observations and prompts, and its predicted waypoints, target box, and visibility are compared against ground truth without executing any action. Closed-loop evaluation executes the policy in CARLA and measures end-to-end tracking outcomes; the two metric families are kept numerically separate throughout. Both regimes distinguish seen-test , drawn from the same map distribution as the training data, from unseen-test , drawn from maps disjoint from the training map distribution and therefore measuring cross-map generalization. All CosFly-VLA quantitative rows in this section use the 0.8B model; the 2B / 9B configurations are architectural scaling targets rather than evaluated rows in the present benchmark. The data composition for CPT, SFT, and RL is described in Table 2. 
+
+Open-loop evaluation data. Open-loop difficulty is defined at the 5-frame window level, not at the episode level used for closed-loop evaluation in Section 3. Let vj ∈ { 0, 1} denote the simulator visibility flag at frame j, where one indicates visible. For a sample whose prediction is made at time t, let nhist inv = P4 
+
+> j=1
+
+1[vt−j = 0] be the number of invisible frames in the four historical input frames. We define Easy as nhist inv = 0 , Medium as nhist inv ∈ { 1, 2}, and Hard as nhist inv ∈ { 3, 4}. The natural window distribution is dominated by fully visible targets (89.7% of the seen-test pool and 94.2% of the unseen-test pool are Easy), so uniform sampling would mostly measure visible-frame tracking. We therefore evaluate on occlusion-rebalanced sets: 10,000 seen-test windows (5,000 Easy / 3,000 Medium / 2,000 Hard) drawn from a 173,169-window pool, and 4,152 unseen-test windows (2,076 Easy / 789 Medium / 1,287 Hard) drawn from a 35,580-window pool, where the unseen-test Medium and Hard slices retain every available window. 10 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Table 4: Open-loop evaluation on seen-test. Lower is better for ADE / DE / center distance; higher is better for IoU / Vis F1. Bold and underline mark the best and second-best values.                                                                                             
+
+> Method ADE (m) ↓First DE (m) ↓Final DE (m) ↓IoU ↑Cen. (px) ↓Vis F1 ↑
+> Overall Easy Medium Hard
+> Closed-source VLMs
+> Opus-4.6 [1] 1.1014 0.8230 1.3999 1.3499 0.2137 1.8626 0.033 81.2 0.939 Gemini-3.1-Pro [14] 0.8913 0.7988 1.1616 0.7184 0.1322 1.4106 0.513 12.3 0.964
+> Open-source VLMs
+> Qwen3-VL-235B [37] 2.4861 2.3435 2.7393 2.4719 0.3955 4.1896 0.399 23.1 0.938 Qwen3.5-397B [38] 2.4508 2.3962 2.6530 2.2839 0.5054 4.0449 0.426 15.4 0.952
+> General VLA models
+> OpenVLA [24] 1.0887 0.8442 1.3193 1.3542 0.2581 1.8516 –––
+> π0[4] 1.2050 0.9066 1.3986 1.6604 0.3533 2.3197 –––
+> π0.5[20] 1.1407 0.8690 1.3301 1.5357 0.3318 2.1766 –––
+> CosFly-VLA-0.8B (SFT) 0.8247 0.6719 0.9893 0.9599 0.2150 1.4750 0.649 9.7 0.938
+> CosFly-VLA-0.8B (SFT+CoT) 0.7175 0.6351 0.8522 0.7218 0.1884 1.2929 0.659 9.4 0.943
+
+Table 5: Open-loop evaluation on unseen-test. This split evaluates cross-map generalization. Bold and underline mark the best and second-best values.                                                                                             
+
+> Method ADE (m) ↓First DE (m) ↓Final DE (m) ↓IoU ↑Cen. (px) ↓Vis F1 ↑
+> Overall Easy Medium Hard
+> Closed-source VLMs
+> Opus-4.6 [1] 1.0232 0.5015 1.1021 1.8162 0.2278 1.8725 0.023 97.3 0.806 Gemini-3.1-Pro [14] 0.6442 0.4560 1.0690 0.6823 0.1300 1.2587 0.516 14.2 0.929
+> Open-source VLMs
+> Qwen3-VL-235B [37] 2.2616 2.1803 2.3913 2.2992 0.3913 4.1532 0.361 26.5 0.852 Qwen3.5-397B [38] 2.1319 2.1036 2.1891 2.1425 0.4325 3.9331 0.428 19.5 0.874
+> General VLA models
+> OpenVLA [24] 0.9160 0.6715 1.1500 1.1671 0.2253 1.6128 –––
+> π0[4] 1.5611 1.4001 1.6036 1.7946 0.3825 2.7218 –––
+> π0.5[20] 1.4279 1.1733 1.5364 1.7723 0.3584 2.4295 –––
+> CosFly-VLA-0.8B (SFT) 0.6364 0.4874 0.7550 0.8039 0.1610 1.1550 0.616 12.5 0.878
+> CosFly-VLA-0.8B (SFT+CoT) 0.5931 0.4782 0.7054 0.7096 0.1413 1.1257 0.635 11.4 0.932
+
+Metrics. Open-loop: let ˆpt+k and pt+k denote the predicted and ground-truth 3-D waypoint positions implied by the 8-step action chunk. We report Average Displacement Error (ADE) as 1
+
+> Ha
+
+PHa 
+
+> k=1
+
+∥ˆpt+k − pt+k∥2, First Displacement Error (First DE) as ∥ˆpt+1 − pt+1 ∥2, and Final Displacement Error (Final DE, equivalently FDE) as ∥ˆpt+Ha − pt+Ha ∥2,all in meters. For grounding, bbox Intersection-over-Union (IoU) is computed between the predicted and ground-truth current-frame boxes, and center error ( Cen. ) is the Euclidean pixel distance between their centers after mapping Qwen-style coordinates back to the 640 ×360 image. Visibility F1 (Vis F1) treats visible as the positive class and thresholds the predicted visibility probability at 0.5. Closed-loop: Success Rate (SR) counts an episode as successful when its visible-frame rate is at least 0.8, it has no collision, and the final five rollout steps are visible. Track Continuity Ratio (TCR) is the longest contiguous visible segment divided by the episode length. Following the benchmark convention, Average Tracking Frames (ATF) is the mean number of valid tracking decision steps before the first fatal failure, defined as either a collision or two consecutive invisible steps; one decision step spans five simulator frames (2.5 s). Closed-loop ADE is the mean Euclidean error between the UAV rollout trajectory and the expert / ground-truth tracking trajectory, and stand-off distance error (dErr) is the mean |dt − d∗| with d∗ = 28 m. 
+
+Implementation and training configuration. All training stages reported in this paper—CPT, multi-stage SFT, CoT training, and closed-loop RL—were run on a single node with eight NVIDIA A800 GPUs. The SFT phase of CosFly-VLA-0.8B starts from the spatially grounded CPT backbone (full-parameter CPT including the ViT) and follows the three-stage curriculum of Section 4.3; All stages share the same architecture configuration: a 12-layer, 8-head 11 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Table 6: Closed-loop comparison on seen-test and unseen-test. SR, TCR, and ATF are higher-is-better; ADE and dErr are lower-is-better. ATF is reported in decision steps, while ADE and dErr are in meters. Bold and underline mark the best and second-best values.                                                              
+
+> Method SR ↑TCR ↑ATF ↑ADE ↓dErr ↓
+> Seen Unseen Seen Unseen Seen Unseen Seen Unseen Seen Unseen
+> General VLA models
+> π0[4] 41% 47% 68% 59% 25.4 19.4 14.4 17.6 8.7 10.4
+> π0.5[20] 47% 60% 68% 64% 27.3 21.5 12.9 14.0 6.3 7.3 OpenVLA [24] 57% 80% 73% 70% 28.4 22.8 9.0 6.9 3.4 3.3
+> CosFly-VLA-0.8B (SFT) 70% 79% 79% 72% 30.5 22.8 8.9 8.8 3.3 3.9
+> CosFly-VLA-0.8B (RL) 74% 82% 74% 71% 29.6 23.5 8.1 6.3 2.7 2.7
+
+Table 7: Training-recipe ablation on open-loop ADE. All rows use the same 0.8B model scale and are evaluated on the seen-test / unseen-test splits in Table 3. Lower is better; bold marks the best value and underline marks the second-best value within each split and occlusion slice.                                                         
+
+> Variant Curr. CPT CoT seen-test ADE (m) ↓unseen-test ADE (m) ↓
+> Overall Easy Medium Hard Overall Easy Medium Hard
+> SFT only ✗✗✗0.8924 0.7265 1.0671 1.0451 0.7087 0.5490 0.7815 0.9217 + curriculum learning ✓✗✗0.8295 0.6895 0.9711 0.9670 0.7007 0.5301 0.7782 0.9284 + spatially grounded CPT ✓✓✗0.8247 0.6719 0.9893 0.9599 0.6364 0.4874 0.7550 0.8039 + CoT supervision ✓✓✓0.7175 0.6351 0.8522 0.7218 0.5931 0.4782 0.7054 0.7096
+
+cross-attention DiT action expert over an 8×4 action chunk (∆ x, ∆y, ∆z, ∆ψ) with per-dimension normalization scales (5 , 5, 2, 30) , meta-query pooling with 16 action, 16 bbox, and 1 visibility queries, a 2-layer meta-query connector, and 8 flow-integration steps at inference. Optimization uses bf16 with DeepSpeed ZeRO-2, AdamW without weight decay, a cosine learning-rate schedule. The effective batch size is fixed at 32 throughout (8 GPUs × 4 per-GPU batch ×
+
+1 gradient accumulation). 
+
+5.2 Open-loop Evaluation 
+
+Open-loop evaluation measures, on held-out 5-frame windows, whether a model can parse the task prompt and predict plausible waypoints, boxes, and visibility before closed-loop feedback compounds errors. We use it to position CosFly-VLA against two reference groups under the same prompt and I/O contract: (i) general-purpose VLMs evaluated 
+
+zero-shot , split into closed-source and open-source models; and (ii) general VLA baselines, including OpenVLA, π0,and π0.5. Because the general VLMs have no calibrated action head, their displacement errors largely reflect prompt-only spatial extrapolation. The VLA baselines are therefore the primary reference group for action prediction, while the zero-shot VLMs contextualize the difficulty of structured waypoint regression. Table 4 reports the same-map seen-test comparison, while Table 5 focuses on cross-map generalization under unseen-test. Both tables are structured-output comparisons only and are never compared numerically with closed-loop rollout metrics. Among the VLA baselines, CosFly-VLA-0.8B (SFT+CoT) achieves the lowest waypoint error on both splits and all occlusion slices. Relative to OpenVLA, it reduces overall ADE by 34.1% on seen-test (1.0887 → 0.7175) and by 35.3% on unseen-test (0.9160 → 0.5931), while reducing Final DE by about 30% on both splits. The improvement is most visible in hard cases: Hard ADE drops by 46.7% on seen-test and 39.2% on unseen-test relative to OpenVLA. The zero-shot VLMs remain competitive in several short-horizon columns, especially First DE, but CosFly-VLA provides the best matched bbox grounding among evaluated models with bbox outputs, reaching 0.659 / 0.635 IoU and 9.4 / 11.4 px center error on seen-test / unseen-test. This stronger grounding may help preserve target identity under occlusion, although the open-loop metrics alone do not establish a causal reduction in identity switches. 
+
+5.3 Closed-loop Evaluation 
+
+Closed-loop evaluation executes the predicted action chunks and feeds the action-induced observations back into the policy. The seen-test set contains 100 new Town10HD_Opt episodes (34 Easy / 33 Medium / 33 Hard), while unseen-test contains 90 episodes from Town01_Opt, Town03_Opt, and Town05_Opt (30 per town, with 10 episodes per difficulty grade). For a controlled comparison, all policies use deterministic mean actions, simulator collision checking, 12 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking Frame-1 Frame-2 Frame-3 Frame-4 Current Frame                    
+
+> <think> Critical_components: Target last seen behind the museum banner on the sidewalk. The drone is moving forward and
+> slightly right. The banner is the primary occluder. Reasoning_trace: In Frame 1, the target is visible walking along the
+> sidewalk. Because the target moves behind the vertical banner in Frame 2, they become occluded. This occlusion persists
+> through Frames 3 and 4 as the target continues their path behind the banner. The drone's forward motion and slight
+> rightward yaw suggest the target is still moving forward, now hidden from view. Current_target_state: The target is
+> occluded by the banner, expected to be in the middle-central region of the image. Flight_plan: Maintain current altitude,
+> apply gentle right yaw to follow the sidewalk curve, and proceed at moderate forward speed to re-acquire the target. </think>
+> Frame-1 Frame-2 Frame-3 Frame-4 Current Frame
+> <think> Critical_components: Target last seen moving rightward along the road, now occluded by building facade. Drone is
+> moving forward steadily at constant altitude and heading. Reasoning_trace: In Frame 1, the target is clearly visible walking
+> rightward on the road. Because the drone moves forward while the target continues rightward, they maintain a consistent
+> relative motion. By Frame 2, the target becomes occluded as it passes behind the building ’s left-side window, which blocks
+> line-of-sight. Frames 3 and 4 show continued occlusion due to the same building structure, with no change in drone motion or
+> target direction. Therefore, in Current Frame, the target remains hidden behind the building ’s right-side window, likely still
+> moving rightward along the road. Current_target_state: Target is occluded behind building facade, expected near center of
+> image where road continues. Flight_plan: Maintain straight heading, hold current altitude, proceed at moderate forward
+> speed to re-acquire target after passing occlusion. </think>
+
+Example2: Unseen_test_ID0534 
+
+Example1: Seen_test_ID1851 ADE: 0.5422 
+
+ADE: 0.1213 
+
+Figure 5: Qualitative CoT reasoning under long occlusion. The seen-test and unseen-test examples each show four historical frames and the current frame, followed by a structured reasoning trace that identifies the last visible target state, the primary occluder, relative motion, the estimated current target region, and a recovery-oriented flight plan. and the same five-frame ground-truth history buffer. Table 6 reports SR, TCR, ATF, rollout ADE, and stand-off distance error. These numbers measure behavior after action and trajectory errors have had a chance to compound. The RL-tuned CosFly-VLA-0.8B achieves the best SR, rollout ADE, and dErr on both splits, but it is not uniformly best on every closed-loop continuity metric. Compared with the strongest general VLA baseline, OpenVLA, it improves SR by 17 percentage points on seen-test (57% → 74%, a 29.8% relative increase) and by 2 points on unseen-test (80% 
+
+→ 82%, a 2.5% relative increase). Rollout ADE drops by 10.0% on seen-test (9.0 → 8.1) and 8.7% on unseen-test (6.9 → 6.3), while stand-off distance error decreases by 20.6% and 18.2%, respectively. TCR improves modestly over OpenVLA (73% → 74% on seen-test and 70% → 71% on unseen-test), and ATF improves by 4.2% / 3.1% on seen-test / unseen-test. Relative to the SFT checkpoint, RL improves SR by 5.7% / 3.8% and reduces ADE by 9.0% / 28.4% on seen-test / unseen-test, but the SFT model retains slightly higher TCR and seen-test ATF. This suggests that the RL update primarily improves success, trajectory accuracy, and stand-off control. 
+
+5.4 Ablation Studies 
+
+Table 7 reports a cumulative ablation of the open-loop training recipe. Starting from an SFT-only baseline, we progressively add curriculum learning, spatially grounded CPT, and CoT supervision while keeping the model scale and evaluation protocol fixed. This design isolates how each component changes structured waypoint prediction. The cumulative ablation shows that the gains are not confined to easy visible-frame tracking. Adding curriculum learning reduces seen-test overall ADE by 7.0% relative to SFT only (0.8924 → 0.8295). The step that adds spatially grounded CPT coincides with a 9.2% reduction in unseen-test overall ADE (0.7007 → 0.6364) and a 13.4% reduction in unseen-test Hard ADE (0.9284 → 0.8039). The subsequent CoT stage yields the largest marginal gain on seen-test Hard, reducing ADE by 24.8% (0.9599 → 0.7218), and further reduces unseen-test Hard ADE by 11.7% (0.8039 →
+
+0.7096). From the SFT-only baseline to the final +CoT variant, overall ADE decreases by 19.6% on seen-test and 16.3% on unseen-test, with Hard ADE decreasing by 30.9% and 23.0%, respectively. 13 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking SUCCESS       
+
+> SR 1 |Coll 0 |ADE 1.9 |FDE 4.1
+
+0.5       
+
+> SUCCESS
+> SR 1 |Coll 0 |ADE 4.8 |FDE 10.3
+
+CosFly-VLA-0.8B (SFT)       
+
+> SUCCESS
+> SR 1 |Coll 0 |ADE 2.4 |FDE 3.7
+
+CosFLy-VLA-0.8B (RL)                                                       
+
+> COLLISION
+> SR 0 |Coll 1 |ADE 37.2 |FDE 46.5
+> SUCCESS
+> SR 1 |Coll 0 |ADE 8.6 |FDE 6.6
+> SUCCESS
+> SR 1 |Coll 0 |ADE 6.6 |FDE 0.7
+> FAIL / DRIFT
+> SR 0 |Coll 0 |ADE 23.8 |FDE 53.8
+> COLLISION
+> SR 0 |Coll 1 |ADE 5.9 |FDE 6.2
+> SUCCESS
+> SR 1 |Coll 0 |ADE 3.8 |FDE 2.2
+> COLLISION
+> SR 0 |Coll 1 |ADE 11.5 |FDE 19.7
+> COLLISION
+> SR 0 |Coll 1 |ADE 3.3 |FDE 9.6
+> SUCCESS
+> SR 1 |Coll 0 |ADE 3.4 |FDE 8.7
+> Example A Example B Example C Example D
+
+GT drone pedestrian collision success 
+
+Figure 6: Qualitative closed-loop comparison on representative CARLA episodes. Rows show Examples A–D; columns compare π0.5, CosFly-VLA-0.8B (SFT), and CosFly-VLA-0.8B (RL). The thick bright-yellow curve denotes the ground-truth UAV path, and the thick bright-magenta dashed curve denotes pedestrian motion. Executed UAV trajectories are shown as thick solid curves, using vivid orange for π0.5, bright cyan-green for CosFly-VLA-0.8B (SFT), and bright blue for CosFly-VLA-0.8B (RL). Markers indicate success, collision, or drift, and each panel reports success, collision count, ADE, and FDE. 14 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking 
+
+5.5 Chain-of-Thought Reasoning for Hard Scenes 
+
+Hard open-loop windows contain three or four invisible history frames, so the model must reason about where the target went and where it may re-emerge rather than track appearance alone. The quantitative change associated with the CoT step is reported in Table 7: it produces its largest marginal improvement on seen-test Hard (0.9599 → 0.7218) and also improves unseen-test Hard (0.8039 → 0.7096). Figure 5 complements these aggregate results with one seen-test and one unseen-test example. In the seen-test example, the trace identifies a banner as the primary occluder and extrapolates the pedestrian’s motion along the sidewalk; in the unseen-test example, it attributes the disappearance to a building facade and preserves the target’s rightward motion hypothesis. In both cases, the model explicitly marks the target as occluded rather than treating missing appearance evidence as a new target, then converts the inferred state into a conservative forward / yaw command intended to restore line of sight. These examples provide qualitative evidence of the reasoning pathway; the corresponding ADE changes are reported by the cumulative ablation in Table 7. 
+
+5.6 Qualitative Visualization Analysis 
+
+The aggregate metrics demonstrate that closed-loop reinforcement learning improves both tracking success and flight safety, but they do not explain how these improvements emerge in individual environments. We therefore visualize four representative closed-loop episodes in Figure 6. Each row presents the same CARLA scenario for three methods: the general-purpose VLA baseline π0.5, CosFly-VLA-0.8B (SFT), and CosFly-VLA-0.8B (RL). The trajectories are overlaid on the actual CARLA map so that prediction drift and collision locations can be interpreted relative to buildings, vegetation, intersections, and narrow streets. Example A provides a sanity case in which all three methods complete the episode successfully. This case shows that CosFly-VLA-0.8B (RL) preserves stable tracking behavior in ordinary scenarios rather than improving safety by adopting an excessively conservative policy. In Example B, π0.5 accumulates substantial closed-loop error and collides, whereas both CosFly variants complete the route; the RL policy additionally reduces the terminal trajectory error. The remaining examples highlight more challenging failure modes. In Example C, π0.5 drifts away from the target tra-jectory, while CosFly-VLA-0.8B (SFT) follows the reference more closely but eventually collides near the surrounding structures. CosFly-VLA-0.8B (RL) instead maintains a collision-free trajectory and successfully completes the episode. Examples D is stronger safety-critical cases: both π0.5 and CosFly-VLA-0.8B (SFT) collide in dense urban corridors containing buildings and vegetation, whereas CosFly-VLA-0.8B (RL) reaches the end safely. Notably, the RL trajectory may locally deviate from the oracle path to preserve clearance. This illustrates why trajectory error alone is insufficient for closed-loop evaluation: a path with slightly lower instantaneous ADE may still be unusable if it terminates in collision. These qualitative patterns agree with the quantitative results in Table 6. On seen-test, CosFly-VLA-0.8B (RL) improves SR from 47% for π0.5 and 70% for CosFly-VLA-0.8B (SFT) to 74% . On unseen-test, it reaches an SR of 82% and yields the lowest rollout ADE and stand-off distance error among the compared methods. Together, the visualizations indicate that the benefit of closed-loop RL is not limited to more accurate waypoint regression; it produces trajectories that remain executable, maintain target tracking, and avoid safety-critical obstacles under compounding closed-loop errors. 
+
+## 6 Discussion 
+
+Taken together, the open-loop seen-test / unseen-test comparisons, training-recipe ablations, closed-loop rollouts, and diagnostic cases support two conclusions. First, the 0.8B SFT+CoT variant improves structured waypoint prediction over VLA baselines and over its SFT-only baseline and intermediate variants. Second, the RL-tuned 0.8B policy improves SR, rollout ADE, and stand-off distance error over the strongest general VLA baseline with matched logs. These conclusions apply to the aggregate split-level metrics defined by the stated evaluation protocol. The most important lesson is that UAV tracking should be treated as recovery under partial observability, not only as visible-frame localization. The open-loop Hard slices and closed-loop rollout examples both stress cases where target evidence becomes unreliable. Figure 5 shows how the policy maintains an explicit hypothesis about the unseen target, while Figure 6 shows how closed-loop errors can develop into drift or collision. Together, these results suggest that robust tracking depends on maintaining a useful belief about an unseen target and preventing the agent’s own outputs from becoming a self-reinforcing failure mode. The second lesson is that data construction and training schedule are part of the method. A default window builder that filters out 4-of-5 and 5-of-5 invisible-input windows makes the dataset look cleaner, but it also removes the episodes most relevant to re-acquisition. The relaxed miner and Stage-3 long-occlusion quota are therefore not merely 15 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking implementation choices; they encode the failure distribution that the policy must learn. The same logic applies to spatially grounded CPT: the point is not just to add more pretraining data, but to expose the frozen Qwen3.5 backbone to the aerial geometry cues that remain informative when the target is absent. The final lesson is systems-level. Closed-loop tracking quality is shaped by serving latency and feedback design as much as by offline prediction quality; the current simulator-side evaluation does not establish high-frequency onboard readiness. Likewise, the difference between the SFT and RL rows in Table 6 confirms that improvements in static structured outputs do not automatically imply the best on-policy behavior, because executed actions change the subsequent observations and state distribution. Multi-seed evaluation, predicted-box history feedback, per-occlusion closed-loop analysis, and eventual sim-to-real validation are natural extensions beyond the present benchmark. 
+
+## 7 Limitations and Future Work 
+
+CosFly-VLA still has several limitations. First, the current training data is mainly collected from a limited set of simulated environments, maps, and target categories. This setting is useful for controlled method development, but it cannot cover the long-tail diversity of real UAV deployment, where road layouts, building structures, camera viewpoints, illumination, weather, and target appearances vary substantially. Second, target behavior in the present data remains relatively simple: most targets move with limited state variation, often at near-constant velocity, and the scenes are primarily outdoor. More challenging cases, such as outdoor-to-indoor transitions, dense crowds, abrupt intent changes, and adversarial motion, are not yet well represented. Third, the reported quantitative comparisons use the 0.8B model and aggregate split-level metrics; they do not establish one-to-one scaling to the 2B / 9B configurations or quantify multi-seed variance. The closed-loop benchmark also uses a shared ground-truth history buffer to isolate action-policy behavior, so robustness to predicted-box history feedback remains outside the present evaluation. Finally, all evaluations are conducted in simulation. The results therefore do not establish robustness under physical UAV dynamics, onboard sensing noise, communication latency, real occluders, or safety constraints in deployment. These limitations point to three directions for future work. The first is to scale model size, environmental diversity, and target-behavior diversity, including more CARLA towns, richer object categories, variable target speeds, stop-and-go behavior, abrupt turns, indoor–outdoor transitions, and more realistic long-occlusion events. The second is to extend closed-loop evaluation with multiple seeds, per-occlusion reporting, and predicted-box history feedback, while developing reinforcement-learning methods that learn from harder on-policy failures and explicitly optimize re-acquisition. The third direction is sim-to-real transfer and physical deployment. Evaluating CosFly-VLA in AirSim or other simulators, adapting the policy to real sensor noise and control latency, and eventually testing on physical UAV platforms will be necessary to determine whether spatially grounded VLA tracking can support reliable target recovery beyond simulation. 
+
+## 8 Conclusion 
+
+In this work, we presented CosFly-VLA , a spatially aware vision-language-action framework for occlusion-robust UAV target tracking. Rather than treating aerial tracking as visible-frame localization followed by low-level control, CosFly-VLA formulates the task as closed-loop target recovery: the policy must ground the target when it is visible, reason about its likely re-emergence when it is occluded, and correct action-level errors induced by its own previous motions. Establishing the same recovery behavior under predicted-state feedback, rather than the ground-truth state history used here, remains future work. To bridge language-conditioned perception and continuous UAV control, we introduced a meta-query interface with decoupled heads for waypoint prediction, target-box grounding, and visibility estimation. We further developed a training recipe that combines Spatially Grounded Continued Pretraining, three-stage Curriculum-based Supervised Fine-Tuning, Chain-of-Thought training, and closed-loop Reinforcement Learning guided by tracking-oriented rewards. Relative to OpenVLA, CosFly-VLA-0.8B (SFT+CoT) reduces open-loop overall ADE by 34.1% / 35.3% on seen-test / unseen-test; the cumulative ablation associates the strongest cross-map gain with adding spatially grounded CPT and the largest seen-test Hard gain with adding CoT supervision. Also relative to OpenVLA, the RL-tuned variant improves closed-loop SR by 29.8% (+17 percentage points) on seen-test and 2.5% (+2 points) on unseen-test, while reducing rollout ADE by 10.0% / 8.7% and stand-off distance error by 20.6% / 18.2%. These simulation results provide evidence that UAV VLA systems can move from visible-frame imitation toward spatially grounded action-closed-loop control under a shared ground-truth state history. Beyond the present benchmark, future work may study multi-seed confidence intervals, per-occlusion closed-loop behavior, and physical UAV deployment. 16 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking 
+
+## References 
+
+[1] Anthropic. Claude Opus 4.6, February 2026. [2] Andrea Bajcsy, Antonio Loquercio, Ashish Kumar, and Jitendra Malik. Learning vision-based pursuit-evasion robot policies. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 9197–9204. IEEE, 2024. [3] Laila Bashmal, Yakoub Bazi, Mohamad Mahmoud Al Rahhal, Mansour Zuair, and Farid Melgani. Capera: Captioning events in aerial videos. Remote Sensing , 15(8):2139, 2023. [4] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Lucy Xiaoyang Shi, James Tanner, Quan Vuong, Anna Walling, Haohuan Wang, and Ury Zhilinsky. π0: A vision-language-action flow model for general robot control, 2024. [5] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choromanski, Tianli Ding, Danny Driess, Avinava Dubey, Chelsea Finn, Pete Florence, Chuyuan Fu, Montse Gonzalez Arenas, Keerthana Gopalakrishnan, Kehang Han, Karol Hausman, Alexander Herzog, Jasmine Hsu, Brian Ichter, Alex Irpan, Nikhil Joshi, Ryan Julian, Dmitry Kalashnikov, Yuheng Kuang, Isabel Leal, Lisa Lee, Tsang-Wei Edward Lee, Sergey Levine, Yao Lu, Henryk Michalewski, Igor Mordatch, Karl Pertsch, Kanishka Rao, Krista Reymann, Michael Ryoo, Grecia Salazar, Pannag Sanketi, Pierre Sermanet, Jaspiar Singh, Anikait Singh, Radu Soricut, Huong Tran, Vincent Vanhoucke, Quan Vuong, Ayzaan Wahid, Stefan Welker, Paul Wohlhart, Jialin Wu, Fei Xia, Ted Xiao, Peng Xu, Sichun Xu, Tianhe Yu, and Brianna Zitkovich. Rt-2: Vision-language-action models transfer web knowledge to robotic control, 2023. [6] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, Julian Ibarz, Brian Ichter, Alex Irpan, Tomas Jackson, Sally Jesmonth, Nikhil J Joshi, Ryan Julian, Dmitry Kalashnikov, Yuheng Kuang, Isabel Leal, Kuang-Huei Lee, Sergey Levine, Yao Lu, Utsav Malla, Deeksha Manjunath, Igor Mordatch, Ofir Nachum, Carolina Parada, Jodilyn Peralta, Emily Perez, Karl Pertsch, Jornell Quiambao, Kanishka Rao, Michael Ryoo, Grecia Salazar, Pannag Sanketi, Kevin Sayed, Jaspiar Singh, Sumedh Sontakke, Austin Stone, Clayton Tan, Huong Tran, Vincent Vanhoucke, Steve Vega, Quan Vuong, Fei Xia, Ted Xiao, Peng Xu, Sichun Xu, Tianhe Yu, and Brianna Zitkovich. Rt-1: Robotics transformer for real-world control at scale, 2023. [7] Chilam Cheang, Sijin Chen, Zhongren Cui, Yingdong Hu, Liqun Huang, Tao Kong, Hang Li, Yifeng Li, Yuxiao Liu, Xiao Ma, Hao Niu, Wenxuan Ou, Wanli Peng, Zeyu Ren, Haixin Shi, Jiawen Tian, Hongtao Wu, Xin Xiao, Yuyang Xiao, Jiafeng Xu, and Yichu Yang. Gr-3 technical report, 2025. [8] Hanxuan Chen, Kangli Wang, and Ji Pei. Track a*: Fast visibility-aware trajectory planning for active target tracking. arXiv preprint arXiv:2605.05338 , 2026. [9] Hanxuan Chen, Xiangyue Wang, Songsheng Cheng, Ruilong Ren, Jie Zheng, Shuai Yuan, Tianle Zeng, Hanzhong Guo, Binbo Li, Kangli Wang, et al. Cosfly: Plan in the matrix, fly in the world. arXiv preprint arXiv:2605.19120 ,2026. [10] Hanxuan Chen, Jie Zheng, Siqi Yang, Tianle Zeng, Siwei Feng, Songsheng Cheng, Ruilong Ren, Hanzhong Guo, Shuai Yuan, Xiangyue Wang, et al. Vision-and-language navigation for uavs: Progress, challenges, and a research roadmap. arXiv preprint arXiv:2604.13654 , 2026. [11] Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. In Proceedings of Robotics: Science and Systems (RSS) ,2023. [12] Alberto Dionigi, Simone Felicioni, Mirko Leomanni, and Gabriele Costante. D-VAT: End-to-end visual active tracking for micro aerial vehicles. IEEE Robotics and Automation Letters , 9(6):5046–5053, 2024. [13] Weichao Du, Tianyu Zhang, Lixiang Wang, Chen Gao, Yong Liu, Xinlei Chen, and Yueting Pang. Open3d-vqa: A benchmark for embodied spatial concept reasoning with multimodal large language model in open space. In 
+
+Proceedings of the 33rd ACM International Conference on Multimedia (ACM MM) , 2025. [14] Google DeepMind. Gemini 3.1 Pro Model Card, February 2026. [15] Wenxuan Guo, Xiuwei Xu, Yichen Liu, Xiangyu Li, Hang Yin, Huangxing Chen, Wenzhao Zheng, Jianjiang Feng, Jie Zhou, and Jiwen Lu. AwareVLN: Reasoning with self-awareness for vision-language navigation. arXiv preprint arXiv:2605.22816 , 2026. 17 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking [16] ByungOk Han, Jaehong Kim, and Jinhyeok Jang. A dual process vla: Efficient robotic manipulation leveraging vlm, 2024. [17] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Represen-tations (ICLR) , 2022. [18] Xijie Huang, Weiqi Gai, Tianyue Wu, Congyu Wang, Zhiyang Liu, Xin Zhou, Yuze Wu, and Fei Gao. Navdreamer: Video models as zero-shot 3d navigators, 2026. [19] Physical Intelligence, Ali Amin, Raichelle Aniceto, Ashwin Balakrishna, Kevin Black, Ken Conley, Grace Connors, James Darpinian, Karan Dhabalia, Jared DiCarlo, Danny Driess, Michael Equi, Adnan Esmail, Yunhao Fang, Chelsea Finn, Catherine Glossop, Thomas Godden, Ivan Goryachev, Lachy Groom, Hunter Hancock, Karol Hausman, Gashon Hussein, Brian Ichter, Szymon Jakubczak, Rowan Jen, Tim Jones, Ben Katz, Liyiming Ke, Chandra Kuchi, Marinda Lamb, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Yao Lu, Vishnu Mano, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Charvi Sharma, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz, Will Stoeckle, Alex Swerdlow, James Tanner, Marcel Torne, Quan Vuong, Anna Walling, Haohuan Wang, Blake Williams, Sukwon Yoo, Lili Yu, Ury Zhilinsky, and Zhiyuan Zhou. π∗
+
+> 0.6
+
+: a vla that learns from experience, 2025. [20] Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. π0.5: a vision-language-action model with open-world generalization, 2025. [21] Herath M. P. C. Jayaweera and Samer Hanoun. A dynamic artificial potential field (D-APF) UAV path planning technique for following ground moving targets. IEEE Access , 8:192760–192776, 2020. [22] Sicong Jiang, Zilin Huang, Kangan Qian, Ziang Luo, Tianze Zhu, Yang Zhong, Yihong Tang, Menglin Kong, Yunlong Wang, Siwen Jiao, et al. A survey on vision-language-action models for autonomous driving. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops , pages 4583– 4595, 2025. [23] Wahab Khawaja, Martins Ezuma, Vasilii Semkin, Fatih Erden, Ozgur Ozdemir, and Ismail Guvenc. A survey on detection, classification, and tracking of UAVs using radar and communications systems. IEEE Communications Surveys & Tutorials , 28:3272–3310, 2025. [24] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, Quan Vuong, Thomas Kollar, Benjamin Burchfiel, Russ Tedrake, Dorsa Sadigh, Sergey Levine, Percy Liang, and Chelsea Finn. Openvla: An open-source vision-language-action model, 2024. [25] JinHai Li, Peng Chen, MoHan Li, and LuYi Ren. IB-AMG: Aircraft mission generation with inference-based vision-language-action model. In 2025 40th Youth Academic Annual Conference of Chinese Association of Automation (YAC) , pages 2323–2328, 2025. [26] Kun Li, George Vosselman, and Michael Ying Yang. Hrvqa: A visual question answering benchmark for high-resolution aerial images. ISPRS Journal of Photogrammetry and Remote Sensing , 214:65–81, 2024. [27] Qixiu Li, Yaobo Liang, Zeyu Wang, Lin Luo, Xi Chen, Mozheng Liao, Fangyun Wei, Yu Deng, Sicheng Xu, Yizhong Zhang, Xiaofan Wang, Bei Liu, Jianlong Fu, Jianmin Bao, Dong Chen, Yuanchun Shi, Jiaolong Yang, and Baining Guo. Cogact: A foundational vision-language-action model for synergizing cognition and action in robotic manipulation, 2024. [28] Shuiwang Li, Yangxiang Yang, Dan Zeng, and Xucheng Wang. Adaptive and background-aware vision transformer for real-time UAV tracking. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 13989–14000, 2023. [29] Yiming Li, Changhong Fu, Fangqiang Ding, Ziyuan Huang, and Geng Lu. AutoTrack: Towards high-performance visual tracking for UAV with automatic spatio-temporal regularization. In Proceedings of the IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition (CVPR) , 2020. [30] Yunfei Li, Xiao Ma, Jiafeng Xu, Yu Cui, Zhongren Cui, Zhigang Han, Liqun Huang, Tao Kong, Yuxiao Liu, Hao Niu, Wanli Peng, Jingchao Qiao, Zeyu Ren, Haixin Shi, Zhi Su, Jiawen Tian, Yuyang Xiao, Shenyu Zhang, Liwei Zheng, Hang Li, and Yonghui Wu. Gr-rl: Going dexterous and precise for long-horizon robotic manipulation, 2025. 18 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking [31] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In International Conference on Learning Representations (ICLR) , 2023. [32] Jiahang Liu, Yunpeng Qi, Jiazhao Zhang, Minghan Li, Shaoan Wang, Kui Wu, Hanjing Ye, Hong Zhang, Zhibo Chen, Fangwei Zhong, Zhizheng Zhang, and He Wang. Trackvla++: Unleashing reasoning and memory capabilities in vla models for embodied visual tracking, 2025. [33] Xu Liu, Yu Liu, Hanshuo Qiu, Yang Qirong, and Zhouhui Lian. Indooruav: Benchmarking vision-language uav navigation in continuous indoor environments, 2025. [34] Wenhan Luo, Peng Sun, Fangwei Zhong, Wei Liu, Tong Zhang, and Yizhou Wang. End-to-end active object tracking and its real-world deployment via reinforcement learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 42(6):1317–1332, 2020. [35] Artem Lykov, Valerii Serpiva, Muhammad Haris Khan, Oleg Sautenkov, Artyom Myshlyaev, Grik Tadevosyan, Yasheerah Yaqoot, and Dzmitry Tsetserukou. Cognitivedrone: A vla model and evaluation benchmark for real-time cognitive task solving and reasoning in uavs, 2025. [36] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 4195–4205, 2023. [37] Qwen Team. Qwen3-VL Technical Report. arXiv preprint arXiv:2511.21631 , 2025. [38] Qwen Team. Qwen3.5: Towards native multimodal agents, February 2026. [39] Oleg Sautenkov, Yasheerah Yaqoot, Artem Lykov, Muhammad Ahsan Mustafa, Grik Tadevosyan, Aibek Akhmetkazy, Miguel Altamirano Cabrera, Mikhail Martynov, Sausar Karaf, and Dzmitry Tsetserukou. UAV-VLA: Vision-language-action system for large scale aerial mission generation. In 2025 20th ACM/IEEE International Conference on Human-Robot Interaction (HRI) , pages 1588–1592, 2025. [40] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [41] Valerii Serpiva, Artem Lykov, Artyom Myshlyaev, Muhammad Haris Khan, Ali Alridha Abdulkarim, Oleg Sautenkov, and Dzmitry Tsetserukou. Racevla: Vla-based racing drone navigation with human-like behaviour, 2025. [42] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [43] Haoming Song, Delin Qu, Yuanqi Yao, Qizhi Chen, Qi Lv, Yiwen Tang, Modi Shi, Guanghui Ren, Maoqing Yao, Bin Zhao, et al. Hume: Introducing system-2 thinking in visual-language-action model. arXiv preprint arXiv:2505.21432 , 2025. [44] Dengdi Sun, Leilei Cheng, Song Chen, Chenglong Li, Yun Xiao, and Bin Luo. UAV-ground visual tracking: A unified dataset and collaborative learning approach. IEEE Transactions on Circuits and Systems for Video Technology , 34(5):3619–3632, 2024. [45] Haowei Sun, Jinwu Hu, Zhirui Zhang, Haoyuan Tian, Xinze Xie, Yufeng Wang, Xiaohua Xie, Yun Lin, Zhuliang Yu, and Mingkui Tan. Open-world drone active tracking with goal-centered rewards. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. [46] Jianli Sun, Bin Tian, Qiyao Zhang, Chengxiang Li, Zihan Song, Zhiyong Cui, Yisheng Lv, and Yonglin Tian. Air-vla: Vision-language-action systems for aerial manipulation, 2026. [47] Nianyi Sun, Jin Zhao, Qing Shi, Chang Liu, and Peng Liu. Moving target tracking by unmanned aerial vehicle: A survey and taxonomy. IEEE Transactions on Industrial Informatics , 20(5):7056–7068, 2024. [48] Xiaolou Sun, Wufei Si, Wenhui Ni, Yuntian Li, Dongming Wu, Fei Xie, Runwei Guan, He-Yang Xu, Henghui Ding, Yuan Wu, Yutao Yue, Yongming Huang, and Hui Xiong. Autofly: Vision-language-action model for uav autonomous navigation in the wild, 2026. [49] Zhichao Sun, Yepeng Liu, Zhiling Su, Huachao Zhu, Yuliang Gu, Yuda Zou, Zelong Liu, Gui-Song Xia, Bo Du, and Yongchao Xu. Refdrone: A challenging benchmark for referring expression comprehension in drone scenes. 
+
+arXiv preprint arXiv:2502.00392 , 2025. [50] NVIDIA Alpamayo-R1 Team and Marco Pavone. Alpamayo-r1: Bridging reasoning and action prediction for generalizable autonomous driving in the long tail. arXiv preprint arXiv:2511.00088 , 2025. 19 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking [51] Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, Jianlan Luo, You Liang Tan, Lawrence Yunliang Chen, Pannag Sanketi, Quan Vuong, Ted Xiao, Dorsa Sadigh, Chelsea Finn, and Sergey Levine. Octo: An open-source generalist robot policy, 2024. [52] Yonglin Tian, Fei Lin, Yiduo Li, Tengchao Zhang, Qiyao Zhang, Xuan Fu, Jun Huang, Xingyuan Dai, Yutong Wang, Chunwei Tian, et al. UAVs meet LLMs: Overviews and perspectives toward agentic low-altitude mobility. 
+
+Information Fusion , 122:103158, 2025. [53] Shaoan Wang, Jiazhao Zhang, Minghan Li, Jiahang Liu, Anqi Li, Kui Wu, Fangwei Zhong, Junzhi Yu, Zhizheng Zhang, and He Wang. Trackvla: Embodied visual tracking in the wild. In Joseph Lim, Shuran Song, and Hae-Won Park, editors, Proceedings of The 9th Conference on Robot Learning , volume 305 of Proceedings of Machine Learning Research , pages 4139–4164. PMLR, 27–30 Sep 2025. [54] Xiangyu Wang, Donglin Yang, Yue Liao, Wenhao Zheng, wenjun wu, Bin Dai, Hongsheng Li, and Si Liu. Uav-flow colosseo: A real-world benchmark for flying-on-a-word uav imitation learning, 2025. [55] Xiangyue Wang, Hanxuan Chen, Songsheng Cheng, Ruilong Ren, Jie Zheng, Shuai Yuan, Tianle Zeng, Hanzhong Guo, Kangli Wang, and Ji Pei. Cosfly-track: A large-scale multi-modal dataset for uav visual tracking via multi-constraint trajectory optimization. arXiv preprint arXiv:2605.17776 , 2026. [56] Kui Wu, Hao Chen, Churan Wang, Fakhri Karray, Zhoujun Li, Yizhou Wang, and Fangwei Zhong. Hierarchical instruction-aware embodied visual tracking, 2025. [57] Kui Wu, Shuhang Xu, Hao Chen, Churan Wang, Zhoujun Li, Yizhou Wang, and Fangwei Zhong. VLM can be a good assistant: Enhancing embodied visual tracking with self-improving vision-language models. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 13154–13161, 2025. [58] Qihui Wu, Jiahao Li, Fuhui Zhou, Jiahuan Ji, Haoyang Wang, Hongtao Liang, and Kai-Kuang Ma. Cognitive embodied learning for anomaly active target tracking. Communications Engineering , 4(1):224, Nov 2025. [59] You Wu, Yongxin Li, Mengyuan Liu, Xucheng Wang, Xiangyang Yang, Hengzhou Ye, Dan Zeng, Qijun Zhao, and Shuiwang Li. Learning an adaptive and view-invariant vision transformer for real-time UAV tracking. IEEE Transactions on Circuits and Systems for Video Technology , 36(2):2403–2418, 2026. [60] Yuze Wu, Mo Zhu, Xingxing Li, Yuheng Du, Yuxin Fan, Wenjun Li, Zhichao Han, Xin Zhou, and Fei Gao. Vla-an: An efficient and onboard vision-language-action framework for aerial navigation in complex environments, 2025. [61] Mao Xi, Yun Zhou, Zheng Chen, Wengang Zhou, and Houqiang Li. Anti-distractor active object tracking in 3D environments. IEEE Transactions on Circuits and Systems for Video Technology , 32(6):3697–3707, 2022. [62] Peng Xu, Zhengnan Deng, Jiayan Deng, Zonghua Gu, and Shaohua Wan. AerialVLA: A vision-language-action model for uav navigation via minimalist end-to-end control. arXiv preprint arXiv:2603.14363 , 2026. [63] Chaocan Xue, Bineng Zhong, Qihua Liang, Yaozong Zheng, Ning Li, Yuanliang Xue, and Shuxiang Song. Similarity-guided layer-adaptive vision transformer for UAV tracking. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 6730–6740, 2025. [64] Yuanliang Xue, Tao Shen, Guodong Jin, Lining Tan, Nian Wang, Lianfeng Wang, and Jing Gao. Handling occlusion in UAV visual tracking with query-guided redetection. IEEE Transactions on Instrumentation and Measurement , 73:1–17, 2024. [65] Tianle Zeng, Jianwei Peng, Hanjing Ye, Guangcheng Chen, Senzi Luo, and Hong Zhang. Ezreal: Enhancing zero-shot outdoor robot navigation toward distant targets under varying visibility. arXiv preprint arXiv:2509.13720 ,2025. [66] Tianle Zeng, Yanci Wen, Xueang Yu, and Hong Zhang. Can aerial vla models cooperate? evaluating closed-loop air-ground coordination with carla-air. arXiv preprint arXiv:2605.31066 , 2026. [67] Tianle Zeng, Yanci Wen, and Hong Zhang. Carla-air: Fly drones inside a carla world–a unified infrastructure for air-ground embodied intelligence. arXiv preprint arXiv:2603.28032 , 2026. [68] Jirong Zha, Yuxuan Fan, Tianyu Zhang, Geng Chen, Yingfeng Chen, Chen Gao, and Xinlei Chen. Aircopbench: A benchmark for multi-drone collaborative embodied perception and reasoning. arXiv preprint arXiv:2511.11025 ,2025. [69] Andy Zhai, Brae Liu, Bruno Fang, Chalse Cai, Ellie Ma, Ethan Yin, Hao Wang, Hugo Zhou, James Wang, Lights Shi, Lucy Liang, Make Wang, Qian Wang, Roy Gan, Ryan Yu, Shalfun Li, Starrick Liu, Sylas Chen, Vincent Chen, and Zach Xu. Igniting vlms toward the embodied space, 2025. 20 CosFly-VLA: A Spatially Aware Vision-Language-Action Model for UAV Tracking [70] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng Zhang, and He Wang. Uni-navid: A video-based vision-language-action model for unifying embodied navigation tasks, 2025. [71] Qiyao Zhang, Shuhua Zheng, Jianli Sun, Chengxiang Li, Xianke Wu, Zihan Song, Zhiyong Cui, Yisheng Lv, and Yonglin Tian. UAV-Track VLA: Embodied aerial tracking via vision-language-action models. arXiv preprint arXiv:2604.02241 , 2026. [72] Baining Zhao, Jiacheng Xu, Weicheng Feng, Xin Zhang, Zhaolu Wang, Haoyang Wang, Shilong Ji, Ziyou Wang, Jianjie Fang, Zhiheng Zheng, Weichen Zhang, Yu Shang, Wei Wu, Chen Gao, Xinlei Chen, and Yong Li. WorldVLN: Autoregressive world action model for aerial vision-language navigation. arXiv preprint arXiv:2605.15964 , 2026. [73] Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipulation with low-cost hardware, 2023. [74] Fangwei Zhong, Xiao Bi, Yudi Zhang, Wei Zhang, and Yizhou Wang. RSPT: Reconstruct surroundings and predict trajectory for generalizable active object tracking. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI) , volume 37, pages 3705–3714, 2023. [75] Fangwei Zhong, Kui Wu, Churan Wang, Hao Chen, Hai Ci, Zhoujun Li, and Yizhou Wang. UnrealZoo: Enriching photo-realistic virtual worlds for embodied ai. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 5769–5779, 2025. [76] Yue Zhou, Ran Ding, Xue Yang, Jiang Xue, and Xingzhao Liu. Airspatialbot: A spatially-aware aerial agent for fine-grained vehicle attribute recognition and retrieval. IEEE Transactions on Geoscience and Remote Sensing ,63:1–15, 2025. [77] Yue Zhou, Litong Feng, Mengcheng Lan, Xue Yang, Qingyun Li, Yiping Ke, Jiang Xue, and Wayne Zhang. Multimodal mathematical reasoning embedded in aerial vehicle imagery: Benchmarking, analysis, and exploration. 
+
+ISPRS Journal of Photogrammetry and Remote Sensing , 2025. 21

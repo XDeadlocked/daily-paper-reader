@@ -1,0 +1,580 @@
+Title: Foresight Residual RL for Long-Horizon Robot Manipulation with Vision-Language-Action Models
+
+URL Source: https://arxiv.org/pdf/2607.16506v1
+
+Published Time: Tue, 21 Jul 2026 00:20:23 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Foresight Residual RL for Long-Horizon Robot Manipulation with Vision-Language-Action Models 
+
+Yuhan Liu, Xinyu Zhang, Litao Liu, Abdeslam Boularias 
+
+Abstract — Vision-Language-Action (VLA) policies offer strong general-purpose manipulation priors, but often fail on tight-tolerance, contact-rich assembly due to long-horizon credit assignment and subtask coupling : a state that is geometrically successful for the current skill can be brittle for downstream skills. We show this failure mode in residual reinforcement learning (RL) over a frozen VLA base policy: constant sparse success rewards improve each subtask in isolation yet yield little or no gain when skills are chained, because terminal state quality is uncontrolled. We propose Foresight Residual RL, which optimizes handoff quality by augmenting each sub-task’s sparse success reward with an offline-estimated foresight value —the probability of future subtask success conditioned on the terminal state of the current subtask. Concretely, we (i) train a visual foresight predictor from images of terminal states of the base policy, labeled using downstream rollout statistics, and (ii) train residual policies via backward foresight induction, using the predictor output as a reward multiplier. On a three-phase wrench-based nut-tightening assembly task in Isaac Gym (grasp, move-insert, rotate), our method achieves 85.6% full-task success, outperforming standard subtask resid-ual RL (54.5%) and VLA baselines, while leaving per-subtask success unchanged. These results highlight that improving long-horizon performance requires shaping which successful states are produced at each sub-task, not only whether success occurs. 
+
+I. I NTRODUCTION 
+
+Many manipulation tasks of practical interest, including industrial assembly, tool use, and surgical manipulation, require executing a sequence of contact-rich skills over long horizons. The standard practice is to decompose such tasks into sub-tasks, train a policy for each sub-task, and chain them together at execution time. This strategy relaxes the challenging long-horizon learning problem to manageable horizons, enables skill reuse with pre-trained policies such as Vision-Language-Action (VLA) models [1], [2], [3], and allows independent improvement for each sub-task. However, many long-horizon manipulation problems can not be decomposed into independent sub-tasks. In assembly operations, the robot must actively maintain the success state of a previous sub-task while executing the next. Consider tightening a nut with a wrench: after grasping the wrench and inserting it onto the nut, the robot must keep the wrench inserted during rotation, a condition that is not passively preserved by gravity or geometry but must be actively sustained against contact forces. This causal coupling be-tween sub-tasks distinguishes our setting from existing long-horizon manipulation benchmarks, where subtask outcomes   
+
+> The authors are with the Department of Computer Science, Rutgers University. This work is supported by NSF award 2132972. Project website: jaysparrow.github.io/foresight-residual-rl.
+> Fig. 1. Existing Works versus Our Method. Single Policy learns the entire long-horizon task directly. Independent Sub-task Policy does not consider the dependencies between subtasks. Initiation Overlapping aligns adjacent skills by distribution matching. Our Foresight Residual RL provides a principled coupling between global goals and local updates through foresight value predictor.
+
+are automatically stable once achieved, such as placing an object on a shelf, or opening a drawer [4], [5]. The coupling between sub-tasks leads to a consequential failure mode. When each sub-task policy is trained indepen-dently with a constant reward upon success, all successful terminal states for the current sub-task are treated as equally valuable for the final task success. In practice, some states, despite being successful for the current sub-task, are dif-ficult to manipulate further and can easily lead to future failures. For example, an infirm grasp, despite satisfying the geometric success criterion, leaves the wrench in a fragile configuration that fails during insertion; an insertion that is kinematically valid but shallow will not survive rotation forces. The quality of a sub-task’s terminal state, as measured by the probability of future success, varies substantially across the space of geometrically successful completions, yet this variation is neglected in the standard practice. Prior works on sequential skill composition can be broadly categorized by how it handles this dependency between sub-tasks, as shown in Fig. 1. The first category trains a single policy to solve multiple sub-tasks as a single task [6]. However, these methods can only solve simple manipulation tasks such as pushing buttons or pulling a drawer. The second category trains one policy for each sub-task in isolation with task-specific rewards, ignoring inter-task dependencies. This includes standard VLA fine-tuning [1], [2], residual arXiv:2607.16506v1 [cs.RO] 17 Jul 2026 reinforcement learning on individual subtasks [7], [8], [9], and imitation-based skill libraries [10], [11]. These methods can produce strong individual skills but do not optimize for the coupling between sub-tasks. The third category addresses the sub-task coupling issue through distribution matching: regularizing the terminal state distribution of one skill to overlap with the initial states of the next. This category is often referred to as initiation overlapping . Adversarial skill chaining [12], dual regularization [13], transition feasibility functions [14], and learned initiation sets [15], [16] all fall in this category. Despite their impressive results, these methods only optimize a proxy , i.e., distributional overlap, rather than the final task success. A terminal state may lie within the next skill’s initial set yet still yield low performance due to the bias of policies in future sub-tasks. Our key observation is that the foresight value function ,defined as the expected future return conditioned on the previous sub-task’s terminal state, is exactly the informa-tion discarded by constant-reward training and only loosely captured by distribution matching. Notably, the foresight value function has a well-known theoretical counterpart called the completion function in the MAXQ framework [17] and reward-respecting sub-tasks [18]. The MAXQ frame-work [17] learns completion functions that capture future value and reward machines [19] expose cross-phase reward structure. These approaches are theoretically sound but diffi-cult to be deployed in practical applications because they require all sub-task policies to be trained simultaneously, which is not suitable for long-range credit assignment and has poor sample complexity. Moreover, none of these ex-isting methods have been utilized for modern image-based VLA frameworks. We propose to estimate the foresight value offline and use it to directly augment the sub-task reward during residual RL training on a VLA base policy. Specifically, our method proceeds in two stages at each sub-task boundary. First, we train a visual foresight predictor 
+
+that estimates the next sub-task’s success probability from the current sub-task’s terminal observation (image). The predictor is trained offline: we collect terminal states from the base VLA policy, evaluate each by rolling out the down-stream policy and distill the resulting success statistics into a probabilistic predictor via binomial maximum likelihood. Second, we train residual policies via backward foresight in-duction : starting from the last phase and working backward, each subtask’s residual policy is trained with the foresight predictor’s output as a reward multiplier on the sparse local reward signal, steering the policy toward terminal states that benefit the future sub-tasks’ success. We evaluate the proposed method on a highly challeng-ing wrench-screw assembly task in an Isaac Gym simula-tion, comprising three causally-coupled phases: grasp, move-insert, and rotate. Our results show that our foresight residual RL does not significantly improve individual subtask success rates, the residual policies achieve geometric success at com-parable rates with or without foresight, but it significantly improves full-task success when the subtasks are chained. This outcome directly validates the method’s purpose: it optimizes which successful states are produced, not whether 
+
+subtask success is achieved, closing the gap between isolated subtask performance and composed task performance. Our contributions are: 1) We propose Foresight Residual Reinforcement Learn-ing, a novel framework that addresses the causal depen-dencies between sub-tasks in long-horizon sequential manipulation. By optimizing a sub-task’s terminal state using its foresight value, defined as the expected future return, our approach theoretically aligns local skill execution with global task success. 2) We introduce a practical and scalable implementation of this framework for Vision-Language-Action (VLA) models. We develop a stage-wise training paradigm comprising offline visual foresight learning and back-ward foresight induction, enabling efficient end-to-end residual RL over the π0 model. 3) We evaluate our method on a challenging, contact-rich wrench-screw assembly task. Our results demonstrate that foresight residual RL significantly improves the success rate against standard residual RL (+31.1%), effectively addressing the sub-task coupling problem. II. R ELATED WORK 
+
+Residual RL for manipulation. Residual policy learn-ing [8], [9] trains a corrective policy on top of a fixed base controller, preserving the base policy’s capabilities while improving task-specific performance via RL. Recent work extends this paradigm to vision-based imitation learning poli-cies: ResiP [7] trains per-time-step residual corrections on frozen diffusion policies for precision assembly; ResFiT [20] achieves sample-efficient residual fine-tuning via off-policy RL; and PLD [21] applies residual RL to VLA models including π0 [1] with a probe-learn-distill cycle. These methods train residual policies for individual tasks with standard reward functions. Our work inherits the residual RL formulation but introduces foresight-corrected rewards that account for downstream phase success, a cross-phase optimization objective that none of these methods consider. 
+
+Skill sequencing and transition optimization. Compos-ing independently trained skills into long-horizon behaviors is a longstanding challenge [22]. A central difficulty is that the terminal state distribution of one skill may not align with the effective initiation set of the next. T-STAR [12] ad-dresses this via adversarial regularization of terminal states; SCaR [13] adds dual regularization across skill boundaries; Sequential Dexterity [14] learns transition feasibility func-tions for bi-directional optimization. Bagaria et al. [15], [16] learn robust initiation set classifiers. Lee et al. [23] take a different approach, inserting dedicated transition policies between skills, while Meehanet al. [24] adapt option policies to bridge distribution gaps. All of these methods optimize a 
+
+distributional proxy : they seek overlap between one skill’s output and the next skill’s input, without directly measuring whether that overlap leads to downstream task success. Our foresight predictor replaces this proxy with the next phase’s A. Sample Terminal States  𝑵 Terminal States  
+
+> ……
+> Visual Observation Robot State
+
+𝒐 𝑡 
+
+> 𝑘
+
+, 𝑠 𝑡 
+
+> 𝑘
+
+𝑎 𝑡 
+
+> 𝑘
+
+Environment 
+
+D. Backward Foresight Induction 
+
+Phase 𝒌  Phase 𝒌 + 𝟏 
+
+𝒑 𝝓   
+
+> 𝒌 +𝟏
+> Terminal State &
+> Success Predicate
+> 𝒐 𝑡 +1,𝑠 𝑡 +1,𝛽 𝑘
+
+RL Policy  𝑟 𝑡 = 𝛽 𝑘 (𝑠 𝑡 +1) ∙ 𝑝 𝒐 𝑡 +1
+
+𝛼 ∙ 𝑎 𝑡 
+
+> 𝑟𝑒𝑠
+
+𝑎 𝑡  
+
+> 𝑏𝑎𝑠𝑒
+> 𝒐 𝑡
+> 𝑘 ,𝑠 𝑡
+> 𝑘
+
+𝑎 𝑡 
+
+> 𝑘
+
+Online 
+
+Trajectory 
+
+B. Rollout Each Terminal State 𝑲 𝒓𝒆𝒑 Times 
+
+C. Reconstruct Predictor 
+
+## Foresight Predictor 
+
+## 𝒑 𝝓 
+
+𝒌 +𝟏 
+
+ෝ𝜿 
+
+## Binomial NLL Loss 
+
+## ℒ 𝜙 
+
+𝜿 
+
+Phase 𝒌 + 𝟏 
+
+Policy (𝝅 𝒌 +𝟏 )                          
+
+> ……
+> 𝑵 Labeled Success Rates
+> 1/5
+> 3/5
+> 𝐾 𝑖 /𝐾 𝑟𝑒𝑝 Fig. 2. Overview of Foresight Residual RL. (A) Sample Nterminal states at sub-task kby rolling out the frozen base policy. (B) For each terminal state, perform Krep rollouts of sub-task k+1 to estimate empirical success rates. (C) Train a foresight predictor pk+1
+> ϕwith a binomial negative log-likelihood objective to map terminal states of sub-task kto success probabilities of sub-task k+ 1 (Alg. 2). (D) Apply backward foresight induction (Alg. 1) to convert predicted foresight values into shaped rewards, and train the residual policy of sub-task kto align it with global task success.
+
+success probability, and uses it as a reward signal rather than a distributional constraint. 
+
+Value decomposition in hierarchical RL. The theo-retical foundations for cross-phase value propagation are well established. MAXQ [17] decomposes hierarchical value functions via completion functions that capture expected return after subtask termination. The options framework [25] propagates value across option boundaries through VΩ(s′)
+
+at termination states, and option-critic [26] derives end-to-end gradients through these boundaries. Sutton et al. [18] formalize reward-respecting subtasks whose cumulants in-corporate the task reward plus a terminal bonus, ensuring subtask optimization accounts for the parent task’s objective. Our foresight value function is a direct instantiation of the MAXQ completion function restricted to a linear task graph. The key difference is operational: rather than learning completion functions online via temporal-difference updates within a joint hierarchy, which introduces non-stationarity and precludes the use of frozen pre-trained base policies, we estimate the foresight value offline via Monte Carlo rollouts of fixed downstream policies and distill it into an image-based predictor. This decouples foresight estimation from sub-task policy training, enabling a single-pass backward induction procedure compatible with residual RL on VLA base policies. III. P ROBLEM FORMULATION 
+
+A. Sequential Semi-MDP 
+
+We consider a long-horizon manipulation task defined as an MDP M = ( S, A, T, R, γ ) that admits a decomposition into K sequential phases {1, . . . , K }. Each phase k repre-sents a sub-task and has a termination predicate βk : S → {0, 1} indicating sub-task success. Sub-tasks are performed in order: phase k + 1 begins from the terminal state of phase k. We assume the success predicates {βk}Kk=1 are available to all phases at any time. This structure forms a sequential semi-MDP where phases serve as temporally extended actions. Unlike typical option frameworks, our phases are causally coupled : phase k + 1 
+
+must actively maintain the success conditions established by phase k while pursuing its own objective (e.g., keeping the wrench inserted while turning the nut). Our goal is to learn a policy π that maximizes the expected return of the final phase success reward βK :
+
+V (s) = Eπ
+
+"X
+
+> t
+
+γtβK (st+1 ) s0 = s
+
+#
+
+, (1) where βK is the single source of the reward signals. βK
+
+indicates whether the final sub-task has succeeded or not. Note that this can happen before the end of the episode, and last for a number of time-steps, hence the use of the discounted sum. For a long-horizon manipulation task with a sparse reward, end-to-end RL struggles to learn an effective policy. There-fore, a common practice is to decompose the whole task into phases and learn an individual policy πk for each phase k.The final policy is the composition of these policies into a sequence π = ( π1, . . . , π K ).
+
+B. Task Decomposition 
+
+The standard approach in the literature is to train a policy 
+
+πk for each phase k independently using a constant terminal reward r(st, a t) = βk(st+1 ), which is positive upon subtask completion. The objective is then to maximize the local value function Vk for each phase k:
+
+Vk(s) = Eπk
+
+" TkX
+
+> t=0
+
+γtβk(st+1 ) s(k)0 = s
+
+#
+
+, (2) where Tk is the max time-steps reserved for phase k and s(k)0
+
+is the initial state of phase k. Typically, success reward βk
+
+does not take into account whether the next sub-task k + 1 
+
+will be successful or not. It only considers the success of sub-task k. However, in long-horizon robotic manipulation tasks, success in latter phases often depends on the policy’s performance in earlier phases. Therefore, learning policies by maximizing Vk(s) for each phase k independently, using only sub-task success predicates βk as reward, leads to sub-optimal performance. IV. F ORESIGHT RESIDUAL RL 
+
+A. Foresight Value Function 
+
+Definition IV.1 (Foresight value function) . For phase k < K 
+
+with fixed future policies πk+1: K , the foresight value func-tion is the expected discounted final-phase success starting from state s at the beginning of phase k + 1 :
+
+Vk+1: K (s) = Eπk+1: K
+
+
+
+> Tk+1: K
+
+X
+
+> t=0
+
+γt βK (st+1 ) s(k+1) 0 = s
+
+ ,
+
+(3) where Tk+1: K = PKj=k+1 Tj , the sum of each remaining sub-task’s horizon Tj .
+
+Vk+1: K (s) captures the future consequence of terminating phase k in state s. In doing so, Vk+1: K (s) captures the inter-dependent nature of the sub-tasks and the effect that a termi-nal state of a sub-task can have on subsequent sub-tasks. This formulation stems from our observation that in contact-rich assembly, where small pose variations at handoff produce large downstream success differences, any improvement in full-task performance must come from producing terminal states with higher expected foresight value. 
+
+B. Local Foresight Value Function 
+
+We multiply the terminal reward βk of the local value function in Eq. 2 with the foresight value function Vk+1: K ,this results in the local foresight value function in Eq. 4, which is then the new learning objective for phase k.
+
+V ◦ 
+
+> k
+
+(s) = Eπk
+
+" TkX
+
+> t=0
+
+γt βk(st+1 )Vk+1: K (st+1 ) s(k)0 = s
+
+#
+
+.
+
+(4) Compared to the local value function in Eq. 2, the only difference is the product of the reward of phase-k success and the state-dependent Vk+1: K (st+1 ) at phase termination. This correction is local : it modifies only the terminal reward and preserves the optimization process within each phase. 
+
+Algorithm 1: Backward Foresight-driven Learning 
+
+Input: Base policies {π0
+
+> k
+
+}Kk=1 , residual scale α
+
+Output: Trained residual policies {πres  
+
+> k
+
+}Kk=1  
+
+> 1
+
+for k = K, K −1, . . . , 1 do  
+
+> 2
+
+if k = K then  
+
+> 3
+
+Train πres  
+
+> K
+
+via PPO with reward 
+
+rt = βK (st+1 ) and actions 
+
+at ∼ (π0
+
+> k
+
+(ot) + α · πres  
+
+> k
+
+(ot)) ; 
+
+> 4
+
+else  
+
+> 5
+
+πk+1 (o) ← π0
+
+> k+1
+
+(o) + α · πres 
+
+> k+1
+
+(o), ∀o;
+
+// o is an image observation  
+
+> 6
+
+pϕ ← FORESIGHT PREDICTOR (π0
+
+> k
+
+, π k+1 ); 
+
+> 7
+
+Train πres  
+
+> k
+
+via PPO with reward 
+
+rt = βk(st+1 ) · pϕ(ot+1 ) and actions 
+
+at ∼ (π0
+
+> k
+
+(ot) + α · πres  
+
+> k
+
+(ot)) ; 
+
+> 8
+
+end  
+
+> 9
+
+end 
+
+C. Backward Induction over Phases 
+
+Since foresight value function Vk+1: K depends on future phases, we propose to train sub-task policies in their reverse order (Alg. 1). For k = K, K −1, . . . , 1: if k = K, the foresight value is set to VK+1: K ≜ 1 and we train πK with the standard task reward (no foresight needed for the last phase); if k < K , we estimate Vk+1: K by evaluating πk+1: K
+
+from phase-k terminal states (Sec. V-B), and train πk with the local foresight objective Eq. 4. The backward ordering is essential because training sub-task k requires rolling out the downstream policies πk+1: K
+
+to estimate Vk+1: K , so these policies must already be trained and fixed. Because the downstream policies do not change during sub-task k training, the foresight estimates are station-ary, unlike in joint hierarchical optimization methods where all levels update simultaneously. V. L EARNING FORESIGHT VALUE FUNCTIONS 
+
+A. Residual Policy for Terminal State Correction 
+
+Let π0 
+
+> k
+
+be the base VLA policy for sub-task k. The residual policy πres  
+
+> k
+
+outputs small corrections: 
+
+at = πk(ot) ≜ π0
+
+> k
+
+(ot) + α · πres  
+
+> k
+
+(ot), α ≪ 1, (5) where ot is the observations at step t and α is a small weight of the residual policy in the final action. Using the learned foresight values to train the residual policy, the residual policy shifts the base policy’s terminal states at phase k toward regions of higher foresight value. 
+
+B. Foresight Value Estimation 
+
+Computing Vk+1: K (s) requires evaluating the downstream return from state s. A direct approach is to estimate Vk+1: K
+
+on-the-fly during RL training of phase k: at each encountered terminal state of sub-task k, spawn rollouts of πk+1: K from that state, collect the Monte Carlo return, and use it as the terminal reward. This produces unbiased estimates of the foresight value Vk+1: K (s) but has two significant drawbacks. First, the downstream return has high variance due to the Algorithm 2: FORESIGHT PREDICTOR 
+
+Input: Base policy π0
+
+> k
+
+, downstream policy πk+1 ,number of episodes N and rollouts Krep 
+
+Output: Foresight predictor pϕ
+
+// Stage 1: Collect terminal states from base policy  
+
+> 1
+
+D ← ∅ ; 
+
+> 2
+
+for i = 1 , . . . , N do  
+
+> 3
+
+Roll out π0 
+
+> k
+
+until βk(s) = 1 or horizon is reached;  
+
+> 4
+
+if βk(s) = 1 then  
+
+> 5
+
+Record terminal observation oi and state si; 
+
+> 6
+
+end  
+
+> 7
+
+end 
+
+// Stage 2: Label terminal states with future success  
+
+> 8
+
+for each collected (si, oi) do  
+
+> 9
+
+for j = 1 , . . . , K rep do  
+
+> 10
+
+Roll out πk+1 from si; record 
+
+zj = βk+1 (sfinal ) where sfinal is the final state in the rolled out trajectory;  
+
+> 11
+
+end  
+
+> 12
+
+κi ← PKrep  
+
+> j=1
+
+zj ; 
+
+> 13
+
+D ← D ∪ { (oi, κi 
+
+> Krep
+
+)}; 
+
+> 14
+
+end 
+
+// Stage 3: Train the predictor  
+
+> 15
+
+Optimize pϕ on D with binomial negative log-likelihood (Eq. 8);  
+
+> 16
+
+return pϕ
+
+stochasticity of both πk+1: K and the environment dynamics, requiring many rollouts per terminal state to obtain reli-able estimates. This variance propagates directly into the RL training signal, destabilizing policy gradient updates. Second, each terminal state evaluation requires executing full downstream episodes in simulation, incurring substantial computational overhead that scales with the number of remaining sub-tasks and their horizons. In our setting of the wrench-screw task, evaluating a single move-insert terminal state requires rolling out up to 200 steps of the rotate policy, multiplied by the required repetitions. A further alternative is to reuse the downstream policy’s own value critic as the foresight estimate. However, that critic is calibrated on the downstream policy’s initial-state distribution, whereas the reward must score the upstream policy’s terminal handoff states. Our predictor is instead fit directly on these terminal states with Monte-Carlo success labels, yielding calibrated estimates exactly where they are applied. 
+
+Our approach: Offline value estimation with a learned predictor. Our instantiation consists of a one-step foresight approximation and an offline estimation procedure. 
+
+1) One-step foresight approximation. We approximate the full downstream value by the immediate next sub-task’s success probability: 
+
+Vk+1 (s) = Pr  sub-task k+1 succeeds | s(k+1) 0 = s, π k+1 
+
+
+
+≈ Vk+1: K (s).
+
+(6) This is exact when: (a) k = K−1 (the next phase is the last one), or (b) the success rate of sub-tasks k+2 , . . . , K is con-stant conditioned on sub-task k+1 succeeding. When deeper foresight is needed, this approximation can be extended by chaining rollouts through all remaining phases. 
+
+2) Offline data collection and predictor training. Following Alg. 2, we roll out the base policy π0 
+
+> k
+
+(without residual) to collect N successful terminal states, execute Krep inde-pendent rollouts of πk+1 from each, and record the success count κi to form the label yi = κi/K rep for each terminal observation oi.Using the base policy’s distribution rather than the aug-mented policy’s (base+residual) is deliberate: the predictor needs to be accurate on the states the residual will visit before 
+
+training shifts them toward better configurations. Compared to online Monte Carlo, this approach amortizes the cost of downstream evaluation into a one-time offline data collection step. The learned predictor then provides instant, deterministic foresight estimates at RL training time, eliminating both the per-step simulation overhead and the variance of sampled returns. 
+
+C. Visual Foresight Predictor 
+
+We distill the Monte Carlo estimates into a neural predictor 
+
+pϕ : O → [0 , 1] , defined as 
+
+pϕ(o) ≈ Vk+1 (s), (7) where o is the observation (image) at the terminal state. 
+
+Training objective. Since each label yi derives from κi
+
+successes in Krep trials, we train with the binomial negative log-likelihood: 
+
+L(ϕ) = −
+
+> N
+
+X
+
+> i=1
+
+h
+
+κi log pϕ(oi) + ( Krep − κi) log  1 − pϕ(oi)i
+
+.
+
+(8) This is the maximum likelihood estimator for the Bernoulli parameter of a binomial observation model. It respects the count structure of the labels rather than treating yi as a regression target, yielding calibrated probabilities when the model class is sufficiently expressive. 
+
+Distribution shift under policy improvement. As the residual policy improves, it visits terminal states not seen during the training of the predictor. The small residual scale 
+
+α limits this shift in practice, keeping the augmented policy’s terminal distribution close to the base policy’s and within the interpolation range of the predictor. 
+
+D. Foresight-Modulated Reward 
+
+Since the only reward signal comes from the success predicates, the training reward for phase k at step t is: 
+
+rt = βk(st+1 ) · pϕ(ot+1 ), (9) The predictor pϕ serves as a plug-in estimator for Vk+1: K .This is the only reward the agent receives, there is no additional shaping or internal reward. VI. E XPERIMENTS 
+
+A. Task Setup 
+
+We evaluate our method on a wrench-screw assembly task implemented in NVIDIA Isaac Gym [27] with GPU-accelerated PhysX contact simulation. A 7-DoF Kuka IIWA arm with an 11-DoF Robotiq 3-finger gripper must grasp a wrench from a holder, transport and insert it onto a hex nut, and rotate the nut counterclockwise by at least 60 ◦
+
+while maintaining insertion. The task decomposes into three phases: G RASP (160 steps), M OVE -I NSERT (200 steps), and ROTATE (200 steps), for a maximum episode length of 560 steps at 20 Hz control frequency. The learned policies observe two RGB images (third-person and wrist camera, 256 × 256 ) and 8D proprioception (end-effector pose + binary gripper state). No force feedback or ground-truth object poses are available to policies. Actions are 7D operational-space-control deltas (3D position, 3D rotation in axis-angle, 1D gripper command). At each episode reset, the initial poses of the wrench holder, nut, and bolt are randomized. We use 5 discrete wrench-nut size variants with less than 2 mm clearance between the wrench head and nut, requiring sub-millimeter precision for insertion. All randomizations are identical across methods. 
+
+B. Training Pipeline 
+
+Expert demonstrations. We collect 2,560 demonstrations per sub-task with a state-machine expert that uses privileged information unavailable to the learned policies, consisting of only ground-truth object poses, proprioception, and known asset geometry. For insertion, the expert is a pre-trained state-based RL policy observing noisy nut-frame poses [28]. The demonstrations are homogeneous: the expert follows a fixed strategy per sub-task and does not exhibit recovery behaviors, producing a narrow terminal state distribution. 
+
+Base VLA policy. We fine-tune the generalist π0 policy [1] separately on each sub-task’s demonstration data, yielding three per-sub-task base policies. Each policy uses action chunking with horizon H = 20 , re-planning only when the action buffer is exhausted or a phase transition occurs. 
+
+Residual RL policy. Whereas the base policy conditions on both camera views and proprioception, the residual policy inputs only the wrist view: a frozen DINOv2-S/14 backbone extracts 16 × 16 patch features from the wrist camera image, followed by a CNN ( 384 → 12 channels), a 2-layer LSTM (256 hidden units), and an MLP ( 512 → 256 → 128 ) with separate actor and critic heads. The actor output layer is zero-initialized so that the residual produces near-zero corrections at the start of training, preserving the base policy’s behavior. Residual scale is α = 0 .1.We train with PPO [29] via rl games [30] across 128 parallel environments. Training proceeds in two phases: a 10-iteration critic-only warmup (actor frozen, executing only           
+
+> TABLE I FORESIGHT PREDICTOR EVALUATION ON HELD -OUT TEST SETS .Boundary Prediction Accuracy Dataset Success Rate Grasp →Insert 86 .2% 73 .9%
+> Insert →Rotate 93 .9% 90 .4%
+
+the base policy) to adapt the value function to the base policy’s performance distribution, followed by 300 itera-tions of joint actor-critic training. Phase transitions during training use flag-based (reactive) detection: G RASP →MOVE -INSERT triggers when the wrench-grasped predicate ac-tivates; MOVE -I NSERT →ROTATE triggers when wrench-inserted activates. 
+
+C. Foresight Predictor 
+
+Following Algorithm 1, we train one predictor per phase boundary (grasp →insert and insert →rotate). For each bound-ary, we collect N = 2 ,560 successful terminal states from the base VLA policy and evaluate each by executing Krep =5 independent rollouts of the downstream policy (base + trained residual), recording per-state success counts κi.The foresight value predictor uses the DINOv2-S/14 CLS tokens from both camera views, fused via self-attention and a linear layer, and mapped to a scalar output through a sigmoid head. The weights of the DINO backbone are finetuned using LoRA [31] with a rank of 8. We train with binomial NLL (Eq. 8) using an 80/10/10 train/validation/test split for 20 epochs (less than 5 minutes). VII. R ESULTS 
+
+A. Foresight Predictor Quality 
+
+Table I reports held-out classification accuracy (at thresh-old 0.5) for each boundary predictor, alongside the dataset success rate as a majority-class baseline. Both predictors exceed their respective baselines, with the larger margin at the Grasp →Insert boundary ( 86 .2% vs. 73 .9% ) confirming that the predictor discriminates among grasp terminal states that are kinematically successful but that lead to different outcomes for the subsequent sub-tasks. We note that the pre-dictor is used as a continuous reward multiplier (Eq. 9), not as a binary classifier; thresholded accuracy is a conservative proxy for its utility. 
+
+B. Main Results 
+
+We evaluate each method over 512 episodes across 4 random seeds, and report the mean and standard deviation of success rates. We emphasize that the foresight predictor enters only as a training-time reward and plays no role at evaluation, with evaluation performed on independently randomized episodes. Table II presents results at three gran-ularities: individual subtasks (initialized from oracle states), consecutive two-phase chains, and the full task. Here, oracle initialization places each sub-task policy at a successful ter-minal state of the preceding sub-task produced by the state-machine expert (Sec. VI-B). These single-subtask numbers measure isolated capability. TABLE II SUCCESS RATES (%) ON THE WRENCH -SCREW ASSEMBLY TASK . S UBTASK RESULTS ARE INITIALIZED FROM EXPERT STATES (ORACLE ). CONSECUTIVE AND FULL -TASK RESULTS ARE END -TO -END WITHOUT PRIVILEGED INITIALIZATION . B EST RESULTS IN BOLD .Subtask (oracle init) Consecutive Full Task Method Grasp Insert Rotate Grasp+Insert Insert+Rotate All                                                                            
+
+> π0(end-to-end) —————54 .9±5.3%
+> π0(chained) 87 .1±1.4% 45 .7±6.1% 93 .4±3.0% 37 .1±1.5% 61 .5±4.6% 41 .4±3.3%
+> π0+ Residual 98 .4±0.6%92 .2±1.1%99 .2±0.6% 55 .5±3.4% 83 .4±3.2% 54 .5±3.6%
+> π0+ Residual with Foresight (ours) 95 .7±3.3% 91 .4±0.6% 99 .8±0.4%87 .3±1.3%91 .8±3.3%85 .6±3.9%
+> TABLE III MEAN FORESIGHT PREDICTOR SCORE ON TERMINAL STATES OF THE TRAINED POLICIES . H IGHER SCORES INDICATE TERMINAL STATES MORE LIKELY TO LEAD TO DOWNSTREAM SUCCESS .Mean Predictor Score Method Grasp terminal Insert terminal
+> π0(base, no residual) 0.64 0.97
+> + Residual 0.32 0.86
+> + Residual with Foresight (ours) 0.73 0.91
+
+With oracle initialization, both constant-reward and foresight-modulated residual policies achieve high subtask success ( > 91% on all phases), substantially improving over chained π0 without residual correction. However, constant-reward residual RL fails to translate these gains to the full task: its 54 .5% success rate is not better than end-to-end 
+
+π0 (54 .9% ), despite doubling I NSERT success in isolation (45 .7% → 92 .2% ). This confirms that improving subtask success rate without controlling sub-task terminal distribu-tion yields no gain under composition. Foresight prediction recovers this lost value, achieving 85 .6% full-task success, over 30% improvement over the constant-reward variant. The gains concentrate at the Grasp →Insert boundary, where consecutive success improves from 55 .5% to 87 .3% 
+
+(+31 .8% ), which is consistent with the predictor’s larger discriminative margin at this transition (Table I). We also ob-serve that naive decomposition without correction is harmful: chained π0 (41 .4% ) underperforms end-to-end π0 (54 .9% ), as each uncontrolled handoff introduces compounding state mismatch. Foresight correction reverses this tradeoff, mak-ing the decomposed approach substantially outperform the monolithic one. 
+
+C. Terminal State Quality 
+
+To verify that the foresight correction shifts the terminal state distribution toward higher-quality configurations, we evaluate the foresight predictor’s scores on terminal states produced by each method (Table III). Table III reveals a counterintuitive finding: constant-reward residual RL degrades mean predictor scores at both boundaries despite improving subtask success rates (Ta-ble II). At the Grasp terminal, the score drops from 0.64 
+
+to 0.32 —the policy finds grasps that satisfy the success predicate more reliably but produce configurations that are worse for downstream insertion. Foresight correction re-verses this degradation, achieving the highest Grasp terminal score ( 0.73 ) and retaining more of the base policy’s Insert terminal quality ( 0.91 vs. 0.86 ). This directly explains the Grasp Insert Rotate Start Grasp Insert 
+
+## Foresight 
+
+## (Ours) 
+
+## Standard 
+
+## Grasp Start Grasp Insert 
+
+## Foresight 
+
+## (Ours) 
+
+## Standard 
+
+Start Grasp Insert 
+
+Grasp Insert Rotate  
+
+> Baseline Proposed Baseline Proposed
+> Fig. 3. Qualitative comparison of terminal states produced by constant-reward (baseline) and foresight-modulated (proposed) residual policies. Top: Grasp →Insert transition. Bottom: Insert →Rotate transition. Each panel shows, from left to right, the shared starting state, the subtask terminal state reached by each method, and the outcome of the subsequent phase. Both methods satisfy the subtask success predicate (middle), but only foresight-corrected terminal states lead to a downstream success.
+
+divergence in Table II: constant-reward residual RL improves subtasks in isolation while eroding the compositional value of their terminal states. 
+
+D. Qualitative Analysis 
+
+Fig. 3 visualizes the mechanism behind the quantitative gap in Table II. In both panels, the two policies start from identical states and both achieve the current sub-task. The middle columns show geometrically valid grasps and insertions respectively, consistent with the comparable sub-task success rates in Table II. The divergence appears in the immediate next sub-task. At the Grasp →Insert boundary (top panel), the constant-reward policy grasps the wrench at an orientation that sat-isfies the success predicate but provides poor alignment for transporting it to the nut. When the I NSERT policy takes over, this misalignment compounds under contact and the insertion fails (top-right). The foresight residual policy produces a more centered grasp with better angular alignment, giving the downstream policy sufficient margin to complete the insertion (bottom-right). A similar pattern appears at the Insert →Rotate boundary (bottom panel). The constant-reward policy achieves en-gagement between the wrench and the nut but at a pose that lacks stability; when a rotational torque is applied, the wrench disengages (top-right). The foresight-modulated insertion maintains a tighter seat, sustaining contact through the rotation phase (bottom-right). These examples illustrate a general property of causally-coupled sequential manipulation: the subtask success predi-cate defines a broad equivalence class of terminal states, but only a subset composes well with the downstream phase. Small geometric differences at each handoff, which are invisible to the success predicate, amplify under the contact dynamics of the subsequent phase. Foresight correction nar-rows the terminal distribution toward this composable subset. VIII. C ONCLUSION 
+
+We introduced Foresight Residual RL , a framework for causally-coupled long-horizon manipulation that optimizes 
+
+handoff state quality rather than subtask success alone. Our approach learns an offline visual foresight predictor for each phase boundary and uses it to reweight the subtask success reward for residual policy training over base VLA models. The subtask policies are trained inductively in reverse phase order. On the wrench-screw assembly task, foresight residual RL yields large gains under skill composition: full-task success improves to 85 .6% , outperforming standard subtask residual RL ( 54 .5% ) and the π0 baselines. 
+
+Limitations and future work. Our evaluation is con-ducted entirely in simulation. We expect the main obstacle to real-world deployment to be the cost of on-hardware online RL for the residual policy rather than the contact-dynamics gap, since the base VLA and the offline foresight predictor transfer through a standard image-based pipeline. We validate on a single wrench-screw task with a known phase decomposition; additional tasks and decompositions and alternative VLA backbones are natural next steps. In conclusion, our results clearly demonstrate that op-timizing the terminal state of a subtask, not just whether 
+
+the subtask succeeds, is essential for composing contact-rich manipulation skills. REFERENCES [1] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, S. Jakubczak, T. Jones, L. Ke, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, L. X. Shi, J. Tanner, Q. Vuong, A. Walling, H. Wang, and U. Zhilinsky, “ π0: A vision-language-action flow model for general robot control,” 2026. [2] M. J. Kim, C. Finn, and P. Liang, “Fine-tuning vision-language-action models: Optimizing speed and success,” 2025. [3] O. M. Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, T. Kreiman, C. Xu, J. Luo, Y. L. Tan, L. Y. Chen, P. Sanketi, Q. Vuong, T. Xiao, D. Sadigh, C. Finn, and S. Levine, “Octo: An open-source generalist robot policy,” 2024. [4] S. Nasiriany, A. Maddukuri, L. Zhang, A. Parikh, A. Lo, A. Joshi, A. Mandlekar, and Y. Zhu, “Robocasa: Large-scale simulation of everyday tasks for generalist robots,” 2024. [5] M. Heo, Y. Lee, D. Lee, and J. J. Lim, “Furniturebench: Reproducible real-world benchmark for long-horizon complex manipulation,” 2023. [6] O. Mees, L. Hermann, E. Rosete-Beas, and W. Burgard, “Calvin: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks,” IEEE Robotics and Automation Letters ,vol. 7, no. 3, pp. 7327–7334, 2022. [7] L. Ankile, A. Simeonov, I. Shenfeld, M. Torne, and P. Agrawal, “From imitation to refinement – residual rl for precise assembly,” 2024. [8] T. Silver, K. Allen, J. Tenenbaum, and L. Kaelbling, “Residual policy learning,” 2019. [9] T. Johannink, S. Bahl, A. Nair, J. Luo, A. Kumar, M. Loskyll, J. A. Ojea, E. Solowjow, and S. Levine, “Residual reinforcement learning for robot control,” ICRA , pp. 6023–6029, 2019. [10] A. Mandlekar, S. Nasiriany, B. Wen, I. Akinola, Y. Narang, L. Fan, Y. Zhu, and D. Fox, “Mimicgen: A data generation system for scalable robot learning using human demonstrations,” 2023. [11] M. Dalal, T. Chiruvolu, D. Chaplot, and R. Salakhutdinov, “Plan-seq-learn: Language model guided rl for solving long horizon robotics tasks,” 2024. [12] Y. Lee, J. J. Lim, A. Anandkumar, and Y. Zhu, “Adversarial skill chaining for long-horizon robot manipulation via terminal state regu-larization,” 2021. [13] Z. Chen, Z. Ji, J. Huo, and Y. Gao, “Scar: Refining skill chaining for long-horizon robotic manipulation via dual regularization,” NeurIPS ,vol. 37, pp. 111 679–111 714, 2024. [14] Y. Chen, C. Wang, L. Fei-Fei, and C. K. Liu, “Sequential dexterity: Chaining dexterous policies for long-horizon manipulation,” 2023. [15] A. Bagaria, B. Abbatematteo, O. Gottesman, M. Corsaro, S. Ram-mohan, and G. Konidaris, “Effectively learning initiation sets in hierarchical reinforcement learning,” ANeurIPS , vol. 36, pp. 73 441– 73 463, 2023. [16] A. Bagaria, J. Senthil, M. Slivinski, and G. Konidaris, “Robustly learning composable options in deep reinforcement learning,” in Pro-ceedings of the Thirtieth International Joint Conference on Artificial Intelligence, IJCAI-21 , Z.-H. Zhou, Ed. IJCAI, 8 2021, pp. 2161– 2169, main Track. [17] T. G. Dietterich, “Hierarchical reinforcement learning with the maxq value function decomposition,” 1999. [18] R. S. Sutton, M. C. Machado, G. Z. Holland, D. Szepesvari, F. Tim-bers, B. Tanner, and A. White, “Reward-respecting subtasks for model-based reinforcement learning,” Artificial Intelligence , vol. 324, p. 104001, Nov. 2023. [19] R. Toro Icarte, T. Q. Klassen, R. Valenzano, and S. A. McIlraith, “Reward machines: Exploiting reward function structure in reinforce-ment learning,” Journal of Artificial Intelligence Research , vol. 73, p. 173–208, Jan. 2022. [20] L. Ankile, Z. Jiang, R. Duan, G. Shi, P. Abbeel, and A. Nagabandi, “Residual off-policy rl for finetuning behavior cloning policies,” 2025. [21] W. Xiao, H. Lin, A. Peng, H. Xue, T. He, Y. Xie, F. Hu, J. Wu, Z. Luo, L. J. Fan, G. Shi, and Y. Zhu, “Self-improving vision-language-action models with data generation via residual rl,” 2025. [22] G. Konidaris and A. Barto, “Skill discovery in continuous reinforce-ment learning domains using skill chaining.” vol. Vol. 22, 01 2009, pp. 1015–1023. [23] Y. Lee, S.-H. Sun, S. Somasundaram, E. S. Hu, and J. J. Lim, “Composing complex skills by learning transition policies,” in ICLR ,2019. [24] C. A. Meehan, P. Rademacher, M. Roberts, and L. M. Hiatt, “Com-posing option sequences by adaptation: Initial results,” 2024. [25] R. S. Sutton, D. Precup, and S. Singh, “Between mdps and semi-mdps: A framework for temporal abstraction in reinforcement learning,” 
+
+Artificial Intelligence , vol. 112, no. 1, pp. 181–211, 1999. [26] P.-L. Bacon, J. Harb, and D. Precup, “The option-critic architecture,” in AAAI , vol. 31, no. 1, 2017. [27] V. Makoviychuk, L. Wawrzyniak, Y. Guo, M. Lu, K. Storey, M. Mack-lin, D. Hoeller, N. Rudin, A. Allshire, A. Handa, and G. State, “Isaac gym: High performance gpu-based physics simulation for robot learning,” 2021. [28] Y. Liu, X. Zhang, H. Chang, and A. Boularias, “Failure forecasting boosts robustness of sim2real rhythmic insertion policies,” 2025. [29] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” 2017. [30] D. Makoviichuk and V. Makoviychuk, “rl-games: A high-performance framework for reinforcement learning,” , May 2021. [31] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “Lora: Low-rank adaptation of large language models,” 2021.

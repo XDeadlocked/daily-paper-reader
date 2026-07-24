@@ -1,0 +1,518 @@
+Title: LPM: Industrial-Scale Generative Video Restoration
+
+URL Source: https://arxiv.org/pdf/2607.13460v1
+
+Published Time: Thu, 16 Jul 2026 00:50:06 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# LPM: Industrial-Scale Generative Video Restoration 
+
+LPM Team, Kuaishou Technology 
+
+We present the Large Processing Model (LPM) , a diffusion-based generative framework for photorealistic video restoration under complex, in-the-wild degradations. To our knowledge, LPM is the first generative video restoration model deployed at industrial scale . LPM addresses the diverse degradations in user-generated content (UGC) through a unified system encompassing large-scale data engineering, foundation-model training, and efficient inference. Its enhanced architecture, progressive training strategy, and temporal-pyramid inference mechanism jointly enable high-fidelity, temporally consistent restoration of arbitrarily long videos across the broad content distribution encountered on UGC platforms. LPM has been deployed in production at Kuaishou, where videos processed by the model account for approximately 45% of total viewing time , delivering consistent improvements across key quality-of-experience metrics. Beyond perceptual enhancement, LPM delivers substantial system-level benefits: at comparable perceptual quality, it reduces bitrate by 20% relative to Kuaishou’s in-house codec, yielding annual bandwidth cost savings on the order of hundreds of millions . Its low serving cost also enables integration into products such as Kling , demonstrating that generative restoration can be practical, scalable, and cost-effective for large-scale video processing.  
+
+> Date:
+
+October 1, 2025 
+
+# 1 Introduction 
+
+Video has become a primary medium for communication, content creation, and information consumption worldwide [ 13 , 16 ]. However, a substantial fraction of real-world video is captured and delivered under imperfect conditions. In particular, user-generated content (UGC) routinely suffers from noise, blur, compression artifacts, and other distortions caused by heterogeneous capture devices, repeated transcoding, and constrained transmission bandwidth [ 57 ]. These degradations directly impair the viewing experience at platform scale. Robust restoration of in-the-wild video is therefore important not only for human viewers, but also for multimodal systems [1, 14, 18] that rely on high-quality visual signals for perception and reasoning. Despite substantial progress in image and video restoration, conventional methods often struggle to generalize to complex, in-the-wild degradations [ 7, 33 , 70 , 77 ]. Diffusion-based generative models [ 21 , 42 ] have further advanced restoration by formulating it as conditional generation from degraded inputs to high-fidelity outputs. By leveraging generative priors learned from large-scale data, these models can recover realistic textures and structures that are difficult to reconstruct with conventional restoration methods. This paradigm has achieved strong results in image restoration [ 5, 11 , 29 , 52 , 54 , 59 , 65 , 66 ] and has increasingly been extended to video enhancement [ 56 , 63 , 76 ]. Video restoration architectures have evolved from augmenting image backbones with temporal modules [ 76 ] to Diffusion Transformers (DiTs) that exploit pre-trained spatiotemporal priors [ 27 , 36 , 56 , 60 ]. These advances improve structural integrity and temporal coherence, while recent distillation techniques [6, 78] have further reduced inference cost. Despite this progress, existing methods do not yet meet the combined requirements of industrial-scale video restoration. Image restoration models can generate fine spatial details, but lack explicit temporal modeling; when applied independently to individual frames, they often produce flickering and inconsistent textures. Video models initialized from text-to-video (T2V) backbones improve temporal coherence, but joint spatiotemporal modeling is computationally expensive and can compromise per-frame fidelity, often resulting in over-smoothed outputs. Moreover, most existing methods are trained and evaluated on short clips with fixed temporal 1arXiv:2607.13460v1 [cs.CV] 15 Jul 2026 LPM: Industrial-Scale Generative Video Restoration 
+
+windows. Directly applying them to long-form UGC can lead to discontinuities between windows, progressive appearance drift, and instability around scene transitions. Achieving both fine-grained spatial fidelity and long-term temporal consistency across arbitrary-length, in-the-wild videos therefore remains an open challenge. We address this challenge with the Large Processing Model (LPM) , a diffusion-based generative framework for high-fidelity video restoration across diverse real-world content and degradation patterns. LPM unifies large-scale data engineering, progressive generative training, and efficient inference in a single restoration system. It is designed to preserve the detail-generation capability of image diffusion models while introducing effective temporal modeling for stable video restoration. LPM has been deployed as a server-side automatic restoration service in Kuaishou. It currently processes videos accounting for approximately 45% of the platform’s total viewing time and consistently improves key online quality-of-experience (QoE) metrics. To our knowledge, LPM is the first generative video restoration model deployed at industrial scale. LPM consists of two stages: LPM-Image and LPM-Video . LPM-Image establishes a strong spatial restoration prior through a large-scale data pipeline covering diverse content and degradation distributions. It is trained progressively, first learning coarse-grained structure restoration and then fine-grained texture generation. LPM-Video extends this image prior to the temporal domain through efficient temporal alignment and fusion, preserving the spatial fidelity of LPM-Image while improving frame-to-frame consistency. To support long-form content, we further develop a temporal-pyramid inference framework that combines long-range guidance with short-range anchors. This design mitigates error accumulation and appearance drift, enabling temporally stable restoration of videos with arbitrary duration. Our main contributions are summarized as follows: 
+
+• A progressive image-to-video restoration framework. We introduce a progressive training paradigm that first learns conditional image restoration and subsequently extends the learned spatial prior to video. In contrast to directly fine-tuning a T2V backbone, this design better preserves fine-grained texture generation while reducing the blurring and over-smoothing commonly observed in video restoration. LPM further replaces the conventional 3D-VAE design with an efficient 2D-VAE and factorized 2D+1D DiT architecture, substantially improving training and inference efficiency. 
+
+• Temporally consistent restoration of arbitrary-length videos. LPM is designed without fixed temporal positional encoding, allowing it to generalize beyond the temporal windows observed during training. We further introduce temporal-pyramid inference, which integrates long-range guidance with short-range anchor frames to maintain temporal coherence, reduce cross-window discontinuities, and prevent progressive drift. Together, these designs enable stable restoration of videos with arbitrary duration. 
+
+• Industrial-scale deployment and system-level efficiency. LPM achieves state-of-the-art restoration quality in systematic evaluations and has been deployed at scale in Kuaishou’s production video pipeline. It currently serves videos representing approximately 45% of total viewing time and delivers consistent improvements across key online QoE metrics. When integrated with Kuaishou’s encoding and transmis-sion pipeline, LPM reduces bitrate by more than 20% at comparable perceptual quality relative to the in-house codec, demonstrating the practical and economic value of generative video restoration at scale. 
+
+# 2 Approach 
+
+2.1 Data 
+
+Large-scale, high-quality training data is fundamental to robust generative restoration. Although the text-to-image (T2I) and text-to-video (T2V) communities have benefited from a growing collection of large-scale datasets [ 24 , 51 , 75 ], substantially fewer data resources satisfy the stringent quality requirements of restoration and enhancement. In particular, large restoration models require clean visual targets with both high perceptual quality and abundant fine-grained detail; deficiencies in either dimension directly limit the quality of the learned generative prior. We therefore construct the Kwai UltraVision Dataset around two primary criteria: (1) ultra-high visual quality and (2) rich texture complexity. The resulting dataset contains visual samples at the billion scale, covers 12 content categories, and achieves an average Kuaishou Visual Quality (KVQ) score of 
+
+4.31 on a [0 , 5] scale. Fig. 1 summarizes its distributions in visual quality, resolution, and semantic category. 2LPM: Industrial-Scale Generative Video Restoration KVQ Score Distribution   
+
+> 35.2%
+> 31.0%
+> 22.3%
+> 9.6%
+> Score
+> KVQ
+> [4.0, 4.2), 35.2% [4.2, 4.4), 31.0%
+> [4.4, 4.6), 22.3% [4.6, 4.8), 9.6%
+> [4.8, 5.0), 1.9%
+
+Resolution Distribution   
+
+> 4.3%
+> 73.4%
+> 13.6%
+> 6.7%
+> Res.
+> Video
+> <1080p, 4.3% 1080p, 73.4%
+> 2160p, 13.6% 3160p, 6.7%
+> 4320p, 2.0%
+
+Category Distribution        
+
+> 29.2%
+> 24.0%
+> 24.1%
+> 6.8%
+> 7.6%
+> 6.6%
+> 5.1%
+> 6.2%
+> 4.0%
+> 3.9%
+> Cat.
+> Content
+> object, 29.2% portrait, 24.0%
+> indoor, 24.1% clothing, 6.8%
+> game, 7.6% architecture, 6.6%
+> text, 5.1% food, 6.2%
+> accessory, 4.0% landscape, 3.9%
+> plant, 2.5% animal, 2.7%
+> Figure 1
+
+The KVQ scores, resolutions, and categories distributions of our Kwai UltraVision Dataset. 
+
+2.1.1 Dataset for Large Processing Models 
+
+T2I and T2V datasets typically prioritize semantic coverage and text–visual alignment, with the strictest quality filtering often reserved for fine-tuning. Generative restoration has different data requirements: it relies on clean visual targets to synthesize degraded inputs and learn the reconstruction of fine-grained artifacts and high-frequency details. High visual quality is therefore essential throughout training. However, existing datasets contain relatively few samples that combine exceptional visual fidelity with rich textures. We address this gap by curating data along two dimensions: visual quality and texture complexity. 
+
+• Ultra-High Visual Quality. The quality of clean targets directly determines the upper bound of restoration fidelity. Targets containing blur, noise, compression artifacts, or exposure defects may cause the model to reproduce these imperfections. We therefore use Kuaishou Visual Quality (KVQ) [ 31 , 40 , 67 ], a no-reference metric that evaluates perceptual factors such as blur, noise, sharpness, and blocking artifacts. KVQ scores visual quality on a five-point scale: a score of 4.0 indicates clear subjects without readily perceptible artifacts, while 4.5 additionally requires rich textures, accurate colors, and well-preserved highlight and shadow details. We retain samples with KVQ scores above 4.0 for large-scale training and raise the threshold to 4.7 for high-quality fine-tuning. After automated filtering and manual inspection, approximately 4.08 ‰ of the candidate samples are retained for fine-tuning. The complete dataset has an average KVQ score of 4.31 .
+
+• Rich Texture Complexity. Fine structures such as foliage, animal fur, and skin texture are essential to perceptual quality. Training on samples with limited high-frequency content weakens the model’s ability to reconstruct such details and often leads to over-smoothed outputs. We therefore introduce Kuaishou Texture Quality (KTQ), which measures texture complexity in both the spatial and frequency domains. The spatial component applies a Laplacian operator and measures the proportion of responsive pixels, while the frequency component uses the Discrete Cosine Transform (DCT) to compute the energy ratio in high-frequency bands. Together, they quantify the richness of fine-grained textures in each sample. Beyond visual quality and texture complexity, we balance semantic categories and scene coverage during data construction. The resulting Kwai UltraVision Dataset combines billion-scale data, high perceptual quality, rich textures, and diverse content, providing a strong foundation for training large generative restoration models. 
+
+2.1.2 Image Data Pipeline 
+
+We collect raw image data from a large-scale mixture of internal sources and publicly available datasets. Our goal is to construct a training corpus that combines high perceptual quality, rich texture complexity, and 3LPM: Industrial-Scale Generative Video Restoration Pool  
+
+> Image
+> [I 256P] Training
+> [I 512P] Training
+> [I 1024P] Training
+> [I 1024P] HQ-FT Training
+> [I 1024P] Quality Filtering
+> [I 1024P] Texture Filtering
+> [I 1024P] Content Diversity
+> and Balancing
+> [I 1024P] Resolution Filtering
+> [I 512P] Resolution Filtering
+> [I 256P] Resolution Filtering
+> [I 256P] Deduplication
+> [I 256P] Quality Filtering
+> [I 256P] Texture Filtering
+> [I 256P] Content Diversity
+> and Balancing
+> Video SceneCut
+> [V] Training
+> [V 1024p] HQ-FT Training
+> [V 1024p] Quality Filtering
+> [V 1024p] Content Diversity
+> and Balancing
+> [V] Quality Filtering
+> [V] Texture Filtering
+> [V] Content Diversity
+> and Balancing
+> [V] Motion Filtering
+> AIGC Filtering
+
+Figure 2 Overview of the data construction pipeline. 
+
+broad semantic coverage for large generative restoration models. As illustrated in Fig. 2, the image data pipeline consists of four stages: 
+
+• Quality Filtering. We use KVQ to assess the perceptual quality of each candidate image and discard samples with scores below 4.0. The filtering threshold is adapted to the requirements of each training stage: images with KVQ scores above 4.0 are used for large-scale pre-training, whereas a substantially more selective subset with scores above 4.7 is reserved for high-fidelity fine-tuning. We additionally remove AI-generated content (AIGC) from the training corpus. Compared with natural photographs, many generated images exhibit overly smooth surfaces, simplified local statistics, or insufficient stochastic high-frequency detail. Mixing such data with natural imagery may introduce an undesirable distribution shift and bias the learned prior toward synthetic texture patterns. Excluding AIGC therefore helps the model learn authentic image statistics and improves its generalization to real-world inputs. 
+
+• Resolution Grading. Our training curriculum comprises three stages: T2I base training, restoration pre-training, and high-fidelity fine-tuning. To support progressive learning across spatial scales, we organize the data into three resolution tiers of 256 , 512 , and 1024 . This coarse-to-fine curriculum stabilizes optimization at high resolutions and progressively improves the model’s ability to capture both global structures and fine-scale details. 
+
+• Texture Filtering. Generative restoration requires the model to reconstruct realistic textures in regions where high-frequency information has been degraded or removed. Training predominantly on flat or low-complexity content provides limited supervision for this capability and can encourage over-smoothed predictions. We therefore use KTQ to measure texture richness and filter out samples with insufficient texture complexity, retaining images that contain abundant high-frequency structures and fine-grained details. 
+
+• Content Diversity and Balancing. Broad semantic coverage is essential for robust generalization across real-world scenes. We first extract CLIP embeddings and remove near-duplicate images according to their cosine similarity. We then use CLIP-based zero-shot classification to assign the remaining samples to semantic categories and perform category-aware resampling to improve distributional balance. Together, these stages produce three stage-specific data tiers for T2I base training, restoration pre-training, and 4LPM: Industrial-Scale Generative Video Restoration 
+
+high-fidelity fine-tuning, respectively. Each tier is constructed with quality thresholds, resolution distributions, texture requirements, and category compositions tailored to its corresponding training objective.  
+
+> 2.1.3 Video Data Pipeline
+
+Video restoration introduces the additional challenge of modeling temporal dynamics. Inadequate temporal modeling can lead to jitter, flickering, inconsistent textures, and motion artifacts. Beyond the image-level criteria of perceptual quality, resolution, texture complexity, and content diversity, we therefore impose video-specific constraints on temporal quality, shot continuity, and motion distribution. Fig. 2 summarizes the complete data construction pipeline, from raw data collection to image-level filtering and video-specific temporal curation. 
+
+• Temporal Quality Filtering. LPM-Video is trained on temporally continuous clips with stage-specific lengths. A single severely degraded frame may contaminate temporal feature aggregation and provide unreliable supervision to neighboring frames. We therefore require every frame within a retained training clip to have a KVQ score above 4.0. We further construct stage-specific video data tiers whose clip lengths match the temporal configurations used at the corresponding training stages. 
+
+• Scene-Cut Detection. Learning effective temporal priors requires coherent motion and appearance within each training sample. Scene cuts create abrupt discontinuities in both visual content and motion, violating this assumption and potentially interfering with temporal alignment and feature aggregation. We apply an internal scene-cut detector to identify shot boundaries and segment each source video accordingly, ensuring that every training clip lies within a single temporally coherent shot. 
+
+• Motion Balancing. A diverse motion distribution is important for learning robust temporal dynamics. We estimate dense optical flow between adjacent frames using an internal optical-flow model and characterize each clip by its average flow magnitude. Based on this statistic, clips are partitioned into static, low-motion, and high-motion groups. We then rebalance these groups during data construction. This strategy exposes the model to a broad range of motion patterns, helping it preserve sharp details under large motion while maintaining stable outputs in nearly static scenes. 
+
+2.2 Image-Based Model 
+
+This section introduces LPM-Image, including its architecture and three-stage training pipeline: large-scale pre-training, high-quality fine-tuning, and fidelity refinement.   
+
+> 2.2.1 Architecture Improved Diffusion Transformer.
+
+LPM-Image builds on the Diffusion Transformer (DiT) architecture [ 36 ], with several modifications designed to improve reconstruction fidelity, model capacity, and optimization efficiency. For latent-space compression, we develop LPM-VAE , a variational autoencoder (VAE) [ 23 ] with a moderate compression ratio and high reconstruction fidelity. Table 1 compares LPM-VAE with representative image and video VAEs on a challenging internal benchmark. LPM-VAE achieves the highest PSNR and SSIM [ 58 ] among the evaluated models, demonstrating its ability to preserve fine-grained structures under latent compression. For the DiT backbone, we replace GeLU [ 20 ] in the feed-forward network with SwiGLU [ 43 ] to improve model expressivity. We further replace LayerNorm [ 3 ] with RMSNorm [ 72 ] for simpler and more efficient normalization. Spatial positions are parameterized using rotary positional embeddings (RoPE) [ 46 ], which encode relative spatial relationships and support generalization across resolutions. Finally, we train the model using Rectified Flow [ 30 ], which defines a linear probability path and provides a simple and effective objective for generative modeling and efficient sampling.  
+
+> Diffusion-Based Image Restoration.
+
+Given an HQ image IHQ and its corresponding LQ observation ILQ ,generative image restoration aims to model the conditional distribution pθ (IHQ | ILQ ). We encode the image pair into the latent space using the encoder E of LPM-VAE: zHQ = E(IHQ ) and zLQ = E(ILQ ).LPM-Image is trained with a conditional flow-matching objective. Let ϵ ∼ N (0 , I) denote Gaussian noise and 
+
+τ ∼ U [0 , 1] denote the flow timestep. Following Rectified Flow, we define a linear probability path from the 5LPM: Industrial-Scale Generative Video Restoration Table 1 VAE reconstruction quality on a challenging internal benchmark. The best result in each column is highlighted.                   
+
+> Method PSNR ↑SSIM ↑
+> SD2.1-VAE [42] 22 .56 0.467
+> SDXL-VAE [37] 22 .48 0.484
+> SD3-VAE [17] 25 .78 0.726
+> Cosmos-VAE [41] 27 .28 0.774
+> VideoVAE+ [61] 25 .03 0.678
+> Wan2.1-VAE [51] 26 .01 0.719
+> LPM-VAE 27 .66 0.807
+
+noise distribution to the HQ latent distribution zτ = (1 − τ )ϵ + τ z HQ . Conditioned on the LQ latent zLQ , the DiT backbone vθ is optimized to predict this velocity, where v⋆ denotes the target velocity field along the probability path: 
+
+LFM = Eϵ∼N (0 ,I), τ ∼U [0 ,1] 
+
+h
+
+∥vθ (zτ , z LQ , τ ) − v⋆∥22
+
+i
+
+. (1) An important architectural choice is how to inject the LQ condition into the generative backbone. ControlNet-based methods [ 28 , 38 , 44 , 74 ] introduce a dedicated conditioning branch, providing strong structural control at the cost of additional parameters, memory, and training overhead. Attention-based conditioning [ 26 , 59 , 62 ]enables flexible interactions between conditional and generative features, but global feature matching may weaken precise local correspondence when pixel-level alignment is required. LPM-Image instead adopts a direct and parameter-efficient conditioning mechanism. Specifically, we spatially align zLQ with zτ , concatenate them along the channel dimension, and feed the resulting representation to the DiT backbone. This design requires no auxiliary conditioning branch and only modifies the input projection layer to accommodate the additional channels. More importantly, it preserves explicit spatial correspondence between the degraded observation and the restoration target, allowing the model to learn the LQ-to-HQ mapping end to end. This simple conditioning mechanism provides an effective balance among reconstruction fidelity, detail generation, and computational efficiency.  
+
+> 2.2.2 Training
+
+LPM-Image is trained progressively in three phases: large-scale pre-training, high-quality fine-tuning, and fidelity refinement. These phases respectively establish broad restoration capabilities, shift the model toward a higher-quality output distribution, and strengthen its faithfulness to input structures.  
+
+> Large-Scale Pre-Training.
+
+We first train LPM-Image on the conditional LQ-to-HQ restoration task at a resolution of 256 × 256 . This phase uses a billion-scale training corpus and focuses on learning both the distribution of natural images and the correspondence between diverse degradations and their clean counterparts. Large-scale training exposes the model to broad semantic and visual variations, including scene structures, human and facial characteristics, object layouts, materials, textures, and photographic styles. The resulting knowledge forms a general-purpose visual prior that enables LPM-Image to recover plausible structures and fine details even from severely degraded inputs.  
+
+> High-Quality Fine-Tuning.
+
+Large-scale pre-training provides broad coverage, but the learned output distribution is inevitably influenced by the long-tailed quality variation in the pre-training corpus. Consequently, the model may not consistently favor outputs with exceptional perceptual fidelity and rich fine-grained detail. We address this issue by fine-tuning LPM-Image on a curated subset of approximately 48 ,000 high-quality images. These samples are selected using substantially stricter criteria for technical quality, texture richness, color reproduction, dynamic range, and aesthetic composition. Fine-tuning on this concentrated high-quality distribution steers the model toward cleaner structures, more natural textures, and higher overall perceptual quality while retaining the generalization capability acquired during large-scale pre-training. 6LPM: Industrial-Scale Generative Video Restoration VAE Decoder             
+
+> HQ CLIP
+> LQ Clip
+> C
+> 00000
+> 00001
+> VAE Decoder
+> 50%
+> 50%
+> LQ Latent
+> Noise
+> +
+> HQ Latent
+> Mask
+> Temporal Block
+> iDiT  Block
+> T step
+> Patch embedder  Layer Norm
+> +
+> Linear
+> Temporal Attn
+> LayerNorm
+> FFN
+> ProjectionOut
+> Projection
+> Group Norm
+> +
+> +
+> Temporal Block
+> Figure 3
+
+Overview of LPM-Video and its temporal block. LPM-Video augments the spatial DiT blocks of LPM-Image with factorized temporal-attention blocks and employs mask-guided reference conditioning to propagate restored information across clips.  
+
+> Fidelity Refinement.
+
+Although generative priors improve perceptual quality, they may alter content that should remain faithful to the LQ observation. This issue is particularly pronounced for spatially sensitive, high-frequency structures, such as text, small facial features, clothing patterns, and fine vegetation, where minor generative deviations can produce incorrect characters, distorted identities, or inconsistent local patterns. Restoration therefore requires not only perceptually plausible details, but also strong structural and pixel-level faithfulness to the input. To strengthen this property, we construct a dedicated refinement dataset containing text and fine-texture regions with precise region-level annotations. During degradation synthesis, annotated regions probabilistically bypass the degradation operator. Given an HQ image IHQ , a degradation operator Ddeg , and a binary region mask M , the corresponding LQ input is constructed as 
+
+ILQ = M ⊙ IHQ + (1 − M ) ⊙ D deg (IHQ ), (2) This construction introduces region-level HQ-to-HQ identity supervision into the standard LQ-to-HQ restora-tion task, explicitly teaching the model to preserve already-correct structures rather than regenerate them unnecessarily. We further augment the refinement data with targeted synthesis procedures covering challenging text and fine-detail patterns. Together, these strategies reduce structural hallucination and improve detail preservation without sacrificing the perceptual gains obtained in the preceding stages. 
+
+2.3 Video-Based Model 
+
+Applying LPM-Image independently to individual video frames preserves rich spatial details but often produces temporal artifacts, including flickering, texture inconsistency, and appearance drift. These artifacts arise because frame-wise restoration does not explicitly model temporal dependencies and therefore cannot coordinate generated details across frames. To address this limitation, we extend LPM-Image into LPM-Video , which introduces efficient temporal modeling while retaining the spatial restoration prior learned by LPM-Image. This section presents its architecture, training strategy, and long-video inference procedure.   
+
+> 2.3.1 Architecture Factorized Spatiotemporal Modeling.
+
+To introduce temporal modeling without compromising the spatial restoration capability of LPM-Image, we insert a temporal block after each spatial DiT block, following the factorized design of AnimateDiff [ 19 ]. Each spatial DiT block applies 2D self-attention independently within individual frames, whereas each temporal block applies 1D self-attention across frames at every spatial-token location. Compared with joint attention over all spatiotemporal tokens, this factorization substantially reduces computational and memory costs while enabling effective cross-frame information exchange. 7LPM: Industrial-Scale Generative Video Restoration 
+
+For a batch of B clips, each containing T frames and N spatial tokens per frame, the spatial DiT blocks operate on a representation of shape (BT ) × N × D, where D denotes the hidden dimension. Before temporal attention, the representation is rearranged to (BN ) × T × D, such that tokens at the same spatial location form a temporal sequence. The temporal block performs self-attention along this sequence, after which the representation is restored to its spatial layout and passed to the next spatial DiT block. This factorized 2D+1D architecture directly inherits the spatial restoration prior and fine-detail generation capability of LPM-Image. It also retains the frame-wise 2D VAE, avoiding the additional training and reconstruction costs associated with a dedicated 3D-VAE.  
+
+> Position-Free Temporal Attention.
+
+LPM-Video does not use explicit temporal positional embeddings, a design we refer to as NoPE . Conventional fixed or learned temporal embeddings associate the model with the temporal windows encountered during training and may hinder extrapolation to longer sequences. By removing absolute temporal indices, NoPE makes the temporal operator independent of a predefined sequence length and allows the same model to accept variable-length inputs. Temporal interactions are instead established through content-dependent attention over the motion and appearance cues present in the LQ sequence. NoPE removes the architectural restriction imposed by a fixed temporal embedding range, but processing an entire long video in a single forward pass remains constrained by computation and memory. In practice, we therefore restore long videos clip by clip and explicitly propagate high-quality references across adjacent clips.  
+
+> Mask-Guided Cross-Clip Conditioning.
+
+Independent clip-wise restoration can introduce visible discontinuities at clip boundaries because fine textures and local appearances may vary across successive windows. We address this issue with mask-guidance training , which exposes the model to the recursive conditioning pattern used during long-video inference. Specifically, the last restored frame of the preceding clip is reused as a high-quality temporal anchor for the current clip, while the remaining frames are conditioned on their corresponding LQ observations. The conditional sequence and its binary mask are provided to the DiT backbone together with the noisy latent. In implementation, the frame-level mask is spatially broadcast and concatenated with the model input along the channel dimension. This explicit indicator allows the model to distinguish restored references from degraded observations and to treat the former as high-quality temporal anchors. By exposing this recursive dependency during training, mask guidance reduces the discrepancy between training and long-video inference. Combined with the spatial prior inherited from LPM-Image and factorized temporal attention, mask-guided conditioning improves both frame-to-frame and cross-clip consistency while preserving fine-grained spatial details. These components provide the architectural foundation for the arbitrary-length inference strategy introduced below.   
+
+> 2.3.2 Training Temporally Coherent Degradation Pipeline.
+
+The degradation pipeline for LPM-Video extends the image degradation pipeline used for LPM-Image. Starting from the BSRGAN degradation model, we additionally introduce FFmpeg-based video compression with multiple bitrate levels to better approximate the compression artifacts encountered in real-world video delivery. The complete pipeline is illustrated in Fig. 4. A key difference from image restoration is that video degradations are generally temporally correlated. Independently sampling degradation parameters for each frame would introduce artificial temporal variations that rarely occur in real videos and could encourage the model to learn incorrect temporal priors. We therefore share the degradation configuration—including blur, noise, resampling, and compression settings—across all frames within a training clip. This clip-consistent degradation strategy preserves natural temporal continuity while exposing the model to diverse degradation patterns across clips.  
+
+> Progressive Video Training.
+
+LPM-Video is trained in two stages: large-scale pre-training and high-quality fine-tuning. The first stage learns general temporal dynamics and intra-clip consistency while preserving the spatial restoration prior of LPM-Image. The second stage further improves perceptual quality and introduces explicit cross-clip consistency for long-video restoration. 8LPM: Industrial-Scale Generative Video Restoration blur noise           
+
+> Vanilla HQ Clip
+> 12345
+> 13579
+> 1
+> Interval=1
+> Interval=2
+> Sample 1
+> frame
+> Synthesize HQ Clip with Large -motion
+> 1-frame HQ Clip
+> FFmpeg
+> resize JPEG
+> HQ Video
+> Shuffle order
+> HQ Clip
+> LQ Clip
+> Figure 4
+
+Overview of the degradation and data construction pipeline for LPM-Video training. Image-level degradations are applied consistently within each clip and are followed by FFmpeg-based video compression under multiple bitrate settings. 
+
+Large-Scale Pre-Training. We initialize the spatial DiT blocks of LPM-Video from LPM-Image and train the newly introduced temporal blocks jointly with the inherited image backbone. This initialization transfers the spatial restoration and detail-generation capabilities learned by LPM-Image, allowing video training to focus on temporal correspondence and feature aggregation. Pre-training uses a large-scale mixture of millions of video clips and images. Images are treated as single-frame sequences ( T = 1 ) and sampled together with multi-frame video clips. This mixed-frame strategy mitigates the degradation of spatial generation quality that may otherwise arise when optimizing predominantly for temporal smoothness. At this stage, mask-guidance training is disabled, allowing the model to first learn stable intra-clip temporal dynamics without the additional complexity of recursive cross-clip conditioning. 
+
+High-Quality Fine-Tuning. We subsequently fine-tune LPM-Video on a curated dataset containing thousands of high-quality video clips. In addition to improving spatial detail and perceptual quality, this stage introduces mask-guidance training to align the training procedure with clip-wise long-video inference. Specifically, consecutive clips are sampled from the same shot, and the last frame associated with the preceding clip is used as the reference for the current clip. To simulate a previously restored high-quality anchor, we replace the LQ condition at the reference position with its corresponding HQ frame with a probability of 50% and mark this position using the guidance mask. Otherwise, the model receives the original LQ condition. This stochastic construction prevents excessive dependence on an ideal reference while teaching the model to propagate high-quality appearance and texture information across clip boundaries. We retain mixed-frame training during fine-tuning by probabilistically sampling images as single-frame sequences, thereby preserving spatial generation quality while strengthening both intra-clip and cross-clip temporal consistency. 
+
+Large-Motion Adaptation. After high-quality fine-tuning, we observe that residual flickering occurs primarily in videos with large inter-frame motion. We attribute this behavior to a systematic imbalance in the training distribution: large motion is often accompanied by motion blur, while our stringent visual-quality filters preferentially remove blurred clips. As a result, clips that simultaneously exhibit high visual quality and large motion are underrepresented in the fine-tuning data. We address this limitation in two complementary ways. First, we supplement the training corpus with additional real-world clips that contain both high-quality content and large motion. Second, we temporally subsample high-frame-rate or low-motion videos using larger frame intervals, thereby increasing the apparent inter-frame displacement without synthetically introducing motion blur. Fine-tuning on this motion-enhanced data improves temporal stability and detail preservation under large motion. 9LPM: Industrial-Scale Generative Video Restoration 
+
+2.4 Inference  
+
+> Limitations of Sliding-Window Inference.
+
+Long-video restoration requires temporal consistency over a sequence whose duration may be effectively unbounded. Processing an entire video in a single forward pass provides the model with global temporal context, but is impractical because the computational and memory costs of temporal attention grow rapidly with sequence length. In practice, long videos are therefore commonly divided into overlapping windows and restored sequentially. Let Hθ denote the LPM-Video restoration operator, zLQ ,1: T the LQ latent sequence, and ˆz1: T the restored sequence. Given a window Wj and its overlap Oj with the preceding window, conventional sliding-window inference can be written abstractly as 
+
+ˆzWj \O j = Hθ
+
+ zLQ ,Wj \O j ; ˆ zOj
+
+ , (3) where the restored overlapping frames ˆzOj serve as temporal references for the current window. Although this mechanism improves local continuity, each window is conditioned only on the output of its immediate predecessor. Consequently, small reconstruction discrepancies can propagate through the inference chain and gradually accumulate over long sequences. The resulting drift is particularly visible in static or low-motion regions, where subtle variations in texture or color are readily perceived as flickering. Keyframe-based inference partially alleviates this problem by restoring a sparse set of keyframes before processing the intermediate frames. However, a single-level keyframe strategy can still become unstable when adjacent keyframes are temporally distant, when shots vary substantially in duration, or when complex scene transitions are present.  
+
+> Temporal-Pyramid Inference.
+
+To capture both long-range consistency and short-range continuity, we introduce a temporal-pyramid inference strategy, as illustrated in Fig. 5. The central idea is to construct temporally coherent anchors at a coarse level and use them to guide restoration at progressively finer temporal scales. We first partition the input video into Ns shots using scene-cut detection. Let as denote the index of the first frame of the s-th shot. The corresponding shot-level keyframes are collected into a sparse sequence and restored jointly: 
+
+{ˆzas }Ns 
+
+> s=1
+
+= Hθ
+
+
+
+{zLQ ,a s }Ns 
+
+> s=1
+
+; ∅
+
+
+
+. (4) The restored keyframes form a high-quality storyboard that provides a set of stable, shot-level anchors for the full video. Joint restoration at this sparse temporal scale encourages coherent appearance and restoration characteristics across the video while preserving the semantic discontinuities introduced by scene cuts. Each shot is subsequently restored using sliding windows. For a window Ws,j in shot s, LPM-Video is conditioned on two complementary references: the fixed shot-level anchor ˆzas , which provides long-range guidance, and the restored overlap ˆzOs,j , which maintains short-range continuity: 
+
+ˆzWs,j \O s,j = Hθ
+
+ zLQ ,Ws,j \O s,j ; ˆ zas , ˆzOs,j 
+
+ . (5) The reference type is indicated by the guidance mask introduced during training. Unlike conventional sliding-window inference, which relies exclusively on recursively generated local references, every window is connected to a stable shot-level anchor. This shortens the effective dependency chain and prevents local reconstruction errors from freely propagating throughout the shot. Because LPM-Video uses position-free temporal attention, reference frames can be incorporated into inference windows without introducing temporal indices outside the range observed during training. The guidance mask explicitly identifies their roles, allowing the same model to process varying numbers of frames and references.  
+
+> Recursive Extension to Arbitrary-Length Videos.
+
+A single shot may itself contain more frames than can be covered reliably by one level of windowed inference. In this case, we recursively apply the same construction within the shot: sparse intermediate anchors are first restored under the guidance of the shot-level keyframe, and the intervals between adjacent anchors are then restored at the next finer level. Recursion terminates when each segment can be processed within the supported temporal window. 10 LPM: Industrial-Scale Generative Video Restoration  
+
+> Figure 5 Temporal-pyramid inference. Restored shot-level keyframes provide long-range guidance, while overlapping frames maintain short-range continuity. Long shots are handled recursively.
+
+This hierarchical construction extends LPM-Video to videos of arbitrary duration without requiring a single full-sequence forward pass. Since only sparse anchors are processed at the upper levels of the pyramid, the additional computation is small relative to frame-level restoration. More importantly, the combination of coarse long-range anchors and fine local references substantially reduces error accumulation and appearance drift, enabling stable restoration over long videos and complex shot structures. 
+
+2.5 Acceleration 
+
+Accelerating LPM poses different challenges than accelerating T2V models. T2V acceleration chiefly preserves semantic consistency across frames rather than pixel-level fidelity, whereas LPM must recover fine-grained textures and high-frequency detail from low-quality inputs without introducing pixel-level discrepancies—a substantially more constrained optimization objective. T2V acceleration typically retains around 5 sampling steps (e.g., SDXL-Turbo), but LPM must process long-form UGC spanning minutes to hours, which demands higher throughput; our target is 1- or 2-step sampling. At such low step counts, the “denoising” and “generation” phases of the diffusion process collapse into a single forward pass [ 25 ], which can compromise the model’s ability to reconcile restoration with generation and lead to high-frequency collapse or texture blurring.  
+
+> 2.5.1 Training-Aware Acceleration
+
+To overcome the efficiency bottleneck of multi-step diffusion sampling, we adopt a training-aware acceleration approach based on Consistency Models (CM) [ 45 ], distilling the 25-step Rectified Flow (RF) trajectory into a single-step student model. 
+
+• Velocity Reparameterization : Consistency models enforce coherence in state space, which is incompatible with LPM’s velocity-based sampling. We bridge this gap by reparameterizing the predicted velocity as an explicit state via xtn = xtn+1 + ( tn+1 − tn)v, aligning the student’s output space with the teacher’s velocity predictions. This allows effective reuse of pre-trained parameters while preserving the consistency objective across adjacent timesteps. 
+
+• Multi-step Integration : To mitigate the optimization instability commonly observed in consistency-11 LPM: Industrial-Scale Generative Video Restoration t = 0 t = 1                         
+
+> t=0t=1t=t' +△t
+> t=0t=1t=t'
+> Stage1: Naive Consistency Distillation
+> Stage3: Fidelity -oriented Refinement
+> Stage2: Realism -oriented Enhancement
+> Data Noise
+> Teacher multi -step denoising
+> PF -ODE
+> CM predictio n
+> Consistency constraint
+> Figure 6
+
+Trajectory-based Distillation in LPM: (left) multi-step integration, (right) 3-stage TCM. 
+
+model training, we adopt the skipping-step strategy from Latent Consistency Models (LCM) [ 32 ], which distributes supervision across multiple intermediate timesteps rather than enforcing the one-step objective directly. This yields more reliable gradients and faster convergence during early-stage distillation, and lets the teacher sample more densely along the trajectory, improving distillation fidelity. 
+
+• Three-Stage Truncated CM Training : To resolve the conflict between “denoising” and “generation” in one-step inference, we propose a three-stage truncated consistency model (3-stage TCM) training strategy. As shown in Fig. 6, unlike the original two-stage TCM [ 25 ], we insert an additional intermediate stage between Stage 1 and Stage 2 that focuses exclusively on timesteps near the clean image, targeting fine-grained detail generation. This three-stage pipeline (naive consistency distillation → realism-oriented enhancement → fidelity-oriented refinement) achieves a better balance between restoration fidelity and generative detail quality than the two-stage baseline. 
+
+2.5.2 Training-Free Acceleration 
+
+We complement training-aware distillation with training-free optimizations for practical deployment: 
+
+• DiT Optimization : We apply FP8 quantization to the DiT backbone, tuned for contemporary GPU archi-tectures, and use SageAttention [ 73 ] for the precision-sensitive attention layers, reducing computational complexity for high-resolution, long-duration video. 
+
+• VAE Optimization : The VAE encoder/decoder is quantized to INT8. We implement tiled VAE inference, processing high-resolution frames tile-by-tile, which reduces peak GPU memory and improves batched-inference throughput. 
+
+• Deployment SDK : The full inference pipeline is deployed via TensorRT-LLM [ 35 ]. Operator fusion and custom CUDA kernels further reduce latency, yielding an optimized end-to-end video processing pipeline. Layering training-free optimization on top of training-aware distillation, these techniques together yield a 39.5 × end-to-end speedup over the original 25-step pipeline without sacrificing visual quality (PSNR > 43 dB, SSIM > 0.99, KVQ difference < 0.01 relative to the unaccelerated model), enabling large-scale deployment in practice. Table 2 summarizes the cumulative contribution of each stage. When visual fidelity takes precedence over latency, an optional 2-step sampling configuration further improves high-frequency detail reconstruction while retaining most of the speedup over standard multi-step diffusion. 12 LPM: Industrial-Scale Generative Video Restoration Table 2 Cumulative end-to-end speedup as training-aware and training-free acceleration are layered on top of the 25-step baseline.        
+
+> Stage Cumulative Speedup ↑Approach
+> + Training-aware 12 .4×LCM, 3-stage TCM + Training-free 39 .5×FP8/INT8 quantization, TensorRT-LLM deployment
+
+# 3 Experiments 
+
+3.1 Benchmarks and Metrics 
+
+We evaluate LPM using complementary full-reference and no-reference image-quality metrics. For benchmarks with ground-truth HQ targets, we report peak signal-to-noise ratio (PSNR) to measure pixel-level reconstruction fidelity. We additionally report MUSIQ [ 22 ], CLIP-IQA [ 53 ], and KVQ [ 31 ], which assess perceptual quality without requiring reference images. For image restoration, we evaluate LPM-Image on two public benchmarks: RealSR [ 8] and RealSet [ 68 ]. For video restoration, we evaluate LPM-Video on four public benchmarks: VideoLQ [ 9], YouHQ [ 76 ], REDS [ 34 ], and SPMCS [ 64 ]. To assess robustness under a broader range of in-the-wild content and degradation patterns, we further construct LPM-Benchmark , which contains 192 videos covering diverse semantic categories, including humans, animals, natural scenes, and architecture. Frames sampled from these videos form a corresponding image-restoration benchmark. All methods are evaluated using the same input content, output resolutions, and metric implementations. 
+
+3.2 Quantitative Comparisons 
+
+Table 3 compares LPM-Image with representative diffusion-based restoration methods, including StableSR [ 54 ], SeeSR [ 59 ], and DiT-SR [ 12 ], on the public RealSR and RealSet benchmarks. LPM-Image achieves the highest MUSIQ and KVQ scores on both datasets. On RealSR, SeeSR obtains a slightly higher PSNR (26 .35 vs. 25 .97 dB), whereas LPM-Image substantially improves KVQ from 3.23 to 3.98 . This result reflects the perception–distortion trade-off commonly observed in generative restoration: LPM-Image maintains competitive pixel-level fidelity while producing more natural and perceptually convincing details.                                           
+
+> Table 3 Quantitative comparison for image super-resolution on the RealSR and RealSet benchmarks.
+> Dataset Method PSNR ↑MUSIQ ↑CLIP-IQA ↑KVQ ↑
+> RealSR [8] StableSR [54] 24 .05 57 .51 0.5541 2.86
+> SeeSR [59] 26 .35 62 .81 0.5591 3.23
+> DiT-SR [12] 24 .21 64 .33 0.5909 3.47
+> LPM-Image 25 .97 64 .68 0.6356 3.98
+> RealSet [68] StableSR [54] –50 .00 0.6499 3.28
+> SeeSR [59] –63 .73 0.5858 3.80
+> DiT-SR [12] –65 .95 0.6765 3.64
+> LPM-Image –66 .67 0.6364 3.95
+
+To further evaluate generalization, we compare LPM-Image with 13 competitive methods on LPM-Benchmark. As shown in Table 4, LPM-Image achieves the best result across all three metrics, outperforming recent strong baselines. The improvement is particularly pronounced in KVQ, where LPM-Image reaches 4.046 ,compared with 3.634 for the strongest competing methods. These consistent gains suggest that LPM-Image generalizes effectively across the diverse content categories and real-world degradation patterns represented in LPM-Benchmark. Table 5 compares LPM-Video against SeedVR2 [ 55 ], FlashVSR [ 78 ], and Vivid-VR [ 4] on five datasets: SPMC, REDS, YouHQ, VideoLQ, and LPM-Benchmark. LPM-Video achieves the best score on every metric across all five. The margin is most pronounced on VideoLQ, where LPM-Video improves MUSIQ from 62.76 (FlashVSR) 13 LPM: Industrial-Scale Generative Video Restoration Table 4 Quantitative comparison for image super-resolution on LPM-Benchmark.                                                               
+
+> Method MUSIQ ↑CLIP-IQA ↑KVQ ↑Method MUSIQ ↑CLIP-IQA ↑KVQ ↑
+> StableSR [54] 70 .44 0.6289 3.542 CCSR [47] 71 .90 0.7043 3.467
+> SeeSR [59] 69 .16 0.6154 3.450 PiSA-SR [48] 72 .85 0.7230 3.634
+> ResShift [68] 62 .69 0.5515 3.191 AdcSR [10] 69 .96 0.6667 3.475
+> DiT-SR [12] 64 .97 0.5465 3.119 SUPIR [65] 58 .39 0.4445 3.216
+> S3Diff [71] 62 .65 0.5405 3.239 TSD-SR [15] 72 .43 0.7109 3.634
+> InvSR [69] 67 .23 0.6215 3.261 VARSR [39] 71 .76 0.7000 3.479
+> XPSR [38] 63 .64 0.5852 3.262 LPM-Image 73 .32 0.7423 4.046
+
+to 70.46 and KVQ from 2.94 (Vivid-VR) to 3.17. These results indicate that LPM-Video improves not only pixel-level fidelity but also perceptual quality and spatiotemporal consistency, across both image and video restoration settings. 
+
+3.3 Qualitative Comparisons 
+
+Figure 7 qualitatively compares LPM-Video with representative open-source methods and commercial video-enhancement services from Tencent [ 49 ], Alibaba [ 2], and ByteDance [ 50 ]. For scenes containing complex foreground textures and architectural structures, SeedVR2 and FlashVSR tend to produce blurred boundaries or color bleeding, whereas LPM-Video recovers sharper edges and more coherent fine-scale details. The evaluated commercial services effectively suppress noise and compression artifacts, but their outputs are often over-smoothed, resulting in the loss of subtle facial features and textile patterns. In comparison, LPM-Video better balances artifact removal and detail reconstruction, preserving clearer facial structures, foreground textures, and background content. The qualitative results further demonstrate the effectiveness of LPM-Video across diverse content types, including natural landscapes, human-centric portraits, architecture, and cinematic scenes. In landscapes such as mountains and bamboo forests, LPM-Video suppresses compression artifacts while recovering fine structures in rock surfaces and foliage. In portrait scenes, it restores facial features and natural skin texture while avoiding the excessively smooth appearance observed in several competing results. LPM-Video also preserves spatially sensitive structures such as embedded text and subtitles, substantially improving their legibility and edge definition. Overall, these examples show that LPM-Video consistently enhances perceptual quality across diverse real-world content while preserving the underlying semantic structures and visual characteristics of the input. 
+
+# 4 Conclusion and Future Work 
+
+We introduced the Large Processing Model (LPM) , a diffusion-based framework for high-fidelity video restoration under diverse real-world degradations. To our knowledge, LPM is the first generative video restoration model deployed at industrial scale . LPM combines large-scale data engineering with progressive image-to-video training. LPM-Image learns a strong spatial restoration prior, while LPM-Video introduces factorized temporal modeling and mask-guided conditioning to improve temporal consistency. Temporal-pyramid inference further supports stable, clip-wise restoration of videos with arbitrary duration. In production, LPM serves videos representing approximately 45% of the total viewing time on Kuaishou and consistently improves key online QoE and user-engagement metrics. When integrated into Kuaishou’s encoding and transmission pipeline, it reduces bitrate by more than 20% at comparable perceptual quality. These results demonstrate the practical value of generative restoration in large-scale video systems. LPM has two main limitations. First, despite category-aware sampling, the training distribution remains concentrated on common UGC categories, and performance is less consistent on long-tail content such as uncommon outdoor and natural scenes. Second, the perceptual gains are smaller when the input is already of high quality. Future work will focus on broader and more balanced training data, more generalizable restoration priors, and quality-adaptive mechanisms that enhance degraded regions while preserving well-restored content. 14 LPM: Industrial-Scale Generative Video Restoration Table 5 Quantitative comparison of video restoration methods on public benchmarks and LPM-Benchmark.    
+
+> Dataset Method PSNR
+
+↑ MUSIQ ↑ CLIP-IQA ↑ KVQ ↑
+
+SPMCS [64] SeedVR2 [55] 20 .46 66 .87 0.5307 2.24 
+
+FlashVSR [78] 21 .46 71 .05 0.5792 3.31 
+
+Vivid-VR [4] 21 .73 70 .03 0.4832 3.12 
+
+LPM-Video 22 .47 72 .87 0.6434 3.89 
+
+REDS [34] SeedVR2 [55] 21 .45 61 .83 0.3695 2.37 
+
+FlashVSR [78] 20 .76 68 .97 0.4661 3.24 
+
+Vivid-VR [4] 20 .45 69 .07 0.4764 3.43 
+
+LPM-Video 22 .21 71 .70 0.6241 3.88 
+
+YouHQ [76] SeedVR2 [55] 22 .01 62 .31 0.4909 2.93 
+
+FlashVSR [78] 21 .49 69 .16 0.5873 4.02 
+
+Vivid-VR [4] 21 .31 70 .55 0.4470 3.44 
+
+LPM-Video 23 .55 72 .37 0.6575 4.33 
+
+VideoLQ [9] SeedVR2 [55] – 61 .83 0.2570 2.57 
+
+FlashVSR [78] – 62 .76 0.4184 2.52 
+
+Vivid-VR [4] – 58 .72 0.3948 2.94 
+
+LPM-Video – 70 .46 0.5194 3.17 
+
+LPM-Benchmark SeedVR2 [55] – 56 .59 0.3763 3.01 
+
+FlashVSR [78] – 66 .69 0.4765 3.41 
+
+Vivid-VR [4] – 44 .42 0.3939 3.20 
+
+LPM-Video – 72 .11 0.5954 3.63  
+
+> Figure 7
+
+Comparison with open-source methods and external commercial methods. 
+
+15 LPM: Industrial-Scale Generative Video Restoration 
+
+# 5 Contributors 
+
+Core contributors are listed in alphabetical order by first name. 
+
+Core Contributors 
+
+Bichuan Zhu Fulin Li Jiachao Gong Jinhua Hao Kai Zhao Kun Yuan Pengcheng Xu Qiang Wang Qiao Mo Yanlong Yuan Yizhen Shao Yuxiao Hu Zixi Tuo 
+
+Project Leads 
+
+Ming Sun Chao Zhou Bin Chen Bin Yu 16 LPM: Industrial-Scale Generative Video Restoration 
+
+# References 
+
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. [2] Alibaba Cloud. Enhancevideoquality api documentation, 2020. https://next.api.aliyun.com/api/videoenhan/ 2020-03-20/EnhanceVideoQuality?RegionId=cn-shanghai . Accessed: October 1, 2025. [3] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization. arXiv preprint arXiv:1607.06450 ,2016. [4] Haoran Bai, Xiaoxu Chen, Canqian Yang, Zongyao He, Sibin Deng, and Ying Chen. Vivid-vr: Distilling concepts from text-to-video diffusion transformer for photorealistic video restoration. arXiv preprint arXiv:2508.14483 ,2025. [5] Purui Bai, Junxian Duan, Pin Wang, Jinhua Hao, Ming Sun, Chao Zhou, and Huaibo Huang. Tuning real-world image restoration at inference: A test-time scaling paradigm for flow matching models. arXiv preprint arXiv:2603.22027 , 2026. [6] Weimin Bai, Suzhe Xu, Yiwei Ren, Jinhua Hao, Ming Sun, Wenzheng Chen, and He Sun. Instantvir: Real-time video inverse problem solver with distilled diffusion prior. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 16583–16592, 2026. [7] Jingwei Bao, Jinhua Hao, Pengcheng Xu, Ming Sun, Chao Zhou, and Shuyuan Zhu. Plug-and-play tri-branch invertible block for image rescaling. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 1826–1834, 2025. [8] Jianrui Cai, Hui Zeng, Hongwei Yong, Zisheng Cao, and Lei Zhang. Toward real-world single image super-resolution: A new benchmark and a new model. In Proceedings of the IEEE/CVF international conference on computer vision , pages 3086–3095, 2019. [9] Kelvin CK Chan, Shangchen Zhou, Xiangyu Xu, and Chen Change Loy. Investigating tradeoffs in real-world video super-resolution. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 5962–5971, 2022. [10] Bin Chen, Gehui Li, Rongyuan Wu, Xindong Zhang, Jie Chen, Jian Zhang, and Lei Zhang. Adversarial diffusion compression for real-world image super-resolution. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 28208–28220, 2025. [11] Haolan Chen, Jinhua Hao, Kai Zhao, Kun Yuan, Ming Sun, Chao Zhou, and Wei Hu. Cassr: Activating image power for real-world image super-resolution. arXiv preprint arXiv:2403.11451 , 2024. [12] Kun Cheng, Lei Yu, Zhijun Tu, Xiao He, Liyu Chen, Yong Guo, Mingrui Zhu, Nannan Wang, Xinbo Gao, and Jie Hu. Effective diffusion transformer architecture for image super-resolution. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 2455–2463, 2025. [13] Cloudflare. Cloudflare radar year in review 2025. Interactive report, 2025. https://radar.cloudflare.com/ year-in-review/2025 . Global traffic patterns through Cloudflare network; category-level trends. [14] DeepSeek-AI, Aixin Liu, Bei Feng, Bin Wang, Bingxuan Wang, Bo Liu, Chenggang Zhao, Chengqi Deng, Chong Ruan, Damai Dai, Daya Guo, et al. Deepseek-v2: A strong, economical, and efficient mixture-of-experts language model. arXiv preprint arXiv:2405.04434 , 2024. [15] Linwei Dong, Qingnan Fan, Yihong Guo, Zhonghao Wang, Qi Zhang, Jinwei Chen, Yawei Luo, and Changqing Zou. Tsd-sr: One-step diffusion with target score distillation for real-world image super-resolution. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 23174–23184, 2025. [16] Ericsson. Mobile network traffic update (q3 2025). Technical report, Ericsson, 2025. https://www.ericsson.com/ en/reports-and-papers/mobility-report/dataforecasts/mobile-traffic-update . Video traffic expected to account for approximately 75% of all mobile data traffic by end of 2025. [17] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified flow transformers for high-resolution image synthesis. In Forty-first international conference on machine learning , 2024. [18] Gemini Team. Gemini: A family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. 
+
+17 LPM: Industrial-Scale Generative Video Restoration 
+
+[19] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang, Yaohui Wang, Yu Qiao, Maneesh Agrawala, Dahua Lin, and Bo Dai. Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. In 
+
+International Conference on Learning Representations (ICLR) , 2024. [20] Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415 , 2016. [21] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in Neural Information Processing Systems , 33:6840–6851, 2020. [22] Junjie Ke, Qifei Wang, Yilin Wang, Peyman Milanfar, and Feng Yang. Musiq: Multi-scale image quality transformer. In Proceedings of the IEEE/CVF international conference on computer vision , pages 5148–5157, 2021. [23] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. In International Conference on Learning Representations (ICLR) , 2014. [24] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 , 2024. [25] Sangyun Lee, Yilun Xu, Tomas Geffner, Giulia Fanti, Karsten Kreis, Arash Vahdat, and Weili Nie. Truncated consistency models. In The Thirteenth International Conference on Learning Representations , 2025. [26] Haoying Li, Yifan Yang, Meng Chang, Shiqi Chen, Huajun Feng, Zhihai Xu, Qi Li, and Yueting Chen. Srdiff: Single image super-resolution with diffusion probabilistic models. Neurocomputing , 479:47–59, 2022. [27] Xiaohui Li, Yihao Liu, Shuo Cao, Ziyan Chen, Shaobin Zhuang, Xiangyu Chen, Yinan He, Yi Wang, and Yu Qiao. Diffvsr: Revealing an effective recipe for taming robust video super-resolution against complex degradations. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 15319–15328, 2025. [28] Qinwei Lin, Xiaopeng Sun, Yu Gao, Yujie Zhong, Zheng Zhao, Dengjie Li, and Haoqian Wang. Tasr: Timestep-aware diffusion model for image super-resolution. In Proceedings of the 33rd ACM International Conference on Multimedia , pages 10034–10043, 2025. [29] Xinqi Lin, Jingwen He, Ziyan Chen, Zhaoyang Lyu, Bo Dai, Fanghua Yu, Yu Qiao, Wanli Ouyang, and Chao Dong. Diffbir: Toward blind image restoration with generative diffusion prior. In European conference on computer vision , pages 430–448. Springer, 2024. [30] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In The Eleventh International Conference on Learning Representations (ICLR) , 2023. [31] Yiting Lu, Xin Li, Yajing Pei, Kun Yuan, Qizhi Xie, Yunpeng Qu, Ming Sun, Chao Zhou, and Zhibo Chen. Kvq: Kwai video quality assessment for short-form videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 25963–25973, 2024. [32] Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao. Latent consistency models: Synthesizing high-resolution images with few-step inference. arXiv preprint arXiv:2310.04378 , 2023. [33] Qiao Mo, Yukang Ding, Jinhua Hao, Qiang Zhu, Ming Sun, Chao Zhou, Feiyu Chen, and Shuyuan Zhu. Oapt: Offset-aware partition transformer for double jpeg artifacts removal. In European Conference on Computer Vision ,pages 38–56. Springer, 2024. [34] Seungjun Nah, Sungyong Baik, Seokil Hong, Gyeongsik Moon, Sanghyun Son, Radu Timofte, and Kyoung Mu Lee. Ntire 2019 challenge on video deblurring and super-resolution: Dataset and study. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition workshops , pages 0–0, 2019. [35] NVIDIA. TensorRT-LLM: Large language model inference optimization library. https://github.com/NVIDIA/ TensorRT-LLM , 2023. [36] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [37] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Müller, Joe Penna, and Robin Rombach. Sdxl: Improving latent diffusion models for high-resolution image synthesis. In International Conference on Learning Representations (ICLR) , 2024. [38] Yunpeng Qu, Kun Yuan, Kai Zhao, Qizhi Xie, Jinhua Hao, Ming Sun, and Chao Zhou. Xpsr: Cross-modal priors for diffusion-based image super-resolution. In European Conference on Computer Vision , pages 285–303. Springer, 2024. 
+
+18 LPM: Industrial-Scale Generative Video Restoration 
+
+[39] Yunpeng Qu, Kun Yuan, Jinhua Hao, Kai Zhao, Qizhi Xie, Ming Sun, and Chao Zhou. Visual autoregressive modeling for image super-resolution. In International Conference on Machine Learning , 2025. PMLR, vol. 267, pp. 50926–50948. [40] Yunpeng Qu, Kun Yuan, Qizhi Xie, Ming Sun, Chao Zhou, and Jian Wang. Kvq: boosting video quality assessment via saliency-guided local perception. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pages 2150–2160, 2025. [41] Fitsum Reda, Jinwei Gu, Xian Liu, Songwei Ge, Ting-Chun Wang, Haoxiang Wang, and Ming-Yu Liu. Cosmos tokenizer: A suite of image and video neural tokenizers, 2024. [42] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10684–10695, June 2022. [43] Noam Shazeer. Glu variants improve transformer. arXiv preprint arXiv:2002.05202 , 2020. [44] Shijun Shi, Jing Xu, Lijing Lu, Zhihang Li, and Kai Hu. Self-supervised controlnet with spatio-temporal mamba for real-world video super-resolution. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pages 7385–7395, 2025. [45] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. In International Conference on Machine Learning , pages 32211–32252. PMLR, 2023. [46] Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. Roformer: Enhanced transformer with rotary position embedding. Neurocomputing , 568:127063, 2024. [47] Lingchen Sun, Rongyuan Wu, Jie Liang, Zhengqiang Zhang, Hongwei Yong, and Lei Zhang. Improving the stability and efficiency of diffusion models for content consistent super-resolution. IEEE Transactions on Image Processing , 34:8421–8434, 2025. [48] Lingchen Sun, Rongyuan Wu, Zhiyuan Ma, Shuaizheng Liu, Qiaosi Yi, and Lei Zhang. Pixel-level and semantic-level adjustable super-resolution: A dual-lora approach. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 2333–2343, 2025. [49] Tencent Cloud. Audio/video enhancement access — tencent cloud media processing service (mps), 2025. https: //cloud.tencent.com/document/product/862/118703 . Accessed: October 1, 2025. [50] Volcengine. Video/image quality enhancement — volcengine media processing documentation, 2025. https: //www.volcengine.com/docs/6448/70279?lang=zh . Accessed: October 1, 2025. [51] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianx-iao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 ,2025. [52] Hongbo Wang, Huaibo Huang, Pin Wang, Jinhua Hao, Chao Zhou, and Ran He. Coloring the noise: Adversarial sobolev alignment for faithful image super resolution. arXiv preprint arXiv:2605.23264 , 2026. Accepted to ICML 2026. [53] Jianyi Wang, Kelvin CK Chan, and Chen Change Loy. Exploring clip for assessing the look and feel of images. In 
+
+Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 2555–2563, 2023. [54] Jianyi Wang, Zongsheng Yue, Shangchen Zhou, Kelvin CK Chan, and Chen Change Loy. Exploiting diffusion prior for real-world image super-resolution. International Journal of Computer Vision , 132(12):5929–5949, 2024. [55] Jianyi Wang, Shanchuan Lin, Zhijie Lin, Yuxi Ren, Meng Wei, Zongsheng Yue, Shangchen Zhou, Hao Chen, Yang Zhao, Ceyuan Yang, et al. Seedvr2: One-step video restoration via diffusion adversarial post-training. arXiv preprint arXiv:2506.05301 , 2025. [56] Jianyi Wang, Zhijie Lin, Meng Wei, Yang Zhao, Ceyuan Yang, Chen Change Loy, and Lu Jiang. Seedvr: Seeding infinity in diffusion transformer towards generic video restoration. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 2161–2172, 2025. [57] Yilin Wang, Sasi Inguva, and Balu Adsumilli. Youtube ugc dataset for video compression research. In 2019 IEEE 21st international workshop on multimedia signal processing (MMSP) , pages 1–5. IEEE, 2019. [58] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to structural similarity. IEEE transactions on image processing , 13(4):600–612, 2004. 
+
+19 LPM: Industrial-Scale Generative Video Restoration 
+
+[59] Rongyuan Wu, Tao Yang, Lingchen Sun, Zhengqiang Zhang, Shuai Li, and Lei Zhang. Seesr: Towards semantics-aware real-world image super-resolution. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 25456–25467, 2024. [60] Rui Xie, Yinhong Liu, Penghao Zhou, Chen Zhao, Jun Zhou, Kai Zhang, Zhenyu Zhang, Jian Yang, Zhenheng Yang, and Ying Tai. Star: Spatial-temporal augmentation with text-to-video models for real-world video super-resolution. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 17108–17118, 2025. [61] Yazhou Xing, Yang Fei, Yingqing He, Jingye Chen, Jiaxin Xie, Xiaowei Chi, and Qifeng Chen. Videovae+: Large motion video autoencoding with cross-modal video vae. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 17951–17960, 2025. [62] Tao Yang, Rongyuan Wu, Peiran Ren, Xuansong Xie, and Lei Zhang. Pixel-aware stable diffusion for realistic image super-resolution and personalized stylization. In ECCV , pages 74–91. Springer, 2024. [63] Xi Yang, Chenhang He, Jianqi Ma, and Lei Zhang. Motion-guided latent diffusion for temporally consistent real-world video super-resolution. In European conference on computer vision , pages 224–242. Springer, 2024. [64] Peng Yi, Zhongyuan Wang, Kui Jiang, Junjun Jiang, and Jiayi Ma. Progressive fusion video super-resolution network via exploiting non-local spatio-temporal correlations. In Proceedings of the IEEE/CVF international conference on computer vision , pages 3106–3115, 2019. [65] Fanghua Yu, Jinjin Gu, Zheyuan Li, Jinfan Hu, Xiangtao Kong, Xintao Wang, Jingwen He, Yu Qiao, and Chao Dong. Scaling up to excellence: Practicing model scaling for photo-realistic image restoration in the wild. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 25669–25680, 2024. [66] Yongsheng Yu, Haitian Zheng, Zhifei Zhang, Jianming Zhang, Yuqian Zhou, Connelly Barnes, Yuchen Liu, Wei Xiong, Zhe Lin, and Jiebo Luo. Zipir: Latent pyramid diffusion transformer for high-resolution image restoration. 
+
+arXiv preprint arXiv:2504.08591 , 2025. [67] Kun Yuan, Hongbo Liu, Mading Li, Muyi Sun, Ming Sun, Jiachao Gong, Jinhua Hao, Chao Zhou, and Yansong Tang. Ptm-vqa: efficient video quality assessment leveraging diverse pretrained models from the wild. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 2835–2845, 2024. [68] Zongsheng Yue, Jianyi Wang, and Chen Change Loy. Resshift: Efficient diffusion model for image super-resolution by residual shifting. Advances in Neural Information Processing Systems , 36:13294–13307, 2023. [69] Zongsheng Yue, Kang Liao, and Chen Change Loy. Arbitrary-steps image super-resolution via diffusion inversion. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 23153–23163, 2025. [70] Xiaolong Zeng, Yitong Yu, Shiyao Xiong, Jinhua Hao, Ming Sun, Chao Zhou, and Bin Wang. Shiftlut: Spatial shift enhanced look-up tables for efficient image restoration. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 29959–29968, 2026. [71] Aiping Zhang, Zongsheng Yue, Renjing Pei, Wenqi Ren, and Xiaochun Cao. Degradation-guided one-step image super-resolution with diffusion priors. arXiv preprint arXiv:2409.17058 , 2024. [72] Biao Zhang and Rico Sennrich. Root mean square layer normalization. Advances in neural information processing systems , 32, 2019. [73] Jintao Zhang, Jia Wei, Haofeng Huang, Pengle Zhang, Jun Zhu, and Jianfei Chen. Sageattention: Accurate 8-bit attention for plug-and-play inference acceleration. In International Conference on Learning Representations (ICLR) , 2025. [74] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In Proceedings of the IEEE/CVF international conference on computer vision , pages 3836–3847, 2023. [75] Zangwei Zheng, Xiangyu Peng, Yuxuan Lou, Chenhui Shen, Tom Young, Xinying Guo, Binluo Wang, Hang Xu, Hongxin Liu, Mingyan Jiang, et al. Open-sora 2.0: Training a commercial-level video generation model in $200 k. 
+
+arXiv preprint arXiv:2503.09642 , 2025. [76] Shangchen Zhou, Peiqing Yang, Jianyi Wang, Yihang Luo, and Chen Change Loy. Upscale-a-video: Temporal-consistent diffusion model for real-world video super-resolution. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 2535–2545, 2024. 
+
+20 LPM: Industrial-Scale Generative Video Restoration 
+
+[77] Qiang Zhu, Jinhua Hao, Yukang Ding, Yu Liu, Qiao Mo, Ming Sun, Chao Zhou, and Shuyuan Zhu. Cpga: Coding priors-guided aggregation network for compressed video quality enhancement. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 2964–2974, 2024. [78] Junhao Zhuang, Shi Guo, Xin Cai, Xiaohui Li, Yihao Liu, Chun Yuan, and Tianfan Xue. Flashvsr: Towards real-time diffusion-based streaming video super-resolution. arXiv preprint arXiv:2510.12747 , 2025. 
+
+21
