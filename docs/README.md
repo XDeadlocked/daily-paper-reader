@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-24</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-25</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-24 21:35:59 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-25 20:36:30 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦机器人策略与视频生成，9分精读论文《RoboTTT: Context Scaling for Robot Policies》和《FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation》值得重点关注。最值得读的方向：机器人策略的上下文缩放技术，以及视频生成中自适应稀疏注意力的负载平衡方法。建议普通读者优先阅读RoboTTT和FVAttn，并顺带留意速读中基于约束优化与流匹配的运动生成工作。</p>
+<p>今日精读6篇，速读11篇，聚焦行动模型与视频生成，其中两篇精读均获9.0高分。最值得关注《Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation》和《SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning》，分别探索零样本几何评估与子目标条件规划新路径。建议普通读者优先精读这两篇高分论文，把握行动模型提升效率的关键突破。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RoboTTT: Context Scaling for Robot Policies">RoboTTT: Context Scaling for Robot Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation">FVAttn: Adaptive Sparse Attention with Runtime Load Balancing for Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution">PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation">Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning">SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="RynnBrain 1.1: Towards More Capable and Generalizable Embodied Foundation Model">RynnBrain 1.1: Towards More Capable and Generalizable Embodied Foundation Model</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ConFlow: Constraints-Guided Learning with Flow Matching for Motion Generation">ConFlow: Constraints-Guided Learning with Flow Matching for Motion Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Motion Planning with Model-Based Diffusion via Constraint Optimization and Adaptive Scheduling">Motion Planning with Model-Based Diffusion via Constraint Optimization and Adaptive Scheduling</span></li><li><span class="dpr-home-dashboard-paper-title" title="PE-Field 4D: Video Generation Models as Canvas">PE-Field 4D: Video Generation Models as Canvas</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="HCPG-Flow:Hierarchical Contact-Progress Guidance for Flow-Policy Robot Manipulation">HCPG-Flow:Hierarchical Contact-Progress Guidance for Flow-Policy Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Keyframe-Anchored Identity Preservation for Sequential-Action Video Generation">Keyframe-Anchored Identity Preservation for Sequential-Action Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation">Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
