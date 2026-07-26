@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-25</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-26</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 14 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-25 20:36:30 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-26 21:22:53 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读6篇，速读11篇，聚焦行动模型与视频生成，其中两篇精读均获9.0高分。最值得关注《Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation》和《SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning》，分别探索零样本几何评估与子目标条件规划新路径。建议普通读者优先精读这两篇高分论文，把握行动模型提升效率的关键突破。</p>
+<p>今日精读与速读共14篇论文，重点聚焦物理感知视频生成与基于物理的世界建模两大方向。最值得关注的是《Learning Explicit Physical Parameter Control and Benchmarking for Video Generation》与《Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents》，分别从可控物理参数和智能体仿真两个层面推动视频生成的真实感提升。建议普通读者优先阅读这两篇，以理解如何将物理规律融入生成模型，后续可关注视频编辑与视觉追踪的交叉应用。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -74,7 +74,7 @@
     <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation">Test-Time Scaling for World Action Models via Zero-Shot Geometric Evaluation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning">SAGE: Subgoal-Conditioned Action Generation for Latent World Model Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="RynnBrain 1.1: Towards More Capable and Generalizable Embodied Foundation Model">RynnBrain 1.1: Towards More Capable and Generalizable Embodied Foundation Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning Explicit Physical Parameter Control and Benchmarking for Video Generation">Learning Explicit Physical Parameter Control and Benchmarking for Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents">Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dreamer-CPC: Message Learning with World Models for Decentralized Multi-agent Reinforcement Learning">Dreamer-CPC: Message Learning with World Models for Decentralized Multi-agent Reinforcement Learning</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="HCPG-Flow:Hierarchical Contact-Progress Guidance for Flow-Policy Robot Manipulation">HCPG-Flow:Hierarchical Contact-Progress Guidance for Flow-Policy Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Keyframe-Anchored Identity Preservation for Sequential-Action Video Generation">Keyframe-Anchored Identity Preservation for Sequential-Action Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation">Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ReferTrack: Referring Then Tracking for Embodied Visual Tracking">ReferTrack: Referring Then Tracking for Embodied Visual Tracking</span></li><li><span class="dpr-home-dashboard-paper-title" title="PAMD: Structured Adaptive Distances for Bisimulation Representations in Visual Reinforcement Learning">PAMD: Structured Adaptive Distances for Bisimulation Representations in Visual Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlowMimic: Mask-free Visual Editing and Generation with Pixel-pair Warped Flow Field for Online Video Editing Data Generation and Modality Mimicry">FlowMimic: Mask-free Visual Editing and Generation with Pixel-pair Warped Flow Field for Online Video Editing Data Generation and Modality Mimicry</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
 </div>
 
