@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-26</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-27</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 14 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-26 21:22:53 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-27 20:27:35 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读与速读共14篇论文，重点聚焦物理感知视频生成与基于物理的世界建模两大方向。最值得关注的是《Learning Explicit Physical Parameter Control and Benchmarking for Video Generation》与《Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents》，分别从可控物理参数和智能体仿真两个层面推动视频生成的真实感提升。建议普通读者优先阅读这两篇，以理解如何将物理规律融入生成模型，后续可关注视频编辑与视觉追踪的交叉应用。</p>
+<p>今日精读聚焦无梯度机器人动作生成与自回归渲染闭环一致性，两篇均获9.0高分。最值得关注的是GRACE方法融合扩散模型与MPPI实现无需梯度的机器人动作规划，以及无需训练即可保持渲染一致性的Closing the Loop。建议普通读者优先阅读GRACE，了解如何在不依赖梯度信息的情况下提升机器人动作生成效率。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning Explicit Physical Parameter Control and Benchmarking for Video Generation">Learning Explicit Physical Parameter Control and Benchmarking for Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents">Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dreamer-CPC: Message Learning with World Models for Decentralized Multi-agent Reinforcement Learning">Dreamer-CPC: Message Learning with World Models for Decentralized Multi-agent Reinforcement Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GRACE: Gradient-Free Robot Action Generation via Combined Diffusion-MPPI Posterior Mean Estimation">GRACE: Gradient-Free Robot Action Generation via Combined Diffusion-MPPI Posterior Mean Estimation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Closing the Loop: Training-Free Revisit Consistency for Autoregressive Generative Rendering">Closing the Loop: Training-Free Revisit Consistency for Autoregressive Generative Rendering</span></li><li><span class="dpr-home-dashboard-paper-title" title="AgentHOI: Multi-Agent Reasoning for Human-Object-Interaction Video Generation via Implicit Representation Alignment">AgentHOI: Multi-Agent Reasoning for Human-Object-Interaction Video Generation via Implicit Representation Alignment</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ReferTrack: Referring Then Tracking for Embodied Visual Tracking">ReferTrack: Referring Then Tracking for Embodied Visual Tracking</span></li><li><span class="dpr-home-dashboard-paper-title" title="PAMD: Structured Adaptive Distances for Bisimulation Representations in Visual Reinforcement Learning">PAMD: Structured Adaptive Distances for Bisimulation Representations in Visual Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlowMimic: Mask-free Visual Editing and Generation with Pixel-pair Warped Flow Field for Online Video Editing Data Generation and Modality Mimicry">FlowMimic: Mask-free Visual Editing and Generation with Pixel-pair Warped Flow Field for Online Video Editing Data Generation and Modality Mimicry</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Between Safe Boundaries: Exploiting Temporal Consistency for Jailbreaking Text-To-Video Generation Models">Between Safe Boundaries: Exploiting Temporal Consistency for Jailbreaking Text-To-Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Adaptive Multi-Horizon Reinforcement Learning">Adaptive Multi-Horizon Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Diverse Humanoid Tasks via Synthetic Video Scenarios without Real World Data">Learning Diverse Humanoid Tasks via Synthetic Video Scenarios without Real World Data</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 </div>
 
