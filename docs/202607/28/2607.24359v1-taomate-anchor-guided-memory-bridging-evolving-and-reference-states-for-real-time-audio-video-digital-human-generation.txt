@@ -1,0 +1,368 @@
+Title: TaoMate: Anchor-Guided Memory Bridging Evolving and Reference States for Real-Time Audio-Video Digital Human Generation
+
+URL Source: https://arxiv.org/pdf/2607.24359v1
+
+Published Time: Tue, 28 Jul 2026 01:56:22 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# TaoMate: Anchor-Guided Memory Bridging Evolving and Reference States for Real-Time Audio-Video Digital Human Generation 
+
+## Qijun Gan 1∗, Chenwei Zhang 1, Meiguang Jin 1†, Junfeng Ma 1, Qiu Shen 2
+
+> 1
+
+Taobao & Tmall Group of Alibaba 2Nanjing University {ganqijun.gqj, meiguang.jmg}@taobao.com 
+
+Abstract 
+
+Real-time long-form digital-human generation relies on causal models to extend audio-visual content while preserving sub-ject appearance and audio-video synchronization across suc-cessive segments. A bounded cache retains local motion and phonetic context but discards older evidence, whereas attend-ing to the complete generated history is computationally ex-pensive and can propagate accumulated errors. We present TaoMate, an anchor-guided persistent-memory framework for few-step joint audio-video generation. The framework pre-serves an immutable visual anchor, compresses completed video and audio blocks into fixed-capacity dynamic states, and retrieves those states through modality-specific residual attention without extending the active cache. A reference-aware modulation method additionally conditions video fea-tures on dynamic and anchor appearance statistics. Anchor-preserving causal-context distillation varies rollout horizon, prefix provenance, and cache-history reliability while keeping the immutable visual anchor unperturbed. By separating per-sistent memory from stage-local denoising dependencies, Tao-Mate further admits stage-parallel execution across blocks, ac-celerating autoregressive inference without pipeline-specific retraining. We evaluate long-form video continuations with appearance, temporal, synchronization, facial, and speech di-agnostics. Results show that TaoMate preserves stable appear-ance across prompt-conditioned segments and strong audio-visual synchronization under autoregressive generation. Our project page is https://taoliveaigc.github.io/TaoMate. 
+
+## 1 Introduction 
+
+Joint audio-video diffusion models have substantially ad-vanced digital-human generation by modeling speech, facial motion, and body dynamics within a unified generative pro-cess (HaCohen et al. 2026; Liu et al. 2026; Low, Wang, and Katyal 2025; SII-OpenMOSS Team 2026). Recent causal dis-tillation methods further convert short-clip diffusion priors into few-step autoregressive generators (Huang et al. 2025a; Zhu et al. 2026; Huang et al. 2025b; Zhou et al. 2026), mak-ing continuous generation increasingly practical. Long-form autoregressive generation, however, introduces a different re-quirement: an ordered sequence of prompts must drive evolv-ing actions and speech while preserving the subject, scene, and acoustic behavior established earlier in the video. Despite this progress, two interrelated challenges remain. 
+
+i) Long-term audio-visual consistency. A bounded key-value (KV) cache retains the recent motion and phonetic 
+
+> ∗
+
+Project leader. 
+
+> †
+
+Corresponding author. 
+
+context needed for local continuity, but earlier subject, scene, and acoustic evidence eventually leaves the cache. Retaining the complete generated history instead causes attention and storage to grow with duration and repeatedly conditions the model on old, imperfect predictions. Under recursive contin-uation, small errors in facial structure, color, scene layout, or articulation can therefore propagate across prompt transi-tions. Moreover, causal distillation alone does not eliminate this accumulation because teacher trajectories provide clean bidirectional context, whereas deployment must consume the student’s own causal outputs. ii) Efficient autoregressive in-ference. Each temporal block must traverse multiple denois-ing stages in a large joint audio-video model. Conventional block-wise execution completes every stage for one block be-fore advancing the next, leaving causally ready computation across blocks unexploited. To address these challenges, we propose TaoMate, an anchor-guided persistent-memory framework for long-form causal audio-video generation. The framework decomposes temporal conditioning into a bounded, position-bearing ac-tive context and a fixed-capacity persistent memory. The active context preserves fine-grained local motion and pho-netic continuity, whereas persistent memory retains duration-independent visual and acoustic evidence after the corre-sponding tokens leave the cache. This decomposition sepa-rates short-range positional continuity from long-range ev-idence while keeping the conditioning cost independent of generated duration. Our framework promotes stable recursive generation through two complementary mechanisms. First, persistent memory separates immutable visual and audio references from adaptive audio-video states. The fixed references pre-serve the initial subject, scene, and acoustic characteristics, while adaptive states integrate detached representations of completed blocks; anchor agreement further regulates visual updates to suppress unreliable observations. We further sep-arate normalized content representations from channel-level and low-frequency appearance statistics: modality-specific memory attention retrieves structural and acoustic history, while reference-aware FiLM (Perez et al. 2018) reconciles dynamic appearance with the anchor. Second, rollout-aligned causal distillation exposes the student to deployment-like causal contexts. It combines mixed rollout horizons, student-generated prefixes, and selective perturbation of non-anchor arXiv:2607.24359v1 [cs.CV] 27 Jul 2026 OmniForcing · 5 min               
+
+> ×Quality Degraded
+> ×Consistency Drift
+> TaoMate · 5 min
+> ✓Quality High
+> ✓Consistency Strong
+> 0s
+> 0s
+> 25s
+> 25s
+> 75s
+> 75s
+> 150s
+> 150s
+> 300s
+> 300s
+> Immutable Visual Anchor Persistent A/V Memory Reference -Aware FiLM ✓✓✓
+
+Figure 1: TaoMate remains stable over 1,000 seconds. Unlike OmniForcing’s visual degradation, identity drift, and color shift, TaoMate preserves consistency through visual anchoring, persistent A/V memory, and reference-aware FiLM. history to approximate the context distribution encountered during recursive inference. At inference, the separation be-tween persistent memory and stage-local KV dependencies further enables stage-parallel execution. Successive denois-ing stages are assigned to different devices, allowing causally ready blocks to advance concurrently after pipeline fill. Only completed clean blocks update persistent memory, preserv-ing the learned causal transition without pipeline-specific retraining. Experiments on long-form Mandarin and English continuations show that TaoMate maintains stable appear-ance and strong audio-video synchronization across prompt transitions. On three GPUs, the stage-parallel implementa-tion reaches 35 output FPS, exceeding the 24-fps playback rate and enabling real-time long-form generation. Our main contributions are as follows: 
+
+• We introduce anchor-guided persistent multimodal mem-ory that couples an immutable visual anchor with adaptive audio-video states beyond the active KV cache. 
+
+• We formulate rollout-aligned causal distillation using mixed rollout horizons and perturbed student histories to reduce exposure bias in recursive generation. 
+
+• We enable training-free stage-parallel inference across causally ready blocks, achieving real-time generation. 
+
+## 2 Related Work 
+
+Video and audio-video generation. Modern video sys-tems combine diffusion, latent modeling, guidance, and transformer backbones (Ho, Jain, and Abbeel 2020; Song, Meng, and Ermon 2021; Ho and Salimans 2022; Rombach et al. 2022; Peebles and Xie 2023; Blattmann et al. 2023b,a; HaCohen et al. 2024). Joint generators model audio and video with asymmetric streams, twin backbones, or experts (Ha-Cohen et al. 2026; Liu et al. 2026; Low, Wang, and Katyal 2025; SII-OpenMOSS Team 2026). Portrait systems instead emphasize lip synchronization, motion, and appearance un-der specialized controls (Prajwal et al. 2020; Zhou et al. 2020; Wang et al. 2021; Zhang et al. 2023a; Ye et al. 2023; Tian et al. 2024; Xu et al. 2024; Guo et al. 2024). These methods establish short-horizon generative priors, while long-form causal generation motivates mechanisms for retaining infor-mation across context refreshes. 
+
+Streaming generation and distillation. In streaming gen-eration, exposure bias arises because training can condition on teacher-derived history whereas inference must consume model-generated history. Self-Forcing and Causal Forcing train causal students on self-generated contexts (Huang et al. 2025a; Zhu et al. 2026). Mutual Forcing instead couples few-step and multi-step modes in a weight-shared autore-gressive model, using the few-step mode to construct his-tory for self-distillation (Zhou et al. 2026). Live Avatar combines causal distillation with long-horizon streaming strategies (Huang et al. 2025b). AvatarForcing performs one-step sliding-window denoising with a RoPE-reindexed style anchor, recent clean temporal anchors, and two-stage distribution-matching distillation (Cui et al. 2026). Few-step generation has also been studied through progressive, consis-tency, latent-consistency, and distribution-matching distilla-tion (Salimans and Ho 2022; Song et al. 2023; Luo et al. 2023; Yin et al. 2024b,a). PCM decomposes a probability-flow trajectory into adjacent-stage consistency problems (Wang et al. 2024). Several of these methods primarily alter how a causal trajectory or its supervision is constructed. Our train-ing scheme couples self-generated history construction with cache-external memory and keeps the immutable visual an-chor unperturbed when perturbing later prefixes. 
+
+Position-bearing history retention. Long-context mod-els employ recurrence, compression, retrieval, sinks, heavy-hitter retention, and blockwise attention (Dai et al. 2019; Rae et al. 2020; Wu et al. 2022; Xiao et al. 2024; Zhang et al. 2023b; Liu, Zaharia, and Abbeel 2023). For video, Teth-erCache recalls historical K/V and aligns selected entries to trusted cache statistics, while Pyramid and Sparse Forc-ing organize retained position-bearing context (Meng et al. 2026; Chen et al. 2026a; Xu et al. 2026). OmniMem sparsely retrieves query-relevant blocks from the full historical K/V cache, whereas FadeMem consolidates older K/V blocks into a distance-aware temporal hierarchy (Zhao et al. 2026; Lu et al. 2026). Anchor Forcing instead stores anchor K/V for prompt-switch re-caching and uses region-specific RoPE ori-gins to control positional drift (Yang et al. 2026). MaineCoon combines agentic prompt planning with inference-time cache management, while AvatarForcing reindexes a style anchor and retains recently emitted clean blocks (Bai et al. 2026; Cui et al. 2026). These approaches preserve, retrieve, con-solidate, or reposition elements of position-bearing history. 3 Method 
+
+3.1 Problem Formulation 
+
+We consider autoregressive audio-video generation from a temporally ordered sequence of text prompts. The output un-folds causally as a variable-length sequence of synchronized video-audio latent blocks, where each prompt conditions a contiguous temporal segment. Let zt = ( zvt , zat ) denote the 
+
+t-th block and let et denote its associated text condition. A block is the atomic unit of generation, while consecutive blocks sharing the same condition form a prompt-level output segment. This setting imposes two distinct requirements on temporal conditioning. Fine-grained motion, pose, and pho-netic continuity depend on recent latent tokens with explicit temporal positions, whereas subject, scene, and acoustic ev-idence can remain relevant after those tokens leave a finite attention cache. Retaining the complete generated history would make attention and storage grow with duration and repeatedly expose the generator to old prediction errors; re-taining only recent tokens would instead discard long-range evidence. We therefore decompose history into a bounded active context Ct−1 and a fixed-capacity persistent memory 
+
+Mt−1. The former preserves position-bearing recent tokens for local continuity, while the latter compresses detached his-torical evidence for duration-independent long-range condi-tioning. The resulting causal factorization is 
+
+zt ∼ pθ (zt | et, Ct−1, Mt−1),
+
+Mt = U (Mt−1, sg( zt)) . (1) Here sg denotes stop-gradient, which avoids backpropagation through an unbounded chain of memory updates. The update is applied only after zt has been generated, so the condition for block t contains information only from preceding blocks. Because both Ct−1 and Mt−1 have bounded capacity, their storage and conditioning cost do not grow with the duration already generated. 
+
+3.2 Anchor-Guided Persistent Memory 
+
+Long-horizon generation requires memory to preserve infor-mation with different temporal semantics. Subject appear-ance and acoustic characteristics should remain stable under recursive generation, whereas motion, scene evolution, and phonetic context must adapt to newly generated content. En-coding these roles in a single recurrent representation cou-ples retention and adaptation: rapid updates can overwrite identity-defining evidence, while conservative updates limit responsiveness to evolving context. We therefore factor per-sistent memory into fixed references and adaptive modality-specific states: 
+
+Mt = ( av , aa, mvt , mat , κt, πt). (2) The visual anchor av and audio reference aa retain canon-ical evidence from the initial block. The content memories 
+
+mvt and mat aggregate evolving spatial and acoustic struc-ture, while κt and πt preserve absolute channel and low-frequency appearance statistics that are separated from nor-malized visual content. This factorization allows each in-formation type to follow an update rule and conditioning pathway matched to its temporal role. All block-derived memory states are detached and have fixed cardinality, which prevents an unbounded optimiza-tion graph and keeps memory cost independent of gener-ated duration. The compressed visual anchor is distinct from the uncompressed, position-bearing initial visual latent re-tained in the active context Ct: the former provides compact long-range reference evidence, whereas the latter remains an explicit token-level condition for causal attention. Figure 2 summarizes the state evolution. 
+
+Factorized block representations. The fixed references are instantiated once from the initial block, whereas the adap-tive memory components must incorporate evidence from each completed block. To update them without conflating relative content structure with drift-prone absolute appear-ance, we decompose each block into normalized modality content representations and unnormalized visual appearance representations: 
+
+svt = Pv [Norm HW (¯ zvt )] , ¯zvt = F −1
+
+> v
+
+P 
+
+> f
+
+zvt,f ,
+
+sat = Pa[Norm Fa (zat )] , κ∗ 
+
+> t
+
+= K(zvt ), π∗ 
+
+> t
+
+= Pc(¯ zvt ).
+
+(3) Here svt and sat denote the fixed-cardinality video and audio content representations extracted from block t; they serve as observations for updating mvt and mat , rather than as persis-tent states themselves. Fv and Fa are the temporal lengths of the video and audio latents, respectively, and f indexes video latent frames. Norm HW standardizes each video chan-nel over its spatial dimensions, whereas Norm Fa standard-izes each audio channel over the temporal dimension. Pv ,
+
+Pa, and Pc are fixed-cardinality projections, and K extracts channel-wise mean and scale. The superscript ∗ denotes a current-block candidate before it is incorporated into persis-tent memory. The normalized content representations retain relative spatial and acoustic structure, whereas the appear-ance observations κ∗ 
+
+> t
+
+and π∗ 
+
+> t
+
+preserve color, contrast, and coarse spatial statistics for long-range calibration. 
+
+Anchor-constrained memory evolution. Block-wise rep-resentations extracted from generated history are imperfect observations. Incorporating them at a fixed rate allows tran-sient prediction errors to accumulate in future conditions, whereas freezing the memory prevents legitimate motion and speech evolution. We therefore formulate memory evolution as an anchor-regularized online estimate: 
+
+E(m, a, s; β, λ ) = (1 − λ)[(1 − β)m + βs] + λa. (4) The coefficients of the previous estimate, current observa-tion, and fixed reference are (1 − λ)(1 − β), (1 − λ)β, and λ,respectively. They are nonnegative and sum to one, making 
+
+E their weighted Euclidean barycenter. Thus β controls ev-idence assimilation, while λ imposes a persistent reference prior. For constant rates, the coefficient of an observation from k updates earlier is (1 −λ)β[(1 −λ)(1 −β)] k; historical evidence and isolated errors therefore decay geometrically, while the anchor is reintroduced at every update. The reliability of a video observation depends on whether it preserves the structural evidence established by the ref-erence. Because svt is spatially normalized, its agreement with the visual anchor is insensitive to first-order channel 01 State t-1 02 Generate Block t 03 Detached State Transition                       
+
+> Fi xed Anchor Bank
+> Immutable visual anchor av
+> •••
+> Fixed audio reference aa
+> Recurrent Memory Bank
+> Video memory Mv(t -1)
+> •••
+> Audio memory Ma(t -1)
+> •••
+> Appearance state
+> Visual reference
+> latent Recent latent
+> blocks
+> •••
+> Segmented text et
+> Today we
+> introduce
+> a new model ...
+> Joint A/V diffusion transformer
+> Memory side
+> attention
+> Reference -aware
+> FiLM
+> Generated A/V block yt
+> Video
+> summary
+> sv(t)
+> stop -gradient
+> Mv(t -1) + av
+> Gated
+> video
+> update
+> Mv(t)
+> •••
+> Audio
+> summary
+> sa(t)
+> stop -gradient
+> Ma(t -1) + aa
+> Tethered
+> audio
+> update
+> Ma(t)
+> Appearance
+> summary
+> {κ*
+> ₜ,π*
+> ₜ}
+> stop -gradient
+> {κ
+> ₜ₋₁ ,π
+> ₜ₋₁ }
+> Gated
+> appearance
+> update
+
+Update State     
+
+> {κ
+> ₜ₋₁ ,π
+> ₜ₋₁ }{κ
+> ₜ,π
+> ₜ}
+
+Figure 2: TaoMate Pipeline. The pipeline generates synchronized long-form video and audio causally with anchor-guided persistent memory. A bounded context provides local motion and phonetic cues, while a fixed visual anchor and adaptive modality states supply long-range conditioning through side attention and reference-aware FiLM. shifts. We convert this agreement into a smooth observation-confidence gate: 
+
+ρt = B−1 X
+
+> b
+
+cos(vec( svt,b ), vec( avb )) ,gt = gmin + (1 − gmin )σ(( ρt − τ )/T g ),
+
+mvt = E(mvt−1, av , svt ; βv gt, λ v ),
+
+mat = E(mat−1, aa, sat ; βa, λ a).
+
+(5) Here B denotes the mini-batch size and b indexes samples within the mini-batch. vec flattens the token and channel di-mensions, σ(·) is the sigmoid function, τ is the agreement threshold, and Tg is the gate temperature. Low agreement reduces the effective video update rate, limiting the influ-ence of structurally inconsistent generations. The nonzero gate floor avoids irreversible freezing when valid pose or scene changes reduce similarity. Audio uses an ungated up-date because rapid phonetic variation is expected rather than evidence of identity drift, while its anchor tether still pre-serves long-term acoustic characteristics. Absolute appearance requires stronger protection because a channel-level error can directly propagate as visible color or contrast drift. We therefore apply the same soft confi-dence gate to κt and πt, together with a hard rejection rule based on their normalized deviation from anchor statistics. In-range observations support gradual appearance adapta-tion, whereas outliers leave the previous appearance mem-ory unchanged. The resulting memory is a robust, fixed-capacity estimator of long-range evidence rather than a loss-less archive of generated blocks. 
+
+3.3 Memory Conditioning 
+
+Persistent memory should influence generation without be-ing converted back into additional position-bearing history. Directly concatenating all memory components with the ac-tive sequence would blur the distinction between temporally ordered local context and position-free long-range evidence. It would also force token-valued content and global appear-ance statistics through the same retrieval mechanism, de-spite their different roles in generation. We therefore use structure-matched conditioning: content memory supports query-dependent retrieval, whereas appearance statistics act coherently across video tokens through feature modula-tion. For modality m ∈ { v, a }, let rvt−1 = [ av ; mvt−1],
+
+rat−1 = mat−1, and umt−1 = Em(rmt−1). Selected transformer layers then apply 
+
+ehmℓ = hmℓ + MemAttn mℓ (RMSNorm( hmℓ ), umt−1),
+
+bhvℓ = ehvℓ + γℓ(ct−1) ⊙ RMSNorm( ehvℓ ) + bℓ(ct−1), (6) where ct−1 concatenates dynamic and anchor channel statis-tics and the second line is a reference-aware FiLM resid-ual (Perez et al. 2018). The low-frequency appearance state 
+
+πt−1 follows a complementary parameter-free readout that calibrates each completed video latent before it is commit-ted as future context and used to update memory. Memory K/V remain outside the active cache, so fixed token counts keep the additional cost independent of generated duration. Both pathways are residual and initialized as identity map-pings; architectural details are deferred to the supplementary material. 
+
+3.4 Causal-Context Distillation and Generation 
+
+Autoregressive distillation introduces a context-distribution gap: teacher trajectories provide clean bidirectional context, whereas the deployed student must continue from its own imperfect causal history. We reduce this gap by distilling on causal self-rollouts that span multiple temporal hori-zons and draw prefixes from both clean trajectories and de-tached student generations. Before intermediate non-anchor blocks are reused as causal context, their latent representa-tions are perturbed along the forward flow-matching path, Block 0 Block 1 ••• Block b                  
+
+> Step 1
+> Step 2
+> Step 3
+> •••
+> •••
+> •••
+> z1
+> 0
+> z1
+> 1
+> z1
+> b
+> z2
+> 0
+> z2
+> 1
+> z2
+> b
+> z3
+> 0
+> z3
+> 1
+> z3
+> b
+> Denoising
+> Process
+> Cross -window memory state S
+> ₙ₋₁
+> Updated Cross -window Memory S
+> ₙ
+> Stage
+> KV Cache
+> Memory
+> Conditioning
+> Memory
+> Update
+> Prefix Cache
+> Window n
+> Prefilling
+> Cache
+
+Figure 3: Memory-aware stage-parallel inference. Each stage pre-fills its KV cache from the bounded clean prefix Pn−1
+
+and reads the persistent memory Mn−1. Blocks advance along an anti-diagonal pipeline, and only final clean outputs update cross-window conditioning. while the persistent visual anchor remains clean. This asym-metric treatment discourages the student from treating recent self-generated context as perfectly reliable and preserves the anchor as a stable source of appearance evidence. Together, these variations expose the student to accumulated genera-tion errors without weakening the persistent identity signal. On these causal contexts, distribution-matching distilla-tion transfers the guided teacher distribution over the sampled rollout (Yin et al. 2024b,a). We complement this global ob-jective with video PCM (Wang et al. 2024), which promotes consistency between neighboring denoising transitions in latent and appearance-sensitive feature spaces. Persistent-memory updates are detached from the optimization graph, allowing extended causal rollouts without retaining gradients through the complete history. The full objectives and sam-pling schedules are provided in the supplementary material. 
+
+3.5 Memory-Aware Stage-Parallel Inference 
+
+Generating a long video in a single pass would cause the attention context and its position-bearing KV cache to grow continuously. We therefore divide the video into a sequence of bounded windows and propagate the cross-window con-ditioning pair Sn−1 = ( Pn−1, Mn−1). The clean prefix 
+
+Pn−1 provides explicit latents for short-range continuity, whereas the fixed-capacity persistent memory Mn−1 pro-vides learned representations for long-range identity and ap-pearance consistency. In our configuration, the prefix consists of the initial reference sink and up to recent blocks. Within each window, every pipeline rank is assigned one denoising stage and maintains an independent video–audio KV cache. Before denoising starts, each stage initializes its cache by pre-filling the same explicit clean latents from 
+
+Pn−1, while the persistent memory Mn−1 conditions both the prefix prefill and all subsequent denoising forwards. This cross-window prefix is prefilled only once per window. At the window boundary, only final-stage clean blocks construct 
+
+Pn and update Mn for window n + 1 . Each stage discards its previous window cache and pre-fills a new cache from initial reference sink and the most recent clean blocks using positions local to the new window. During window generation, a block completed at stage 
+
+k is committed only to the cache of stage k, as indicated by the yellow arrows in Fig. 3. Consequently, when stage 
+
+k processes block b, its cache contains the bounded clean prefix and all preceding blocks zk 
+
+> 0
+
+, . . . , z kb−1 committed at the same denoising stage. Cleaner outputs from downstream stages are never written back into an upstream cache. This stage-local cache organization bounds the position-bearing context while preserving causal access to all earlier same-stage blocks. A task (b, k ) depends on the same block at the preceding stage, (b, k − 1) , and on the cache state pro-duced by (b − 1, k ), which already contains all earlier same-stage blocks. Tasks satisfying b + k = d therefore form an anti-diagonal wavefront. After pipeline fill, different blocks are processed simultaneously at different denoising stages, and the final stage continuously retires clean blocks. This substantially improves inference FPS over serial block-wise denoising, enabling real-time autoregressive long-video gen-eration. Unlike HiAR (Zou et al. 2026), our method achieves quality-preserving acceleration without pipeline-specific re-training. 
+
+## 4 Experiments 
+
+4.1 Implementation Details 
+
+Long-form benchmark. We evaluate single-presenter sce-narios in both Mandarin and English. Each scenario is rep-resented by a temporally ordered prompt sequence in which every prompt specifies the action, transcript, subject appear-ance, scene, camera, and voice for one short segment. The subject, scene, camera, and voice descriptions remain consis-tent across the sequence, while the action and spoken content evolve. Every internal output contains 60 seconds of video at 768 × 512 and 24 fps. 
+
+Training. The causal generator is initialized from a distilled LTX-2.3 checkpoint and optimized against a frozen bidirec-tional teacher using three denoising steps per block. The teacher uses classifier-free guidance scales of 3.0 for video and 5.0 for audio. The generator and critic models use learn-ing rates of 10 −5 and 2×10 −6, respectively, and the generator EMA decay is 0.99 . Residual memory attention is inserted every four transformer layers, giving 12 memory-enabled lay-ers in the 48-layer backbone. The video branch receives 48 tokens formed by the visual anchor and dynamic video state, while the audio branch receives 64 dynamic-state tokens; together with the modality encoders and video FiLM, these branches add approximately 97 .8M trainable parameters. Training samples rollout horizons of five and ten blocks with probabilities 0.8 and 0.2 and substitutes detached student-generated prefixes with probability 0.1. Intermediate generated blocks reused as cache history are re-noised with 
+
+σ ∼ U (0 , 0.15) , while the persistent visual anchor is ini-tialized from the unperturbed reference latent. The adaptive formulation uses (βv , λ v ) = (0 .15 , 0.20) and (βa, λ a) = (0 .10 , 0.10) for video and audio state updates, with gate parameters (τ, T g , g min ) = (0 .05 , 0.10 , 0.10) . Appearance states use (βc, λ c) = (0 .03 , 0.60) . The PCM regularizer has weight 0.03 , begins at optimization step 400, and is evaluated Table 1: Comparison with representative speech-to-video (S2V) methods and other baselines on the long-form benchmark. Best and second-best results are shown in bold and underlined, respectively. Method Params LipSync ↑ Desync ↓ Align. ↑ Express. ↑ Long Cons. ↑ Color ∆ ↓ DiT FPS ↑
+
+OmniAvatar (Gan et al. 2025) 1.3B 4.794 – – – 0.6467 0.01566 0.948 StableAvatar (Tu et al. 2025) 1.3B 3.246 – – – 0.9242 0.00895 0.352 Wan2.2-S2V-14B (Gao et al. 2025) 14B 4.898 – – – 0.8413 0.00814 0.079 LiveAvatar (Huang et al. 2025b) 14B 5.396 – – – 0.9619 0.00541 4.529 Hallo3 (Cui et al. 2025) 5B 4.855 – – – 0.7947 0.01383 0.150 LongLive-2.0 (Chen et al. 2026b) 5B – – – – 0.7221 0.01792 10.47 LTX-2.3 (HaCohen et al. 2026) 22B 2.349 0.050 4.35 3.60 0.3745 0.04387 0.262 JavisDiT++ (Liu et al. 2026) 2.1B 0.904 1.025 5.00 3.90 0.3545 0.07159 0.437 MOVA (SII-OpenMOSS Team 2026) 32B/18B 3.860 0.060 5.00 3.75 0.7129 0.02825 0.128 OVI (Low, Wang, and Katyal 2025) 11B 3.493 0.135 4.60 3.70 0.8252 0.01797 0.231 OmniForcing 22B 1.590 0.045 5.00 3.95 0.3404 0.02060 8.14 TaoMate 22.1B 5.918 0.000 5.00 4.00 0.9755 0.00260 16.32 
+
+every two optimization steps. We train on 6,139 filtered synthetic trajectories generated by the bidirectional LTX-2.3 teacher (HaCohen et al. 2026). Each trajectory contains paired video and audio ODE states, with up to 241 video frames at 768 × 512 and 24 fps. The audio latents are aligned to the duration of the corresponding video trajectory. 
+
+Inference. The EMA student generator produces each one-minute sample by following its ordered prompt sequence autoregressively. At a prompt transition, the active context retains the initial visual reference and at most two recent non-anchor blocks. Only completed blocks update the per-sistent memory, and local RoPE coordinates restart for each prompt-conditioned segment. The end-to-end single-device implementation requires 130 .3±1.3 seconds per 1,441-frame output on an NVIDIA RTX PRO 5000 72GB GPU, corre-sponding to 11 .1 generated frames per second. 
+
+4.2 Comparison with State-of-the-Art Methods 
+
+Evaluation metrics. We adopt LipSync, Desync, Alignment, and Expressiveness from the official VABench evaluation protocol (Hua et al. 2026). For audio-conditioned video-only methods, LipSync is evaluated against the conditioning audio. To capture long-form behavior beyond these audio-visual criteria, we use two complementary measures over fixed tem-poral intervals. Color ∆ measures local appearance discon-tinuity between neighboring intervals and is therefore sen-sitive to visible boundary-level color shifts. Long Consis-tency instead summarizes global appearance stability over the complete video, reflecting whether its color and bright-ness remain coherent over time. Lower Color ∆ and higher Long Consistency indicate better temporal stability; their ex-act definitions are provided in the supplementary material. For the ablation study, Face Consistency compares normal-ized MediaPipe facial geometry between early and late inter-vals (Kartynnik et al. 2019); it measures face-shape stability rather than biometric identity. DiT FPS is the number of generated frames per denoising second and excludes data loading, VAE decoding, and post-processing. All methods are profiled on the same NVIDIA RTX PRO 5000 72GB GPU at 768 × 512 resolution. 
+
+Baselines and evaluation setup. We compare with the joint audio-video generators LTX-2.3, JavisDiT++, OVI, and MOVA (HaCohen et al. 2026; Liu et al. 2026; Low, Wang, and Katyal 2025; SII-OpenMOSS Team 2026), to-gether with an OmniForcing-aligned causal baseline. We ad-ditionally include the audio-driven video generators OmniA-vatar, StableAvatar, Wan2.2-S2V, LiveAvatar, and Hallo3, and the LongLive-2.0 text-to-video plus image-to-video pipeline (Gan et al. 2025; Tu et al. 2025; Gao et al. 2025; Huang et al. 2025b; Cui et al. 2025; Chen et al. 2026b). LTX-2.3 follows unified chunked continuation, while JavisDiT++ and OVI generate native-length clips that are assembled ac-cording to the benchmark prompts. All systems follow the same script content, but retain their native resolution, frame rate, and long-form construction procedure. 
+
+Quantitative results. Table 1 reports quantitative compar-isons with representative S2V systems and joint audio-video baselines. TaoMate ranks first in LipSync, Desync, and Ex-pressiveness and ties for the best Alignment, demonstrat-ing accurate speech-motion coupling with expressive audio-video dynamics. It also achieves the highest Long Consis-tency and lowest Color ∆, indicating that repeated contin-uation preserves global appearance while suppressing local boundary shifts. Relative to the strongest external result on each measure, these scores improve LipSync by 9.7% , raise Long Consistency by 0.0136 , and reduce Color ∆ by 51 .9% .Joint gains in local and global stability show that suppress-ing boundary drift preserves coherent appearance evolution. At 16 .32 DiT FPS, TaoMate is 1.56 × faster than the next-highest measured throughput, showing that these stability gains remain compatible with efficient denoising. 
+
+Qualitative results. Figure 4 presents visual results from one-minute generations. Across both sequences, TaoMate preserves facial geometry, clothing appearance, and scene layout while allowing the prompted gestures to evolve. In contrast, LTX-2.3 develops pronounced late-stage facial and Elderly man giving a calligraphy brush tip ...        
+
+> 0 s 15 s 30 s 1 min
+> Young woman reviewing a skincare serum ...
+> 0 s 15 s 30 s 1 min
+> Omni
+> Forcing
+> LTX -2.3
+> MOVA
+> OVI
+> Ours
+
+Figure 4: Qualitative comparison on one-minute video generation. For two representative prompts, we show frames sampled at 0, 15, 30, and 60 seconds (columns) from videos generated by different methods (rows). Table 2: Multi-GPU end-to-end inference throughput. Size denotes denoising-generator parameters. Method Size GPUs FPS ↑
+
+LiveAvatar (Huang et al. 2025b) 14B 5 23.0 LongLive-2.0 (Chen et al. 2026b) 5B 4 16.0 TaoMate 22.1B 3 35.0 background artifacts, while MOVA and OVI exhibit larger changes in facial appearance, framing, or scene composition. These visual comparisons support the low Color ∆ and high Long Consistency reported in Table 1. 
+
+4.3 Inference Throughput 
+
+Table 2 evaluates whether the compared systems sustain real-time generation under their reported multi-GPU deploy-ments. TaoMate reaches 35.0 output FPS on three GPUs, ex-ceeding its 24-fps playback rate by 45 .8% and the reported throughput of LiveAvatar and LongLive-2.0 by 1.52 × and 
+
+2.19 ×, respectively. At this throughput, the complete 1,441-frame generation pipeline finishes in approximately 41 .2 sec-onds. By restricting persistent-memory updates to fully de-noised outputs, our stage-parallel schedule allows causally ready blocks to progress concurrently through different de-noising stages, achieving real-time throughput. 
+
+4.4 Ablation Study 
+
+Relative to the memory-free baseline, fixed-capacity mem-ory raises Long Consistency by 0.0039 and lowers Color ∆
+
+by 16 .8% , while Face Consistency changes by only 0.0001 .This profile indicates that cross-window evidence mainly sta-bilizes global appearance and scene continuity, with facial geometry already near saturation. Adding ungated FiLM, however, erodes these gains: Long and Face Consistency decrease by 0.0033 and 0.0009 , respectively, while Color ∆
+
+increases by 9.8% . Gating recurrent updates by anchor agree-ment instead raises the two consistency scores by 0.0056 and 
+
+0.0015 and reduces Color ∆ by 20 .5% , producing the best result on every metric. This contrast shows that appearance modulation is effective when unreliable recurrent observa-tions are suppressed before conditioning future blocks. Table 3: Ablation of persistent-memory components under the shared training protocol. Higher is better except Color ∆.Best and second-best values are bold and underlined. Memory FiLM Gate Long Cons. ↑ Color ∆ ↓ Face Cons. ↑
+
+– – – 0.9614 0.00380 0.9955 
+
+✓ – – 0.9653 0.00316 0.9956 
+
+✓ ✓ – 0.9620 0.00347 0.9947 
+
+✓ ✓ ✓ 0.9676 0.00276 0.9962 
+
+## 5 Conclusion 
+
+We introduced TaoMate, a framework for real-time long-form audio-video generation that separates a bounded, position-bearing active context from fixed-capacity persis-tent memory. The memory combines immutable references with adaptive content and appearance states for stable long-range conditioning. Rollout-aligned causal distillation fur-ther uses mixed rollout horizons, student-generated prefixes, and selective perturbation of non-anchor history to reduce the context gap between teacher-guided training and recur-sive inference. Experiments and ablations demonstrate strong audio-video synchronization, improved cross-window ap-pearance stability, and the importance of anchor-regulated memory updates. This separation further enables stage-parallel inference, reaching 35 output FPS on three GPUs. References 
+
+Bai, L.; Zhang, T.; Shao, S.; Tan, D.; Zhong, Q.; et al. 2026. MaineCoon: Pursuing A Real-Time Audio-Visual So-cial World Model. arXiv preprint arXiv:2606.17800 .Blattmann, A.; Dockhorn, T.; Kulal, S.; Mendelevitch, D.; Kilian, M.; Lorenz, D.; Levi, Y.; English, Z.; Voleti, V.; Letts, A.; Jampani, V.; and Rombach, R. 2023a. Stable Video Diffusion: Scaling Latent Video Diffusion Models to Large Datasets. arXiv preprint arXiv:2311.15127 .Blattmann, A.; Rombach, R.; Ling, H.; Dockhorn, T.; Kim, S. W.; Fidler, S.; and Kreis, K. 2023b. Align your La-tents: High-Resolution Video Synthesis with Latent Diffu-sion Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 22563–22575. Chen, J.; Tang, J.; Zhao, W.; Li, M.; Luo, J.; Zheng, Z.; et al. 2026a. Pyramid Forcing: Head-Aware Pyramid KV Cache Policy for High-Quality Long Video Generation. arXiv preprint arXiv:2605.13111 .Chen, Y.; Wang, L.; Huang, W.; Yang, S.; Zhang, B.; Xiao, Y.; Chu, R.; Mao, W.; Hu, Q.; Liu, S.; Zhao, Y.; Mao, H.; Chen, Y.-C.; Xie, E.; Qi, X.; and Han, S. 2026b. LongLive-2.0: An NVFP4 Parallel Infrastructure for Long Video Generation. 
+
+arXiv preprint arXiv:2605.18739 .Cui, J.; Li, H.; Zhan, Y.; Shang, H.; Cheng, K.; Ma, Y.; Mu, S.; Zhou, H.; Wang, J.; and Zhu, S. 2025. Hallo3: Highly Dynamic and Realistic Portrait Image Animation with Video Diffusion Transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,21086–21095. Cui, L.; Hu, W.; Zhang, W.; Yang, Z.; Shi, F.; and Liu, X. 2026. AvatarForcing: One-Step Streaming Talking Avatars via Local-Future Sliding-Window Denoising. arXiv preprint arXiv:2603.14331 .Dai, Z.; Yang, Z.; Yang, Y.; Carbonell, J.; Le, Q. V.; and Salakhutdinov, R. 2019. Transformer-XL: Attentive Lan-guage Models Beyond a Fixed-Length Context. In Proceed-ings of the 57th Annual Meeting of the Association for Com-putational Linguistics , 2978–2988. Gan, Q.; Yang, R.; Zhu, J.; Xue, S.; and Hoi, S. 2025. OmniAvatar: Efficient Audio-Driven Avatar Video Gen-eration with Adaptive Body Animation. arXiv preprint arXiv:2506.18866 .Gao, X.; Hu, L.; Hu, S.; Huang, M.; Ji, C.; Meng, D.; Qi, J.; Qiao, P.; Shen, Z.; Song, Y.; et al. 2025. Wan-S2V: Audio-Driven Cinematic Video Generation. arXiv preprint arXiv:2508.18621 .Guo, J.; Zhang, D.; Liu, X.; Zhong, Z.; Zhang, Y.; Wan, P.; and Zhang, D. 2024. LivePortrait: Efficient Portrait Anima-tion with Stitching and Retargeting Control. arXiv preprint arXiv:2407.03168 .HaCohen, Y.; Brazowski, B.; Chiprut, N.; Bitterman, Y.; Kvochko, A.; et al. 2026. LTX-2: Efficient Joint Audio-Visual Foundation Model. arXiv preprint arXiv:2601.03233 .HaCohen, Y.; Chiprut, N.; Brazowski, B.; Shalem, D.; Moshe, D.; et al. 2024. LTX-Video: Realtime Video Latent Diffusion. arXiv preprint arXiv:2501.00103 .Ho, J.; Jain, A.; and Abbeel, P. 2020. Denoising Diffusion Probabilistic Models. In Advances in Neural Information Processing Systems , 6840–6851. Ho, J.; and Salimans, T. 2022. Classifier-Free Diffusion Guidance. arXiv preprint arXiv:2207.12598 .Hua, D.; Wang, X.; Zeng, B.; Huang, X.; Liang, H.; Niu, J.; Chen, X.; Xu, Q.; and Zhang, W. 2026. VABench: A Comprehensive Benchmark for Audio-Video Generation. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition , 23345–23355. Huang, X.; Li, Z.; He, G.; Zhou, M.; and Shechtman, E. 2025a. Self Forcing: Bridging the Train-Test Gap in Autore-gressive Video Diffusion. In Advances in Neural Information Processing Systems , volume 38. Huang, Y.; Guo, H.; Wu, F.; Wang, W.; Zhang, S.; et al. 2025b. Live Avatar: Streaming Real-time Audio-Driven Avatar Generation with Infinite Length. arXiv preprint arXiv:2512.04677 .Kartynnik, Y.; Ablavatski, A.; Grishchenko, I.; and Grund-mann, M. 2019. Real-Time Facial Surface Geometry from Monocular Video on Mobile GPUs. arXiv preprint arXiv:1907.06724 .Liu, H.; Zaharia, M.; and Abbeel, P. 2023. Ring Atten-tion with Blockwise Transformers for Near-Infinite Context. 
+
+arXiv preprint arXiv:2310.01889 .Liu, K.; Zheng, Y.; Wang, K.; Wu, S.; Zhang, R.; Luo, J.; Hatzinakos, D.; Liu, Z.; Fei, H.; and Chua, T.-S. 2026. Javis-DiT++: Unified Modeling and Optimization for Joint Audio-Video Generation. arXiv preprint arXiv:2602.19163 .Low, C.; Wang, W.; and Katyal, C. 2025. Ovi: Twin Backbone Cross-Modal Fusion for Audio-Video Generation. arXiv preprint arXiv:2510.01284 .Lu, Y.; Yang, J.; Koniusz, P.; Song, Y.; and Yang, Y. 2026. FadeMem: Distance-Aware Memory Consolida-tion for Autoregressive Video Diffusion. arXiv preprint arXiv:2606.10671 .Luo, S.; Tan, Y.; Huang, L.; Li, J.; and Zhao, H. 2023. Latent Consistency Models: Synthesizing High-Resolution Images with Few-step Inference. arXiv preprint arXiv:2310.04378 .Meng, Y.; Luo, X.; Li, L.; Jiang, W.; Gao, C.; Chen, X.; Li, Y.; and Zhang, X.-P. 2026. TetherCache: Stabilizing Autore-gressive Long-Form Video Generation with Gated Recall and Trusted Alignment. arXiv preprint arXiv:2606.13035 .Peebles, W.; and Xie, S. 2023. Scalable Diffusion Models with Transformers. In Proceedings of the IEEE/CVF Inter-national Conference on Computer Vision , 4195–4205. Perez, E.; Strub, F.; de Vries, H.; Dumoulin, V.; and Courville, A. 2018. FiLM: Visual Reasoning with a General Conditioning Layer. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 32. Prajwal, K. R.; Mukhopadhyay, R.; Namboodiri, V. P.; and Jawahar, C. V. 2020. A Lip Sync Expert Is All You Need for Speech to Lip Generation In The Wild. In Proceedings of the 28th ACM International Conference on Multimedia ,484–492. Rae, J. W.; Potapenko, A.; Jayakumar, S. M.; Hillier, C.; and Lillicrap, T. P. 2020. Compressive Transformers for Long-Range Sequence Modelling. In International Conference on Learning Representations .Rombach, R.; Blattmann, A.; Lorenz, D.; Esser, P.; and Om-mer, B. 2022. High-Resolution Image Synthesis with La-tent Diffusion Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,10684–10695. Salimans, T.; and Ho, J. 2022. Progressive Distillation for Fast Sampling of Diffusion Models. In International Con-ference on Learning Representations .SII-OpenMOSS Team. 2026. MOVA: Towards Scalable and Synchronized Video-Audio Generation. arXiv preprint arXiv:2602.08794 .Song, J.; Meng, C.; and Ermon, S. 2021. Denoising Diffusion Implicit Models. In International Conference on Learning Representations .Song, Y.; Dhariwal, P.; Chen, M.; and Sutskever, I. 2023. Consistency Models. In Proceedings of the 40th Interna-tional Conference on Machine Learning , volume 202 of 
+
+Proceedings of Machine Learning Research , 32211–32252. PMLR. Tian, L.; Wang, Q.; Zhang, B.; and Bo, L. 2024. EMO: Emote Portrait Alive – Generating Expressive Portrait Videos with Audio2Video Diffusion Model under Weak Conditions. In 
+
+European Conference on Computer Vision , 244–260. Tu, S.; Pan, Y.; Huang, Y.; Han, X.; Xing, Z.; Dai, Q.; Luo, C.; Wu, Z.; and Jiang, Y.-G. 2025. StableAvatar: Infinite-Length Audio-Driven Avatar Video Generation. arXiv preprint arXiv:2508.08248 .Wang, F.-Y.; Huang, Z.; Bergman, A. W.; Shen, D.; Gao, P.; Lingelbach, M.; Sun, K.; Bian, W.; Song, G.; Liu, Y.; Wang, X.; and Li, H. 2024. Phased Consistency Models. In 
+
+Advances in Neural Information Processing Systems .Wang, S.; Li, L.; Ding, Y.; Fan, C.; and Yu, X. 2021. Au-dio2Head: Audio-driven One-shot Talking-head Generation with Natural Head Motion. In Proceedings of the Thirti-eth International Joint Conference on Artificial Intelligence ,1098–1105. Wu, Y.; Rabe, M. N.; Hutchins, D.; and Szegedy, C. 2022. Memorizing Transformers. In International Conference on Learning Representations .Xiao, G.; Tian, Y.; Chen, B.; Han, S.; and Lewis, M. 2024. Efficient Streaming Language Models with Attention Sinks. In International Conference on Learning Representations .Xu, B.; Du, Y.; Liu, Z.; Yang, S.; Jiang, Z.; et al. 2026. Sparse Forcing: Native Trainable Sparse Attention for Real-time Autoregressive Diffusion Video Generation. arXiv preprint arXiv:2604.21221 .Xu, M.; Li, H.; Su, Q.; Shang, H.; Zhang, L.; Liu, C.; Wang, J.; Yao, Y.; and Zhu, S. 2024. Hallo: Hierarchical Audio-Driven Visual Synthesis for Portrait Image Animation. arXiv preprint arXiv:2406.08801 .Yang, Y.; Zhang, T.; Huang, W.; Chen, J.; Wu, B.; He, X.; Cai, D.; Li, B.; and Jiang, P.-T. 2026. Anchor Forcing: An-chor Memory and Tri-Region RoPE for Interactive Streaming Video Diffusion. arXiv preprint arXiv:2603.13405 .Ye, Z.; Jiang, Z.; Ren, Y.; Liu, J.; He, J.; and Zhao, Z. 2023. GeneFace: Generalized and High-Fidelity Audio-Driven 3D Talking Face Synthesis. In International Conference on Learning Representations .Yin, T.; Gharbi, M.; Park, T.; Zhang, R.; Shechtman, E.; Durand, F.; and Freeman, W. T. 2024a. Improved Distribution Matching Distillation for Fast Image Synthesis. In Advances in Neural Information Processing Systems , volume 37. Yin, T.; Gharbi, M.; Zhang, R.; Shechtman, E.; Durand, F.; Freeman, W. T.; and Park, T. 2024b. One-step Diffusion with Distribution Matching Distillation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 6613–6623. Zhang, W.; Cun, X.; Wang, X.; Zhang, Y.; Shen, X.; Guo, Y.; Shan, Y.; and Wang, F. 2023a. SadTalker: Learning Realistic 3D Motion Coefficients for Stylized Audio-Driven Single Image Talking Face Animation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 8652–8661. Zhang, Z.; Sheng, Y.; Zhou, T.; Chen, T.; Zheng, L.; Cai, R.; Song, Z.; Tian, Y.; Re, C.; Barrett, C.; Wang, Z.; and Chen, B. 2023b. H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models. In Advances in Neural Information Processing Systems , volume 36. Zhao, L.; Wu, Y.; Gong, Y.; Wang, Y.; and Zhao, P. 2026. OmniMem: Scalable and Adaptive Memory Retrieval for Long Video Generation. arXiv preprint arXiv:2605.30519 .Zhou, Y.; Han, X.; Shechtman, E.; Echevarria, J.; Kaloger-akis, E.; and Li, D. 2020. MakeItTalk: Speaker-Aware Talking-Head Animation. ACM Transactions on Graphics ,39(6). Zhou, Y.; Huang, L.; Wu, Z.; Wang, J.; Shi, Y.; et al. 2026. Mutual Forcing: Dual-Mode Self-Evolution for Fast Autore-gressive Audio-Video Character Generation. arXiv preprint arXiv:2604.25819 .Zhu, H.; Zhao, M.; He, G.; Su, H.; Li, C.; and Zhu, J. 2026. Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Gener-ation. arXiv preprint arXiv:2602.02214 .Zou, K.; Zheng, D.; Liu, H.; Hang, T.; Liu, B.; and Yu, N. 2026. HiAR: Efficient Autoregressive Long Video Generation via Hierarchical Denoising. arXiv preprint arXiv:2603.08703 .

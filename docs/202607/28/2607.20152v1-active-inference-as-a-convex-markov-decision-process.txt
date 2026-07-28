@@ -1,0 +1,1665 @@
+Title: Active Inference as a Convex Markov Decision Process
+
+URL Source: https://arxiv.org/pdf/2607.20152v1
+
+Published Time: Thu, 23 Jul 2026 00:56:46 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Active Inference as a Convex Markov Decision Process 
+
+Preprint • Accepted at IWAI 2026 
+
+Nikola Milosevic ∗
+
+Max Planck Institute for Human Cognitive and Brain Sciences Leipzig, Germany 
+
+nmilosevic@cbs.mpg.de 
+
+Nicolás Hinrichs 
+
+Max Planck Institute for Human Cognitive and Brain Sciences Leipzig, Germany 
+
+nhinrichs@cbs.mpg.de 
+
+Nico Scherf 
+
+Max Planck Institute for Human Cognitive and Brain Sciences Leipzig, Germany 
+
+nscherf@cbs.mpg.de 
+
+July 23, 2026 
+
+## Abstract 
+
+Active Inference (AIF) frames adaptive behavior as the minimization of expected free en-ergy (EFE), combining epistemic and pragmatic objectives within a single variational prin-ciple. We frame AIF as policy optimization and show that, for closed-loop control poli-cies, EFE minimization can be formulated as a convex Markov decision process (MDP). In this formulation, the pragmatic terms are linear in the predictive state marginals and therefore equivalent to reward maximization in a latent MDP, while the epistemic value introduces a nonlinear component that distinguishes EFE minimization from standard rein-forcement learning. This perspective further reveals the epistemic drive of active inference as a policy-dependent (performative) reward. We analyze finite-horizon, discounted, and average-reward formulations of EFE and derive a mirror descent (MD) algorithm that lo-cally linearizes the objective around the current state marginals, yielding a policy-dependent reward that is compatible with actor-critic methods and dynamic programming. Finally, we argue that coupling world-model learning with policy optimization gives active inference the structure of performative reinforcement learning, providing a route toward grounding active inference within modern reinforcement learning and optimization theory, including convergence analysis and principled policy improvement guarantees. 
+
+Keywords active inference · expected free energy · convex MDP · mirror descent · reinforcement learning 
+
+## 1 Introduction 
+
+Model-based policy optimization (MBPO) lets an agent learn a world model from environment interaction and then optimize a reactive policy on imagined rollouts inside that model. In reinforcement learning (RL), 
+
+> ∗
+
+Corresponding author: nmilosevic@cbs.mpg.de . ORCID 0000-0003-1904-8867. arXiv:2607.20152v1 [cs.LG] 22 Jul 2026 Active Inference as a Convex MDP A B        
+
+> True history realizations
+> World model
+> m=(p,ν)
+> min EFE
+> min VFE
+> Collect
+> data
+> Deploy
+> policy
+> Ima 8ined rollouts
+> Deploy
+> policy
+> Collect
+> data
+> Plan
+> Interact
+> Plan Interact
+> True POMDP
+> Latent MDP
+> True observations
+> Unobserved latents
+> Modelled observations
+> Inferred latents
+> Behavior policy
+> β=π∘ν
+
+Figure 1: The episodic active inference setting considered in this work: A) the environment admits a true partially observable decision process, while the agent learns a latent fully observable process using variational inference. B) In contrast to standard variational inference, the two decision processes are coupled: the variational distribution ν is used both in variational model learning and in action selection through the behavior policy β = π ◦ ν. The agent acts in the environment using the behavior policy β = π ◦ ν for multiple episodes, then uses the data to fit its model by Variational Free Energy (VFE) minimization to obtain m = ( p, ν ), and uses that model to optimize its policy in imagination by minimizing the Expected Free Energy (EFE). the properties of MBPO are well understood: algorithms converge under suitable assumptions, and policy-improvement guarantees can be stated for the expected reward [1]. Active Inference (AIF) [2, 3] can also be read as MBPO. The agent learns a generative model of the en-vironment, then selects actions by minimising an expected free energy (EFE) that scores imagined future outcomes against a preference distribution. Implementations use similar architectural components as recent world model-based RL methods [4, 5, 6]: a recurrent world model, an actor, and a critic, trained on imagined environment interactions. The optimization properties of EFE minimization, however, are far less under-stood than those of reward-maximizing MBPO. It is not known whether the EFE minimum exists, whether it is unique, or what kind of optimization problem the combined VFE–EFE minimization constitutes. This blocks the transfer of efficient algorithms, and their convergence and policy-improvement guarantees, from the RL literature to the simulation of AIF agents. AIF is formulated with inference, not policy optimization, in mind. To bring it within reach of the RL toolbox we make two modifications to the standard protocol (cf. [2]). First, we take an episodic view: rather than updating on every environment step, VFE and EFE minimization each run over one or more full episodes while the other’s target is held fixed, see Fig. 1. This is only a mild departure since standard AIF already freezes the model and variational posterior during planning when it imagines future timesteps. We simply extend that separation to the data-collection phase. Second, in place of the mean-field posterior over the future we use a causal one, so that imagination is Markov and can be realised by ancestral sampling, meaning the agent can sample its own imagined rollouts efficiently and in a physically meaningful manner. With these two modifications in place, our central claim is that EFE minimization under a fixed model is a convex MDP [7, 8], the recent generalisation of RL in which the objective can be an arbitrary convex functional of the state–action marginal at future timesteps rather than a linear one (as with expected reward). The per-step EFE is exactly of this form. Its extrinsic-value and ambiguity terms are linear in the occupancy, while the epistemic value, the negative state-marginal entropy, supplies a single convex term such that the whole of convex-MDP theory applies. At the exact-posterior limit this epistemic term coincides with the mutual information between states and observations, recovering the familiar information-gain reading of active inference. We return to this in Section 3. In particular, convex MDPs admit extended dynamic-programming methods that remain scalable and sample-efficient.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+2Active Inference as a Convex MDP 
+
+Finally, we show that allowing the agent to refit the model from data of the real environment significantly complicates the optimization problem. Active inference sits at the underexplored intersection of convex MDPs and performative reinforcement learning [9, 10, 11], where the reward and the environment dynamics respond to the agent’s deployed policy. We take the observation-preference reading of the EFE as primary: it carries the mutual-information inter-pretation of epistemic value, and because the same recognition density scores both imagined inference and online inference, it makes the planning objective self-consistent with the agent’s perception. 
+
+Contributions. 
+
+(i) Structure. We present the episodic policy optimization setting for AIF, where the EFE, without modification, becomes a convex functional of the imagined step-t state marginal, splitting into linear terms (a latent-MDP reward) and a single convex nonlinearity (the epistemic value). This gives EFE minimization the structure of a convex MDP. (ii) Algorithm and rate. We solve EFE minimization with a mirror-descent-inspired algorithm that yields a policy-dependent reward (a fixed reward, and a variable curiosity bonus). The resulting subproblem is a combination of soft RL [12] and maximum entropy exploration [13], solved in closed form by softmax dynamic programming. Our MD scheme (MD-AIF) converges at rate O(1 /K ) by relative smoothness. (iii) Closing the loop. Refitting the world model to policy-induced data makes the scheme performative [9]. We show that a performatively stable policy–model pair exists under mild assumptions, and sketch a path towards a performative AIF algorithm. 
+
+## 2 Episodic Active Inference 
+
+We consider a finite-horizon reward-free POMDP M = ( S, A, O, P, E, σ ), where st ∈ S , a t ∈ A , and ot ∈ O 
+
+are states, actions, and observations at time t ∈ [T ] = {0, . . . , T }, with S, A, O finite. P and E are transition and emission kernels with full support and σ is a start state distribution. For the sake of clarity, we consider the memoryless finite-horizon setting in the main text. However, our results extend to the history-dependent and infinite horizon settings, see §3.2. A memoryless behavior policy 
+
+β : O → ∆( A) induces the environment trajectory law 
+
+pβ (τ ) = σ(s0)E(o0|s0) 
+
+> T−1
+
+∏
+
+> t=0
+
+β(at|ot)P (st+1 |st, a t)E(ot+1 |st+1 ). (1) An active inference agent consists of a variational world model m = ( pθ , ν ϕ) with model parameters θ and variational parameters ϕ. We work primarily in the tabular parametrization setting and drop parameter indexes following [14]. Further, the agent deploys its behavior policy in the real environment by chaining latent-state inference and action selection. Throughout, we consider composed behavior policies β = π ◦ ν,where memoryless policies are of the form β(at|ot) = ∑ 
+
+> st
+
+π(at|st) ν(st|ot), i.e. the agent first infers the latent state through the recognition density ν and then acts through the latent-state-conditioned policy π used in EFE optimization. We consider an episodic model-based policy-optimization setting in which the agent alternates between 1. Model learning: explore the environment using β, collect trajectory data D over several episodes, and fit the world model m = ( p, ν ) by minimising variational free energy (VFE) on the data, 2. Policy optimization: improve the behavior policy by minimising expected free energy (EFE) on imagined trajectory data with respect to the latent policy π, using the latest world model. One full pass through the active inference loop is 
+
+π deploy 
+
+7−−−−−→ D (π) VFE 
+
+7−−−−→ m(D(π)) EFE 
+
+7−−−−→ π(m(D(π)) ) =: AIF( π), (2) and a fixed point satisfies π∗ = AIF( π∗). The VFE and EFE steps can either be run to completion or interleaved episodically. Crucially, the latent policy space Π = ∏
+
+> t
+
+(∆ A)S does not depend on the model and the natural question is under which conditions repeated application of AIF admits such a fixed point and whether efficient algorithms exist that converge to it.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 3
+
+Active Inference as a Convex MDP 
+
+2.1 VFE: World Model Training 
+
+The model m = ( p, ν ) that the EFE phase plans against is the output of a preceding perception/learning phase: minimization of VFE on data gathered in the real environment. We record the VFE in the form that matches the EFE below, with the same recognition density, so that the full loop (2) is well posed. 
+
+Generative model and recognition. With actions treated as given, the agent’s generative model over a trajectory τ = ( s0, o 0, a 0, . . . , a T −1, s T , o T ) factorises as 
+
+p(o0: T , s 0: T |a0: T −1) = p(s0)p(o0|s0) 
+
+> T−1
+
+∏
+
+> t=0
+
+p(ot+1 |st+1 )p(st+1 |st, a t), (3) and states are inferred with the history-conditioned recognition density 
+
+ν(s0: T |o0: T , a 0: T −1) = ∏Tt=0 ν(st|ot). Again, under direct parametrization, we drop the parameter indexes and consider the memoryless case. The history-dependent case is discussed in Section 3.2. 
+
+VFE. Let D(π) be the distribution of histories hT = ( o0: T , a 0: T −1) obtained by running β = π ◦ ν in the real environment. The variational free energy of m on data D is 
+
+F(m; D) = Eh∼D 
+
+[ − log p(o0: T |a0: T −1)]︸ ︷︷ ︸
+
+> surprise
+
++ Eh∼D DKL 
+
+(ν(s0: T |h) ∥ p(s0: T |h))︸ ︷︷ ︸  
+
+> recognition gap ≥0
+
+, (4) where p(s0: T |o, a ) is the exact Bayesian posterior under (3). The bound is tight precisely when ν equals that posterior. This non-negative recognition gap is the same quantity that controls EFE accuracy. VFE-optimality of ν is what makes the EFE phase score against an accurate posterior. The model-learning phase targets 
+
+m∗(π) ∈ arg min  
+
+> m
+
+F(m; D(π)) , (5) where the optimum m∗ generally depends on the policy π used to generate the trajectory data via β = π ◦ ν.
+
+2.2 EFE: Planning in a Latent MDP 
+
+Given a model m = ( p, ν ), a latent policy π induces the purely imagined trajectory law 
+
+qπ (τ ; m) = q0(s0) p(o0|s0) 
+
+> T−1
+
+∏
+
+> t=0
+
+πt(at|st) p(st+1 |st, a t) p(ot+1 |st+1 ), (6) with predictive state marginals ρπt (s) = Pqπ (st = s) of qπ at time t satisfying the recursion 
+
+ρπt+1 (s′) = ∑
+
+> s,a
+
+p(s′|s, a ) πt(a|s) μπt (s, a ), μπt (s, a ) := ρπt (s)πt(a|s) (7) where ρπ 
+
+> 0
+
+= q0 is given. For example, it can be an additional factor q0(s0) = ν(s0) in the variational posterior or derived from the recognition density q0(s0) = ν(s0|o0) where o0 ∼ D is sampled from a dataset (cf. Dreamer [5]). Sampling is ancestral: the agent acts causally in imagination. Then we define the AIF planning problem as follows. Given an active inference agent with model m, a (biased) observation preference ˜p, and a latent trajectory distribution qπ (·; m), define the finite-horizon EFE by 
+
+G(π; m) = 
+
+> T
+
+∑
+
+> t=0
+
+Gt(π; m) = 
+
+> T
+
+∑
+
+> t=0
+
+Eqπ
+
+[ gt(st, o t) ], (8) 
+
+gt(st, o t) = log ρπt (st)
+
+︸ ︷︷ ︸
+
+> predictive marginal
+
+− log ν(st|ot) − log p(ot|st) − log ˜ p(ot)
+
+︸ ︷︷ ︸  
+
+> =: −log ˜ p(st,o t)(biased model)
+
+, (9) where ν is the agent’s recognition density. The planning (policy optimization) problem is 
+
+π∗(m) ∈ arg min  
+
+> π
+
+G(π; m). (10) This particular definition of the EFE is one of many variants used throughout the literature [2, 15, 16]. It is the one that appears in policy optimization [6, 17], designed for consistency with the agent’s behavior policy (β = π ◦ ν) and tractability in simulation.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+4Active Inference as a Convex MDP 
+
+The epistemic value as mutual information. The intrinsic value is the negative state-marginal entropy 
+
+−H (ρt), which under Eq. (8) appears in place of the mutual information because the recognition density ν is held fixed. If ν is replaced by the exact model posterior p(s|o) (the idealised case, attained at VFE conver-gence (4)), this term becomes the negative mutual information −It(S; O) between states and observations at time t. This is the classical epistemic/information-gain value of active inference [15, 16]. The two read-ings coincide exactly at EFE convergence, so the convex-MDP structure preserves the information-theoretic interpretation of the EFE. Only the nonlinearity is named differently, depending on whether the recognition density is variational or exact. 
+
+Convex-MDP structure. We show in §3 that min π G(π; m) is a convex MDP for fixed m, solvable by repeated dynamic programming with policy-dependent rewards. These rewards are precisely the EFE gradients with respect to the state-marginal of trajectory law (6). Note that this structure is independent of the exact EFE variant, see Appendix A, of history dependence, see §3.2, and of parameter uncertainty, since the model and variational parameters are fixed during planning. 
+
+## 3 EFE Minimization is a Convex MDP 
+
+Our main structural result is that EFE minimization is a convex MDP under a fixed given model m = ( p, ν ).This can be read off immediately from the objective, once the EFE is brought into its state-action marginal form. 
+
+Lemma 1. We write μπ = ( μπt )Tt=0 . The EFE Eq. (8) can be written as 
+
+G(π) = Γ( μπ ) := ⟨ℓ, μ π ⟩ + Φ( μπ ), (11) 
+
+where ℓ := ℓt(s, a ) = −Eo∼p(·| s) log ˜ p(s, o ), Φ( μπ ) = − ∑ 
+
+> t
+
+H(ρπt ) is the neg. marginal Shannon entropy, and ⟨· , ·⟩ is the Euclidean inner product on RS×A× [T ].
+
+The inner product is linear in μπ whenever the preference distribution ˜p is independent of μπ and Φ is (not strictly) convex, since −H is strictly convex, but −H (∑ 
+
+> a
+
+μπ (·, a )) is only convex in μπ .
+
+3.1 Planning as a Convex MDP 
+
+While G can be written as a functional of some μt ∈ ∆( S ×A ), the marginals can not move freely on the entire simplex, since they are fully determined by π through Eq. (6). Like the state-marginals, the state-action marginals μπt that arise from some policy π must satisfy flow constraints for all t ∈ [T −1] and s′ ∈ S :
+
+∑
+
+> a
+
+μπ 
+
+> 0
+
+(s, a ) = q0(s), ∑
+
+> a′
+
+μπt+1 (s′, a ′) = ∑
+
+> s,a
+
+p(s′|s, a ) μπt (s, a ). (12) These constraints are a result of our choice of planning distribution, which turns imagination into a Markov process. 
+
+Definition 1 (Occupancy polytope [18, 19]). Let 
+
+K = {(μt)Tt=0 ∈ (∆ S×A )T +1 |(12) holds }, (13) which is a compact convex polytope. Every μ ∈ K corresponds to a unique policy πt(a|s) =
+
+μt(s, a )/ ∑ 
+
+> a′
+
+μt(s, a ′) wherever ρt(s) > 0.Due to the one-to-one correspondence of π and μπ (specifically, π 7 → μπ is a bijection onto the interior of 
+
+K), the problems min π G(π) and min μ∈K Γ( μ) are equivalent. 
+
+Proposition 1 (EFE minimization is a convex MDP). Finite-horizon EFE minimization under a fixed model is a finite-horizon convex MDP, meaning 
+
+min  
+
+> π
+
+G(π) ≡ min  
+
+> μ∈K
+
+Γ( μ), (14)      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 5Active Inference as a Convex MDP
+
+Table 1: Infinite-horizon extensions of the EFE objective. The two axes correspond to whether entropy is computed after temporal aggregation of occupancies or before it, and whether the temporal aggregation is discounted or stationary.        
+
+> Discounted Stationary time →state dπγ= (1 −γ)
+> ∞
+
+∑        
+
+> t=0
+> γtμπt
+> Gagg
+> γ(π) = ⟨ℓ, d πγ⟩ − H (dπ)
+> dπ
+> ∞=lim
+> T→∞
+> 1
+> T
+> T−1
+
+∑        
+
+> t=0
+> μπt
+> Gagg
+> ∞(π) = ⟨ℓ, d π
+> ∞⟩ − H (dπ
+> ∞)
+> state →time Gstep
+> γ(π) = (1 −γ)
+> ∞
+
+∑     
+
+> t=0
+> γtGt(π)Gstep
+> ∞=lim
+> T→∞
+> 1
+> T
+> T−1
+
+∑
+
+> t=0
+> Gt
+
+where μπ = ( μπt )t is the collection of all step-t state-action marginals under qπ and Eq. (14) is a convex program over policy-induced state-action marginals, i.e. a convex MDP [7, 19]. Proof. By Lemma 3, Γ is convex. Further, K is a convex polytope [18, 19], thus Eq. (14) is a convex program in state-action occupancies, exactly the convex MDP (concave-utility) problem of [19]. Optimization problems of this kind are referred to as convex [7], general-utility [8, 20], or concave-utility MDPs [19] in the RL literature. Specifically, EFE minimization has the structure of maximum-entropy exploration [13] combined with standard reward maximization, here in the episodic/finite-horizon setup studied by [19]. Convex MDPs are more general than standard MDPs. While standard MDPs also have a convex program representation, the objective there is linear, and the nonlinear case does not admit global value functions. However, specialized dynamic programming methods exist, which we will exploit in the algorithmic development of §4. 
+
+3.2 History-Dependent and Infinite-Horizon Extensions 
+
+So far we have discussed the finite-horizon memoryless setting. However, this was mostly for clarity, and our results readily apply to history-dependent and infinite-horizon formulations. To restore the convex MDP structure on the history process, one must augment the state space with the space of histories. Note that this state is analogous to the imagined state of the Dreamer [5, 6] architecture. 
+
+Lemma 2 (History augmentation). The history-dependent version of Eq. (8) given by Eq. (45) 
+
+induces a convex MDP on the augmented state x = ( h, s ).
+
+Generalizing to infinite horizons is also possible, however, it comes with modeling choices. Due to the nonlinearity of the objective, one must choose how to combine state and time averages, see Table 1. The key distinction is that the entropy operator does not commute with time aggregation, but we must aggregate time in the infinite-horizon formulation to avoid infinite-dimensional decision variables. By concavity of H
+
+and Jensen’s inequality, 
+
+H(dπ ) ≥ (1 − γ) lim  
+
+> T→∞
+> T
+
+∑
+
+> t=0
+
+γtH(μπt ), dπ (s, a ) = (1 − γ) lim  
+
+> T→∞
+> T
+
+∑
+
+> t=0
+
+γtμπt (s, a ), (15) with equality only when all μπt are identical. Details on existence and algorithmic consequences are given in Appendix D.2, see also [20]. 
+
+## 4 Solving EFE Minimization by Soft RL 
+
+The convex nonlinearity of the EFE makes the per-step reward depend on the policy’s state-marginal, so a single value function cannot capture the objective globally. Convex MDP methods resolve this by linearising the objective at each iterate. Policy optimization algorithms based on mirror descent [21, 22, 19] are particularly well-suited for EFE minimization: every step replaces the EFE by its first-order surrogate around the current state-marginal, turning the convex MDP into a sequence of ordinary soft-MDP problems      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 6
+
+Active Inference as a Convex MDP 
+
+whose reward is recomputed between iterations. The reason why this works is that MD lets us choose a Bregman divergence DΨ through the convex generator Ψ in its update 
+
+μk+1 ∈ arg min 
+
+> μ∈K
+
+{⟨∇ Γ( μk), μ ⟩ + η−1DΨ(μ ∥ μk)}, (16) where η is a stepsize. We choose 
+
+DΨ(μ∥μk) = ∑
+
+> t,s
+
+ρt(s)DKL (πμt (·| s)∥πμk 
+
+> t
+
+(·| s)) , (17) where Ψ is the negative conditional entropy, see Appendix C and [19] for details. With this choice, Eq. (16) has a closed-form solution that is exactly the soft-Bellman backup used in Algorithm 1. Algorithm 1 is the active-inference instance of MD-CURL [19, Alg. 2], which is a convex MDP solver using mirror descent [21]. Here it is specialized by the EFE objective, whose nonlinearity is the state-marginal negative entropy Φ. The linearized per-iteration reward rk = −∇ Γ( μk) carries the state-marginal term 
+
+− log ρkt (s) − 1 and the static preference reward −ℓt.
+
+Algorithm 1 MD-AIF 
+
+Require: world model m = ( p, ν ); preference ˜pt; horizon T ; step size η; init. belief q0; current policy ¯π.
+
+Ensure: MD-AIF (πk; m, ˜pt, T, η, q 0) computes the update Eq. (16). 
+
+1: μ0 ← q0;
+
+2: for t = 0 , . . . , T − 1 do 
+
+3: μt+1 (s′) ← ∑ 
+
+> s,a
+
+p(s′|s, a ) ¯ π(a|s) μt(s)
+
+▷ linearized reward: negative EFE gradient r = −∇ Γ( μ)
+
+4: for all t, s, a do 
+
+5: rt(s, a ) ← Eo log ˜ p(s, o ) − log ρt(s) − 1
+
+▷ Backward pass: soft (free-energy) value iteration 
+
+6: VT +1 (·) ← 0
+
+7: for t = T, . . . , 0 do 
+
+8: Qt(s, a ) ← rt(s, a ) + ∑ 
+
+> s′
+
+p(s′|s, a ) Vt+1 (s′)
+
+9: Vt(s) ← η−1 log ∑ 
+
+> a
+
+¯π(a|s) exp (η Q t(s, a ))
+
+▷ Mirror step: multiplicative (softmax) policy update 
+
+10: for all t, s do 
+
+11: πt(a|s) ← ¯π(a|s) exp (η Q t(s, a ))∑ 
+
+> a′
+
+¯π(a′|s) exp (η Q t(s, a ′))
+
+12: return πt for all t
+
+Natural Policy Gradient of the EFE. With the conditional-negative-entropy generator Ψ, MD-AIF approximates natural gradient descent on the EFE over the policy manifold [23]. The proximal term of (16) is, to second order, the squared Riemannian norm 
+
+DΨ(μ ∥ μk) = 12
+
+∥∥πμ − πμk ∥∥2 
+
+> Fk
+
++ O(∥δ∥3), Fk = ⊕
+
+> t,s
+
+ρπt (s) diag( πkt (·| s)) −1 (18) and the step πk+1  
+
+> t
+
+(·| s) = πkt (·| s) + ηk F kt (s)−1 Qkt (s, ·) + O(η2
+
+> k
+
+) is precisely the first-order expansion of the multiplicative update of Algorithm 1. MD-AIF is therefore an efficient implementation of Kakade’s natural policy gradient (NPG; [24]) on the EFE, see also [25, 23] for the general duality between MD and NPG. 
+
+Proposition 2 (Convergence of MD-AIF). Run Algorithm 1 for K steps with a fixed model m and step size η = 1 /L from a full-support μ0 ∈ K . Then Γ is L-smooth relative to Ψ on the flow polytope with constant L = 12 T (T + 1) , and 
+
+min  
+
+> 0≤k≤K
+
+G(πk; m) − G (π⋆; m) ≤ L D Ψ(μ⋆∥μ0)
+
+K + 1 = O(1 /K ),
+
+where DΨ is the Bregman divergence generated by Ψ( μ) = ∑ 
+
+> t,s,a
+
+μt(s, a ) log πμt (a|s).     
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+7Active Inference as a Convex MDP 
+
+sketch. The proof relies on showing that the algorithm solves the mirror descent update exactly for the chosen Bregman divergence DΨ(μ|| μ′) and that Γ is relatively smooth w.r.t. Ψ. One then invokes the relative smoothness bound [26] for the rate. 
+
+## 5 Performative Active Inference 
+
+5.1 Closing the Loop 
+
+The fixed-model results above assume the planner sees a model that does not change as the policy changes. Closing the active inference loop (2) breaks that assumption: after deploying π the agent refits its world model to the data that π itself induced, so the reward ℓπ and the augmented dynamics Pπ that the next planning phase optimizes against are functions of the deployed policy . This is exactly the structure of performative reinforcement learning [9, 10, 11], in which the trajectory distribution reacts to the deployed decision rule. A single round of the closed loop maps a deployed policy to its model-conditioned mirror step. Writing 
+
+mπ = m⋆(D(π)) for the VFE-refit model and Qπ for the soft action-value produced by the backward recursion of Proposition 4 under mπ , the performative mirror operator P : Π → Π (Definition 4) is the softmax update 
+
+P(π)t(a|x) = πt(a|x) exp (η Q πt (x, a ))∑ 
+
+> b
+
+πt(b|x) exp (η Q πt (x, b )) , (19) and a performatively stable policy is a fixed point π⋆ = P(π⋆): a policy that is already optimal for the model its own deployment produces. Existence follows from a standard fixed-point argument once the loop is continuous and the policy simplex compact. 
+
+Proposition 3 (Existence, informal; see Proposition 5). Under a support floor on the model class and continuity of the policy-to-model map, the performative mirror operator P has a fixed point 
+
+π⋆ = P(π⋆).
+
+Existence does not imply i) that the retraining iterates reach such a point rapidly, and ii) that a given fixed point has the desired properties, e.g. the model converges to the true environment dynamics. We instead hypothesize a simplified regime in which a guarantee could hold and demonstrate the active-inference feature that obstructs it. 
+
+5.2 Toward a Convergence Guarantee 
+
+A clean case for full AIF convergence is i) well-specified tabular parametrization ii) with exact-recognition, and iii) state coverage under all deployed policies. If all three hold, the deployed policy only changes how frequently each transition is seen, never which are seen or what the model converges to. The refit target is then policy-independent and the coupled iteration is a one-way cascade of two contractions, the policy converging to the model-optimal solution. However, the coverage assumption is unlikely to hold under diverse behavior policies in complex environ-ments, where AIF is arguably most promising. The epistemic drive in the EFE actively pushes mass onto under-visited states and so helps coverage naturally, but it does not certify a uniform minimum of state coverage. When coverage fails, the refit target becomes policy-dependent. Moreover, the parameter-based novelty terms in the EFE may induce complex π-dependence. Ultimately, the cascade can close into an unstable feedback loop. This is the regime of performative RL [9, 10]. We therefore leave a convergence analysis to future work, where natural routes are reduction to online learning via dataset aggregation [27] or the mixed delayed repeated retraining of [11]. The experiments of Section 6 instead probe the closed loop with the simplifying assumptions: interleaving MD-AIF planning with fully-observed model refitting and measuring how fast the learned kernel approaches the truth. 
+
+## 6 Experiments 
+
+We test the two structural predictions of the convex-MDP view on deterministic gridworlds: that MD-AIF (Proposition 4) converges at the O(1 /K ) rate of Proposition 2 with the policy-dependent reward driving      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 8
+
+Active Inference as a Convex MDP 10 0 10 1 10 2                                                  
+
+> iteration k
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> Γ( qk) − Γ?
+> AEFE convergence
+> MD-AIF RL EFE grad. descent
+> O(1 /k )
+> MD-AIF, t= 0 MD-AIF, t= 3 MD-AIF, t= 6 MD-AIF, t= 9 MD-AIF, t= 12
+> RL, t= 0 RL, t= 3 RL, t= 6 RL, t= 9 RL, t= 12
+> 0500 1000 1500 2000 2500
+> environment steps
+> 10 −1
+> 10 0
+> TV(ˆ p, p ?) uniform prior
+> Bmodel error
+> MD-AIF RL EFE grad. AIF T=3 AIF T=5 (MC)
+> MD-AIF RL EFE grad. descent AIF ( T=3) AIF ( T=5, MC)
+> 0.00.51.0
+> μt(s)
+> 0.00.5
+> TV(ˆ p, p ?)
+
+Figure 2: MD-AIF on gridworld environments. (A, top two rows) 5×5 deterministic gridworld. Left: 
+
+EFE convergence (log–log scale) for MD-AIF, RL (no novelty), and EFE gradient descent, together with the theoretical O(1 /k ) rate (dashed). MD-AIF converges faster and to a lower value, driven by regularized dynamic programming. Right: Per-step imagined occupancy ρt(s) at convergence ( k = 100 ) for MD-AIF (top) and RL (bottom) at five timesteps t ∈ { 0, 3, 6, 9, 12 }. MD-AIF spreads probability mass broadly across the grid before concentrating toward the goal, whereas RL greedily channels mass along the direct path. Both rows share the same color scale. (B) 10 × 10 deterministic gridworld with uniform preference (pure epistemic drive). Left: Mean total-variation error TV(ˆ p, p ⋆) of the model fit as a function of environment steps under the interleaved model–policy loop. MD-AIF’s information-gain drive produces broader state coverage, accelerating model learning relative to RL and EFE gradient descent. AIF agents [2] plan myopically over short horizons ( T = 3 exact; T = 5 via Monte Carlo with Nmc = 100 samples). Right: Per-state model error 
+
+TV(ˆ p, p ⋆) = Ea∼πT TV(ˆ p(·| s, a ), p ⋆(·| s, a )) after 2500 environment steps. broad state coverage, and that closing the model-learning loop accelerates identification of the environment. Environment, hyperparameter, and baseline details are in App. F. 
+
+Convergence and occupancy. On a 5 × 5 grid with a Manhattan-distance preference, we compare MD-AIF with entropy-regularised RL and Euclidean gradient descent on the EFE. MD-AIF attains a lower EFE and tracks the theoretical O(1 /K ) line (Fig. 2A, left), while its imagined occupancy spreads across the grid before concentrating on the goal, in contrast to the direct channel taken by RL (Fig. 2A, right). 
+
+Model learning. With a uniform preference, the EFE reduces to a pure epistemic drive. Interleaving policy optimization with model refitting, the performative loop of MD-AIF yields broader coverage and faster reduction of the model error TV(ˆ p, p ⋆) than RL, EFE gradient descent, or short-horizon EFE planning [2], see Fig. 2B. 
+
+## 7 Conclusion 
+
+For closed-loop policies under a fixed model, expected free energy minimization is a convex MDP: the pragmatic, ambiguity, and recognition terms form a linear latent-MDP reward, and the epistemic value is the only nonlinearity, a convex negative state-marginal entropy. This places EFE in the convex MDP class and makes its algorithms available, notably MD, which agrees with the natural policy gradient on the EFE up to second order and converges at its standard O(1 /K ) relative-smoothness rate. Refitting the model and the recognition density to policy-induced data closes the loop and makes it performative. Here we prove existence of a stable policy-model pair (Proposition 5) and leave convergence to future work. 
+
+## Appendix A The expected free energy variants      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+9Active Inference as a Convex MDP 
+
+Definition 2 (EFE variants). The general integrand (8) specialises as follows. 
+
+• Information gain (observation preference). Setting ˜pt(st, o t) = p(st|ot)˜ p(ot) in (8) yields 
+
+gIG  
+
+> t
+
+(st, o t) := log ρπt (st) − log p(st|ot) − log ˜ pt(ot). (20) This reflects an idealized planning scenario, where the agent can compute the Bayesian state posterior under its own model. 
+
+• Approximate information gain. Setting ˜pt(st, o t) = ν(st|ot)˜ p(ot) in (8) yields 
+
+gAIG  
+
+> t
+
+(st, o t) := log ρπt (st) − log ν(st|ot) − log ˜ pt(ot), (21) which implements the same information gain term as above, but assuming variational inference is performed in the future, too. 
+
+• Risk–ambiguity (state preferences). Placing preferences on states, ˜p(s), and omitting recognition gives (cf. [2]) 
+
+gRA  
+
+> t
+
+(st, o t) := log ρπt (st) − log p(ot|st) − log ˜ p(st). (22) This is equivalent to setting ˜pt(st, o t) = p(ot|st)˜ pt(ot) in (8). 
+
+• Action Complexity. Optionally, add the action-complexity term to obtain 
+
+gAC  
+
+> t
+
+(st, a t, o t) = gt(st, o t) + log πt(at|st)¯πt(at|st) .
+
+Action complexity is used in Control as Inference formulations of RL [12] and in deep learning based AIF implementations [6] and it can be seen as a replacement for the policy prior in myopic AIF implementations [2]. 
+
+## B EFE minimization as a convex MDP 
+
+We develop the occupancy form of the general EFE; the variants follow by substituting their linear cost. Using Eq. (6) as the trajectory distribution, the agent plans by acting in imagination and confines optimiza-tion to the dynamically feasible occupancies (those satisfying the Chapman–Kolmogorov flow constraints below). This is also the structure which allows us to write EFE minimization as a convex MDP. 
+
+Lemma 3. We write μπ = ( μπt )Tt=0 . The EFE Eq. (8) can be written as 
+
+G(π; m) = 
+
+> T
+
+∑
+
+> t=0
+
+∑
+
+> s∈S
+
+∑
+
+> a∈A
+
+μπt (s, a )
+
+[
+
+log ρπt (s) − ∑
+
+> o∈O
+
+p(o|s) log ˜ p(s, o )
+
+]
+
+, (23) 
+
+or compactly 
+
+G(π) = ⟨ℓ, μ π ⟩ + Φ( μπ ), (24) 
+
+where ℓ := ℓt(s, a ) = −Eo∼p(·| s) log ˜ p(s, o ), Φ( μπ ) = − ∑ 
+
+> t
+
+H(ρπt ) is the neg. marginal Shannon entropy, and ⟨· , ·⟩ is the Euclidean inner product on RS×A× [T ].Proof. Starting from (8), the one-step expected free energy at time t depends only on the marginal of the trajectory at t:
+
+Gt(π; m) = ∑
+
+> s∈S
+
+∑
+
+> o∈O
+
+ρπt (s)p(o|s) [log ρπt (s) − log ˜ p(s, o )] . (25) Summing over timesteps on both sides and expanding ρπt (s) = ∑ 
+
+> a
+
+μπt (s, a ) yields the first result. Collecting terms and marginalizing the first μπt yields the second.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+10 Active Inference as a Convex MDP 
+
+Lemma 4. G is convex as a functional of μπ . Further, for each t, the functional Gt is convex in μt,and ρt.Proof. By Eq. (24), 
+
+G(π) = ⟨ℓ, μ π ⟩ + Φ( μπ ) = 
+
+> T
+
+∑
+
+> t=0
+
+[⟨ℓt, μ π ⟩ − H (ρπt )] , (26) where the second inner product is on RS×A . Further, −H is convex as a function of ρt. Since marginalization is linear and a composition of a linear and a convex function is convex, −H is convex as a function of μt,but not strictly convex. The step-t inner products are linear (hence, convex) in μt whenever − log ˜ p is independent of μt, which holds for all variants (Definition 2). Since sums of convex functions are convex, each Gt is convex in μt. G and Φ( μπ ) are also convex in μπ .In the state-action marginals, all variants in Appendix A share the same structure: a linear cost plus a convex negative-entropy term. They differ in the linear cost ℓ and in whether the nonlinearity is the joint negative entropy R (with action complexity) or the state-marginal negative entropy Φ (without action compexity). All optimization machinery below depends only on this distinction. 
+
+Definition 3 (Occupancy Entropies). Throughout we write 
+
+Γ( ·) := ⟨ℓ, ·⟩ + Φ( ·),
+
+so that the general EFE is 
+
+G(π; m) = Γ( μπ ) = ⟨ℓ, μ π ⟩ + Φ( μπ ).
+
+Write the occupancy entropies 
+
+Φ( μ) = ∑
+
+> t,s,a
+
+μt(s, a ) log ∑
+
+> a′
+
+μt(s, a ′) (state negative entropy) , (27) 
+
+Ψ( μ) = ∑
+
+> t,s,a
+
+μt(s, a ) log μt(s, a )
+
+∑ 
+
+> a′
+
+μt(s, a ′) (conditional negative entropy) , (28) 
+
+R(μ) = ∑
+
+> t,s,a
+
+μt(s, a ) log μt(s, a ) (state-action negative entropy) . (29) Note that R = Φ + Ψ .
+
+## C Details on Mirror Descent Active Inference 
+
+We solve the inner problem min π G(π), by mirror descent (Bregman proximal gradient) with the conditional-negative-entropy generator Ψ:
+
+μk+1 ∈ arg min 
+
+> μ∈K
+
+{⟨∇ Γ( μk), μ ⟩ + η−1 
+
+> k
+
+DΨ(μ ∥ μk)}, (30) where 
+
+DΨ(μ∥μk) = ∑
+
+> t,s
+
+ρμt (s)DKL (πμt (·| s)∥πμk 
+
+> t
+
+(·| s)) (31) is the Bregman divergence generated by Ψ. We use Ψ throughout: it yields the closed-form softmax/DP update below. 
+
+Proposition 4 (MD-AIF as softmax dynamic programming). The mirror step (16) with gener-ator Ψ is solved in closed form by the multiplicative (softmax) policy update 
+
+πk+1  
+
+> t
+
+(a|s) ∝ πkt (a|s) exp (ηk Qkt (s, a )),     
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+11 Active Inference as a Convex MDP 
+
+where the free-energy action value Qkt is computed by the backward soft recursion 
+
+QkT = rkT , (32) 
+
+Qkt (s, a ) = rkt (s, a ) + ∑
+
+> s′
+
+p(s′|s, a )V kt+1 (s′), (33) 
+
+V kt (s) = ∑
+
+> a
+
+πkt (a|s)
+
+[
+
+Qkt (s, a ) − η−1 
+
+> k
+
+log πkt (a|s) 
+
+> πk−1
+> t(a|s)
+
+]
+
+, (34) 
+
+with the linearized reward rkt = −∇ Γ( μk)t.Proof. The surrogate reward is the negative gradient of the smooth part Γ = ⟨ℓ, μ ⟩ + Φ at the current iterate. 
+
+Φ depends on μ only through the state marginals ρt(s) = ∑ 
+
+> a
+
+μt(s, a ) and differentiating the step-t marginal directly gives rkt (s, a ) = −ℓt(s, a ) − log ρkt (s) − 1. With Ψ( μ) = ∑ 
+
+> t,s,a
+
+μt(s, a ) log πμt (a|s) the Bregman divergence factorises as 
+
+DΨ(μ∥μk) = ∑
+
+> t,s
+
+ρμt (s)DKL (πμt (·| s)∥πμk 
+
+> t
+
+(·| s)) .
+
+Substituting μt(s, a ) = ρt(s)πt(a|s), the subproblem (16) becomes, up to π-independent terms, 
+
+min 
+
+> π
+
+∑
+
+> t,s
+
+ρπt (s) ∑
+
+> a
+
+πt(a|s)
+
+[
+
+− rkt (s, a ) + η−1 
+
+> k
+
+log πt(a|s) 
+
+> πkt(a|s)
+
+]
+
+subject to (12). Introducing multipliers for the flow constraints identifies them with the value function V kt
+
+and the action value Qkt above, see [19] for details. For each (t, s ) the inner minimization over the simplex is an entropy-regularised linear program whose stationarity condition (one multiplier for normalisation) gives the Gibbs solution πk+1  
+
+> t
+
+(a|s) ∝ πkt (a|s) exp( ηkQkt (s, a )) . Since Qkt depends only on V kt+1 , a single backward pass t = T, . . . , 0 solves the system. This is mirror descent modified policy iteration [22, 28, 29] on a finite horizon problem [19]. 
+
+Proposition 2 (Convergence of MD-AIF). Run Algorithm 1 for K steps with a fixed model m and step size η = 1 /L from a full-support μ0 ∈ K . Then Γ is L-smooth relative to Ψ on the flow polytope with constant L = 12 T (T + 1) , and 
+
+min  
+
+> 0≤k≤K
+
+G(πk; m) − G (π⋆; m) ≤ L D Ψ(μ⋆∥μ0)
+
+K + 1 = O(1 /K ),
+
+where DΨ is the Bregman divergence generated by Ψ( μ) = ∑ 
+
+> t,s,a
+
+μt(s, a ) log πμt (a|s).Proof. The softmax update solves the mirror descent update on Γ with generator Ψ exactly and keeps each iterate interior, so the relative smoothness bound [26, Thm. 3.1] with η = 1 /L holds along the trajectory as long as ⟨∇ 2Γ⟩ ≤ L⟨∇ 2Ψ⟩, which holds as a direct consequence of Theorem 1 below. 
+
+Lemma 5 (Markov contraction). For a Markov kernel K : Y → Z , ν > 0 on Y, signed v on Y:
+
+∥Kv ∥Kν ≤ ∥ v∥ν .Proof. (Kv )( z)2 = ( ∑  
+
+> y
+
+K(z|y)v(y))2 ≤ (Kν )( z) ∑ 
+
+> y
+
+K(z|y) v(y)2 
+
+> ν(y)
+
+by Cauchy–Schwarz; divide by (Kν )( z),sum over z, use ∑ 
+
+> z
+
+K(z|y) = 1 .
+
+Theorem 1 (Relative smoothness). On the polytope tangent space T K , the EFE Γ is L-smooth relative to Ψ on K with L = 12 T (T + 1) .Proof. Relative smoothness for twice differentiable Γ and Ψ is the condition ∇2Γ( μ) ⪯ 12 T (T + 1) ∇2Ψ( μ)
+
+on T K , see [26]. We read the two Fisher metrics off the identity R = Φ + Ψ of Definition 3 at the level      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+12 Active Inference as a Convex MDP 
+
+of Bregman divergences. The Bregman divergence of the joint negentropy R is the sum of per-step relative entropies, and is generally linear in the generating function 
+
+∑ 
+
+> t
+
+DKL (μt∥μ′
+
+> t
+
+)
+
+︸ ︷︷ ︸
+
+> DR
+
+= ∑ 
+
+> t
+
+DKL (ρt∥ρ′
+
+> t
+
+)
+
+︸ ︷︷ ︸
+
+> DΦ
+
++ ∑ 
+
+> t,s
+
+ρt(s) DKL 
+
+(πt(· | s)∥π′
+
+> t
+
+(· | s))︸ ︷︷ ︸
+
+> DΨ
+
+.
+
+The KL-divergence obeys DKL (x, x + δx ) = 12 ∥δx ∥2 
+
+> x
+
++ o(∥δx ∥2), where ∥v∥2 
+
+> x
+
+= ∑ 
+
+> iv(i)2
+> x(i)
+
+is the fisher length at v. Expanding each term to second order yields the Pythagorean split of the per-step Fisher metric and identifies all three quadratic forms at once: 
+
+∑ 
+
+> t
+
+∥δμ t∥2
+
+> μt
+
+︸ ︷︷ ︸
+
+> ∇2R[δμ ]
+
+= ∑ 
+
+> t
+
+∥δρ t∥2
+
+> ρt
+
+︸ ︷︷ ︸
+
+> ∇2Γ[ δμ ]= ∇2Φ[ δμ ]
+
++ ∑ 
+
+> t,s
+
+ρt(s) ∥δπ t(· | s)∥2
+
+> πt
+
+︸ ︷︷ ︸
+
+> ∇2Ψ[ δμ ]
+
+. (35) The only nonlinear part of Γ is Φ = − ∑ 
+
+> t
+
+H(ρt), and Φ depends on μ only through the linear map ρ(·) = ∑ 
+
+> a
+
+μ(·, a ), so its Hessian carries no conditional part, 
+
+∇2Γ[ δμ ] = ∑
+
+> t
+
+∥δρ t∥2 
+
+> ρt
+
+.
+
+Second, the DΨ block of (35) gives 
+
+∇2Ψ[ δμ ] = ∑
+
+> t
+
+∑
+
+> s
+
+ρt(s) ∥δπ t(· | s)∥2 
+
+> πt
+
+.
+
+Thus ∇2Γ and ∇2Ψ are the marginal and conditional blocks of the same per-step Fisher metric. Relative smoothness is the statement that L∇2Ψ upper bounds ∇2Γ for some finite L.The marginal variation δρ t is fully determined by the conditional components {ρt′ δπ t′ }t′<t through the flow map Eq. (12). Writing wt′ := ρt′⊗δπ t′ for the conditional component of δμ t′ (so ∑ 
+
+> s,a
+
+wt′ = ∑ 
+
+> s
+
+ρt′
+
+∑ 
+
+> a
+
+δπ t′ =0), and linearising ρt+1 = Pπt ρt with δρ 0 = 0 and Pπ = π ◦ P gives: 
+
+δρ t = ∑
+
+> t′<t
+
+Kt′→t wt′ , Kt′→t := Pπt−1 · · · Pπt′+1 
+
+︸ ︷︷ ︸ 
+
+> δμ t′→δμ t
+
+P
+
+︸︷︷︸  
+
+> μt′→ρt′+1
+
+.
+
+As a composition of row-stochastic kernels, Kt′→t is itself a Markov kernel. Applying Lemma 5, 
+
+∥Kt′→t wt′ ∥ρt ≤ ∥ wt′ ∥μt′ =
+
+√∑ 
+
+> s
+
+ρt′ (s) ∥δπ t′ (·| s)∥2 
+
+> πt′
+
+.
+
+The triangle and Cauchy–Schwarz inequalities over the t sources give 
+
+∥δρ t∥2 
+
+> ρt
+
+≤
+
+( ∑ 
+
+> t′<t
+
+∥Kt′→twt′ ∥ρt
+
+)2
+
+≤ t ∑
+
+> t′<t
+
+∑ 
+
+> s
+
+ρt′ (s) ∥δπ t′ (·| s)∥2
+
+> πt′
+
+and summing over t with ∑Tt=0 t = 12 T (T + 1) gives 
+
+∇2Γ[ δμ ] = ∑
+
+> t
+
+∥δρ t∥2 
+
+> ρt
+
+≤ 12 T (T + 1) ∑
+
+> t′
+
+∑
+
+> s
+
+ρt′ (s) ∥δπ t′ (·| s)∥2
+
+> πt′
+
+= 12 T (T + 1) ∇2Ψ[ δμ ],
+
+i.e. Γ is L-smooth relative to Ψ on the flow-polytope tangent with L = 12 T (T + 1) .
+
+## D History dependent and infinite horizon formulations 
+
+The episodic memoryless development of Sections B, C and E transfers to history-dependent policies and posterior densities, as well as to the discounted and average-reward settings with appropriate extensions of the standard EFE definition.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+13 Active Inference as a Convex MDP 
+
+D.1 History-dependence 
+
+Consider the finite-horizon reward-free POMDP M = ( S, A, O, P, E, σ ) as before. Further, let the history at time t be ht = ( o0: t, a 0: t−1), updated by ht+1 = ht · (at, o t+1 ) with h0 = ( o0), and let H = ⋃ 
+
+> t<T
+
+(A × O )t × O 
+
+be the space of histories. The behavior policy β : H × T → ∆( A) in the history-dependent case is of the form 
+
+β(at|ht) = ∑
+
+> st
+
+π(at|ht, s t)ν(st|ht) (36) and induces the environment trajectory law 
+
+pβ (τ ) = σ(s0)E(o0|s0) 
+
+> T−1
+
+∏
+
+> t=0
+
+β(at|ht)P (st+1 |st, a t)E(ot+1 |st+1 ). (37) Given a model m = ( p, ν ) with history-dependent variational density ν(st|ht), a latent policy π(at|ht, s t)
+
+induces the purely imagined trajectory law 
+
+qπ (τ ; m) = q0(s0) p(o0|s0) 
+
+> T−1
+
+∏
+
+> t=0
+
+πt(at|ht, s t) p(st+1 |st, a t) p(ot+1 |st+1 ), (38) with predictive history-state marginals ρπt (s, h ) = Pπ (st = s, h t = h).
+
+Lemma 6 (Augmented-state recursion). For history-dependent variational density ν(st|ht), define the augmented state space X = H × S and the augmented kernel 
+
+p(x′|x, a ) = p((s′, h ′)|(s, h ), a ) = 1[h′ = h · (a, o ′)] p(o′|s′) p(s′|s, a ). (39) 
+
+Then the imagined process (38) satisfies 
+
+ρπ 
+
+> 0
+
+= q0, ρπt+1 (x′) = ∑
+
+> x,a
+
+p(x′|x, a ) πt(a|x) ρπt (x), (40) 
+
+where ρπt (( s, h )) = P(st = s, h t = h) are the history-state marginals of the trajectory distribution q at time t.Proof. The imagined law (38) is a product of per-step kernels, hence the law of a Markov process, and 
+
+ht = ( o0: t, a 0: t−1) is a deterministic function of the prefix, so xt = ( ht, s t) is determined by it. Condition on the prefix (s0: t, o 0: t, a 0: t−1) together with at. The only factors carrying the next variables are 
+
+p(st+1 |st, a t) p(ot+1 |st+1 ), so (st+1 , o t+1 ) has conditional law p(s′|st, a t) p(o′|s′), depending on the past only through (st, a t); and ht+1 = ht · (at, o t+1 ) is a deterministic function of (ht, a t, o t+1 ). Since the append is injective, for fixed (h, a, h ′) at most one o′ satisfies h′ = h · (a, o ′), so marginalising ot+1 gives 
+
+p(x′|x, a ) = Pr [xt+1 = ( h′, s ′)|xt = ( h, s ), a t = a] (41) 
+
+= ∑
+
+> o′
+
+1[h′ = h · (a, o ′)] p(o′|s′) p(s′|s, a ), (42) which depends on the past only through (xt, a t): (xt)t is a controlled Markov chain with the augmented kernel. The action satisfies at ∼ πt(·| ht, s t) = πt(·| xt), so the law of total probability gives 
+
+ρπt+1 (x′) = ∑
+
+> x,a
+
+Pr [xt+1 = x′|xt = x, a t = a] πt(a|x) ρπt (x) (43) 
+
+= ∑
+
+> x,a
+
+p(x′|x, a ) πt(a|x) ρπt (x), (44) which is (40), where ρπt (x) is written as a measure on X . The base case fixes ρπ 
+
+> 0
+
+to the law of the initial augmented state x0 = ( h0, s 0) prescribed by (38), written q0 as a measure on X .In the history-dependent case, we would define the EFE as 
+
+E(π; m) = 
+
+> T
+
+∑
+
+> t=0
+
+∑
+
+> x∈X
+
+∑
+
+> a∈A
+
+πt(a|x) ρπt (x)
+
+[
+
+log ρπt (x) − ∑
+
+> o∈O
+
+p(o|s) log ˜ p(x)
+
+]
+
+, (45) where we overload notation and write log ˜ p(x) = log ˜ p(s, o ) as a density on X .     
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo
+
+14 Active Inference as a Convex MDP 
+
+Lemma 2 (History augmentation). The history-dependent version of Eq. (8) given by Eq. (45) 
+
+induces a convex MDP on the augmented state x = ( h, s ).Proof. Lemma 6 applies directly to E, so the optimization problem 
+
+min  
+
+> π
+
+E(π; m) (46) is a convex MDP, but on the augmented state-space X .
+
+Remark 1 (Augmented state in practice). The history component of x ∈ X makes |X | grow with t.In a function-approximation implementation, h is typically summarised by a recurrent state, e.g. write 
+
+x = f (h, s ). Replace s → x and the tabular sweeps of Algorithm 1 remain unchanged. The memoryless variant (Definition 2) drops h entirely and recovers a standard S-state convex-MDP solver. 
+
+D.2 Infinite-horizon formulations 
+
+Extending the EFE to the infinite horizon introduces a choice absent in the finite-horizon case: how the future is aggregated inside the nonlinear entropy term (cf. Table 1). Throughout we work in the stationary regime where M, ℓ, and π are time-homogeneous on the augmented state x = f (h, s ) of Remark 1, now over 
+
+t ∈ N.
+
+Discounted occupancy. Fix γ ∈ (0 , 1) and a stationary π. The normalized discounted occupancy 
+
+dπ (x, a ) = (1 − γ)
+
+> ∞
+
+∑
+
+> t=0
+
+γt μπt (x, a ), ∑
+
+> x,a
+
+dπ (x, a ) = 1 , (47) collapses the time-indexed flow constraints (12), summed against the weights (1 − γ)γt, into the single Bellman-flow constraint 
+
+∑
+
+> a
+
+dπ (x′, a ) = (1 − γ) q0(x′) + γ ∑
+
+> x,a
+
+p(x′|x, a ) dπ (x, a ), x′ ∈ X . (48) The discounted occupancy polytope Kγ = {d ∈ ∆( X × A ) : (48) } is again compact convex, and on full-support policies π 7 → dπ is a bijection with inverse π(a|x) = d(x, a )/d (x) (Definition 1). 
+
+Two aggregation conventions. Since entropy is not additive across the discount weights, the finite-horizon objective G = ⟨ℓ, μ ⟩ − ∑ 
+
+> t
+
+H(ρt) has two inequivalent stationary analogues. 
+
+(a) Aggregate, then score. Apply the entropy to the single aggregate occupancy, 
+
+Gagg  
+
+> γ
+
+(π) = ⟨ℓ, d π ⟩ − H (dπ (x)) = ⟨ℓ, d π ⟩ + Φ( dπ ), (49) the maximum-entropy-exploration objective of [13]. This is a linear functional minus the entropy of a single 
+
+d ∈ K γ , hence convex, and is the cleanest extension: all of Sections B and C applies with μt replaced by d
+
+and the finite recursion of Proposition 4 by the stationary soft-Bellman fixed point 
+
+Qk(x, a ) = rk(x, a ) + γ ∑
+
+> x′
+
+p(x′|x, a ) V k(x′), (50) 
+
+V k(x) = ∑ 
+
+> a
+
+πk(a|x)[Qk(x, a ) − η−1 
+
+> k
+
+log πk (a|x)
+
+> πk−1(a|x)
+
+], (51) with rk = −∇ (⟨ℓ, d ⟩+Φ)( dk), solved to a contraction tolerance inside each mirror step. The natural-gradient reading and O(1 /K ) rate carry over with the discounted relative-smoothness constant [22]. 
+
+(b) Score, then aggregate. Apply the entropy per step, 
+
+Gstep  
+
+> γ
+
+(π) = 
+
+> ∞
+
+∑
+
+> t=0
+
+γt[
+
+⟨ℓ, μ πt ⟩ − H (μπt (x, a ))]
+
+, (52)      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 15 Active Inference as a Convex MDP
+
+the term-by-term analogue of the finite-horizon EFE. By strict concavity of H on the mixture dπ = (1 −
+
+γ) ∑ 
+
+> t
+
+γtμπt ,
+
+H(dπ ) ≥ (1 − γ) ∑
+
+> t
+
+γt H(μπt
+
+), (53) with equality iff all μπt coincide; hence (a) ̸=(b), the aggregate convention crediting occupancy spread across 
+
+time as if spread within a step. Objective (52) is convex in (μt)t but not a function of d alone, so it must be optimized over per-step occupancies (truncated at ∼ (1 − γ)−1), and the backward recursion no longer collapses to a single fixed point. 
+
+Average-reward limit. As γ → 1, convention (a) yields the stationary occupancy 
+
+dπ
+
+> ∞
+
+(x, a ) = lim  
+
+> T→∞
+
+1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+μπt (x, a ), (54) which requires more than Assumption 2: under a unichain assumption [18] on 
+
+pπ (x′|x) = ∑ 
+
+> a
+
+p(x′|x, a )π(a|x), every stationary π induces a unique dπ 
+
+> ∞
+
+independent of q0 and the limit exists. The per-step averages ¯ℓ(π) = lim T 1
+
+> T
+
+∑ 
+
+> t
+
+Eμπt [ℓ] and ¯H(π) = lim T 1
+
+> T
+
+∑ 
+
+> t
+
+H(μπt ) again satisfy ¯H(π) ≥ H (dπ
+
+> ∞
+
+),so aggregation and EFE computation do not commute. The convex-MDP structure and the mirror/natural-gradient solver survive in average-reward form for H(dπ
+
+> ∞
+
+), e.g. [30]; the full AIF loop we leave to future work. 
+
+## E Performative active inference 
+
+In the design of MD-AIF, we made the strong assumption, that the learned model stays fixed during policy optimization. However, the interesting question is whether the optimization problem remains well-posed if the agent is allowed to update its model during policy optimization, which would restore the AIF problem in full spirit. Consider, for example, the Algorithm 2. From the optimized policy’s perspective, now both the reward and the dynamics are functions of the policy, or equivalently, the occupancy. This puts AIF squarely into the framework of performative RL [10, 11]. 
+
+Algorithm 2 Performative MD-AIF with variable world model (sketch). 
+
+Require: initial world model m0 = ( p0, ν 0); horizon T ; initial policy π0; iterations K. 
+
+> 1:
+
+initialise π0 
+
+> t
+
+(·| x) ← ¯πt(·| x) (or uniform) for all t, x  
+
+> 2:
+
+for k = 0 , 1, . . . , K − 1 do  
+
+> 3:
+
+mk+1 ← MIN-VFE (mk; πk) 
+
+> 4:
+
+˜pk+1 , q k+1 0 ← Extract (mk+1 ) 
+
+> 5:
+
+πk+1 ← MD-AIF (πk; mk+1 , ˜pk+1 , T, η, q k+1 0 ) 
+
+> 6:
+
+return πK
+
+To see this, consider the one pass of the full loop (2). Deploying π (behavior β = π◦ν) in the real environment induces the history distribution D(π); the perception step returns the VFE-optimal model 
+
+m⋆(D(π)) ∈ arg min  
+
+> m∈M
+
+F(m; D(π)) =: (pπ , ν π
+
+),
+
+and this refit model is what the planner sees: it supplies a linear pseudo-cost ℓπ and the augmented transition kernel Pπ of Lemma 6, 
+
+ℓπ := ℓ(m⋆(D(π)) ), Pπ := p(m⋆(D(π)) ).
+
+Thus the decision-dependence is the composition 
+
+π D
+
+7−−→ D(π) VFE 
+
+7−−−−→ m⋆(D(π)) 7 −−→ (ℓπ , P π
+
+),
+
+i.e. it runs through the agent’s own model-learning step , not through a primitive environment response: the reward and dynamics react to π only because the model is refit to π’s data. Passing to occupancies through the normalisation πμ(a|x) = μ(x, a )/ ∑ 
+
+> b
+
+μ(x, b ) (cf. [10], eq. (2)), set ℓμ := ℓπμ , Pμ := Pπμ , and the EFE pseudo-reward rμ := −ℓμ.     
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 16 Active Inference as a Convex MDP
+
+Assumption 1 (Smoothness of performative map; cf. [10]). We assume the model-learning loop is (εr , ε p)-sensitive: for all occupancies μ, μ ′,
+
+∥ℓμ − ℓμ′ ∥ ≤ εr ∥μ − μ′∥, ∥Pμ − Pμ′ ∥ ≤ εp ∥μ − μ′∥.
+
+This is [10], Assumption 1, transported onto the refit map μ 7 → m⋆(D(πμ)) ; the proof below uses only 
+
+continuity of μ 7 → (ℓμ, P μ).
+
+Definition 4 (Performative mirror operator). Let Π = ∏Tt=0 
+
+∏ 
+
+> x∈S
+
+∆( A) be the (episodic) policy simplex. Deploying π ∈ Π induces the model mπ = m⋆(D(π)) , the occupancy μπ ∈ K (mπ ), and the linearized reward 
+
+rπt = −(∇μΓ( μ; mπ )∣∣μ=μπ
+
+)
+
+> t
+
+.
+
+Let Qπ be the soft action-value produced from rπ by the backward recursion of Proposition 4 under 
+
+mπ . The performative mirror operator P : Π → Π is the single step 
+
+P(π)t(a|x) = πt(a|x) exp (η Q πt (x, a ))∑ 
+
+> b
+
+πt(b|x) exp (η Q πt (x, b )) . (55) A fixed point π⋆ = P(π⋆) is a performatively stable point. 
+
+Assumption 2 (Support floor). For the fixed model m = ( p, ν ) in the model class, there exists an 
+
+ϵ0 > 0 with p(s′|s, a ) ≥ ϵ0, p(o|s) > 0, q0(s) > 0; M (tabular, floored at ϵ0) is compact convex. 
+
+Proposition 5 (Existence). Under Assumption 2 and the sensitivity assumption 1, P has a fixed point. Proof. Π is a nonempty compact convex polytope. The map P of (55) is single-valued and maps into Π, since each P(π)t(·| s) is an explicit normalised positive vector in ∆( A). Further, it is continuous , since the softmax is smooth and π 7 → Qπ is a finite composition of continuous maps in mπ , which depends continuously on π
+
+by Assumption 1. Brouwer’s theorem gives π⋆ = P(π⋆).
+
+Remark 2 (Fixed points are inner-optimal). At a fixed point π⋆ = P(π⋆) the multiplicative update (55) is inactive, so Qπ⋆ 
+
+> t
+
+(x, a ) is constant across supp π⋆t (·| x). With Qπ⋆
+
+= −∇ Γπ⋆ (μπ⋆
+
+) this is the variational inequality 
+
+〈∇Γπ⋆ (μπ⋆
+
+), μ − μπ⋆ 〉 ≥ 0 ∀ μ ∈ K (mπ⋆ ), (56) the first-order condition for min μ Γπ⋆ (μ). Since Γπ⋆ is convex (Proposition 1), (56) is sufficient for global optimality. With action-complexity (or an additional Ψ-regulariser), the joint-entropy barrier of Proposition 1 keeps the optimum interior and existence (Proposition 5) yields a performatively stable point. Without action complexity, only the support-stationary point of (56), as (55) cannot populate an unplayed action. 
+
+## F Experimental details 
+
+F.1 Convergence experiment 
+
+A deterministic 5 × 5 grid with four actions (left, right, up, down); wall collisions result in staying in place. The agent starts at the top-left corner (state 0) and the goal is at the bottom-right corner (state 24 ). The preference distribution is 
+
+log ˜ p(s) ∝ − α d (s, s goal ), α = 0 .5, (57) where d is the Manhattan distance, normalised to a probability simplex. 
+
+Methods. Three optimizers are compared on the EFE objective with planning horizon H = 12 and K = 100 
+
+iterations each.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 17 Active Inference as a Convex MDP
+
+• MD-AIF (Algorithm 1). Mirror-descent with the conditional-entropy generator Ψ, constant step size η = 0 .05 , matching the assumption of Proposition 2. The linearized reward at iteration k is 
+
+rkt (s, a ) = log ˜ p(s) − log ρkt (s), combining the preference term and the novelty term − log ρkt (s) that rewards imagined states currently under low occupancy. Policy initialised uniformly. 
+
+• RL (greedy, no novelty). Identical to MD-AIF but with the novelty term removed, i.e. rkt (s, a ) = log ˜ p(s). This reduces to soft value iteration on a static reward, equivalent to entropy-regularised policy gradient toward ˜p.
+
+• EFE gradient descent . Euclidean gradient descent on Γ directly in the softmax logit space 
+
+θt ∈ RS×A, using exact reverse-mode autodiff through the occupancy recursion ρt+1 (s′) =∑ 
+
+> s,a
+
+ˆp(s′|s, a )πt(a|s)ρt(s). Constant step size η = 0 .05 .
+
+Convergence plot. The y-axis shows Γ( ρk) − Γ⋆, where Γ⋆ is the minimum across all three methods and all iterates. The O(1 /k ) reference line is fitted to MD-AIF’s initial gap: C/k with C = Γ( ρ0) − Γ⋆. Both axes are logarithmic. 
+
+Occupancy snapshots. For each method at convergence ( k = K), the per-step imagined state occupancy 
+
+ρt(s) is shown at five evenly spaced timesteps t ∈ { 0, ⌊H/ 4⌋, ⌊H/ 2⌋, ⌊3H/ 4⌋, H } = {0, 3, 6, 9, 12 }. Both MD-AIF and RL use the same color scale so occupancy concentrations are directly comparable across rows. 
+
+F.2 Model-learning experiment 
+
+A deterministic 10 × 10 grid ( S = 100 states, A = 4 actions). Start: top-left (state 0); goal: bottom-right (state 99 ). The log-preference is uniform (log ˜ p(s) = const ) so the EFE reduces to pure state-entropy maximization; the only drive is the novelty term − log ρkt (s).
+
+Algorithms. Each of R = 20 rounds proceeds as follows: 1. Run K = 120 policy-optimization steps on the current estimated transition model ˆp (one mir-ror/gradient step per inner iteration). 2. Deploy the resulting policy: sample E = 5 episodes of length H = 25 from the true environment by ancestral sampling ( at ∼ πt(·| st), st+1 ∼ p⋆(·| st, a t)). 3. Refit ˆp by Dirichlet-MAP with pseudocount α0 = 10 −3:
+
+ˆp(s′|s, a ) = ( N (s, a, s ′) + α0)/ ∑
+
+> s′′
+
+(N (s, a, s ′′ ) + α0).
+
+Both the policy optimization and the model update use a constant step size η = 0 .05 throughout (no decay). Four planning algorithms are compared. All share the same deployment and refitting procedure. 
+
+• MD-AIF. Mirror-descent EFE minimization (Algorithm 1), η = 0 .05 .
+
+• RL. MD-AIF without entropy. 
+
+• EFE gradient descent. Euclidean gradient on logits, η = 0 .05 .
+
+• AIF T =3 (exact, [2]). For each state s, enumerate all 43 = 64 action sequences of length Tdc = 3 ,evaluate G(π|s) = ∑
+
+> t′>t
+
+∑ 
+
+> s′
+
+bt′ (s′) log bt′ (s′) for belief state b, form π ∝ ∑ 
+
+> seq :a0=a
+
+exp( −G(seq |s)) ,and marginalise. 
+
+• AIF T =5 (MC). Same as above but with Tdc = 5 and Nmc = 100 randomly sampled sequences per policy computation (Monte Carlo). 
+
+Evaluation. After each deployment round the model error is measured as the mean total-variation distance between the estimated and true kernels: 
+
+TV(ˆ p, p ⋆) = 1
+
+SA 
+
+∑ 
+
+> s,a
+> 12
+
+∥ˆp(·| s, a ) − p⋆(·| s, a )∥1. (58) The x-axis reports cumulative environment steps. The grey dashed line marks the error of the Dirichlet-MAP estimate with no data (prior only): TV ≈ (S − 1) /S = (100 − 1) /100 = 0 .99 .     
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 18 Active Inference as a Convex MDP
+
+## References 
+
+[1] Michael Janner, Justin Fu, Marvin Zhang, and Sergey Levine. When to trust your model: Model-based policy optimization. In Advances in Neural Information Processing Systems (NeurIPS) , volume 32, 2019. [2] Lancelot Da Costa, Thomas Parr, Noor Sajid, Sebastijan Veselic, Victorita Neacsu, and Karl Friston. Active inference on discrete state-spaces: A synthesis. Journal of Mathematical Psychology , 99:102447, 2020. [3] Karl Friston, Francesco Rigoli, Dimitri Ognibene, Christoph Mathys, Thomas Fitzgerald, and Giovanni Pezzulo. Active inference and epistemic value. Cognitive Neuroscience , 6(4):187–214, 2015. [4] David Ha and Jürgen Schmidhuber. Recurrent world models facilitate policy evolution. Advances in neural information processing systems , 31, 2018. [5] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations (ICLR) ,2020. [6] Pietro Mazzaglia, Tim Verbelen, and Bart Dhoedt. Contrastive active inference. In Advances in Neural Information Processing Systems (NeurIPS) , 2021. [7] Tom Zahavy, Brendan O’Donoghue, Guillaume Desjardins, and Satinder Singh. Reward is enough for convex mdps. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, 2021. [8] Junyu Zhang, Alec Koppel, Amrit Singh Bedi, Csaba Szepesvári, and Mengdi Wang. Variational policy gradient method for reinforcement learning with general utilities. In Advances in Neural Information Processing Systems (NeurIPS) , volume 33, 2020. [9] Juan C. Perdomo, Tijana Zrnic, Celestine Mendler-Dünner, and Moritz Hardt. Performative prediction. In Proceedings of the 37th International Conference on Machine Learning (ICML) , volume 119 of PMLR ,pages 7599–7609, 2020. [10] Debmalya Mandal, Stelios Triantafyllou, and Goran Radanovic. Performative reinforcement learning. In 
+
+Proceedings of the 40th International Conference on Machine Learning (ICML) , volume 202 of PMLR ,pages 23642–23680, 2023. [11] Ben Rank, Stelios Triantafyllou, Debmalya Mandal, and Goran Radanovic. Performative reinforcement learning in gradually shifting environments. In Proceedings of the 40th Conference on Uncertainty in Artificial Intelligence (UAI) , volume 244 of PMLR , pages 3041–3075, 2024. [12] Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy max-imum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. [13] Elad Hazan, Sham M. Kakade, Karan Singh, and Abby Van Soest. Provably efficient maximum en-tropy exploration. In Proceedings of the 36th International Conference on Machine Learning (ICML) ,volume 97 of PMLR , pages 2681–2691, 2019. [14] Alekh Agarwal, Sham M Kakade, Jason D Lee, and Gaurav Mahajan. On the theory of policy gradient methods: Optimality, approximation, and distribution shift. Journal of Machine Learning Research ,22(98):1–76, 2021. [15] Thomas Parr, Lancelot Da Costa, and Karl Friston. Markov blankets, information geometry and stochastic thermodynamics. Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences , 378(2164):20190159, 12 2019. [16] Beren Millidge, Alexander Tschantz, and Christopher L. Buckley. Whence the expected free energy? 
+
+Neural Computation , 33(2):447–482, 2021. [17] Pietro Mazzaglia, Tim Verbelen, Ozan Catal, and Bart Dhoedt. The free energy principle for perception and action: A deep learning perspective. Entropy , 24(2):301, 2022. [18] Martin L. Puterman. Markov Decision Processes: Discrete Stochastic Dynamic Programming . Wiley, 1994. [19] Bianca M Moreno, Margaux Brégère, Pierre Gaillard, and Nadia Oudjane. Efficient model-based concave utility reinforcement learning through greedy mirror descent. In International Conference on Artificial Intelligence and Statistics , pages 2206–2214. PMLR, 2024.      
+
+> N. Milosevic et al. •Accepted at IWAI 2026 •github.com/milosen/aif_mbpo 19 Active Inference as a Convex MDP
+
+[20] Pedro Pinto Santos, Alberto Sardinha, and Francisco S. Melo. The number of trials matters in infinite-horizon general-utility markov decision processes. In Forty-second International Conference on Machine Learning , 2025. [21] Amir Beck and Marc Teboulle. Mirror descent and nonlinear projected subgradient methods for convex optimization. Operations Research Letters , 31(3):167–175, 2003. [22] Guanghui Lan. Policy mirror descent for reinforcement learning: Linear convergence, new sampling complexity, and generalized problem classes. Mathematical Programming , 198(1):1059–1106, 2023. [23] Shun-Ichi Amari. Natural gradient works efficiently in learning. Neural computation , 10(2):251–276, 1998. [24] Sham M Kakade. A natural policy gradient. Advances in neural information processing systems , 14, 2001. [25] Garvesh Raskutti and Sayan Mukherjee. The information geometry of mirror descent. IEEE Transac-tions on Information Theory , 61(3):1451–1457, 2015. [26] Haihao Lu, Robert M. Freund, and Yurii Nesterov. Relatively smooth convex optimization by first-order methods, and applications. SIAM Journal on Optimization , 28(1):333–354, 2018. [27] Stephane Ross, Geoffrey Gordon, and Drew Bagnell. A reduction of imitation learning and structured prediction to no-regret online learning. In Geoffrey Gordon, David Dunson, and Miroslav Dudík, ed-itors, Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics ,volume 15 of Proceedings of Machine Learning Research , pages 627–635, Fort Lauderdale, FL, USA, 11–13 Apr 2011. PMLR. [28] Lin Xiao. On the convergence rates of policy gradient methods. Journal of Machine Learning Research ,23(282):1–36, 2022. [29] Matthieu Geist, Bruno Scherrer, and Olivier Pietquin. A theory of regularized Markov decision pro-cesses. In Kamalika Chaudhuri and Ruslan Salakhutdinov, editors, Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pages 2160– 2169. PMLR, 09–15 Jun 2019. [30] Jacob Adamczyk, Volodymyr Makarenko, Stas Tiomkin, and Rahul V Kulkarni. Average-reward soft actor-critic. Reinforcement Learning Journal , 6:412–430, 2025.

@@ -1,0 +1,480 @@
+Title: AptAvatar: Fast and Vivid Long-Form Audio-Driven Video Generation for Production-Ready Avatars
+
+URL Source: https://arxiv.org/pdf/2607.24013v1
+
+Published Time: Tue, 28 Jul 2026 01:56:35 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# AptAvatar: Fast and Vivid Long-Form Audio-Driven Video Generation for Production-Ready Avatars 
+
+Hengyuan Zhang ∗, Jingna Sun ∗, Meiguang Jin †, Junfeng Ma 
+
+Alibaba Group, Taobao and Tmall Group 
+
+Abstract 
+
+Production-ready audio-driven avatar generation requires ef-ficient inference without sacrificing fidelity or motion expres-siveness. However, existing acceleration methods often com-promise quality through restrictive architectural choices, such as causal attention and short temporal horizons, or by reducing model capacity and resolution. Without such compromises, we propose AptAvatar , a 14B-parameter long-form audio-driven avatar generation framework that delivers fast and expressive inference. For efficiency in production-level applications, Ap-tAvatar addresses the extreme two-step generation challenge. To bridge the gap between the multi-step teacher model and the two-step student model, we introduce Endpoint-Anchored Distribution Distillation . It augments vanilla distribution matching with a dedicated Anchor Score Estimator trained on the trajectory-endpoint distribution defined from a frozen pretrained 4-step bridge generator. This provides an attain-able endpoint-level anchor for the evolving two-step student. To improve long-horizon consistency, we further introduce 
+
+Self-Generated History Replay , which reuses cached out-puts from earlier generator checkpoints as history conditions during chunk-wise training. This approximates inference-time conditioning on self-generated histories without costly on-line rollouts, mitigating quality degradation from accumu-lated history errors. Extensive experiments demonstrate that AptAvatar generates vivid 720p long-form avatar videos with only 2 NFEs, achieving a 60 × speedup while preserving vi-sual fidelity and long-horizon identity. Code is available at https://github.com/TaoLiveAIGC/AptAvatar. 
+
+1 Introduction 
+
+We study audio-driven avatar video generation: given speech audio, a reference image, and a text prompt, the model syn-thesizes a realistic human-centric video with synchronized speech and temporally coherent motion. Recent diffusion-based methods (Gao et al. 2025; Chen et al. 2025; Team et al. 2026) have markedly advanced the visual fidelity and motion expressiveness of audio-driven avatars. However, production-ready systems must addition-ally support efficient inference and stable long-form syn-thesis, creating a fundamental tension between generation quality and deployment efficiency. High-fidelity generation typically relies on large-capacity bidirectional models, long temporal windows, and multi-step denoising, whose com-putational cost grows rapidly with both spatial resolution 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. 
+
+and video duration. To improve efficiency, existing accel-eration methods (Yin et al. 2025; Zhu et al. 2026; Huang et al. 2026) often introduce compromises such as causal at-tention, reduced model capacity, or shortened temporal win-dows, thereby weakening spatiotemporal modeling, motion expressiveness, and visual quality. In this work, we target a more demanding setting: fast and vivid long-form audio-driven avatar generation without re-sorting to causal attention or shortened temporal windows. We pursue extreme efficiency via two-step denoising while preserving high-resolution fidelity and long-term consis-tency for production use. This setting poses two challenges: 
+
+(1) the endpoint-distribution gap under extreme two-step distillation, and (2) exposure bias arising from the training– inference mismatch in long-form autoregressive generation. For the first challenge, aggressive step reduction induces a large endpoint-distribution gap, leaving the multi-step teacher too distant to directly supervise two-step optimiza-tion. Existing methods bridge this gap with GAN-style dis-criminators (Yin et al. 2024a; Liu et al. 2026a; Feng et al. 2026) or reference priors (Wu et al. 2024; Ren et al. 2024), yet the former is unstable and artifact-prone, while the lat-ter biases the denoising trajectory and suppresses motion. For the second challenge, training conditions each chunk on clean history while inference relies on imperfect self-generated history, inducing exposure bias and cumulative identity drift. Recent methods (Huang et al. 2026; Shen et al. 2025) mitigate this mismatch via online self-rollouts but in-cur prohibitive compute and memory costs from repeatedly generating and propagating motion frames or KV caches. To address these challenges, we propose AptAvatar ,which distills a full-capacity 14B bidirectional diffusion model into a two-step generator while retaining 720p res-olution and a 3-second temporal window per chunk, without causal attention or capacity reduction. This is enabled by two complementary designs. First, we introduce Endpoint-Anchored Distribution Dis-tillation (EADD) to stabilize extreme two-step distillation. Since early student samples can deviate substantially from the target distribution, the distant teacher score becomes ineffec-tive for direct optimization. EADD augments standard dis-tribution matching with an Anchor Score Estimator trained on the stationary endpoint distribution of a frozen pretrained four-step bridge generator. Unlike the fake score estimator, arXiv:2607.24013v1 [cs.CV] 27 Jul 2026 AptAvatar: Fast and Vivid Long-Form Avatar Generation 2-NFE 60x fast Infinite length Fine-Grained Text Control                                 
+
+> INPUTS
+> Reference + Audio + Text
+> Controls identity, speech-driven
+> motion, and fine-grained actions.
+> Reference images
+> ref 1 ref 2 ref 3
+> Speech audio
+> Action prompts
+> SPREAD the white vest outward
+> STROKE the hair with the hand
+> Apt Avatar
+> 14B · 720p · 2-NFE Generation
+> 0
+> Noise
+> 1
+> Step 1
+> 2
+> Step 2
+> Garment Ineraction
+> Prompt: "spread the white vest outward with both hands "
+> t0 t1 t2 Gesture Close-up
+> Coordinated
+> body-scale
+> motion
+> Large-Scale
+> Vivid Text-Guided Motion
+> Hair Contact
+> Prompt: "stroke the hair with left hand "
+> Contact Detail
+> Hand sweeping
+> the hair aside
+> fine-
+> grained LONG VIDEO Identity-Consistent &Infinite-Length
+> Fixed Ref ID Long Audio
+> 0s
+> Production-Ready
+> Production Scenarios
+> PAI Presenters Live Commerce
+> COnline Course Virtual Assistants
+> t0 t1 t2
+> 10 s20 s60 s300 s1000 s
+> 0s30 0s100 0s
+> Short Video Short Video
+> Fine-Detail
+> $
+> A
+
+Figure 1: Teaser of AptAvatar . Given a reference identity, speech audio, and action prompts, AptAvatar generates 720p avatar videos with natural audio-driven motion and support for fine-grained text control over specific actions and interactions. Using only 2 NFEs, AptAvatar preserves vivid motion, identity consistency, and stable long-form synthesis, achieving a 60 × inference speedup for production-ready avatar applications. whose target drifts with the evolving student, the anchor score estimator provides a stable and attainable endpoint reference that complements the teacher score throughout two-step optimization. Second, we propose Self-Generated History Replay (SGHR) to mitigate long-horizon error ac-cumulation without recurrent full-sequence rollouts. SGHR caches detached chunks generated by earlier student states and stochastically replays them as history conditions, expos-ing the model to diverse self-generated degradations while requiring only one new chunk per iteration. It therefore ap-proximates inference-time self-conditioning at substantially lower training cost. Extensive experiments demonstrate that AptAvatar gener-ates high-quality 720p long-form avatar videos with only 2 NFEs, achieving a 60 × inference speedup over the multi-step baseline (Yang et al. 2025b) while preserving visual fidelity, expressive motion, and long-horizon identity consistency. Our main contributions are summarized as follows: 
+
+• Stable Extreme Two-Step Distillation : We introduce Endpoint-Anchored Distribution Distillation for extreme two-step compression. It anchors standard DMD to the endpoint distribution of a frozen four-step bridge, en-abling stable optimization while preserving visual fidelity. 
+
+• Efficient Long-Horizon Self-Conditioning : We pro-pose Self-Generated History Replay to improve self-conditioning training. It replays cached student outputs as history conditions, mitigating quality degradation over long-horizon generation. 
+
+• Production-Ready Efficiency and Vividness : AptA-vatar achieves state-of-the-art performance in both short-and long-form 720p avatar generation. With only 2 NFEs, it delivers a 60 × inference speedup while maintaining vi-sual fidelity, expressive motion, and identity consistency. 
+
+2 Related Work 
+
+2.1 Audio-driven Avatar Video Generation. 
+
+Audio-driven avatar video generation aims to produce real-istic talking videos from speech, text, and a reference image, with accurate lip synchronization, faithful identity preserva-tion, and expressive motion. Early methods decouple motion from appearance, relying on region-specific GAN synthe-sis (Prajwal et al. 2020) or 3D motion representations with neural rendering (Zhang et al. 2023), and mostly target facial or talking-head animation. Diffusion-based methods instead cast the task as end-to-end conditional generation, jointly modeling appearance and audio-driven dynamics (Tian et al. 2024; Lin et al. 2025). Recent video DiTs such as Wan-S2V (Gao et al. 2025), InfiniteTalk (Yang et al. 2025b), and LongCat-Video-Avatar (Team et al. 2026) extend this to full-body, long-form, and cinematic generation. MultiTalk (Kong et al. 2026) and HunyuanVideo-Avatar (Chen et al. 2025) fur-ther support multi-person conversations by binding multiple speakers to their audio streams. 
+
+2.2 Distribution Matching Distillation. 
+
+Diffusion distillation accelerates sampling via trajectory re-gression (Frans et al. 2025), consistency learning (Lu and Song 2025), and distribution matching (Yin et al. 2024b,a). Among these, Distribution Matching Distillation aligns the student’s output distribution with a pretrained teacher at inter-mediate noise levels, enabling few-step generation while pre-serving its generative prior, and has since been strengthened with adversarial objectives (Yin et al. 2024a) and trajectory-aware formulations (Luo et al. 2025). Recent analyses further clarify its mechanism: Decoupled DMD (Liu et al. 2025) at-tributes few-step conversion mainly to a CFG-augmentation engine with distribution matching as a stabilizing regularizer, History 
+
+> Video
+
+（a) Overall Framework    
+
+> 2-Step
+> Generator
+> Chunk K
+> Fake
+> Score
+> Anchor
+> Score
+> Real
+> Score
+> CFG
+> renoise
+> renoise
+> renoise
+> CFG
+> DMD Loss
+> DMD Loss
+> Gradients
+> Gradients
+> 4-Step Brige
+> Generator
+> 2-Step
+> Generator
+> Step 1 Step 4
+> 4-Step Infer
+> Step 1 Step K
+> Random K-Step Infer
+> renoise
+> Anchor
+> Score
+> Fake Score Flow-Matching
+> Loss
+> Flow-Matching
+> Loss
+> renoise
+
+（b) Endpoint-Anchored Distribution Distillation         
+
+> Param-Updating
+> Generator
+> Param-Updating
+> Generator
+> Param-
+> Updating
+> Generator
+> Ref History Prompt Audio
+> Memory
+> Bank
+> Chunk K
+> Cache
+> Replay
+> K-1 Chunk
+> Generator /
+> Critic Update
+> Ours: SGHR Offline Replay
+> Efficient Training
+> Costly Recurent
+> generation
+> With Backprop
+> Param-Fix
+> Generator
+> Generator /
+> Critic Update
+> Chunk 1 Chunk K
+> random rollout K chunks
+> No Backprop
+> Chunk K
+> Previous work: Online Self-Rollout Online Rollout
+> EADD:Generator Update EADD:Critic Update
+
+（c) Self-Generated History Replay     
+
+> wav2vec
+> Clip Model
+> T5 Encoder
+> 3DVAE
+> Encoder
+> Ref Img
+> noisy
+> latent
+> EADD
+> Self Attention
+> Cross Attention
+> Audio Cross
+> Attention
+> Feed Forward
+> DiT ×N
+> 2-Step
+> Generator
+> C
+> Update Conditions with Ours SGHR
+> Trainable
+> Frozen
+> Chunk K
+> CChannel-wise
+> Concat
+> Motion
+> Frames
+
+Figure 2: Overview of AptAvatar. (a) The overall chunk-wise framework encodes audio, text, reference image, and video history conditions, then generates the next chunk with a two-step DiT generator. EADD supervises two-step distillation, and SGHR updates the history conditions used during training. (b) EADD introduces an anchor score estimator learned from the endpoint distribution of a frozen four-step bridge generator, providing a stable target for four-to-two-step distillation. (c) SGHR replays cached self-generated chunks from earlier checkpoints as history conditions, approximating inference-time self-conditioning without costly online rollouts. while other work interprets DMD as reinforcement learning with the teacher as an implicit reward (Jiang et al. 2025). 
+
+2.3 Long-Form Video Generation. 
+
+Long-form video generation is commonly formulated as chunk-wise autoregression, where each segment conditions on bounded history represented by rolling KV caches, pre-ceding motion frames, or compressed contexts (Zhang et al. 2026). Recent methods extend generation to minute-scale horizons through few-step causal distillation (Yin et al. 2025), autoregressive self-rollout training (Huang et al. 2026), and techniques such as KV recaching, frame-sink attention, and long-rollout supervision (Yang et al. 2025a; Cui et al. 2025). Similar paradigms have been adopted for streaming audio-driven avatars, including causal few-step models with long-horizon stabilization (Huang et al. 2025) and chunk-wise bidirectional models with retrospective cor-rection (Shen et al. 2025). 
+
+3 Method 
+
+As illustrated in Fig. 2, AptAvatar enables two-step long-form avatar generation through two complementary designs: 
+
+Endpoint-Anchored Distribution Distillation , which sta-bilizes extreme two-step compression, and Self-Generated History Replay , which mitigates error accumulation in au-toregressive long-form generation. We first describe the four-step bridge generator, then these two designs. 
+
+3.1 Preliminaries: Four-Step Generator 
+
+We adopt InfiniteTalk (Yang et al. 2025b) as the backbone and fine-tune it on in-domain avatar data to obtain a strong bidi-rectional teacher, which is progressively distilled via ODE initialization and DMD into a four-step bridge generator that provides an attainable target for subsequent two-step distil-lation. 
+
+ODE Initialization. Following prior few-step video dis-tillation (Yin et al. 2025; Huang et al. 2026), we use our fine-tuned teacher to generate deterministic ODE trajecto-ries as supervision targets, and train a student Gϕ to regress their endpoints. Denoting the clean sample from solving the ODE as SODE 
+
+ψ (·), the objective is: 
+
+LODE (ϕ) = Et, z t
+
+h
+
+Gϕ(zt, c) − S ODE 
+
+ψ (zt, c) 22
+
+i
+
+, (1) with t from the discrete four-step schedule. This provides stable initialization for subsequent four-step distillation. 
+
+Four-Step Distribution Matching Distillation. Although the ODE-initialized generator typically exhibits low fidelity and blurred motion, it serves as a good starting point that accelerates convergence and stabilizes the subsequent train-ing. Building on it, we further apply Distribution Matching Distillation (DMD) to stably compress the sampling steps and distill the guided teacher into a guidance-free student. Specifically, DMD reduces the distributional divergence between the student and teacher at each noise level by min-imizing the reverse Kullback–Leibler divergence, leading to the following tractable score-based gradient: 
+
+∇ϕLDMD = −Et, z
+
+
+
+(sr (Ψ( Gϕ)) − sf (Ψ( Gϕ))) ∂G ϕ
+
+∂ϕ 
+
+
+
+,
+
+(2) where sr and sf denote the real and fake score estimators, given by the frozen teacher and the trainable critic, respec-tively. Gϕ denotes the four-step generator, and Ψ represents the forward diffusion process. 
+
+3.2 Endpoint-Anchored Distribution Distillation 
+
+Although the four-step model already provides substantial ac-celeration, further reducing the sampling budget to two steps is crucial for improving generation efficiency. However, di-rect four-to-two-step distillation suffers from severe quality degradation such as blurry motion and distorted hands, since student-generated samples can drift far from regions well supported by the target distribution, so that the real score becomes unreliable and fails to provide an attainable opti-mization direction (Bai et al. 2026; Liu et al. 2026a; Wu et al. 2026). To address this issue, we propose Endpoint-Anchored Distribution Distillation (EADD). To mitigate this distribution gap, existing approaches typically introduce auxiliary guidance through either (i) a GAN-style discriminator that provides adversarial supervi-sion from real samples (Yin et al. 2024a; Liu et al. 2026a; Feng et al. 2026; Liu et al. 2026b; Cheng et al. 2026), or (ii) a reference prior injected into the initial noise to ease few-step denoising (Wu et al. 2024; Ren et al. 2024; Li et al. 2024; Yi et al. 2025). However, the former is difficult to optimize because its coarse real–fake objective provides insufficient token-level guidance, often introducing artifacts, whereas the latter suppresses motion dynamics and reduces diversity. Therefore, distinct from these, we augment vanilla distribu-tion matching with a dedicated Anchor Score Estimator 
+
+trained on the trajectory-endpoint distribution defined by the frozen four-step bridge generator, which provides a more at-tainable and informative distribution to anchor the two-step generator toward the real distribution. 
+
+Endpoint Anchor Score. Let Gθ be the evolving two-step generator and Gϕ the frozen four-step bridge generator ob-tained before. Given noise z and condition c (audio, reference image, text prompt, and motion frames), the bridge produces an endpoint 
+
+ˆxϕ 
+
+> 0
+
+= GT →0 
+
+> ϕ
+
+(z, c) (3) through its full four-step inference trajectory. Here, T ∈{4, 2} denotes the total number of denoising steps. We then diffuse this endpoint via the forward process Ψ and train the anchor score estimator sa with a standard denoising objec-tive: 
+
+Lanchor = Et, z
+
+
+
+sa(Ψ( Gϕ)) − ˆxϕ
+
+> 0
+> 22
+
+
+
+. (4) Unlike the fake score estimator sf used in the current two-step distillation, the anchor score estimator is learned from a fixed target distribution. Specifically, sf must track a moving target : the 2-step generator marginal at a randomly sampled exit timestep t, given by ˆzθt = GT →tθ (z, c), which keeps shifting as 2-step generator is updated. In contrast, the anchor score is fitted to the endpoint distribution of the frozen bridge in Eq. (3), which stays fixed throughout training. Distribution matching between the anchor and fake scores therefore guides the 2-step generator toward the bridge endpoint distribution, providing a closer and more attainable target than the distant distribution of real score. 
+
+Anchor-Guided Generator Update. Following DMD, we update the two-step generator using the score difference be-tween the anchor estimator and the fake estimator: 
+
+∇θ LEADD = −Et, z
+
+
+
+(sa(Ψ( Gθ )) − sf (Ψ( Gθ ))) ∂G θ
+
+∂θ 
+
+
+
+.
+
+(5) Unlike the real score, which attracts the generator toward the distant teacher distribution, the anchor score provides a closer and more attainable endpoint-level target, thereby offering more reliable guidance for two-step optimization. We combine this endpoint-anchored gradient with the standard DMD gradient: 
+
+∇θ Lgen = ∇θ LDMD + λeadd ∇θ LEADD , (6) where the DMD term promotes alignment with the teacher through the real score, while the EADD term guides the 2-step generator toward the more accessible bridge-endpoint distribution through the anchor score. Their combination re-duces the difficulty of directly matching a distant teacher while retaining teacher-aligned supervision. Since the anchor serves as a proxy for the real score, we generate the bridge endpoints in Eq. (3) under random con-dition dropout, aligning its behavior with the classifier-free guidance of the real score and thereby stabilizing the 2-step generator’s conditional training. 
+
+3.3 Self-Generated History Replay 
+
+Rethinking online-rollout history alignment. In chunk-wise autoregressive video synthesis, conditioning on ground-truth history during training but on self-generated history during inference creates a history-conditioning exposure bias that accumulates errors over long horizons. Existing methods (Cui et al. 2025; Shen et al. 2025) typ-ically rely on recurrent online self-rollouts during training, propagating history through generated motion frames or KV caches and thereby incurring substantial compute and mem-ory overhead, especially in our 720p setting without short-ening the temporal horizon. We instead argue that faithful history alignment need not 
+
+regenerate the current model’s exact history online. What matters is exposing the generator to a sufficiently representa-tive distribution of self-generated degradations encountered at inference. Motivated by replay buffers in reinforcement learning (Lin 1992; Mnih et al. 2015), we introduce a Mem-ory Bank that caches chunks from earlier generator check-points and reuses them as history conditions. These cached chunks serve a dual role: they approximate online rollouts without regenerating them, and the degraded outputs accu-mulated across past generator states further enrich the history distribution seen by the generator. 
+
+Stack-Based Replay with Stochastic Depth. We main-tain a stack-structured memory bank B, whose each entry 
+
+(ˆ xθ
+
+> 0
+
+, m, K ) stores a detached clean chunk ˆxθ
+
+> 0
+
+, its memory context m = {ctxt , cref , h} —comprising the text prompt, reference image, and history motion frames —and the replay depth K. Together with the driving audio caud , it forms the complete condition c = m ∪ { caud }. In both generator- and critic-update phases, the generator produces only a single 
+
+chunk per iteration, with its context memory context ran-domly sampled via p ∼ U (0 , 1) from either the stack top or the ground-truth context. 
+
+(m, K ) = 
+
+(top( B), p ≤ prep and B̸ = ∅,
+
+(mgt , 0) , otherwise , (7) Conditioned on this context, the generator unrolls the 
+
+(K+1) -th chunk from pure noise. For the training gradient, a timestep is randomly sampled from the few-step sched-ule , and the loss is evaluated on the intermediate output 
+
+G(K+1 , t ) 
+
+> θ
+
+(z, c), the result of denoising this chunk from pure noise down to timestep t. To refresh the memory bank, the generator then continues the denoising to t = 0 , and the resulting clean chunk is detached and pushed back with in-cremented depth: 
+
+B ← Push  B, (sg( G(K+1 , 0)  
+
+> θ
+
+), m′, K +1) . (8) where sg( ·) is the stop-gradient, m′ denotes the memory context updated with G(K+1 , 0)  
+
+> θ
+
+as the new history, and the cached memory chain is reset once K = Kmax . Conditioning on the stack top thus mimics the (K+1) -th chunk of an online rollout, yet keeps gradients within the current chunk alone. Under this scheme, the generator is updated by 
+
+∇θ L = E t∼T (k),z,K 
+
+h
+
+∇θ Lgen 
+
+ G(K+1 , t ) 
+
+> θ
+
+(z, c)i
+
+, (9) and the fake-score and anchor score estimators are likewise trained on the same chunk G(K+1 , t ) 
+
+> θ
+
+.Since θ continuously evolves during training, chunks within the same replay chain are generated by different his-torical generator states, naturally exhibiting heterogeneous levels and patterns of degradation. Replaying such mixed-quality histories exposes the current generator to a broader range of imperfect contexts, rather than a fixed error dis-tribution. This improves its robustness to accumulated self-generated errors during long-form inference. 
+
+4 Experiments 
+
+4.1 Experimental Settings 
+
+Implementation. We adopt InfiniteTalk (Yang et al. 2025b) as the backbone architecture and optimize it for the AptAvatar framwork. The training pipeline consists of two stages. First, supervised fine-tuning (SFT) stage is performed to adapt to the current data distribution and incorporate historical frames. Second, based on the Self-Forcing training frame-work (Huang et al. 2026), we build our AptAvatar framwork. The training learning rates are set to 2 × 10 −6 for the gener-ator and 4 × 10 −7 for the fake score model and the Anchor Score Estimator, with a 1:5 update ratio. Experiments are carried out on 32 NVIDIA H20 GPUs, using a batch size of 1 per GPU. 
+
+Datasets. We collect a large-scale video dataset of approxi-mately 400 hours, which is used consistently across all train-ing stages. The dataset covers diverse scenarios, including seated and standing poses, as well as various background settings. To better evaluate the model, We construct two test datasets: one contains 100 videos of 15 seconds each, with faces mosaicked due to copyright issues, and the other con-tains 20 videos of 1 minute each. 
+
+Evaluation Metrics. For evaluation, we adopt a compre-hensive set of metrics to assess both visual quality and temporal consistency. Specifically, we use the Aesthetics Score Evaluation (ASE) (Wu et al. 2023) to evaluate aes-thetic quality. Lip-audio synchronization is measured by Sync-C and Sync-D (Chung and Zisserman 2016). We fur-ther employ VBench (Huang et al. 2024) to evaluate tem-poral quality from multiple perspectives, including Subject Consistency (Subject-C), Background Consistency (BG-C), Motion Smoothness (Motion-S), and Temporal Flickering (Temporal-F). Additionally, we report Fréchet Inception Dis-tance (FID) for frame-level visual fidelity. 
+
+4.2 Main Result 
+
+Quantitative Analysis. We compare AptAvatar with recent state-of-the-art audio-driven avatar methods. For multi-step diffusion models, InfiniteTalk (Yang et al. 2025b) and Wan-S2V (Gao et al. 2025) are the typical audio-driven methods and provide a benchmark of metrics under multi-step mod-els. For few-step long video generator models, the LiveA-vatar (Huang et al. 2026), SoulX-FlashTalk (Shen et al. 2025), and LongCat-Video-Avatar (Team et al. 2026) are the recent attention-grabbing long-video generation approaches. They can extend video generation to the minute scale, which is particularly challenging for long-horizon generation. Table 1 reports the quantitative comparison with recent state-of-the-art methods on both short-video and minute-level long-video benchmarks. With only 2 NFEs, AptAvatar achieves the best result on every reported metric across both benchmarks, demonstrating significant advantages in visual quality, temporal consistence, and audio–visual synchroniza-tion. SoulX-FlashTalk ranks second on most metrics, yet still falls notably short of AptAvatar in short-video FID and ASE. Moreover, these aggregate metrics alone do not capture all aspects of long-video generation. As shown in Fig. 4, these The palms are open and facing the sides of the face . gently stroking the hair with the left hand 
+
+spreading the hem of the white vest outward to both sides resting the chin on the hand Figure 3: Fine-grained text-guided motion generation. AptAvatar faithfully follows action-specific textual prompts and produces the corresponding expressove movements. LiveAvatar  Longcat-Video-          
+
+> Avatar-1.5
+> Soulx-Flashtalk  Wan2.2-S2V  Ours
+> (AptAvatar)
+> Hand
+> artifacts
+> Stable
+> Identity
+> Expressive
+> Motion
+> Time 0s 4s 8s 12s 15s 0s 15s 30s 45s 60s
+
+Short-video Minute-level Long-video Assessment Close-up Comparison     
+
+> Wan2.2-S2V
+> Ours
+> Longcat-Video-Avatar-1.5
+> 0s 30s 60s
+> LiveAvatar(short) LiveAvatar(long)
+> Wan2.2-S2V(short) Wan2.2-S2V(long)
+> Hand
+> artifacts
+> Identity
+> drift
+> Limited
+> motion
+> diversity
+> Identity
+> drift
+> Identity
+> drift
+
+Figure 4: Visual comparison on short-video and minute-level long-video test sets. AptAvatar preserves hand integrity, identity consistency, and expressive motion across both short- and long-form generation. methods suffer from visible identity drift, hand artifacts, or limited motion when extended to long-video generation. 
+
+Qualitative Analysis. Fig. 4 presents sampled frames from the two test sets. LiveAvatar suffers from incomplete hands, SoulX-FlashTalk produces limited motion, and LongCat-Video-Avatar and Wan-S2V degrade in identity consistency and visual quality on minute-level videos. In Fig. 3, our method also responds more faithfully to fine-grained text in-structions, such as “spreading the hem of the white vest out-ward to both sides,” while competing methods often miss the intended motion. Overall, AptAvatar better preserves iden-tity and visual quality while generating more diverse and text-responsive motions. 
+
+User Study. We further conduct a GSB user study on 100 short videos, evaluating motion diversity, hand integrity, vi-sual consistency, identity preservation, and video coherence. Videos from different methods are randomly shuffled and anonymized for 10 raters. As shown in Fig. 5, AptAvatar Methods NFE FID ↓ Subject-C ↑ BG-C ↑ Motion-S ↑ Temporal-F ↑ ASE ↑ Sync-C ↑ Sync-D ↓
+
+Short-video benchmark 
+
+InfiniteTalk 120 24.808 96.889 95.568 99.512 99.318 3.146 7.172 8.010 Wan2.2-S2V 80 43.542 97.151 95.663 99.385 99.216 3.119 5.626 9.376 LongCat-Video-Avatar 1.5 8 36.582 96.338 94.533 99.550 99.332 3.191 4.140 11.433 LiveAvatar 4 37.868 97.804 95.718 99.409 99.226 3.184 5.986 8.586 SoulX-FlashTalk 4 28.039 98.580 96.530 99.550 99.434 3.172 7.743 7.912 
+
+AptAvatar (Ours) 2 24.759 98.589 96.844 99.561 99.456 3.307 7.865 7.739 
+
+Minute-level long-video benchmark 
+
+InfiniteTalk 120 – 96.670 94.897 99.579 99.371 3.149 8.178 7.870 Wan2.2-S2V 80 – 97.037 94.883 99.491 99.402 3.186 6.173 9.541 LongCat-Video-Avatar 1.5 8 – 95.374 93.111 99.559 99.373 3.274 7.492 8.854 LiveAvatar 4 – 98.115 96.001 99.452 99.310 3.272 6.654 9.008 SoulX-FlashTalk 4 – 98.840 96.306 99.601 99.533 3.246 7.976 8.316 
+
+AptAvatar (Ours) 2 – 98.895 96.489 99.634 99.623 3.382 8.398 7.775 
+
+Table 1: Quantitative comparison with state-of-the-art audio-driven avatar generation methods on short-video and minute-level long-video benchmarks. Best results are in bold. 
+
+Variant NFE FID ↓ Subject-C ↑ BG-C ↑ Motion-S ↑ Temporal-F ↑ ASE ↑ Sync-C ↑ Sync-D ↓
+
+Short-video benchmark 
+
+Vanilla DMD 4 27.825 98.389 96.717 99.529 99.393 3.178 7.685 7.714 Ours w/o ASE 2 29.212 98.552 96.819 99.537 99.424 3.162 7.611 7.749 
+
+Ours 2 24.759 98.589 96.844 99.550 99.456 3.191 7.865 7.709 
+
+Minute-level long-video benchmark 
+
+Vanilla DMD w/ SGHR 4 – 98.472 96.202 99.611 99.559 3.241 8.250 7.834 Vanilla DMD w/ online-rollout 4 – 98.390 96.198 99.606 99.476 3.207 8.195 7.906 Ours w/o ASE 2 – 98.882 96.472 99.632 99.615 3.237 8.322 7.807 
+
+Ours 2 – 98.895 96.489 99.634 99.623 3.274 8.398 7.775 
+
+Table 2: Ablation study of AptAvatar on short-video and minute-level long-video benchmarks. “w/o ASE” removes the Anchor Score Estimator, using vanilla DMD. The online-rollout row is kept for the corresponding history-alignment variant. Human Preference Win Rate             
+
+> User study results (GSB metric) across five evaluation aspects
+> 10 Raters
+> 100 Videos
+> 62%
+> 20%
+> 18%
+> 0% 1AptAvatar (ours) 62%
+> 2SoulX-FlashTalk 20%
+> 3LongCat-Video-Avatar 1.5 18%
+> 4LiveAvatar 0%
+> 5Wan2.2-S2V 0%
+> Five aspects: Motion Diversity, Hand Integrity,
+> Visual Consistency, Identity Preservation,
+> and Video Coherence.
+
+Figure 5: Human preference win rate under the GSB protocol. obtains the highest win ratio, with 62% of the votes, com-pared with 0% for LiveAvatar, 20% for SoulX-FlashTalk, 18% for LongCat-Video-Avatar, and 0% for Wan2.2-S2V, demonstrating strong perceptual quality under only 2 NFEs. 
+
+4.3 Ablation Study 
+
+Table 2 validates the contribution of each component. Com-pared with the 4-step DMD baseline introduced in the pre-liminaries, the full model achieves stronger overall qual-ity and consistency despite using only 2 NFEs. Removing the Anchor Score Estimator degrades FID, ASE, Sync-C, and several consistency metrics, showing that endpoint an-choring provides more reliable guidance for extreme two-step distillation. The online-rollout variant further com-pares history-alignment strategies. Our SGHR-based design achieves strong long-video consistency without recurrent on-line rollouts, indicating that replaying cached self-generated histories is an effective and efficient substitute for expensive online history simulation. 
+
+5 Conclusion 
+
+We presented AptAvatar , a novel framework for fast and vivid long-form audio-driven avatar generation. By combin-ing Endpoint-Anchored Distribution Distillation with Self-Generated History Replay, AptAvatar transforms a powerful multi-step generator into an efficient deployment-ready sys-tem requiring only 2 NFEs. On 720p short- and long-form benchmarks, AptAvatar attains a 60 × speedup while main-taining visual fidelity, expressive motion, prompt respon-siveness, and long-horizon identity consistency, demonstrat-ing that our novel distillation and history replay make high-quality avatar generation practical for production. References 
+
+Bai, L.; Zhou, Z.; Shao, S.; Zhong, W.; Yang, S.; Chen, S.; Chen, B.; and Xie, Z. 2026. Optimizing few-step gen-eration with adaptive matching distillation. arXiv preprint arXiv:2602.07345 .Chen, Y.; Liang, S.; Zhou, Z.; Huang, Z.; Ma, Y.; Tang, J.; Lin, Q.; Zhou, Y.; and Lu, Q. 2025. Hunyuanvideo-avatar: High-fidelity audio-driven human animation for mul-tiple characters. arXiv preprint arXiv:2505.20156 .Cheng, J.; Ma, B.; Ren, X.; Jin, H. H.; Yu, K.; Zhang, P.; Li, W.; Zhou, Y.; Zheng, T.; and Lu, Q. 2026. Phased one-step adversarial equilibrium for video diffusion models. In Pro-ceedings of the AAAI Conference on Artificial Intelligence ,volume 40, 3237–3245. Chung, J. S.; and Zisserman, A. 2016. Out of time: automated lip sync in the wild. In Asian conference on computer vision ,251–263. Springer. Cui, J.; Wu, J.; Li, M.; Yang, T.; Li, X.; Wang, R.; Bai, A.; Ban, Y.; and Hsieh, C.-J. 2025. Self-forcing++: Towards minute-scale high-quality video generation. arXiv preprint arXiv:2510.02283 .Feng, J.; Cui, J.; Ban, Y.; and Hsieh, C.-J. 2026. One-Forcing: Towards Stable One-Step Autoregressive Video Generation. 
+
+arXiv preprint arXiv:2605.23458 .Frans, K.; Hafner, D.; Levine, S.; and Abbeel, P. 2025. One step diffusion via shortcut models. In International Con-ference on Learning Representations , volume 2025, 34668– 34684. Gao, X.; Hu, L.; Hu, S.; Huang, M.; Ji, C.; Meng, D.; Qi, J.; Qiao, P.; Shen, Z.; Song, Y.; et al. 2025. Wan-s2v: Audio-driven cinematic video generation. arXiv preprint arXiv:2508.18621 .Huang, X.; Li, Z.; He, G.; Zhou, M.; and Shechtman, E. 2026. Self forcing: Bridging the train-test gap in autoregressive video diffusion. Advances in Neural Information Processing Systems , 38: 167283–167308. Huang, Y.; Guo, H.; Wu, F.; Wang, W.; Zhang, S.; Huang, S.; Gan, Q.; Liu, L.; Zhao, S.; Chen, E.; et al. 2025. Live avatar: Streaming real-time audio-driven avatar generation with infinite length. arXiv preprint arXiv:2512.04677 .Huang, Z.; He, Y.; Yu, J.; Zhang, F.; Si, C.; Jiang, Y.; Zhang, Y.; Wu, T.; Jin, Q.; Chanpaisit, N.; et al. 2024. Vbench: Com-prehensive benchmark suite for video generative models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition , 21807–21818. Jiang, D.; Liu, D.; Wang, Z.; Wu, Q.; Li, L.; Li, H.; Jin, X.; Liu, D.; Lu, C.; Li, Z.; et al. 2025. Distribution match-ing distillation meets reinforcement learning. arXiv preprint arXiv:2511.13649 .Kong, Z.; Gao, F.; Zhang, Y.; Kang, Z.; Wei, X.; Cai, X.; Chen, G.; and Luo, W. 2026. Let them talk: Audio-driven multi-person conversational video generation. Advances in Neural Information Processing Systems , 38: 70990–71013. Li, W.; Gong, L.; Zhu, Y.; Fan, F.; Wang, B.; Ge, T.; and Zheng, B. 2024. Tuning-free noise rectification for high fidelity image-to-video generation. arXiv preprint arXiv:2403.02827 .Lin, G.; Jiang, J.; Liang, C.; Zhong, T.; Yang, J.; Zheng, Z.; and Zheng, Y. 2025. Cyberhost: A one-stage diffusion framework for audio-driven talking body generation. In The Thirteenth International Conference on Learning Represen-tations .Lin, L.-J. 1992. Self-improving reactive agents based on re-inforcement learning, planning and teaching. Machine learn-ing , 8(3): 293–321. Liu, D.; Du, R.; Liu, D.; Jiang, D.; Li, L.; Wu, Q.; Li, Z.; Hoi, S. C.; Li, H.; and Gao, P. 2026a. High-Fidelity Two-Step Im-age Generation via Teacher-Aligned End-to-End Distillation. 
+
+arXiv preprint arXiv:2606.12575 .Liu, D.; Gao, P.; Liu, D.; Du, R.; Li, Z.; Wu, Q.; Jin, X.; Cao, S.; Zhang, S.; Li, H.; et al. 2025. Decoupled DMD: CFG Augmentation as the Spear, Distribution Matching as the Shield. arXiv preprint arXiv:2511.22677 .Liu, X.; Gao, F.; Zhang, X.; Zhang, Y.; Wei, X.; Lei, Z.; and Zhu, X. 2026b. TurboTalk: Progressive Distillation for One-Step Audio-Driven Talking Avatar Generation. arXiv preprint arXiv:2604.14580 .Lu, C.; and Song, Y. 2025. Simplifying, stabilizing and scaling continuous-time consistency models. In Interna-tional Conference on Learning Representations , volume 2025, 50611–50649. Luo, Y.; Hu, T.; Sun, J.; Cai, Y.; and Tang, J. 2025. Learning few-step diffusion models by trajectory distribution match-ing. In Proceedings of the IEEE/CVF International Confer-ence on Computer Vision , 17719–17728. Mnih, V.; Kavukcuoglu, K.; Silver, D.; Rusu, A. A.; Ve-ness, J.; Bellemare, M. G.; Graves, A.; Riedmiller, M.; Fid-jeland, A. K.; Ostrovski, G.; et al. 2015. Human-level con-trol through deep reinforcement learning. nature , 518(7540): 529–533. Prajwal, K.; Mukhopadhyay, R.; Namboodiri, V. P.; and Jawa-har, C. 2020. A lip sync expert is all you need for speech to lip generation in the wild. In Proceedings of the 28th ACM international conference on multimedia , 484–492. Ren, W.; Yang, H.; Zhang, G.; Wei, C.; Du, X.; Huang, W.; and Chen, W. 2024. Consisti2v: Enhancing visual consistency for image-to-video generation. arXiv preprint arXiv:2402.04324 .Shen, L.; Qian, Q.; Yu, T.; Zhou, K.; Yu, T.; Zhan, Y.; Wang, Z.; Tao, M.; Yin, S.; and Liu, S. 2025. SoulX-LiveTalk Technical Report. arXiv preprint arXiv:2512.23379 .Team, M. L.; Cai, X.; Cheng, M.; Gao, F.; Kong, Z.; Li, J.; Li, L.; Li, W.; Liu, H.; Tan, S.; et al. 2026. LongCat-Video-Avatar 1.5 Technical Report. arXiv preprint arXiv:2605.26486 .Tian, L.; Wang, Q.; Zhang, B.; and Bo, L. 2024. Emo: Emote portrait alive generating expressive portrait videos with au-dio2video diffusion model under weak conditions. In Euro-pean Conference on Computer Vision , 244–260. Springer. Wu, H.; Zhang, Z.; Zhang, W.; Chen, C.; Liao, L.; Li, C.; Gao, Y.; Wang, A.; Zhang, E.; Sun, W.; et al. 2023. Q-align: Teaching lmms for visual scoring via discrete text-defined levels. arXiv preprint arXiv:2312.17090 .Wu, T.; Si, C.; Jiang, Y.; Huang, Z.; and Liu, Z. 2024. Freeinit: Bridging initialization gap in video diffusion mod-els. In European conference on computer vision , 378–394. Springer. Wu, Z.; Gong, R.; Yong, Y.; Huang, Y.; Fan, X.; Yang, L.; Lin, D.; and Liu, X. 2026. SGMD: Score Gradient Matching Distillation for Few-Step Video Diffusion Distillation. arXiv preprint arXiv:2605.30116 .Yang, S.; Huang, W.; Chu, R.; Xiao, Y.; Zhao, Y.; Wang, X.; Li, M.; Xie, E.; Chen, Y.; Lu, Y.; et al. 2025a. Longlive: Real-time interactive long video generation. arXiv preprint arXiv:2509.22622 .Yang, S.; Kong, Z.; Gao, F.; Cheng, M.; Liu, X.; Zhang, Y.; Kang, Z.; Luo, W.; Cai, X.; He, R.; et al. 2025b. Infinitetalk: Audio-driven video generation for sparse-frame video dub-bing. arXiv preprint arXiv:2508.14033 .Yi, H.; Shao, S.; Ye, T.; Zhao, J.; Yin, Q.; Lingelbach, M.; Yuan, L.; Tian, Y.; Xie, E.; and Zhou, D. 2025. Magic 1-for-1: Generating one minute video clips within one minute. 
+
+arXiv preprint arXiv:2502.07701 .Yin, T.; Gharbi, M.; Park, T.; Zhang, R.; Shechtman, E.; Durand, F.; and Freeman, W. T. 2024a. Improved distribution matching distillation for fast image synthesis. Advances in neural information processing systems , 37: 47455–47487. Yin, T.; Gharbi, M.; Zhang, R.; Shechtman, E.; Durand, F.; Freeman, W. T.; and Park, T. 2024b. One-step diffusion with distribution matching distillation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 6613–6623. Yin, T.; Zhang, Q.; Zhang, R.; Freeman, W. T.; Durand, F.; Shechtman, E.; and Huang, X. 2025. From slow bidirectional to fast autoregressive video diffusion models. In Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 22963–22974. Zhang, L.; Cai, S.; Li, M.; Wetzstein, G.; and Agrawala, M. 2026. Frame context packing and drift prevention in next-frame-prediction video diffusion models. Advances in Neural Information Processing Systems , 38: 30546–30566. Zhang, W.; Cun, X.; Wang, X.; Zhang, Y.; Shen, X.; Guo, Y.; Shan, Y.; and Wang, F. 2023. Sadtalker: Learning realistic 3d motion coefficients for stylized audio-driven single image talking face animation. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition , 8652– 8661. Zhu, H.; Zhao, M.; He, G.; Su, H.; Li, C.; and Zhu, J. 2026. Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Gener-ation. arXiv preprint arXiv:2602.02214 .
