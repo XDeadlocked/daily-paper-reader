@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-28</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-29</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 16 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-28 21:43:17 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-29 21:42:54 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日研究聚焦多模态智能与视频生成，其中触觉-语言-动作模型和身份保持视频重风格化获最高分。最值得关注的是《N0-VTLA》引入潜在触觉token扩展视觉-触觉-语言-动作模型（10分），以及《ID-V2V》实现身份保持视频重风格化（9分）。建议普通读者重点跟踪触觉感知与视频生成交叉方向，以及多模态基础模型的最新进展。</p>
+<p>今日聚焦低成本机器人操作评估与超轻量VLA模型：ArmnetBench打造平行现实测试平台，CoTinyVLA用思维链蒸馏出亚十亿参数模型。速读中，触觉原生世界模型$N_0$-TWAM与因果推理框架值得关注。建议优先精读ArmnetBench和CoTinyVLA，从实战基准和轻量化方向切入。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="$N_0$-VTLA: Scaling Vision-Tactile-Language-Action Model with Latent Tactile Tokens">$N_0$-VTLA: Scaling Vision-Tactile-Language-Action Model with Latent Tactile Tokens</span></li><li><span class="dpr-home-dashboard-paper-title" title="ID-V2V: Identity-Preserving Video Restylization">ID-V2V: Identity-Preserving Video Restylization</span></li><li><span class="dpr-home-dashboard-paper-title" title="HALLELUAI: A Hallucination-Aware AI System for Ultra-Realistic Image-to-Video Generation at Scale">HALLELUAI: A Hallucination-Aware AI System for Ultra-Realistic Image-to-Video Generation at Scale</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ArmnetBench v0.1: Parallel Real-World Evaluation of Manipulation Policies on a Low-Cost Arm Farm">ArmnetBench v0.1: Parallel Real-World Evaluation of Manipulation Policies on a Low-Cost Arm Farm</span></li><li><span class="dpr-home-dashboard-paper-title" title="CoTinyVLA: Chain-of-Thought Distillation for a Sub-Billion-Parameter Vision-Language-Action Model">CoTinyVLA: Chain-of-Thought Distillation for a Sub-Billion-Parameter Vision-Language-Action Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="SAM3D-Guided Object-Centric Representation Alignment for Vision-Language-Action Models">SAM3D-Guided Object-Centric Representation Alignment for Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>13</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards Dual-Brain Minimal Sufficient Representation for Vision-Language Navigation">Towards Dual-Brain Minimal Sufficient Representation for Vision-Language Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Few Words Go a Long Way: Language Guided Robot Policy Synthesis">A Few Words Go a Long Way: Language Guided Robot Policy Synthesis</span></li><li><span class="dpr-home-dashboard-paper-title" title="WorldDiT: A Unified Diffusion Architecture for World and Action Modeling">WorldDiT: A Unified Diffusion Architecture for World and Action Modeling</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Action from Adjacent Set in Physical Space Outperforms the Best Prediction in World Models">Action from Adjacent Set in Physical Space Outperforms the Best Prediction in World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="$N_0$-TWAM: Scaling Tactile-Native World-Action Model for Contact-Rich Manipulation">$N_0$-TWAM: Scaling Tactile-Native World-Action Model for Contact-Rich Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Causality-aware Infer-diagnose-refine Framework for Test-time Modality Adaptation in VLA Models">A Causality-aware Infer-diagnose-refine Framework for Test-time Modality Adaptation in VLA Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 </div>
 
