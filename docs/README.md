@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-30</span>
+      <span class="dpr-home-dashboard-kicker">2026-07-31</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 13 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-30 21:44:36 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-07-31 21:33:51 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今天共读19篇论文，其中两篇以9.0分领跑，聚焦具身智能与因果世界模型。值得关注的是AMD ROCm驱动的视觉-语言-动作操作管线，以及从多智能体演示中学习隐式因果世界模型的方法。建议优先精读这两篇高分论文，同时速读部分提供了高效具身控制、实时音视频生成和视频表示正则化等前沿思路。</p>
+<p>今日精读13篇具身智能论文，聚焦世界模型与VLA策略，高分工作集中在决策泛化与流匹配纠错。</p>
+<p>最值得看《World Action Planner》的动作条件世界模型，以及《RedFlow》将失败重定向为动作级修正，双双斩获9/10。</p>
+<p>下一步可顺着这两条主线，探究如何把世界模型预测与失败反馈融入机器人操作闭环。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Real2Sim2Real for Vision-Language-Action Manipulation: An AMD ROCm-Based Pipeline">Real2Sim2Real for Vision-Language-Action Manipulation: An AMD ROCm-Based Pipeline</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Implicit Causal World Models from Multi-Agent Demonstrations">Learning Implicit Causal World Models from Multi-Agent Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="CineWeaver: Training-Free Reference-Controllable Multi-Shot Long Video Generation for Cinematic Storytelling">CineWeaver: Training-Free Reference-Controllable Multi-Shot Long Video Generation for Cinematic Storytelling</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World Action Planner: Generalizable Decision-Making with Action-Conditioned World Models">World Action Planner: Generalizable Decision-Making with Action-Conditioned World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RedFlow: Redirect Failure into Action-Level Corrections for Flow-matching VLA Policy">RedFlow: Redirect Failure into Action-Level Corrections for Flow-matching VLA Policy</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents">RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Enfold: Folding World-Generator Computation into Predictive Representations for Efficient Embodied Control">Enfold: Folding World-Generator Computation into Predictive Representations for Efficient Embodied Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Ripple: Real-Time Streaming Audio-Video Generation With Cross-Modal Recurrent Memory">Ripple: Real-Time Streaming Audio-Video Generation With Cross-Modal Recurrent Memory</span></li><li><span class="dpr-home-dashboard-paper-title" title="Mitigating Compounding Error via Video Representation Regularization">Mitigating Compounding Error via Video Representation Regularization</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="From Passive Video to Editable Experience: Physically Grounded Experience Synthesis for Embodied Intelligence">From Passive Video to Editable Experience: Physically Grounded Experience Synthesis for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="EgoGenesis: Egocentric World-Action Modeling with Online Anchored Projective Memory and Action-3D RoPE">EgoGenesis: Egocentric World-Action Modeling with Online Anchored Projective Memory and Action-3D RoPE</span></li><li><span class="dpr-home-dashboard-paper-title" title="Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation">Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 </div>
 
