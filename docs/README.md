@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-31</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-01</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 13 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-07-31 21:33:51 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-01 21:15:47 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读13篇具身智能论文，聚焦世界模型与VLA策略，高分工作集中在决策泛化与流匹配纠错。</p>
-<p>最值得看《World Action Planner》的动作条件世界模型，以及《RedFlow》将失败重定向为动作级修正，双双斩获9/10。</p>
-<p>下一步可顺着这两条主线，探究如何把世界模型预测与失败反馈融入机器人操作闭环。</p>
+<p>今日精读6篇、速读3篇，聚焦具身智能与视频扩散前沿，其中导航扩散策略研究获满分10分推荐。最值得关注的是X-NavDP如何让机器人导航策略泛化到新行为与本体，以及CachedSearch通过无训练缓存探索加速视频扩散测试期搜索。若想快速上手，可优先精读这两篇高分论文，速读材料适合拓展视野但深度有限。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -76,7 +74,7 @@
     <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World Action Planner: Generalizable Decision-Making with Action-Conditioned World Models">World Action Planner: Generalizable Decision-Making with Action-Conditioned World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RedFlow: Redirect Failure into Action-Level Corrections for Flow-matching VLA Policy">RedFlow: Redirect Failure into Action-Level Corrections for Flow-matching VLA Policy</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents">RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="X-NavDP: Generalizing Navigation Diffusion Policy to Novel Behavior and Embodiments with Group Q-score Reweighted Matching">X-NavDP: Generalizing Navigation Diffusion Policy to Novel Behavior and Embodiments with Group Q-score Reweighted Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="CachedSearch: Training-Free Cached Exploration for Test-Time Search in Video Diffusion">CachedSearch: Training-Free Cached Exploration for Test-Time Search in Video Diffusion</span></li><li><span class="dpr-home-dashboard-paper-title" title="Explicit Kinematic Guidance from Analytic Concepts for Vision-Language-Action Models">Explicit Kinematic Guidance from Analytic Concepts for Vision-Language-Action Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="From Passive Video to Editable Experience: Physically Grounded Experience Synthesis for Embodied Intelligence">From Passive Video to Editable Experience: Physically Grounded Experience Synthesis for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="EgoGenesis: Egocentric World-Action Modeling with Online Anchored Projective Memory and Action-3D RoPE">EgoGenesis: Egocentric World-Action Modeling with Online Anchored Projective Memory and Action-3D RoPE</span></li><li><span class="dpr-home-dashboard-paper-title" title="Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation">Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Zero-Shot Mission-Level Evaluation for Aerial MLLM Agents">Zero-Shot Mission-Level Evaluation for Aerial MLLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Memory for Attention: Language-Conditioned Re-Perception with a Vision--Language--Motion Map">Memory for Attention: Language-Conditioned Re-Perception with a Vision--Language--Motion Map</span></li><li><span class="dpr-home-dashboard-paper-title" title="Self-Evolving Learning for Embodied AI with Criticality Model">Self-Evolving Learning for Embodied AI with Criticality Model</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
 </div>
 
