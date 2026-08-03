@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-02</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 6 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>2</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-02 21:06:43 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-03 21:51:42 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦两篇高分论文，分别涉及潜世界模型预测控制的规划感知表示学习与实时流策略生成。</p>
-<p>最值得关注的是Temporal-Distance JEPA（9.0）将时序距离引入表示学习以提升控制，以及πR²（9.0）实现机器人实时反应式控制。</p>
-<p>普通读者可优先跟踪“时空距离+潜空间预测”与“实时闭环策略”两个方向，后续留意其在实际机器人操作中的结合应用。</p>
+<p>今日共读19篇，精读9篇，重点关注视频生成与物理一致性方向。最值得精读的是《TPD》与《VideoCoCo》，分别解决时序解耦与物理一致生成。建议优先关注视频扩散模型的时序建模与智能体双引擎协同方案。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Temporal-Distance JEPA: Plan-Aware Representation Learning for Latent World Model Predictive Control">Temporal-Distance JEPA: Plan-Aware Representation Learning for Latent World Model Predictive Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="$π\mathbf{R}^2$: Reactive Real-time Flow Policies">$π\mathbf{R}^2$: Reactive Real-time Flow Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="FA-RDP: A Frequency-Adaptive Reactive Diffusion Policy for Contact-Rich Manipulation">FA-RDP: A Frequency-Adaptive Reactive Diffusion Policy for Contact-Rich Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TPD: Temporal Prior Decoupling for Text-to-Video Diffusion Models">TPD: Temporal Prior Decoupling for Text-to-Video Diffusion Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VideoCoCo: Code-as-CoT for Physically-Consistent Video Generation via an Agentic Dual-Engine System">VideoCoCo: Code-as-CoT for Physically-Consistent Video Generation via an Agentic Dual-Engine System</span></li><li><span class="dpr-home-dashboard-paper-title" title="Auto-JEPA: A Latent World Model of Continuous Intent for End-to-End Autonomous Driving">Auto-JEPA: A Latent World Model of Continuous Intent for End-to-End Autonomous Driving</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">2 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information">S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hybrid Advantage Estimation with Unified Critic for VLM Agentic Reinforcement Learning">Hybrid Advantage Estimation with Unified Critic for VLM Agentic Reinforcement Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Mirror Learning">Mirror Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="ST-WAM: Semantic-Temporal World Action Model for Robust Manipulation under Visual Distribution Shifts">ST-WAM: Semantic-Temporal World Action Model for Robust Manipulation under Visual Distribution Shifts</span></li><li><span class="dpr-home-dashboard-paper-title" title="FBFM: A Training-Free Asynchronous Feedback Mechanism for Flow-Matching in World-Action Models Execution">FBFM: A Training-Free Asynchronous Feedback Mechanism for Flow-Matching in World-Action Models Execution</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 </div>
 
