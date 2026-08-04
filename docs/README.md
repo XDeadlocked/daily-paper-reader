@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-03</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-04</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 26 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-03 21:51:42 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-04 22:02:45 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读19篇，精读9篇，重点关注视频生成与物理一致性方向。最值得精读的是《TPD》与《VideoCoCo》，分别解决时序解耦与物理一致生成。建议优先关注视频扩散模型的时序建模与智能体双引擎协同方案。</p>
+<p>今日精读聚焦语言条件安全过滤与云边协同具身大模型，两篇均获9分高分；速读则覆盖视频世界模型与轨迹生成前沿。最值得关注的方向是：用自然语言约束机器人安全行为，以及通过云端-边缘分工提升VLA模型实时性。普通读者可优先浏览“视觉-语言-动作”模型的技术拆解，再顺藤摸瓜了解视频生成底层原理。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">19 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="TPD: Temporal Prior Decoupling for Text-to-Video Diffusion Models">TPD: Temporal Prior Decoupling for Text-to-Video Diffusion Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VideoCoCo: Code-as-CoT for Physically-Consistent Video Generation via an Agentic Dual-Engine System">VideoCoCo: Code-as-CoT for Physically-Consistent Video Generation via an Agentic Dual-Engine System</span></li><li><span class="dpr-home-dashboard-paper-title" title="Auto-JEPA: A Latent World Model of Continuous Intent for End-to-End Autonomous Driving">Auto-JEPA: A Latent World Model of Continuous Intent for End-to-End Autonomous Driving</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards General Language-Conditioned Latent Safety Filters">Towards General Language-Conditioned Latent Safety Filters</span></li><li><span class="dpr-home-dashboard-paper-title" title="Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization">Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization</span></li><li><span class="dpr-home-dashboard-paper-title" title="SelfWAM: A Self-Grounded Unified World Action Model for Fast Robot Control">SelfWAM: A Self-Grounded Unified World Action Model for Fast Robot Control</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>19</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Mirror Learning">Mirror Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="ST-WAM: Semantic-Temporal World Action Model for Robust Manipulation under Visual Distribution Shifts">ST-WAM: Semantic-Temporal World Action Model for Robust Manipulation under Visual Distribution Shifts</span></li><li><span class="dpr-home-dashboard-paper-title" title="FBFM: A Training-Free Asynchronous Feedback Mechanism for Flow-Matching in World-Action Models Execution">FBFM: A Training-Free Asynchronous Feedback Mechanism for Flow-Matching in World-Action Models Execution</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Diagnosing Under-Development of Irreversible Processes in Video Generation">Diagnosing Under-Development of Irreversible Processes in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="MiniWorld: Democratizing the Training of Video World Models from Scratch">MiniWorld: Democratizing the Training of Video World Models from Scratch</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamTraj: Generating 6-DoF Object Trajectories by Reading Unrendered Video Diffusion Latents">DreamTraj: Generating 6-DoF Object Trajectories by Reading Unrendered Video Diffusion Latents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 </div>
 

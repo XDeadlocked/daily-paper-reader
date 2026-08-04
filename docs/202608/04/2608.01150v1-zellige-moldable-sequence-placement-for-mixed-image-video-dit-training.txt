@@ -1,0 +1,763 @@
+Title: Zellige: Moldable Sequence Placement for Mixed Image-Video DiT Training
+
+URL Source: https://arxiv.org/pdf/2608.01150v1
+
+Published Time: Tue, 04 Aug 2026 01:16:25 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Zellige: Moldable Sequence Placement for Mixed Image-Video DiT Training 
+
+Guangyu Xiang 1,† , Xueze Kang 1,† , Minwei Zhao 1, Yuxin Wang 2, Shaohuai Shi 3, Lin Zhang 4,* , Xiaowen Chu 1,4,* 
+
+> 1
+
+HKUST (GZ); 2No affiliation; 3HIT (SZ); 4HKUST 
+
+{gxiang190,xkang507,mzhao886 }@connect.hkust-gz.edu.cn, yxwang.ele@gmail.com, shaohuais@hit.edu.cn, lzhangbv@connect.ust.hk, xwchu@ust.hk 
+
+Abstract —High-quality video generation requires training Dif-fusion Transformers (DiTs) jointly on image and video data, posing a mixed-length sequence training problem across GPUs. Existing systems rely on data parallelism (DP), context paral-lelism (CP), or their combination; we model these designs as disjoint-group placement and prove that they face a fundamental tradeoff between inter-group load imbalance and intra-group communication redundancy. We present Zellige, a moldable sequence placement system that jointly selects each sequence’s parallelism configuration and participating ranks. Zellige consists of three components: a hardware profiler that estimates the exe-cution time and memory consumption of candidate placements, a two-stage planner that balances compute-heavy anchor sequences and packs lighter filler sequences into the remaining capacity, and a coalesced attention engine that efficiently executes whole sequences alongside distributed-attention shards. Across 21 plans, the hardware profile predicts step makespan and peak allocated memory with mean absolute percentage errors of 3.4% and 1.5% ,respectively. The two-stage planner solves each batch in 33– 119 ms, significantly faster than a joint-placement reference that optimizes all sequences together, while their modeled makespans differ by at most 0.32% . In end-to-end evaluations, Zellige outperforms KnapFormer by 1.12 –1.48 × on 16 A800 GPUs and 
+
+1.27 –1.54 × on 32 A6000 GPUs. 
+
+Index Terms —Diffusion Transformers, distributed training, context parallelism, load balancing, collective communication 
+
+I. I NTRODUCTION 
+
+Diffusion models have become a leading approach to high-quality video generation [1]–[3]. Modern video generation sys-tems such as Wan [4] and HunyuanVideo [5] adopt Diffusion Transformers (DiTs) as their denoising networks [6]. During training, each video is encoded into a spatiotemporal latent, which is then corrupted with noise and divided into patches. The DiT processes these patches as a token sequence and learns to predict the denoising target. The sequence length grows with video duration and spatial resolution. For example, with Wan’s VAE compression and patch sizes, a 15-second 1080p video produces a 497,760-token sequence [4]. Processing a minibatch containing such long sequences in a single training step poses a systems challenge. In DiTs, dense self-attention makes per-sequence compute grow quadratically with sequence length, while memory demand grows approx-imately linearly [7]. To meet these compute and memory requirements, training systems distribute batch work across  
+
+> †Equal contribution, *Corresponding author.
+
+multiple GPUs at two basic granularities. Data parallelism (DP) distributes work across samples by assigning different complete sequences to GPUs and synchronizing gradients after local computation [8]. Context parallelism (CP) instead dis-tributes work within a sample by partitioning one sequence’s attention computation across GPUs and communicating K/V states among them to compute exact attention [9]. Modern video DiT training commonly mixes images and videos across multiple spatial and temporal resolutions to im-prove generation quality through complementary appearance and motion supervision [4], [5]. These mixed batches span a wide range of sequence lengths, creating inefficiencies for existing approaches built on either DP or CP. Naive DP assigns complete sequences to balance total token counts across GPUs, but under quadratic attention, one long video requires more compute than several images with the same total tokens and can become a straggler [10]. AdaptiveLoad [11] instead uses estimated sequence compute to adjust per-GPU batch sizes, but a long video remains whole on one GPU and can still dominate that GPU’s workload. To eliminate this imbalance, USP [12] applies the same all-rank CP configuration to every sequence, balancing attention work across GPUs. However, this also makes short image sequences incur communication overhead even though they could instead remain whole. KnapFormer [13] combines DP across rank groups with CP inside multi-rank groups to balance workloads while limiting communication. It partitions the worker ranks into preconfigured disjoint rank groups of possibly different sizes, then greedily assigns each sequence to one group based on its estimated compute cost. This routing tends to place long sequences in larger groups and short ones in smaller groups. However, because sequence work cannot cross group boundaries, some groups may remain overloaded while others are underused. A short sequence in a group using CP must also inherit that group’s parallelism configuration and communicate even though it could run whole on one rank. Our analysis proves that disjoint-group placement faces a fundamental tradeoff between inter-group load imbalance and intra-group communication redundancy (Sec. III). These tradeoffs motivate more flexible sequence placement for mixed image-video DiT batches. The planner treats each sequence as a moldable task [14] whose parallelism configu-ration and participating ranks are selected so that whole short arXiv:2608.01150v1 [cs.DC] 2 Aug 2026 image video L →    
+
+> 0
+> 20k
+> 40k
+> ratio ( ×)
+> 1,307x
+> 40,451x
+> memory ∝ L
+> compute αL 2+βL (a) Modeled memory and compute demands. Video (Warm) Image (Cool)
+> Rank A Rank B
+> Mem. Comp.
+> (b) Equal tokens, unequal per-rank step load.
+
+Fig. 1: Token balance does not ensure compute balance. From a 256p image to a 10-second 1080p video, panel (a) shows modeled memory and compute demands increasing by 1,307 ×
+
+and 40 ,451 ×, respectively. Panel (b) shows that equal token totals can carry unequal attention work, so the heavier rank determines the step makespan. sequences can share ranks with shards of split long sequences. Supporting this co-location requires a low-latency per-batch planner and an engine that executes whole sequences alongside distributed-attention shards. To meet these requirements, we present Zellige, which com-bines a planner and execution engine to provide moldable se-quence placement for mixed image-video DiT training. 1) We formulate the placement problem and analyze disjoint-group placement (Secs. III-A and III-B), proving that it faces a funda-mental tradeoff between inter-group load imbalance and intra-group communication redundancy (Secs. III-C and III-D). 2) We develop a two-stage planner. Anchor Placement bal-ances compute-heavy sequences (anchors) across ranks with the OR-Tools CP-SAT solver [15], using an Exact Compact Formulation (ECF) to aggregate solver-equivalent placements. Filler Packing keeps lighter sequences (fillers) whole and places them in the remaining compute and memory headroom (Sec. IV-C). 3) We implement the Coalesced Attention Engine to efficiently execute placements in which whole sequences share ranks with distributed-attention shards (Sec. IV-D). We evaluate profile accuracy, planner efficiency, and end-to-end performance on two testbeds, one with 16 NVIDIA Tesla A800 GPUs and the other with 32 NVIDIA RTX A6000 GPUs. Against GPU measurements on 21 validation cases, the profile predicts step makespan and peak allocated memory with mean absolute percentage error (MAPE) values of 3.4% 
+
+and 1.5% , respectively. In our tests, planner solve time is 33– 119 ms, with at most 0.32% step-makespan overhead relative to the joint-placement reference. In end-to-end evaluation on mixed image-video workloads, Zellige is 1.12 –1.48 × faster than KnapFormer on 16 A800 GPUs and 1.27 –1.54 × faster on 32 A6000 GPUs. II. B ACKGROUND AND MOTIVATION 
+
+A. Video Diffusion Transformers (DiTs) 
+
+During training, latent diffusion models use a denoising network to predict a denoising target from the noisy latent representation of each image or video [2], [4], [5]. Diffusion Transformers (DiTs) implement this network with Transformer Naive AdaptiveLoad USP KnapFormer                  
+
+> (g3n1+g1n1)
+> 0123012301230123
+> 0
+> 100
+> 200
+> 300
+> 400
+> per-rank tokens (K)
+> video seq. (Warm) image seq. (Cool) whole & split
+
+Fig. 2: Per-rank token allocation for three 720p 10-second videos and 228 720p images on four ranks. Bars 0–3 stack each rank’s sequences; warm and cool segments denote videos and images, while hatching denotes split shards. Naive and AdaptiveLoad keep sequences whole, USP splits every se-quence across all ranks, and KnapFormer routes each sequence to one group in the g3n1+g1n1 disjoint-group layout. blocks comprising dense self-attention, projections, and feed-forward layers [6]. Each latent representation is partitioned into spatial or spatiotemporal patches, forming a token se-quence of length L. L increases with spatial resolution and video duration. Projections and feed-forward layers oper-ate independently on each token and scale approximately linearly with L, whereas dense self-attention evaluates L2
+
+token pairs [8], [11], [16]. Consequently, compute demand grows quadratically with L, whereas memory demand under memory-efficient attention grows approximately linearly [7]. Fig. 1(a) quantifies this divergence across the evaluated image and video inputs, showing that modeled compute demand grows much faster than memory demand as L increases. Practical video inputs can produce sequences with hundreds of thousands of tokens, making multi-GPU training necessary to handle the resulting compute and memory demands [4]. 
+
+B. Data and Context Parallelism 
+
+For sequence placement, multi-GPU DiT training distributes work at two granularities, across complete sequences with data parallelism (DP) or within a sequence with context parallelism (CP). Under DP, each rank processes its assigned sequences before synchronizing gradients across ranks [8]. Because complete sequences are not partitioned, DP cannot divide a long sequence’s attention work across ranks. CP instead divides one sequence’s attention among several ranks [9]. Each rank computes a shard, while exact attention requires the ranks to exchange K/V states from the full sequence. This exchange introduces communication overhead, particularly when the participating ranks span nodes. A query-sharded all-gather design gathers remote K/V blocks before each rank computes attention for its local queries [17]. Ulysses transforms sequence shards into head shards with all-to-all exchanges, performs local attention, and exchanges the results back [18]. Ring attention keeps K/V blocks sharded and circulates them around the ranks while accumulating the output [19]. 
+
+C. Existing Placement Approaches and Their Limitations 
+
+Modern video DiTs jointly train on images and videos across spatial and temporal resolutions to learn spatial appear-ance and temporal dynamics [4], [5]. These mixed batches span a wide range of sequence lengths. Because dense self-attention compute grows quadratically with sequence length, ranks with equal token totals can still carry unequal compute loads, as Fig. 1(b) illustrates. Rank B receives longer video sequences and therefore carries more attention work than Rank A despite the same token total. Existing DiT training approaches build on DP, CP, or their combination. Fig. 2 shows how existing approaches place three 720p 10-second videos and 228 720p images across four ranks. Naive DP assigns each image or video sequence to one rank to equalize total token counts across ranks. In Fig. 2, it places one video on each of ranks 0–2 and only images on rank 3, producing similar token totals but heavier compute loads on ranks 0–2. AdaptiveLoad makes DP compute-aware by dynamically adjusting each rank’s batch size according to estimated sequence compute [11]. Fig. 2 shows the resulting placement under the per-rank memory cap, with more images on rank 3 and fewer on each video rank. However, each long video must still run on a single rank and can remain a straggler. Fig. 3(a) extends this case to six video-token shares from 35% to 60% and measures full-step rank-time imbalance on four A800 GPUs. Across these workloads, Naive produces a 
+
+1.27 –1.31 × max/mean rank-time ratio, whereas AdaptiveLoad lowers the ratio only to 1.25 –1.27 ×, leaving the slowest rank 
+
+25 –27% above the mean. Both therefore remain far from the ideal 1.0× balance. USP arranges the CP ranks in a Ulysses-by-ring grid, using all-to-all exchanges along the Ulysses dimension and ring communication along the ring dimension [12]. It applies the same static CP configuration to every sequence in the batch. In Fig. 2, this configuration splits every video and image across all four ranks. This balances long-video work but imposes communication and buffer-memory overhead on short images that could instead remain whole. Fig. 3(b) measures the share of attention time spent on communication when processing images within a training step. Communication accounts for 
+
+57 .3–71 .0% of attention time at 256p and 17 .7–33 .8% at 1080p, with larger CP groups generally increasing the fraction. KnapFormer combines DP across rank groups with CP inside multi-rank groups [13]. It partitions ranks into pre-configured disjoint Ulysses-style rank groups of possibly different sizes and greedily routes each sequence by a γ-corrected compute cost into exactly one group. In Fig. 2, the 
+
+g3n1+g1n1 disjoint-group layout uses rank 0 as a singleton group and ranks 1–3 as a three-rank group. This permits whole and three-rank execution within one step, but the group boundaries prevent work from being shared across groups and can leave one overloaded while the other is underused. Moreover, images routed to the three-rank group inherit its 35 40 45 50 55 60      
+
+> video-token share (%)
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> max / mean
+> rank time (×)
+> Naive
+> AdaptiveLoad
+> Ideal
+> (a) Naive and AdaptiveLoad im-balance. 256p 480p 720p 1080p
+> Image resolution
+> 0
+> 25
+> 50
+> 75
+> Comm. fraction (%)
+> CP2 CP4 CP8
+> (b) Communication fraction.
+
+Fig. 3: Rank imbalance and CP communication cost. Panel (a) reports rank-time imbalance (max/mean) for Naive and Adap-tiveLoad on four A800 GPUs across six video-token shares; 
+
+1.0× denotes ideal balance. Panel (b) reports the share of at-tention time spent on communication when processing images within a training step under multiple CP degrees. split and must communicate even though they could run whole on one rank. Secs. III-C and III-D formalize this fundamental tradeoff between inter-group load imbalance and intra-group communication redundancy. 
+
+The gap. Mixed image-video DiT batches therefore need more flexible per-sequence placement. Selecting a parallelism configuration and participating ranks for each sequence allows rank sets to overlap, so whole short sequences can share ranks with long-video shards. These choices must be coordinated under the step-makespan objective and per-rank memory cap. III. P ROBLEM FORMULATION AND THE LIMITS OF 
+
+DISJOINT -G ROUP PLACEMENT 
+
+A. Placement Problem 
+
+For one synchronized step, let R = {1, . . . , N } be the worker ranks and S the minibatch sequences. Each s has a set Cs of legal executable placement options. An option 
+
+c = ( θc, R c) ∈ C s pairs a parallelism configuration θc =(qc, h c, k c) over the query, head, and key/value axes with a participating-rank set Rc. The configuration fixes the primitive composition and factorization before rank assignment, and its split degree is λc = qchckc = |Rc|. A placement x selects one option for every sequence, and the action space X is the set of placements admitted by the policy under consideration. Using the same per-sequence option menus, the matched joint relaxation is Xjoint := Q 
+
+> s∈S
+
+Cs, so each sequence selects any legal option independently without being restricted to shared disjoint groups. For placement x, binary xs,c indicates whether sequence 
+
+s selects option c. The option contributes time As,c,r and allocated memory Ms,c,r to rank r, both zero outside Rc. The time on rank r is the sum of the time contributions from its selected options. Since one synchronized step completes only after all ranks finish, its step makespan is the largest rank time. TABLE I: Notation for placement and theoretical bounds.                                             
+
+> Symbol Meaning
+> R, N ;S, s worker ranks and minibatch sequences
+> Cs, c set of legal executable placement options and one executable placement option
+> θcparallelism configuration (qc, h c, k c)
+> λc, R csplit degree and participating-rank set
+> x, x s,c placement and binary option-selection variable
+> As,c,r , M s,c,r per-rank time and memory contributions
+> Mcap memory cap
+> X, T ⋆
+> Xaction space and minimum step makespan
+> XDP ,XCP pure DP and pure CP action spaces
+> Xdisj (G),Xdisj ,Xjoint disjoint-group under G,complete disjoint-group, and joint action spaces
+> G; ( Gj, θ j)disjoint rank groups with fixed configurations; one group/configuration pair
+> gj, J, g max group size, group count, and largest group size
+> Y(G), y s,j feasible assignments and binary variable
+> w, w s, W, w max , ϕ work vector, sequence/total/maximum work, and concentration
+> T⋆
+> disj (G;w), T ⋆
+> joint disjoint-group and joint minimum compute makespans
+> Γ( w,G)ratio of the two compute makespans
+
+The resulting optimization is 
+
+T ⋆ 
+
+> X
+
+= min  
+
+> x∈X
+
+max 
+
+> r∈R
+
+X
+
+> s∈Sc∈C s
+
+xs,c As,c,r ,
+
+s.t. X
+
+> c∈C s
+
+xs,c = 1 ∀s, xs,c ∈ { 0, 1} ∀s, c ∈ C s,
+
+X
+
+> s∈Sc∈C s
+
+xs,c Ms,c,r ≤ Mcap ∀r. 
+
+(1) The objective selects a placement in X that minimizes the step makespan. The first two constraint lines enforce one binary option choice for every sequence, and the third keeps each rank’s allocated memory within Mcap .
+
+B. Disjoint-Group Placement 
+
+Disjoint-group placement restricts X through G =
+
+{(G1, θ 1), . . . , (GJ , θ J )}, where the rank sets are disjoint and cover R: S 
+
+> j
+
+Gj = R and Gi ∩ Gj = ∅ for i̸ = j. Each group has size gj = |Gj | and a fixed legal parallelism configuration 
+
+θj = (qj , h j , k j ) satisfying qj hj kj = gj . For a fixed G,
+
+Xdisj (G) contains placements in which each sequence enters exactly one group and selects the option c = ( θj , G j ) ∈ C s as-sociated with that group. A singleton group keeps its sequences whole, whereas a multi-rank group applies its configuration across all gj ranks, with λc = gj and Rc = Gj . KnapFormer’s preconfigured disjoint rank groups instantiate this restriction; each multi-rank group uses a Ulysses configuration whose degree equals the group size [13]. Across all legal G, the complete disjoint-group action space is Xdisj = S 
+
+> G
+
+Xdisj (G).This union includes every legal choice of multiple, possibly unequal disjoint groups. The disjoint-group family contains pure DP and pure CP as endpoints. Pure DP keeps every sequence on one rank, with XDP := Xdisj ({({j}, (1 , 1, 1)) }Nj=1 ). Pure CP splits every sequence across all N ranks under one legal configuration, with XCP := S 
+
+> θ
+
+Xdisj ({(R, θ )}), where the union ranges over legal θ = ( q, h, k ) satisfying qhk = N . By construction, both are subsets of Xdisj .
+
+C. Inter-Group Load Imbalance 
+
+For a given G, we compare optimal placements in Xdisj (G)
+
+and the matched joint relaxation Xjoint . The joint relaxation can reproduce every disjoint-group assignment under G and may also use overlapping rank sets. Hence Xdisj (G) ⊆ X joint ,with strict containment possible. Comparing their optima isolates the disjoint-group restriction. We use an ideal compute-only model with N ≥ 2, zero communication cost, and nonbinding memory. Every option conserves its sequence’s total work, and every sequence can be evenly split across the ranks of any group or across all N ranks. Let w = ( ws)s∈S be the work vector, with 
+
+ws > 0. For this G, binary ys,j ∈ { 0, 1} assigns each sequence to exactly one group, and Y(G) denotes the assignments satisfying P 
+
+> j
+
+ys,j = 1 . Assigning s to Gj spreads ws evenly across its gj ranks, so the disjoint-group optimum under G is 
+
+T ⋆
+
+> disj
+
+(G; w) = min  
+
+> y∈Y (G)
+
+max 
+
+> j
+
+P 
+
+> s
+
+ys,j ws
+
+gj
+
+. (2) Let W = P 
+
+> s
+
+ws, wmax = max s ws, gmax = max j gj ,and ϕ = wmax /W . Assigning every sequence to an all-rank option attains the average-load lower bound W/N , so 
+
+T ⋆ 
+
+> joint
+
+= W/N . We compare the two optima using the ratio 
+
+Γ( w, G) = T ⋆
+
+> disj
+
+(G; w)/T ⋆ 
+
+> joint
+
+= N T ⋆
+
+> disj
+
+(G; w)/W .
+
+Theorem 1 (Inter-group load imbalance). For every G and every finite positive-work batch, 
+
+max 
+
+
+
+1, Ngmax 
+
+ϕ
+
+
+
+≤ Γ( w, G) ≤ Ngmax 
+
+. (3) For each G, the exact worst-case ratio over all finite positive-work batches under that G is N/g max . Proof. The average load gives Γ ≥ 1, while the largest sequence occupies at most 
+
+gmax ranks and gives Γ ≥ N ϕ/g max . Assigning the complete batch to a largest group gives Γ ≤ N/g max . A one-sequence workload makes the lower and upper bounds equal to N/g max ,proving the worst-case equality. □
+
+Equality Γ( w, G) = 1 holds iff some y ∈ Y (G) assigns each group Gj exactly gj W/N work. Hence whether a batch attains perfect load balance under G depends on this proportional packing, whereas N/g max characterizes only the worst case across batches. Guaranteeing Γ = 1 for every batch under a given G requires gmax = N , which yields the single all-rank group of pure CP and splits every sequence. 
+
+D. Intra-Group Communication Redundancy 
+
+Under the same ideal compute-only model, a sequence is split and invokes communication when λc > 1. Among place-ments with the same makespan, intra-group communication redundancy is the additional split count under disjoint-group placement relative to joint placement. Each filler has a legal Hardware Profiler    
+
+> (§IV-B)
+> Input Batch
+> Anchor Set
+> Filler Set
+> R0 R1 R2 R3
+
+Anchor 
+
+Placement 
+
+Filler 
+
+Packing   
+
+> Executable Placement Options (§IV-A)
+> Coalesced Attention Engine (§IV-D)
+> Placement Plan
+
+Planner (§IV-C)  
+
+> Catalog Cut Placement
+> Options Selected
+> Options Time &
+> Memory Costs Image Seq. (Cool) Video Seq. (Warm)
+> Communication
+
+Fig. 4: Zellige workflow. A catalog cut partitions the batch into anchor and filler sets. Given executable placement options, profiled execution times for their parallelism configurations, and analytical allocated-memory costs, Anchor Placement selects one option per anchor, and Filler Packing assigns whole fillers to the remaining rank headroom. The Coalesced Attention Engine executes the resulting placement; lavender arrows mark the planned collective communication of split anchors. whole-sequence option on every rank, and all sequences share one legal all-rank configuration that divides their work evenly. For any integer p ≥ 1, take one giant of work N u and 
+
+m = N p fillers of work δ > 0. Choose u > (N − 1) pδ 
+
+and set F = u + pδ < N u/ (N − 1) .
+
+Theorem 2 (Intra-group communication redundancy). Both action spaces attain the average-load lower bound F . Among placements with makespan F , the minimum split count is 
+
+m + 1 under Xdisj but one under Xjoint . Thus, disjoint-group placement incurs intra-group communication redundancy of 
+
+m = N p , which is unbounded for fixed N .
+
+Proof. The total work is N u + mδ = N F , so the makespan is at least F . Joint placement attains F by splitting the giant 
+
+N ways and placing p whole fillers per rank; N u > F makes that split necessary. For a disjoint-group placement attaining 
+
+F , the giant’s group size g cannot be less than N , since 
+
+N u/g ≥ N u/ (N − 1) > F . Thus g = N ; because the groups are disjoint, the all-rank group leaves no ranks for another nonempty group, so all m fillers join it and split. This placement gives per-rank work u + mδ/N = F , so m + 1 is minimal. Letting p grow with N fixed proves that intra-group communication redundancy is unbounded. □
+
+IV. Z ELLIGE DESIGN 
+
+Zellige realizes moldable sequence placement with a two-stage planner and the Coalesced Attention Engine. It enumer-TABLE II: The three base primitives, one per partition axis. A composed parallelism configuration combines the commu-nication required by its active axes, while the whole-sequence configuration (1 , 1, 1) activates none. Ulysses’ two exchanges sit before and after attention. The communication entries show the collective pattern and payload size, while the last column reports the resident K/V payload per rank for a length-L
+
+sequence. Transient collective workspaces are accounted for separately in M buf , where kv denotes per-token key-value bytes.                             
+
+> Primitive Configuration Communication Resident K/V
+> all-gather (q, 1,1) gather K/V once, L kv replicated, L kv
+> Ulysses (1 , h, 1) head all-to-all ×2,L kv/h sharded, L kv/h
+> ring (1 ,1, k )stream K/V ×(k−1) ,L kv/k sharded, L kv/k
+
+ates each sequence’s executable placement options and runs the Hardware Profiler once, then plans and executes each batch under the per-rank memory cap, allowing split anchors and whole fillers to share ranks (Fig. 4). 
+
+A. Executable Placement Options 
+
+Disjoint-group placement locks each sequence into one rank group, so the shards of a split giant can never share ranks with whole short sequences [13], [20]. In contrast, Zellige con-structs a set of executable placement options for each sequence by pairing a parallelism configuration (q, h, k ) with a legal participating-rank set; rank sets may overlap across sequences. Here, q, h, and k are the query-, head-, and key/value-axis split factors, implemented by all-gather [17], Ulysses [18], and ring attention [19], respectively, with split degree λ = qhk . The configuration (1 , 1, 1) keeps the sequence whole and activates no attention communication. Table II summarizes the commu-nication and per-rank resident K/V payloads of these config-urations. Multi-axis configurations combine these primitives, but only profiled configurations satisfying executor-specific legality constraints are retained; for example, a Ulysses degree must divide the number of attention heads [18]. 
+
+B. Hardware Profiler 
+
+The Hardware Profiler supplies the time and memory costs used by the planner. It runs once per training setup and, following profile-guided scheduling practice [21], [22], mea-sures the per-rank execution time of every supported bucket– configuration pair. Each measurement captures attention com-pute, communication, kernel fusion, launch overhead, overlap, and packing [23]–[25], retaining primitive composition, de-gree, factorization, and executor effects without assuming sep-arability. After removing a placement-independent step cost, the profiler stores the resulting per-participating-rank price 
+
+Pb,θ in P. With b(s) denoting sequence s’s catalog bucket, the planner instantiates Eq. (1) by setting As,c,r = Pb(s),θ c
+
+for r ∈ Rc and zero otherwise, so each rank load is the sum of its selected prices. The removed cost is added back when predicting the step makespan. We evaluate the additive model in Sec. V-B. For memory, the profiler uses an analytical model based on resident-tensor shapes and lifetimes [26]. On a participating rank, Ms,c,r = M act  
+
+> s,c,r
+
++ M KV  
+
+> s,c,r
+
++ M buf  
+
+> s,c,r
+
+, and the cost is zero otherwise. M act , M KV , and M buf denote resident activations, resident K/V payloads, and collective communication buffers, respectively. M act depends on model geometry, depth, check-pointing mode, and local shard length [27]. The communi-cation terms depend on how the primitive stores and moves 
+
+Q/K/V . All-gather replicates the full resident K/V payload, of size L kv , on every participating rank, with transient gather workspace counted in M buf . Ulysses reduces the resident 
+
+K/V payload to L kv/h through head sharding, while its QKV-packed pre-attention all-to-all and post-attention inverse all-to-all create transient input/output buffers. Ring attention retains an L kv/k local shard and streams remote blocks through transient send/receive buffers. For multi-axis configu-rations, the model follows the executor’s nested tensor shapes and lifetimes rather than summing the single-axis entries. Calibration against measured peak allocated memory accounts for implementation-specific workspaces and supplies Mbase 
+
+and Musable , giving Mcap = Musable − Mbase for Eq. (1). 
+
+C. Anchor/Filler Planner 
+
+Zellige applies a fixed catalog-level cut that assigns each batch sequence to the anchor set or the filler set, then plans their placement in two stages. Anchor sequences are typically long videos with high execution costs and a low communi-cation fraction, so Anchor Placement can split them across ranks to mitigate stragglers. Filler sequences are typically lightweight images or short clips, so splitting them adds high communication overhead relative to their compute. Filler Packing therefore keeps them whole and places them within the compute and memory headroom left by the anchors. Zellige orders the catalog buckets as b(1) , . . . , b (Bcat ) by nondecreasing profiled whole-sequence time wb = Pb, whole ,and writes wi = wb(i) . It selects the contiguous cut that minimizes the within-set dispersion of log wi [28], 
+
+k⋆ = arg min 
+
+> 1≤k<B cat
+
+ X
+
+> i≤k
+
+(log wi − μfill (k)) 2
+
++ X
+
+> i>k
+
+(log wi − μanc (k)) 2
+
+
+
+,
+
+(4) where μfill (k) and μanc (k) are the mean log scores on either side; ties choose the smallest k. The logarithm captures multiplicative separation and is invariant to common price rescaling. Sequence s is an anchor iff b(s) = b(i) for some 
+
+i > k ⋆; otherwise, it is a filler. 
+
+Stage 1: Anchor Placement. Stage 1 chooses one executable placement option for each anchor, thereby fixing its primitive composition, split degree, and participating ranks. Anchor Placement uses an ϵ-constrained secondary objective [29]. It first minimizes the maximum profiled anchor load under the per-rank memory cap, then minimizes the number of split anchors while allowing that optimum to increase by at most ϵ.This keeps the balance bound explicit and avoids a conversion weight between maximum profiled anchor load and split count. Choices of parallelism configuration and rank set are discrete, whereas profiled rank load, analytical memory, and split count are linear in those choices. This discrete-linear structure fits CP-SAT’s Boolean and bounded-integer variables and linear constraints. We therefore use OR-Tools CP-SAT [15], which reports when the integer optimum is certified. A direct CP-SAT model uses one binary variable per mod-eled sequence–option pair, as in Eq. (1). Under DiT’s small, fixed bucket catalog, many such variables share placement options and resource coefficients and differ only by sequence identity, creating permutation-equivalent solutions [30]. Build-ing on CP-SAT, we use an Exact Compact Formulation (ECF) 
+
+to replace these interchangeable binaries with bounded integer counts; we call the resulting implementation CP-SAT-ECF. We group solver-equivalent sequences in the set being op-timized and denote the resulting set of groups by E. Members of the same group have the same bucket and length, executable placement options, and coefficients used to compute load and memory. Group g ∈ E contains ng sequences. For each group 
+
+g, let j ∈ J g index a parallelism configuration, with degree 
+
+λg,j , profiled time price pg,j and analytical memory mg,j per participating rank, and split indicator ξg,j = 1{λg,j > 1}. Let 
+
+Bg,j denote the legal participating-rank sets for this group and configuration. Each B ∈ B g,j contains exactly λg,j distinct ranks, so (j, B ) identifies an executable placement option for members of g. ECF defines zg,j as the number of group-
+
+g sequences choosing parallelism configuration j and ug,j,B 
+
+as the number assigned to rank set B. Its bounded-integer constraints are 
+
+zg,j , u g,j,B ∈ { 0, . . . , n g },
+
+X
+
+> j∈J g
+
+zg,j = ng ∀g, X
+
+> B∈B g,j
+
+ug,j,B = zg,j ∀g, j. (5) From u, we derive ηg,j,r (u), the number of group-g sequences choosing parallelism configuration j that use rank r. The resulting rank load, memory, and split count are 
+
+ηg,j,r (u) = X
+
+> B∈B g,j
+> r∈B
+
+ug,j,B , Lr = X
+
+> g,j
+
+pg,j ηg,j,r (u),Hr = X
+
+> g,j
+
+mg,j ηg,j,r (u), K = X
+
+> g,j
+
+ξg,j zg,j .
+
+(6) Let FECF denote the integer assignments satisfying Eq. (5). To express the maximum-rank objective of Eq. (1) with linear constraints, we introduce T and require Lr ≤ T for every rank. Anchor Placement performs the following balance and split-count solves. 
+
+T ⋆ 
+
+> anc
+
+= min   
+
+> (z,u )∈F ECF , T ≥0
+
+T
+
+s.t. Lr ≤ T, Hr ≤ Mcap ∀r. K⋆ 
+
+> anc
+
+= min 
+
+> (z,u )∈F ECF
+
+K
+
+s.t. Lr ≤ (1 + ϵ)T ⋆
+
+> anc
+
+, Hr ≤ Mcap ∀r. 
+
+(7) We set ϵ = 10 −3, so the second solve permits at most 0.1% 
+
+excess over a certified primary optimum. An empty anchor set has the trivial optima T = K = 0 and proceeds to Filler Packing. When both rounds return O PTIMAL , they certify Anchor Placement’s in-model balance optimum and split-count optimum within the ϵ load slack, under the specified options, integer-scaled costs, and memory cap. 
+
+ECF exactness. When ECF and the per-sequence formulation use the same executable placement options and additive per-rank time and memory model, ECF preserves the feasible rank-load and memory vectors and split count of the per-sequence formulation. Aggregating any concrete placement by group, configuration, and rank set yields a feasible (z, u ).Conversely, the constraints in Eq. (5) partition the ng solver-equivalent members of each group among legal options (j, B ).Because members within a group have identical coefficients, expanding these counts yields a legal placement with the same 
+
+(L1, . . . , L N , H 1, . . . , H N , K ); only permutations of members within a group are removed. The ECF variable count depends on group signatures and placement-option structure, not group multiplicities ng .
+
+Stage 2: Filler Packing. Stage 2 initializes its current per-rank load and memory ledgers from the decoded anchor placement, Cr ← Lr and Mr ← Hr . It keeps every sequence in Sfill whole and processes them in decreasing profiled whole-sequence price ps = Pb(s),whole . Define the current compute and memory headroom as hCr = F − Cr and 
+
+hMr = Mcap − Mr , where F = P 
+
+> s∈S
+
+Pb(s),whole /N is the profiled zero-communication load floor. For filler sequence s,Filler Packing chooses 
+
+r⋆(s) = arg max 
+
+> r∈R s
+
+min {ρCs,r , ρ Ms,r },ρCs,r = hCr − ps
+
+F , ρMs,r = hMr − Ms, whole ,r 
+
+Mcap 
+
+,
+
+Rs = {r : hMr ≥ Ms, whole ,r }.
+
+(8) For each feasible rank, the score uses the smaller post-placement compute and memory slack as the bottleneck. Maximizing this bottleneck places s where the tighter resource retains the most headroom, so neither compute nor memory is balanced at the expense of the other. After assigning each filler, the planner updates Cr⋆ and Mr⋆ , then recomputes the feasible ranks and scores for the next filler sequence. Zellige returns a placement only when both stages succeed; otherwise, planning fails. Algorithm 1 summarizes this two-stage procedure. 
+
+D. Coalesced Attention Engine 
+
+A placement plan may assign a rank both whole sequences and shards from distributed-attention groups. Executing seg-ments separately would incur many small kernel launches and collectives. The Coalesced Attention Engine lowers the placement into a rank-local schedule and coalesces compatible segments without mixing attention across sequences. Given the placement, each rank uses the sequences’ global token ranges to materialize only its assigned tokens and bind them to the selected attention executors. Process groups are cached by rank set for reuse across steps. The engine then stably orders segments by decreasing split degree and uses the 
+
+Algorithm 1 The Zellige two-stage planner 
+
+Require: S, k⋆, {C s}, R, P, {Ms,c,r }, Mcap , ϵ 
+
+> 1:
+
+(Sanc , Sfill ) ← ApplyCatalogCut( S, k ⋆) 
+
+> 2:
+
+E ← GroupEquivalentAnchors( Sanc ) 
+
+> 3:
+
+(T ⋆
+
+> anc
+
+, σ 1) ← ECFBalance( E, M cap ) 
+
+> 4:
+
+if σ1̸ = OPTIMAL then return failed  
+
+> 5:
+
+T anc ← (1 + ϵ)T ⋆ 
+
+> anc
+> 6:
+
+(z, u, σ 2) ← ECFMinSplit( E, T anc , M cap ) 
+
+> 7:
+
+if σ2̸ = OPTIMAL then return failed  
+
+> 8:
+
+x ← DecodeECF( E, z, u ) 
+
+> 9:
+
+initialize Cr ← Lr , Mr ← Hr ; set F ←P 
+
+> s∈S
+
+Pb(s),whole /N  
+
+> 10:
+
+for s ∈ S fill in decreasing Pb(s),whole do  
+
+> 11:
+
+compute Rs; if empty then return failed ; otherwise compute r⋆(s) 
+
+> 12:
+
+assign s to the whole-sequence option on r⋆(s) in x 
+
+> 13:
+
+update current rank load and memory  
+
+> 14:
+
+end for  
+
+> 15:
+
+return x, (σ1, σ 2), S UCCESS 
+
+global placement order to break ties. Placing wider collectives first avoids serializing work on disjoint rank groups, while ensuring that participating ranks invoke collectives in the same order. Within this schedule, the engine coalesces compatible work in two ways. First, whole sequences assigned to the same rank are packed into one block-diagonal FlashAttention call. Second, pure Ulysses sequences sharing the same configura-tion and rank set are batched into one QKV-packed all-to-all, one block-diagonal attention call, and one inverse all-to-all. Other segments use their selected executors independently, while ring-based executors retain their native communication– attention overlap. Block-diagonal attention keeps sequences separate [31] and returns outputs in the same rank-local order as the inputs. V. E VALUATION 
+
+A. Experimental Setup 
+
+Testbeds, model, and workloads. We use two multi-node GPU testbeds: 16 NVIDIA Tesla A800 GPUs across two eight-GPU nodes and 32 NVIDIA RTX A6000 GPUs across four eight-GPU nodes. InfiniBand connects the nodes in both testbeds, while the solver-efficiency experiments run on Intel Xeon Platinum 8358P CPUs. We use Wan2.1-1.3B as the training model [4]. The suites cover 256p–1080p images and 480p–1080p videos, informed by the training settings of Wan and HunyuanVideo and large-scale video datasets including OpenVid-1M and Koala-36M [4], [5], [32], [33]. We construct high- and low-load suites with 10-second videos, both spanning 35–60% video-token share at per-GPU token budgets of 350K and 125K tokens, respectively, and repeat the same video-token-share sweep with 15-second videos. For the 15-second workloads, the per-GPU token budgets are 350K tokens on the 16-A800 testbed and 175K tokens on the 32-A6000 testbed. Implementation. Our Wan2.1 training prototype uses acti-vation checkpointing and follows the DiffSynth-Studio block structure and attention path [34]. We implement CP-SAT-ECF with OR-Tools [15] and execute its plans with the Coalesced Attention Engine. 
+
+Baselines. We compare AdaptiveLoad [11], USP [12], and KnapFormer [13]. Because AdaptiveLoad’s implementation is unavailable, we reproduce its compute-aware DP policy and fit its load model on our testbed. We adapt xDiT’s USP path to training with exact backward [12], [35], and run KnapFormer’s original SequenceBalancer , workload model, and Ulysses executor. We enforce a per-GPU memory constraint for Knap-Former and reject placements that would cause OOM. All methods use identical models, batches, training loops, and measurement protocols. 
+
+B. Profile Accuracy 
+
+We evaluate the profile on 21 plan compositions. Eighteen mixed plans form a rotation covering array: each contains one 480p, one 720p, and one 1080p video plus a fixed set of 50 images. The 18 profiled parallelism configurations are assigned three per plan and rotated across the resolutions, so every resolution–configuration combination is executed exactly once. The remaining three are all-whole corner plans containing, respectively, only the 50 images, three 480p videos plus those images, and three 720p videos plus those images. Against GPU measurements across all 21 plans, the profile’s mean absolute error (MAE) and mean absolute percentage error (MAPE) are 
+
+2.5 s and 3.4% for step makespan and 0.4 GiB and 1.5% for peak allocated memory. 
+
+C. Solver Efficiency 
+
+We compare the two-stage planner with the joint-placement reference, evaluating both with and without ECF on the high-load suite. The reference applies the same placement model and two rounds to the full batch, first minimizing its maximum profiled rank load and then split count within the same ϵ slack. It jointly optimizes anchors and fillers and returns the plan without Filler Packing. Table III shows two effects. First, with ECF, the joint-placement reference certifies every cell in 4.6–89.0 s, whereas it returns no result within 600 s without ECF; ECF also reduces the two-stage planner solve time from 53–247 ms to 33–119 ms. Second, across the six high-load workloads, Zellige’s two-stage planner with ECF incurs at most 0.32% modeled step-makespan overhead relative to the joint-placement reference ( 0.10% mean) while solving 68 –1487 × faster (Table III). Both CP-SAT rounds of each ECF-enabled solver report OPTIMAL in every cell: Anchor Placement for Zellige and full-batch placement for the reference. 
+
+D. End-to-End Performance 
+
+We measure full training steps, including forward, back-ward, and optimizer updates, for the 10-second suites on one eight-GPU node of the A800 testbed and the 15-second workloads on both multi-node testbeds. For each workload, we TABLE III: Solver-formulation ablation over six high-load workloads (350K tokens per GPU; 35–60% video-token share). Planner solve time measures the time to produce a complete placement and excludes attention execution: it ends when the joint-placement reference returns its placement or after Filler Packing for the two-stage planner. ECF removes only permutations of solver-equivalent sequences and pre-serves both optima. The overhead row is bTtwo / bTjoint −1 for the modeled makespans of the returned Two-stage and Joint +ECF plans; mean-column parentheses give solve-time speedup over Joint +ECF.                                      
+
+> Planner solve time (s) V35 V40 V45 V50 V55 V60 mean Joint No result within 600 s Joint +ECF 8.1 5.5 4.6 63.8 7.9 89.0 29.8 Two-stage 0.053 0.075 0.107 0.171 0.231 0.247 0.147 ( 203 ×)
+> Two-stage +ECF 0.033 0.039 0.037 0.043 0.116 0.119 0.065 ( 458 ×)
+> Step-makespan overhead 0.00% 0.00% 0.02% 0.00% 0.32% 0.24% 0.10% V35 V40 V45 V50 V55 V60
+> 0
+> 200
+> 400
+> step makespan (s)
+> 1.37×
+> 1.35×
+> 1.34×
+> 1.33×
+> 1.31×
+> 1.28×
+> 1.31×
+> 1.28×
+> 1.25×
+> 1.21×
+> 1.15×
+> 1.10×
+> 199s
+> 205s
+> 208s
+> 215s
+> 226s
+> 238s
+> AdaptiveLoad USP KnapFormer Zellige (ours)
+
+(a) High-load suite (350K tokens per GPU). 400 
+
+450 
+
+V35 V40 V45 V50 V55 V60 
+
+0
+
+50 
+
+100 
+
+> 1.25×
+> 1.20×
+> 1.20×
+> 1.16×
+> 1.22×
+> 1.14×
+> 1.22×
+> 1.18×
+> 1.15×
+> 1.11×
+> 1.08×
+> 1.11×
+> 67s
+> 69s
+> 71s
+> 74s
+> 76s
+> 90s
+> step makespan (s)
+
+(b) Low-load suite (125K tokens per GPU). 
+
+Fig. 5: End-to-end step makespan on eight A800 GPUs. Each panel contains six workloads spanning 35–60% video-token share. Annotations give Zellige’s speedup over each baseline; Zellige’s bars show step makespan in seconds. USP reports its best factorization and KnapFormer its best feasible disjoint-group layout per workload; panel (b) uses a broken y-axis to keep all methods readable. report the best measured USP and KnapFormer results across all available factorizations and feasible disjoint-group layouts, respectively. Zellige is fastest in all twelve workloads. In Fig. 5(a), Zellige’s speedup over KnapFormer is 1.10 –1.31 × (1.22 ×
+
+mean); its mean speedups over USP and AdaptiveLoad are 0 1
+
+comm. volume / USP 
+
+AdaptiveLoad 
+
+USP 
+
+KnapFormer 
+
+Zellige 
+
+0.00 
+
+1.00 
+
+0.39 
+
+0.25 
+
+(a) Communication volume 
+
+0 100 200 300 400 500 
+
+full-step time (s) 
+
+2.34× 
+
+1.00× 
+
+1.21× 
+
+1.00× 
+
+(b) Per-rank step time   
+
+> AG/RS A2A P2P/ring
+
+Fig. 6: Measured resource breakdown for the high-load V50 workload on eight A800 GPUs (10-second videos; 350K tokens per GPU) over one full checkpointed training step. Panel (a) shows attention data transferred between GPUs by collective type, normalized to USP; panel (b) shows the eight per-rank full-step times for each method, annotated with the max-to-average ratio. 
+
+1.33 × and 2.28 ×. In Fig. 5(b), Zellige’s speedup over Knap-Former is 1.08 –1.22 × (1.14 × mean), while its speedup over AdaptiveLoad is 5.33 –7.19 ×. At the same video-token shares, the low-load suite’s lower token budget makes each indivis-ible video a larger fraction of the ideal per-rank workload and therefore a more severe straggler. USP instead pays the communication cost of splitting every sequence, while KnapFormer remains constrained by its preconfigured disjoint groups. Zellige avoids these bottlenecks by splitting only compute-dominant sequences and co-locating whole fillers on their ranks. For the high-load V50 case in Fig. 6, Zellige transfers 
+
+25 .4% as much attention data as USP and 64 .9% as much as KnapFormer (panel (a)), while matching USP’s 1.00 × max-to-average ratio of per-rank full-step times and improving on KnapFormer’s 1.21 × (panel (b)). AdaptiveLoad transfers no cross-rank attention data but has the largest per-rank time imbalance, with a 2.34 × max-to-average ratio because long videos remain indivisible. For workloads with 15-second videos on 16 A800 GPUs, Zellige’s speedup over KnapFormer is 1.12 –1.48 × (1.25 ×
+
+mean), and its speedup over USP is 1.63 –2.06 × (1.76 × mean) (Fig. 7(a)). On 32 A6000 GPUs, Zellige’s speedup over Knap-Former is 1.27 –1.54 × (1.42 × mean), and its speedup over USP is 1.72 –2.45 × (1.95 × mean) (Fig. 7(b)). AdaptiveLoad OOMs on both deployments because the memory footprint of an indivisible 15-second video exceeds the per-GPU memory cap (Fig. 7). VI. R ELATED WORK 
+
+AdaptiveLoad uses compute-aware DP [11], USP applies Ulysses/ring-based CP to every sequence [12], [18], [19], [36], and KnapFormer combines them through preconfigured dis-joint rank groups [13]. It keeps sequences whole or splits them, but each inherits its group’s parallelism configuration and rank V35 V40 V45 V50 V55 V60         
+
+> 0
+> 200
+> 400
+> 600
+> step makespan (s)
+> 1.19×
+> 1.12×
+> 1.17×
+> 1.48×
+> 1.12×
+> 1.41×
+> 244s
+> 259s
+> 366s
+> 372s
+> 382s
+> 391s
+> AdaptiveLoad USP KnapFormer Zellige (ours)
+> (a) 16 A800 GPUs. V35 V40 V45 V50 V55 V60
+> 0
+> 250
+> 500
+> 750
+> step makespan (s)
+> 1.54×
+> 1.27×
+> 1.51×
+> 1.48×
+> 1.40×
+> 1.35×
+> 261s
+> 319s
+> 373s
+> 384s
+> 405s
+> 420s
+> (b) 32 A6000 GPUs.
+
+Fig. 7: End-to-end step makespan for six workloads with 15-second videos spanning 35–60% video-token share at device-specific high-load budgets. Annotations give Zellige’s speedup over each baseline; KnapFormer uses its best feasible disjoint-group layout per workload. AdaptiveLoad OOMs in all six workloads of both panels. set. Other diffusion systems optimize inference or model-stage placement, not per-sequence attention placement [35], [37], [38]. Long-context LLM systems also explore sequence partition-ing and placement across GPUs. FlexSP solves a bandwidth-aware per-minibatch MILP over disjoint Ulysses groups [20]. HotSPa groups sequences by length and sequentially switches among group-specific parallel strategies rather than concur-rently executing per-sequence placement options on overlap-ping rank sets [39]. ByteScale supports dynamic per-sequence meshes and packing, but without offload it splits sequences only when required by memory and uses ring attention [40]. DCP [41] permits fine-grained block co-location and mini-mizes the hypergraph connectivity-minus-one communication-volume objective [42] under balance constraints, targeting total traffic rather than step makespan. VII. C ONCLUSION 
+
+We proved that disjoint-group placement faces a fundamen-tal tradeoff between inter-group load imbalance and intra-group communication redundancy. To address this tradeoff in mixed image-video DiT training, we presented Zellige, a moldable sequence placement system that selects each sequence’s parallelism configuration and participating ranks. Zellige consists of a Hardware Profiler, a two-stage plan-ner that balances compute-heavy anchors and packs lighter fillers into the remaining capacity, and a Coalesced Attention Engine that efficiently executes whole sequences alongside distributed-attention shards. The two-stage planner solves each batch in 33–119 ms, significantly faster than a joint-placement reference that optimizes all sequences together, while their modeled makespans differ by at most 0.32% . In end-to-end evaluations, Zellige outperforms KnapFormer by 1.12 –1.48 ×
+
+on 16 A800 GPUs and 1.27 –1.54 × on 32 A6000 GPUs. REFERENCES [1] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,” in Advances in Neural Information Processing Systems (NeurIPS) ,vol. 33, 2020, pp. 6840–6851. [2] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-resolution image synthesis with latent diffusion models,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion (CVPR) , 2022, pp. 10 684–10 695. [3] J. Ho, T. Salimans, A. Gritsenko, W. Chan, M. Norouzi, and D. J. Fleet, “Video diffusion models,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 35, 2022, pp. 8633–8646. [4] Team Wan et al. , “Wan: Open and advanced large-scale video generative models,” arXiv preprint arXiv:2503.20314 , 2025. [5] W. Kong et al. , “Hunyuanvideo: A systematic framework for large video generative models,” arXiv preprint arXiv:2412.03603 , 2024. [6] W. Peebles and S. Xie, “Scalable diffusion models with transformers,” in Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2023, pp. 4195–4205. [7] T. Dao, D. Y. Fu, S. Ermon, A. Rudra, and C. R´ e, “FlashAttention: Fast and memory-efficient exact attention with IO-awareness,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 35, 2022, pp. 16 344–16 359. [8] D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. A. Korthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, A. Phanishayee, and M. Zaharia, “Efficient large-scale language model training on gpu clusters using megatron-lm,” in Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis , 2021, pp. 1–15. [9] D. Gu et al. , “LoongTrain: Efficient training of long-sequence LLMs with head-context parallelism,” arXiv preprint arXiv:2406.18485 , 2024. [10] H. Li, F. Fu, S. Lin, H. Ge, X. Wang, J. Niu, J. Xue, Y. Tao, D. Wang, J. Jiang, and B. Cui, “Hydraulis: Balancing large transformer model training via co-designing parallel strategies and data assignment,” 
+
+Proceedings of the ACM on Management of Data , vol. 3, no. 6, pp. 1–30, 2025. [11] Y. Guo, Y. Guo, Z. Guan, H. Sun, W. Huang, W. Xu, J. Long, S. Di, and J. Xiong, “AdaptiveLoad: Towards efficient video diffusion transformer training,” arXiv preprint arXiv:2605.17923 , 2026. [12] J. Fang and S. Zhao, “Usp: A unified sequence parallelism approach for long context generative ai,” arXiv preprint arXiv:2405.07719 , 2024. [13] K. Zhang, P. Wang, S. Bi, J. Zhang, and Y. Xiong, “Knapformer: An online load balancer for efficient diffusion transformers training,” arXiv preprint arXiv:2508.06001 , 2025. [14] X. Wu and P. Loiseau, “Efficient approximation algorithms for schedul-ing moldable tasks,” European Journal of Operational Research , vol. 310, no. 1, pp. 71–83, 2023. [15] L. Perron, F. Didier, and S. Gay, “The CP-SAT-LP solver,” in Proc. International Conference on Principles and Practice of Constraint Pro-gramming (CP) , ser. Leibniz International Proceedings in Informatics, vol. 280, 2023, pp. 3:1–3:2. [16] G. Xiang, X. Kang, L. Zhang, W. Lin, S. Shi, Y. Wang, and X. Chu, “KernelFlume: Elastic core-attention scaling for agentic long-context decoding,” arXiv preprint arXiv:2606.29207 , 2026. [17] A. Grattafiori et al. , “The Llama 3 herd of models,” arXiv preprint arXiv:2407.21783 , 2024. [18] S. A. Jacobs, M. Tanaka, C. Zhang, M. Zhang, S. L. Song, S. Rajbhan-dari, and Y. He, “Deepspeed ulysses: System optimizations for enabling training of extreme long sequence transformer models,” arXiv preprint arXiv:2309.14509 , 2023. [19] H. Liu, M. Zaharia, and P. Abbeel, “Ring attention with blockwise transformers for near-infinite context,” arXiv preprint arXiv:2310.01889 ,2023. [20] Y. Wang, S. Wang, S. Zhu, F. Fu, X. Liu, X. Xiao, H. Li, J. Li, F. Wu, and B. Cui, “FlexSP: Accelerating large language model training via flexible sequence parallelism,” in Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2 , 2025, pp. 421–436. [21] S. Shi, Q. Wang, and X. Chu, “Performance modeling and evaluation of distributed deep learning frameworks on GPUs,” in 2018 IEEE DASC/PiCom/DataCom/CyberSciTech , 2018, pp. 949–957. [22] X. Pan, W. Lin, L. Zhang, S. Shi, Z. Tang, R. Wang, B. Li, and X. Chu, “FSMoE: A flexible and scalable training system for sparse mixture-of-experts models,” in Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 , 2025, pp. 524–539. [23] G. Xiang, L. Zhang, H. Yu, X. Pan, S. Shi, and X. Chu, “Compass: Dissecting communication and computation operators for efficient LLM training,” in IEEE INFOCOM 2026 - IEEE Conference on Computer Communications , 2026, pp. 1–10. [24] S. Shi, X. Chu, and B. Li, “MG-WFBP: Merging gradients wisely for ef-ficient communication in distributed deep learning,” IEEE Transactions on Parallel and Distributed Systems , vol. 32, no. 8, pp. 1903–1917, 2021. [25] L. Zhang, S. Shi, X. Chu, W. Wang, B. Li, and C. Liu, “DeAR: Acceler-ating distributed deep learning with fine-grained all-reduce pipelining,” in 2023 IEEE 43rd International Conference on Distributed Computing Systems (ICDCS) , 2023, pp. 142–153. [26] X. Kang, G. Xiang, S. Li, Y. Wang, S. Shi, L. Zhang, and X. Chu, “Xema: Efficient diffusion serving through fine-grained memory man-agement and auto-configuration,” arXiv preprint arXiv:2607.11136 ,2026. [27] V. A. Korthikanti, J. Casper, S. Lym, L. McAfee, M. Andersch, M. Shoeybi, and B. Catanzaro, “Reducing activation recomputation in large transformer models,” in Proceedings of Machine Learning and Systems (MLSys) , vol. 5, 2023, pp. 341–353. [28] W. D. Fisher, “On grouping for maximum homogeneity,” Journal of the American Statistical Association , vol. 53, no. 284, pp. 789–798, 1958. [29] Y. Y. Haimes, L. S. Lasdon, and D. A. Wismer, “On a bicriterion for-mulation of the problems of integrated system identification and system optimization,” IEEE Transactions on Systems, Man, and Cybernetics ,vol. SMC-1, no. 3, pp. 296–297, 1971. [30] F. Margot, “Exploiting orbits in symmetric ILP,” Mathematical Pro-gramming , vol. 98, no. 1–3, pp. 3–21, 2003. [31] M. Dehghani et al. , “Patch n’ pack: NaViT, a vision transformer for any aspect ratio and resolution,” in Advances in Neural Information Processing Systems , vol. 36, 2023, pp. 2252–2274. [32] K. Nan, R. Xie, P. Zhou, T. Fan, Z. Yang, Z. Chen, X. Li, J. Yang, and Y. Tai, “Openvid-1m: A large-scale high-quality dataset for text-to-video generation,” in International Conference on Learning Representations ,2025. [33] Q. Wang, Y. Shi, J. Ou, R. Chen, K. Lin, J. Wang, B. Jiang, H. Yang, M. Zheng, X. Tao, F. Yang, P. Wan, and D. Zhang, “Koala-36m: A large-scale video dataset improving consistency between fine-grained condi-tions and video content,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025, pp. 8428–8437. [34] ModelScope Community, “DiffSynth-Studio,” https://github.com/ modelscope/DiffSynth-Studio, 2023, software repository, accessed 2026-07-28. [35] J. Fang, J. Pan, X. Sun, A. Li, and J. Wang, “xDiT: an inference engine for diffusion transformers (DiTs) with massive parallelism,” 
+
+arXiv preprint arXiv:2411.01738 , 2024. [36] X. Zhao, S. Cheng, C. Chen, Z. Zheng, Z. Liu, Z. Yang, and Y. You, “DSP: Dynamic sequence parallelism for multi-dimensional transform-ers,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267. PMLR, 2025, pp. 77 390–77 404. [37] S. Wang, Q. Wang, and S. Shi, “PipeDiT: Accelerating diffusion trans-formers in video generation with task pipelining and model decoupling,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 40, no. 12, 2026, pp. 10 092–10 100. [38] B. Sun, G. Jiang, L. Zhang, C. Chen, Y. Tao, Z. Che, J. Yu, S. Chang, H. Gu, F. Liu, and B. Li, “Pulse: Training acceleration for large diffusion models with automatic pipeline parallelism,” arXiv preprint arXiv:2606.19163 , 2026. [39] H. Ge et al. , “Enabling parallelism hot switching for efficient training of large language models,” in Proceedings of the ACM SIGOPS 30th Symposium on Operating Systems Principles , 2024, pp. 178–194. [40] H. Ge, J. Feng, Q. Huang, F. Fu, X. Nie, L. Zuo, H. Lin, B. Cui, and X. Liu, “ByteScale: Communication-efficient scaling of LLM training with a 2048k context length on 16384 GPUs,” in Proceedings of the ACM SIGCOMM 2025 Conference , 2025, pp. 963–978. [41] C. Jiang, Z. Cai, Y. Tian, Z. Jia, Y. Wang, and C. Wu, “DCP: Addressing input dynamism in long-context training via dynamic context parallelism,” in Proc. ACM SOSP , 2025, pp. 221–236. [42] S. Schlag, T. Heuer, L. Gottesb¨ uren, Y. Akhremtsev, C. Schulz, and P. Sanders, “High-quality hypergraph partitioning,” ACM J. Exp. Algo-rithmics , vol. 27, pp. 1.9:1–1.9:39, 2022.
