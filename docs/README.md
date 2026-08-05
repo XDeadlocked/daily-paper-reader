@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-04</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-05</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 26 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-04 22:02:45 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-05 21:46:20 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦语言条件安全过滤与云边协同具身大模型，两篇均获9分高分；速读则覆盖视频世界模型与轨迹生成前沿。最值得关注的方向是：用自然语言约束机器人安全行为，以及通过云端-边缘分工提升VLA模型实时性。普通读者可优先浏览“视觉-语言-动作”模型的技术拆解，再顺藤摸瓜了解视频生成底层原理。</p>
+<p>今日精读聚焦世界模型与具身操控视频VAE，速读覆盖物理世界模型测试、清洁机器人及动作分块机制。最值得关注：世界模型综述与EmbodiedVAE，分别探讨通用智能建模与高效可控操作。建议读者优先精读这两篇，理解世界模型前沿与具身操控新方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">19 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards General Language-Conditioned Latent Safety Filters">Towards General Language-Conditioned Latent Safety Filters</span></li><li><span class="dpr-home-dashboard-paper-title" title="Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization">Latency-Tolerant Cloud-Edge Collaborative Vision-Language-Action Models via Emergent Representational Specialization</span></li><li><span class="dpr-home-dashboard-paper-title" title="SelfWAM: A Self-Grounded Unified World Action Model for Fast Robot Control">SelfWAM: A Self-Grounded Unified World Action Model for Fast Robot Control</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Quo Vadis, World Modeling?">Quo Vadis, World Modeling?</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedVAE: Disentangled Video VAE for Efficient and Controllable Embodied Manipulation">EmbodiedVAE: Disentangled Video VAE for Efficient and Controllable Embodied Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="How Should Vision-Language-Action Models Use Proprioceptive State?">How Should Vision-Language-Action Models Use Proprioceptive State?</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>19</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Diagnosing Under-Development of Irreversible Processes in Video Generation">Diagnosing Under-Development of Irreversible Processes in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="MiniWorld: Democratizing the Training of Video World Models from Scratch">MiniWorld: Democratizing the Training of Video World Models from Scratch</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamTraj: Generating 6-DoF Object Trajectories by Reading Unrendered Video Diffusion Latents">DreamTraj: Generating 6-DoF Object Trajectories by Reading Unrendered Video Diffusion Latents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Why Does the Future Branch? Identifiable Closure Tests for Stochastic Physical World Models">Why Does the Future Branch? Identifiable Closure Tests for Stochastic Physical World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Push-Wiper: Toward General-Purpose Robotic Cleaning across Varied Stains and Surfaces with Segmented Pushing Trajectories">Push-Wiper: Toward General-Purpose Robotic Cleaning across Varied Stains and Surfaces with Segmented Pushing Trajectories</span></li><li><span class="dpr-home-dashboard-paper-title" title="Why Does Action Chunking Improve Behavioral Cloning Performance in Robotic Control?">Why Does Action Chunking Improve Behavioral Cloning Performance in Robotic Control?</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
