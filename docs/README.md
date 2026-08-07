@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-05</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-07</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-05 21:46:20 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-07 21:15:54 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦世界模型与具身操控视频VAE，速读覆盖物理世界模型测试、清洁机器人及动作分块机制。最值得关注：世界模型综述与EmbodiedVAE，分别探讨通用智能建模与高效可控操作。建议读者优先精读这两篇，理解世界模型前沿与具身操控新方法。</p>
+<p>今日精读17篇、速读7篇，共24篇论文，聚焦视频生成与机器人学习前沿。最值得关注两项9.0分工作：视频模型可作原生4D渲染器，及门控溯源机制对训练无关VLA令牌跳过的闭环可靠性限制。建议普通读者优先浏览精读列表，从高分的4D视频建模与VLA可靠性结论入手，速读部分可留待后续。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">17 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Quo Vadis, World Modeling?">Quo Vadis, World Modeling?</span></li><li><span class="dpr-home-dashboard-paper-title" title="EmbodiedVAE: Disentangled Video VAE for Efficient and Controllable Embodied Manipulation">EmbodiedVAE: Disentangled Video VAE for Efficient and Controllable Embodied Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="How Should Vision-Language-Action Models Use Proprioceptive State?">How Should Vision-Language-Action Models Use Proprioceptive State?</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Video Models as Native 4D Renderers: World-Grounded Conditioning from Animated Mesh">Video Models as Native 4D Renderers: World-Grounded Conditioning from Animated Mesh</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping">The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping</span></li><li><span class="dpr-home-dashboard-paper-title" title="UniMoCa: Unifying Motion and Camera Controls as Visual Proxies for Faithful Human Video Generation">UniMoCa: Unifying Motion and Camera Controls as Visual Proxies for Faithful Human Video Generation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>17</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Why Does the Future Branch? Identifiable Closure Tests for Stochastic Physical World Models">Why Does the Future Branch? Identifiable Closure Tests for Stochastic Physical World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Push-Wiper: Toward General-Purpose Robotic Cleaning across Varied Stains and Surfaces with Segmented Pushing Trajectories">Push-Wiper: Toward General-Purpose Robotic Cleaning across Varied Stains and Surfaces with Segmented Pushing Trajectories</span></li><li><span class="dpr-home-dashboard-paper-title" title="Why Does Action Chunking Improve Behavioral Cloning Performance in Robotic Control?">Why Does Action Chunking Improve Behavioral Cloning Performance in Robotic Control?</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="EvoHIL: Self-Evolving Reward and Flow-Matched Policy Optimization for Robust Human-in-the-Loop Reinforcement Learning">EvoHIL: Self-Evolving Reward and Flow-Matched Policy Optimization for Robust Human-in-the-Loop Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="ContextMaster: Interactive Multi-Shot Video Creation via Fixed-Budget Sparse Context Routing">ContextMaster: Interactive Multi-Shot Video Creation via Fixed-Budget Sparse Context Routing</span></li><li><span class="dpr-home-dashboard-paper-title" title="LAWM-3D: Learning 3D-Aware Latent Actions from Human Videos for Generalizable Robot World Models">LAWM-3D: Learning 3D-Aware Latent Actions from Human Videos for Generalizable Robot World Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 </div>
 

@@ -1,0 +1,294 @@
+Title: The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping
+
+URL Source: https://arxiv.org/pdf/2608.00391v1
+
+Published Time: Tue, 04 Aug 2026 00:26:28 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping 
+
+# Qi Luo 1, Shuaijun Liu 1, Hao Zhao 1, Kunlin Li 1, Xiaobo Wang 2,3 , Ningxing Su 1, Dongsheng Wang 4,Yun Chen 1∗
+
+> 1
+
+The Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+Shenzhen University of Advanced Technology 
+
+> 3
+
+Sangfor Technologies Inc. 
+
+> 4
+
+Tsinghua University {qluo615, sliu529, hzhao688, kli082}@connect.hkust-gz.edu.cn, ningxinsu@hkust-gz.edu.cn, wds@tsinghua.edu.cn, wangxiaobo@suat-sz.edu.cn, yunchen@hkust-gz.edu.cn 
+
+Abstract 
+
+Token skipping is a widely used training-free way to accelerate vision–language–action (VLA) models by bypassing compu-tation for most visual tokens at each control step according to a gate. When the next gate is harvested from the previous accelerated forward, however, the tokens skipped at one step are also the ones least visible to the next gate, and the damage can compound across control steps until the task fails. We study the two mechanisms this class is built on, reuse and deletion, crossing each against where its gate signal comes from on identical episodes. At a skip ratio of 0.9 on LIBERO-Object, both collapse when the gate comes from the model’s own accelerated forwards, to 0.68 under reuse and to 0.31 under deletion against a dense 1.00, and the collapse is invis-ible to the action-level detectors we evaluate. What separates collapse from dense-level operation is not the mechanism but whether the gate is clean, computed by a forward that skipped nothing. We therefore propose actuation-slack refresh , one dense pass run while the robot executes its current action chunk, off the critical path, that hands the next step a clean gate and a fresh KV base. Since the measured detectors do not reliably reveal the failure, the refresh is unconditional rather than triggered. Both mechanisms then recover to 0.98, keep-ing the speed of skipping and the information of a dense pass. We then integrate the refresh into state-of-the-art caching and pruning methods across two VLA policies, 4 LIBERO suites, and 4 SIMPLER tasks, where it repairs every collapse caused by using a self-harvested gate. Serve latency drops 18–22% below dense, measured both in simulation and on a physical robot. Where the gate signal comes from, not how tokens are skipped, decides closed-loop reliability for accelerated VLAs. 
+
+# 1 Introduction 
+
+Vision–language–action (VLA) models (Black et al. 2025; Gemini Robotics Team et al. 2025; NVIDIA et al. 2025; Kim, Finn, and Liang 2025; Li et al. 2024) sit at the fron-tier of embodied intelligence, letting a robot carry out a natural-language instruction through continuous manipula-tion. A typical policy turns the current camera view into a few hundred visual tokens, runs one forward pass over them together with the instruction, and emits a short action chunk. The robot executes it, the view changes, and the policy runs 
+
+> ∗
+
+Corresponding author. dense: the robot waits 63 ms every chunk           
+
+> 63execute ~400 ms (GPU idle) 63
+> self -harvested: fast, but the gate loops on its own sparse pass
+> 5454
+> gate
+> ₜ₊₁ = own sparse attention →blind to dropped tokens
+> ours : fast serve + ONE dense refresh inside the slack
+> 52refresh 52refresh
+> clean gate + fresh KV for the next newest -frame sparse pass
+
+Figure 1: One control chunk under dense serving, self-harvested skipping, and actuation-slack refresh (ours). again. Every pass through this loop pays the full inference cost of a large vision–language backbone, much of it spent on visual tokens that barely change between frames. Training-free token skipping promises to reclaim that cost. A gate marks which tokens to skip, and the marked ones are ei-ther served from a cross-step cache, reusing the KV tensors computed for them at the previous step (Xu et al. 2025), or deleted outright, on the grounds that patches like static back-ground carry little task information (Wang et al. 2026; Liu et al. 2025). Published methods report near-lossless success (Cheng et al. 2026; Chen, Wang, and Zhou 2026). As shown in Fig. 1, dense serving skips nothing and spends ∼63 ms on the forward (the 7B OpenVLA-OFT pol-icy on LIBERO, H100), after which the GPU sits idle for the ∼400 ms the robot needs to execute the chunk. Deployed skipping computes only the tokens the gate keeps and cuts the serve to ∼54 ms. When the gate for the next chunk is read from that same sparse forward, its signal comes from a forward in which many tokens were already stale or absent. We call such a gate self-harvested. We run both skipping mechanisms, reuse and deletion, twice over identical episodes, once with the gate taken from the accelerated forward that served the current action chunk and once with it taken from a dense pass whose action output was discarded. At a skip ratio of 0.9 on LIBERO-Object (Liu et al. 2023), the self-harvested gate takes paired success from a dense 1.00 down to 0.68 under reuse and to 0.31 under deletion, while the gate from the dense pass holds arXiv:2608.00391v1 [cs.RO] 1 Aug 2026 both at dense level. The failure is silent. Single-step action deviation stays negligible, and every reactive detector we instrumented scores near chance. Concurrent detectors built for distribution shift (Pan et al. 2026; Seligmann et al. 2026; Mahato and Ren 2026) remain untested here. The failure-critical shift is concentrated in tokens that the sparse pass no longer recomputes. Methods that look lossless at their published operating points can cross a failure cliff that their own signals do not reveal. Prior work optimizes gate selection and the choice between cache reuse and deletion, but to our knowledge no prior work isolates gate provenance from the skipping mechanism in closed loop. The loop that blinds the gate also holds the fix. We spend that idle window on one dense pass over the same frame, which serves no action and therefore hands the next chunk a gate computed over all tokens and a KV base that no sparse forward has touched (Fig. 1, bottom). It runs on every chunk and off the critical path, so it costs no serve latency. Added to VLA-Cache (Xu et al. 2025) and VLA-Pruner (Liu et al. 2025), the state-of-the-art methods of the caching and pruning families, it repairs every collapse caused by using a self-harvested gate across two VLA policies, 4 LIBERO suites, and 4 SIMPLER tasks while serving 18–22% faster than dense on OpenVLA-OFT. Refreshing on every chunk may look wasteful next to re-freshing only when a trigger says so. SAFE-Pruner (Ma et al. 2026), the closest method to ours, takes the second route, supplying clean saliency but deciding when to refresh based on a self-harvested consistency score. Such a trigger has to see the very shift it is meant to catch, and this one does not, firing 3 times in 3,222 encodes on Object while success falls to 0.19 against a dense 1.00 (Sec. 5.5). The unconditional schedule makes the repair reliable, and the actuation slack keeps the refresh off the critical path. In summary, we make the following contributions. 
+
+• Isolation. A controlled design crossing gate provenance with skipping mechanism on identical episodes shows that where the gate signal comes from, not the mechanism, separates reliable from unreliable skipping. 
+
+• Repair. Actuation-slack refresh, one dense pass per chunk inside the execution window, lifts both mechanisms on Object at a 0.9 skip ratio from 0.68 and 0.31 back to 0.98, repairs every collapse caused by using a self-harvested gate once added to the named baselines, and serves 18– 22% faster than dense on OpenVLA-OFT, both in simu-lation and on a physical robot. 
+
+• Explanation. Beyond the controlled cells, the same ac-count grades the released methods by how much clean signal each of them still computes, which is why the shal-low recompute shipped with VLA-Cache closes only part of the gap and why VLA-Pruner avoids the provenance failure until the substrate, rather than the gate, reaches its capacity boundary. 
+
+# 2 Related Work 
+
+Training-free token skipping for VLAs Two routes dom-inate this line. The caching route keeps every token in the attention context but serves the KV of the skipped ones from the previous step, so a patch the gate calls static still con-tributes to attention without being recomputed (Xu et al. 2025). The pruning route removes those tokens altogether, with a saliency score deciding which patches carry too little task-relevant information to keep (Wang et al. 2026; Liu et al. 2025; Cheng et al. 2026), and token merging is a close rel-ative that folds redundant patches together rather than drop-ping them (Li et al. 2026; Chen, Wang, and Zhou 2026). Both routes optimize the spatial selection and report near-lossless success at their published operating points. In the caching and pruning systems we audit, at least one temporal compo-nent of the gate is harvested from served sparse forwards, but prior work does not isolate the resulting feedback. 
+
+Dense re-anchoring and triggered refresh TTF-VLA (Liu et al. 2026) interleaves periodic full-token passes on the critical path. SAFE-Pruner (Ma et al. 2026) caches clean saliency at key timesteps and refreshes when a consistency score κt drops. In our evaluation, however, the self-harvested trigger remains largely inactive when provenance-induced failure occurs (Sec. 5.5). Related work studies asynchronous, streaming, or interleaved VLA inference and real-time ac-tion correction (Black, Galliker, and Levine 2025; Tang et al. 2025; Agouzoul 2026; Sendai et al. 2025; Guo and Liu 2026; Huang et al. 2026), with conceptual parallels to classical imprecise-computation scheduling and advanced-step con-trol (Liu et al. 1991; Zavala and Biegler 2009), but does not address gate provenance. 
+
+Staleness beyond robotics Video transformers exploit temporal redundancy by selectively reprocessing changed tokens across frames (Dutson, Li, and Gupta 2023), while efficient VLM serving reuses visual KV under open-loop load (Qin et al. 2025). In text-only decoding, KV capacity is managed through eviction or query-aware selection (Zhang et al. 2023; Tang et al. 2024). Periodic dense rectification bounds the error a sparse-attention cache accumulates (Sun et al. 2025), and cache-mediated feedback can amplify rep-etitions the model itself produced until a targeted KV in-tervention breaks the loop (Xu et al. 2026). These settings lack the property that makes VLA skipping dangerous, an action produced by a sparse forward that moves the camera and closes the loop from what is skipped now to what is observed next. 
+
+# 3 Diagnosing Silent Failure in Closed-Loop Token Skipping 
+
+3.1 Why Skipping Errors Accumulate 
+
+A VLA policy operates in closed loop. Given an instruc-tion such as “pick up the black bowl and place it on the plate,” it carries out the task over tens of chunk-level control decisions. At each such decision, the policy encodes the cur-rent camera frame into hundreds of visual tokens, runs one forward pass through the language model, and emits an ac-tion chunk. The robot executes that chunk, changing what the next step sees. The training-free methods studied here reduce language-model computation by skipping selected visual to-kens, either serving cached state for them or omitting them. The fraction skipped is the skip ratio , so at a skip ratio of 0.9 only one visual token in 10 is computed. In a closed loop, skipping also changes a future input. It perturbs the forward, the resulting action changes the next camera frame, and at-tention from the perturbed computation can select the next tokens to skip. Error can therefore feed back through both the environment and the selector, compound across chunks (Ross, Gordon, and Bagnell 2011), and end in task failure. 
+
+3.2 Gate Provenance and Skipping Mechanism 
+
+Token skipping typically uses a gate , a per-patch signal that decides which visual tokens are skipped at each control step. In closed loop, an independent design variable is the temporal provenance of that signal, meaning which forward supplies it. The gate for chunk t+1 can come from the sparse forward that served chunk t’s actions, after skipping has already with-held fresh information. We call this a self-harvested gate. In deployment, this pattern repeats across the episode. Each served sparse forward supplies the gate and, under reuse, the KV for the next chunk. We call this the self-harvest chain .Alternatively, the gate can come from a dense pass on the same frame whose action output is discarded. We call this a 
+
+clean gate. These provenance labels identify the signal path rather than a saliency rule. The second variable is the skipping mechanism. Under 
+
+reuse , cached per-layer keys and values are used for skipped tokens, as in VLA-Cache (Xu et al. 2025). Under deletion ,the gate retains the most salient tokens and prunes the rest, as in VLA-Pruner (Liu et al. 2025). 
+
+3.3 Provenance versus Mechanism 
+
+A deployed reuse chain mixes recursive KV reuse with a self-harvested gate. We isolate the two factors in a four-cell factorial evaluated from the same 91 initial states. Within each mechanism, we hold the saliency rule and skip ratio fixed and change only the forward that supplies the gate sig-nal. Both reuse cells use a one-chunk-old KV base from a dense pass, removing recursive KV accumulation. The dele-tion cells use the same two gate provenances without KV reuse. 
+
+Figure 2: Controlled factorial on LIBERO-Object at a 0.9 skip ratio. Fig. 2 shows the isolated result. With a clean gate, reuse and deletion both reach 0.98 success and are statistically indistinguishable from paired dense at 1.00. Replacing only the gate source with attention harvested from served sparse forwards reduces success to 0.68 under reuse and 0.31 under deletion. Gate provenance therefore separates the reliable and collapsing rows in this controlled condition. The mechanism does not change aggregate success under the clean gate at this operating point, but it changes the severity of failure after the gate becomes self-harvested. It does not imply that every task is provenance-sensitive or that mechanism never matters. Sec. 5 evaluates how far this result extends beyond the isolated condition. Both reuse cells above hold the KV base clean by refresh-ing it from a dense pass every chunk, so the reuse comparison isolates gate provenance from recursive KV accumulation. The deployed reuse chain does not have this clean base be-cause its KV base accumulates across served sparse forwards, which also supply the next gate. We therefore ask the reverse question, holding the KV base to this worst case and varying only the gate.      
+
+> KV fresh KV accumulated self-harvested gate 0.68 0.43
+> clean gate 0.98 0.96
+
+Table 1: Gate provenance × KV provenance under reuse on LIBERO-Object at a 0.9 skip ratio, using the pure-attention gate family. Table 1 lets the KV base accumulate without refresh, matching the deployed chain, while the gate is either clean or self-harvested. A clean gate alone raises success from 0.43 to 0.96 on the same episodes while holding the accumulated KV base fixed. Refreshing only the KV while the gate stays self-harvested raises success to 0.68. The contrast shows that gate provenance accounts for most of the recovery, while a fresh KV base alone recovers far less. 
+
+3.4 How Self-Harvested Gates Can Fail Silently 
+
+When the next gate is self-harvested, it receives no up-to-date signal from a skipped visual token. The gate may therefore continue skipping the token even after it becomes important. Under reuse, the skipped token is represented by stale keys and values. Under deletion, the token is absent from the sparse forward and receives no attention. A self-harvested gate can therefore keep a changed but previously skipped region at a low score. The sparse pass can then carry these blind spots into the next gate, creating a second feedback loop. Fig. 3 shows this loop in a LIBERO-Object task that asks the robot to pick up the salad dressing and place it in the basket. Both rollouts begin from the same state, use deletion at a 0.9 skip ratio, and run the first chunk densely. With the clean gate, the model continues recomputing patches covering the robot arm and target object and completes the task by chunk 14. With the self-harvested gate, the selected patches drift away from task-relevant regions. The resulting blind spots persist, and the rollout reaches the 35-chunk limit without success. The measured action-level signals do not provide useful early warning. On closed-loop rollouts reproducing the col-lapse, mid-chunk re-query disagreement and proprioceptive tracking deviation yield early-window AUROC of 0.45–0.65. Figure 3: Clean gate (top) and self-harvested gate (bottom) under deletion at a 0.9 skip ratio. Bright patches are recomputed, while dimmed patches are deleted. An apparent full-episode AUROC of 0.80 is an episode-length artifact. After conditioning on duration, it becomes 0.26–0.44 because failed episodes run to the 35-chunk limit while successful episodes end at a median of 17–19. These probes do not establish that no detector can work. Concurrent feature-probe detectors target distribution shift or open-loop deviation (Pan et al. 2026; Seligmann et al. 2026; Mahato and Ren 2026) and remain untested here. The reactive signals we measured cannot serve as reliable refresh triggers. These findings motivate a constructive repair. The next gate should use a signal from a dense pass over the complete token set, rather than from the served sparse path. Because the measured reactive signals provide no reliable trigger, we produce this clean signal unconditionally. 
+
+# 4 Actuation-Slack Refresh 
+
+Chunked VLA policies typically alternate between one pol-icy forward and execution of the resulting action chunk. In our setup, each chunk contains K=8 actions, whose execu-tion takes ∼400 ms and would otherwise leave the policy GPU idle. The policy forward lies on the serving critical path because the robot waits for it before acting. We call the idle execution interval actuation slack .Two objects carry state from one chunk to the next. The gate Gt marks which visual tokens are skipped at chunk t. The KV base Bt stores per-layer keys and values for the skippable visual tokens. At chunk t, the critical path computes the retained visual tokens from the newest frame. Under reuse, it splices the keys and values of skipped tokens from Bt into each layer. Under deletion, it removes the skipped tokens and does not use Bt.Fig. 4 summarizes the workflow of actuation-slack refresh. While the robot executes the actions of chunk t, we run one dense pass on the same frame. Its action output is discarded, and the self-harvested temporal signal from the served sparse forward is not carried forward. The dense pass supplies the clean temporal input to the next gate and, under reuse, the next KV base, 
+
+Gt+1 = gr
+
+ Adense  
+
+> t
+
+, S live 
+
+> t+1
+
+, (1) 
+
+Bt+1 = K(ℓ),dense  
+
+> t, V
+
+, V (ℓ),dense 
+
+> t, V
+> Lℓ=1
+
+, (2) Here, V is the skippable visual-token span, Adense  
+
+> t
+
+is dense full-token attention, and Slive  
+
+> t+1
+
+is any live signal used by the target gate. The last term is omitted for the pure-attention instrument. We fix the selection rule gr , including ratio r,and vary only its temporal attention source. The full-token pass produces a clean temporal gate signal and, under reuse, a fresh KV base without serving an action. At chunk t+1 , the sparse serve uses these one-chunk-old products while computing selected tokens from the newest frame. The first chunk runs dense because no gate or KV base is available. A triggered refresh requires a signal that can detect changes in skipped tokens. A self-harvested trigger observes only the sparse path and can miss those changes, as Sec. 3 shows. We therefore run the dense refresh after every chunk instead of waiting for a trigger. Sec. 5.5 compares this de-sign with SAFE-Pruner (Ma et al. 2026) and oracle-driven triggers. 
+
+# 5 Experiments 
+
+5.1 Setup 
+
+Base Models We use publicly released checkpoints for OpenVLA-OFT (OFT) (Kim, Finn, and Liang 2025), one for each of the 4 LIBERO suites, and CogACT-Base (Li et al. 2024). 
+
+Benchmarks We evaluate on two complementary bench-marks. LIBERO (Liu et al. 2023) is a manipulation bench-mark comprising the Spatial, Object, Goal, and Long suites. On SIMPLER (Li et al. 2025), we evaluate the Google Robot tasks pick-coke, move-near, drawer, and put-in-drawer. Only tokens from the primary camera view are skipped. Each com-parison uses the same skip ratio across methods. 
+
+Metrics Our primary metrics are success rate and inference latency. Success rate is the fraction of successful episodes. serve chunk t actuation slack serve chunk t+1  
+
+> xt
+> ViT
+> LLM
+> decoder
+> action head xt+1
+> at+1
+
+dense refresh   
+
+> xt
+> attn.
+> matrix
+> clean Gt+1
+> ViT
+> LLM
+> “pick up the black bowl …
+> place it on the plate”
+> at
+> self Gt+1
+> LLM
+> decoder
+> action head
+
+Figure 4: The architecture of actuation-slack refresh. A dense pass overlaps action execution and supplies the next sparse serve with a clean gate signal and, for reuse, a fresh KV base. Inference latency is the critical-path serve time per policy forward. 
+
+Baselines We use VLA-Cache (VC) (Xu et al. 2025) as the reuse baseline, VLA-Pruner (VP) (Liu et al. 2025) as the deletion baseline, and SAFE-Pruner (Ma et al. 2026) as the triggered-refresh baseline. Implementation details for all 3 baselines are provided in the technical appendix. VC and VP are each evaluated without and with our refresh (+refresh). In +refresh, the slack dense pass supplies the clean gate signal to both baselines and a fresh KV base to VC. 
+
+5.2 Closed-Loop Success 
+
+Table 2 evaluates our refresh with VLA-Cache and VLA-Pruner across 4 LIBERO suites, 4 SIMPLER Google Robot tasks, and skip ratios from 0.5 to 0.9. For each benchmark, Average is the arithmetic mean of the 4 rows above it. The largest gains appear for VC at a 0.9 skip ratio. On LIBERO, +R raises the average from 0.80 to 0.90, includ-ing Object from 0.66 to 0.96, though Long improves only from 0.62 to 0.73 and stays below the dense rate of 0.92. On SIMPLER, drawer rises from 0.52 to 0.69, and +R im-proves the VC average at every tested ratio. In contrast, VP shows no consistent gain from +R. On CogACT, both VP configurations remain below dense on drawer and put-in-drawer at 0.9. These results show that refresh helps when the self-harvested VC path degrades, but does not remove every capacity or gate-family boundary. We attribute a degradation to the self-harvested gate when the self-harvested configuration degrades but its clean coun-terpart at the same point does not. When the clean configura-tion is also below dense, we report a capacity or gate-family boundary instead. Spatial VP is evaluated on a deterministic-crash survivor subset. Every collapse cell survives worst-case treatment of simulator-crash attrition. Absolute rates on crash-survivor subsets are excluded from the primary con-clusions. 
+
+5.3 Shallow versus Full Refresh 
+
+Table 3 compares 3 VLA-Cache configurations at a 0.9 skip ratio, with dense as the reference. OFT has 32 trans-former layers. Following the released VLA-Cache design, the shallow-recompute control recomputes all visual tokens in layers 0–1 at every policy forward and reuses cached keys and values for skipped tokens in layers 2–31. The no-refresh configuration obtains 0.66 on Object and 0.52 on drawer. The shallow-recompute control reaches 0.81 and 0.58, while actuation-slack refresh reaches 0.96 and 0.69. Thus, shallow recomputation helps but does not match the full refresh. 
+
+5.4 High-Ratio Boundary 
+
+Figure 5: Success rate versus skip ratio on LIBERO-Object. The impact of a self-harvested gate depends on the skip ratio and task. With deletion fixed and the pure-attention gate family used throughout, Fig. 5 compares the two gate provenances on Object against paired dense at 1.00. The self-harvested gate is not significantly below dense through a 0.6 skip ratio, first separates at 0.65, and degrades further as the ratio rises. The clean gate remains statistically indis-tinguishable from dense at every tested point through 0.97. substrate task dense method skip ratio 0.5 0.6 0.7 0.8 0.9                                                                                                                                             
+
+> LIBERO ×
+> OpenVLA-OFT Spatial 0.93 VC / +R 0.93 / 0.96 0.94 / 0.95 0.93 / 0.95 0.91 / 0.92 0.91 / 0.93 VP / +R 0.80 / 0.94 0.92 / 0.94 0.88 / 0.84 0.90 / 0.94 0.90 / 0.94 Goal 0.96 VC / +R 0.93 / 0.97 0.93 / 0.95 0.96 / 0.93 0.96 / 0.95 0.98 / 0.95 VP / +R 0.99 / 0.99 0.99 / 0.99 0.99 / 0.99 0.96 / 0.97 0.94 / 0.97 Long 0.92 VC / +R 0.94 / 0.98 0.95 / 0.96 0.86 / 0.95 0.83 / 0.87 0.62 / 0.73 VP / +R 0.96 / 0.98 0.98 / 0.96 0.94 / 0.99 0.98 / 0.96 0.96 / 0.97 Object 1.00 VC / +R 1.00 / 1.00 1.00 / 1.00 1.00 / 0.99 0.98 / 0.99 0.66 / 0.96 VP / +R 1.00 / 1.00 1.00 / 1.00 1.00 / 1.00 1.00 / 1.00 0.98 / 0.98 Average 0.95 VC / +R 0.95 / 0.98 0.96 / 0.97 0.94 / 0.95 0.92 / 0.93 0.80 / 0.90
+> VP / +R 0.94 / 0.97 0.97 / 0.97 0.95 / 0.95 0.96 / 0.97 0.95 / 0.97
+> SIMPLER ×
+> CogACT pick-coke 0.84 VC / +R 0.82 / 0.92 0.82 / 0.85 0.65 / 0.74 0.51 / 0.61 0.29 / 0.37 VP / +R 0.89 / 0.89 0.91 / 0.89 0.91 / 0.88 0.90 / 0.88 0.87 / 0.84 move-near 0.77 VC / +R 0.65 / 0.62 0.50 / 0.55 0.32 / 0.43 0.38 / 0.43 0.25 / 0.29 VP / +R 0.72 / 0.73 0.70 / 0.77 0.77 / 0.70 0.72 / 0.70 0.72 / 0.68 drawer 0.80 VC / +R 0.74 / 0.77 0.75 / 0.75 0.69 / 0.80 0.61 / 0.76 0.52 / 0.69 VP / +R 0.74 / 0.75 0.75 / 0.75 0.76 / 0.78 0.72 / 0.74 0.63 / 0.60 put-in-drawer 0.32 VC / +R 0.21 / 0.21 0.19 / 0.23 0.14 / 0.16 0.13 / 0.14 0.02 / 0.02 VP / +R 0.31 / 0.39 0.28 / 0.37 0.26 / 0.20 0.29 / 0.23 0.16 / 0.19 Average 0.68 VC / +R 0.61 / 0.62 0.57 / 0.60 0.45 / 0.53 0.41 / 0.49 0.28 / 0.34
+> VP / +R 0.66 / 0.69 0.66 / 0.69 0.67 / 0.64 0.66 / 0.64 0.59 / 0.58
+
+Table 2: Closed-loop success rates across skip ratios. VC and VP denote VLA-Cache and VLA-Pruner, and +R denotes our refresh. Each cell reports baseline / +R. Dense is the full-token reference. Boldface marks the higher average.           
+
+> configuration Object@0.9 drawer@0.9
+> dense 1.00 0.80 no refresh 0.66 0.52 shallow recompute 0.81 0.58 actuation-slack refresh 0.96 0.69
+
+Table 3: Refresh configurations on VLA-Cache. Spatial shows no significant provenance gap through 0.97. The precise boundary depends on the task, substrate, and gate family. Figure 6 compares VC and VP on Object at skip ratios of 0.9 and 0.97. At 0.97, VC falls to 0.06, +R retains 0.76, and both VP configurations remain at 0.98. VLA-Pruner retains live gate inputs at these Object stress points. Layers 0–3 run on the full token set every step, the union selection lets the self-harvested prior add tokens but never veto them, and the diversity filter uses clean embeddings. 
+
+5.5 Why Refresh Every Chunk 
+
+We first evaluate less frequent fixed schedules. On Object, an inline dense anchor every two chunks keeps the gate at most one chunk old and achieves 1.00 success, whereas extending the interval to 4 chunks yields 0.90. A reactive trigger could avoid unnecessary anchors, but only if it detects when a re-fresh is needed. We test this alternative with SAFE-Pruner. It uses a dense pass to supply clean pruning saliency and drives 
+
+Figure 6: LIBERO-Object success at skip ratios of 0.9 and 0.97. The dashed line denotes dense performance. refresh with a self-harvested trigger κt, the cosine between forecast and observed saliency on the surviving tokens. At a target skip ratio of 0.9, SAFE-Pruner reaches 0.95 on Spatial and 0.93 on Goal but falls to 0.66 on Long and 0.19 on Ob-ject. Table 4 shows that our clean-deletion refresh remains between 0.94 and 0.98 across the 4 suites. The trigger fires 3 times in 3,222 Object encodes. On Object, the published threshold alone does not iso-late provenance because an oracle trigger also rarely fires at γ=0 .92 . A threshold sweep exposes the difference. The self-harvested consistency stays at 0.98–0.99 while the clean task dense κt fires SAFE ours                 
+
+> Spatial 0.93 6.4% 0.95 0.94 Goal 0.96 5.7% 0.93 0.97 Long 0.92 5.4% 0.66 0.95 Object 1.00 0.09% 0.19 0.98
+
+Table 4: SAFE-Pruner and our clean-deletion refresh at a matched 0.9 skip ratio. consistency dips at failure-critical moments, because the de-cisive shift is concentrated in pruned tokens that κt cannot see. No measured threshold achieves both dense-level suc-cess and sparse-serve latency. At γ=0 .98 , the trigger fires on 29.5% of encodes, for effective skip 0.53, serve p95 121 ms, and success 0.74. At γ=0 .995 , the trigger fires on 90.4% of encodes and recovers 1.00 success at approximately twice the dense latency. Even with the clean-signal cost excluded, oracle-driven triggering reaches 0.66–0.92 across the tested thresholds, below the 0.98 from unconditional use of the clean products. These conclusions are limited to the tested triggers on OFT. On CogACT, an oracle trigger at γ=0 .90 
+
+reaches the dense success rate. 
+
+5.6 Latency and Scheduling 
+
+Figure 7: Critical-path serve latency on OFT at a 0.9 skip ratio. 
+
+Latency Figure 7 compares the 4-suite mean of per-suite serve p50s for the OFT configurations at a 0.9 skip ratio. On H100, actuation-slack refresh serves in 52.0 ms, compared with 63.4 ms for dense, 53.9 ms for VC, and 56.1 ms for VP. On the RTX 4090, the corresponding values are 97.0, 123.3, 101.2, and 108.0 ms. All comparisons are within the same hardware and harness. The off-path dense pass has a 4-suite mean p50 of 63.6 ms on H100 and 122.2 ms on the RTX 4090, both within the ∼400 ms actuation window. Per-suite and deadline measurements are reported in the technical ap-pendix. On CogACT pick-coke at a 0.7 skip ratio on H100, dense, VP, and actuation-slack refresh take 102.1, 101.2, and 100.0 ms, respectively, while VC is not applicable because the CogACT port lacks a compute-skipping KV-reuse imple-mentation. Token skipping therefore provides no meaningful serve-time gain on this substrate because its vision encoder and diffusion-transformer action head dominate. 
+
+Scheduling Inline anchoring places its dense passes on the critical path. In the H100 LIBERO-Object timing probe, anchoring every two chunks produces a bimodal profile, with p50 latencies of 64 ms on anchor steps and 49.7 ms on sparse steps. In contrast, actuation-slack refresh serves every chunk at a p50 of 50 ms while the refresh runs within the actuation window. Across 561 H100 off-path refreshes, the p99 latency is 79.9 ms, with no deadline misses. 
+
+5.7 Real-Robot Validation 
+
+We validate serve latency using the same OpenVLA-OFT policy on an AgileX Piper arm with wrist-mounted and global Intel RealSense D455 cameras. Inference runs on an RTX 5880 Ada over a local network. At 10 Hz, each 8-action chunk executes in 800 ms, providing a wider refresh window than the ∼400 ms in Sec. 4. Across 3 tasks with 40 episodes each, actuation-slack refresh has the lowest median serve latency, 98.1 ms versus 125.6 ms for dense (Table 5). The or-dering, actuation-slack refresh, VC, VP, then dense, matches Sec. 5.6.              
+
+> method serve latency (ms) vs. dense
+> dense 125.6 –VC 102.8 ↓18 .2%
+> VP 109.7 ↓12 .7%
+> ours 98.1 ↓21 .9%
+
+Table 5: Real-robot serve latency on an RTX 5880 Ada. All comparisons are within this platform. 
+
+5.8 Limitations 
+
+Actuation-slack refresh is not without cost. It reduces critical-path latency but increases computation to ∼1.6× the dense FLOPs and energy by ∼18% per chunk. In addition, avail-able compute and experimental environments limit our re-liability evaluation to two policies, 4 LIBERO suites, and 4 SIMPLER tasks, while the physical platform validates la-tency only. Finally, refresh addresses failures caused by self-harvested gates but not limitations of the gate design or model substrate, and its operating boundary may vary across tasks, substrates, and gate families. 
+
+# 6 Conclusion 
+
+We identify gate provenance as a central determinant of re-liable token skipping in closed-loop VLAs. Gates harvested from served sparse forwards can hide changes in skipped to-kens and reinforce their own blind spots under both reuse and deletion. Actuation-slack refresh breaks this feedback loop by running a dense pass during action execution, providing the next control step with a clean gate signal and, under reuse, a fresh KV base without extending the critical path. This view shifts the design question from how tokens are skipped to how trustworthy selection signals are maintained. The gate, not the cache. References 
+
+Agouzoul, A. 2026. Understanding Asynchronous In-ference Methods for Vision-Language-Action Models. arXiv:2605.08168. Black, K.; Brown, N.; Driess, D.; Esmail, A.; Equi, M. R.; Finn, C.; Fusai, N.; Groom, L.; Hausman, K.; Ichter, B.; Jakubczak, S.; Jones, T.; Ke, L.; Levine, S.; Li-Bell, A.; Mothukuri, M.; Nair, S.; Pertsch, K.; Shi, L. X.; Smith, L.; Tanner, J.; Vuong, Q.; Walling, A.; Wang, H.; and Zhilinsky, U. 2025. π0: A Vision-Language-Action Flow Model for General Robot Control. In Proceedings of Robotics: Science and Systems . Los Angeles, CA, USA. Black, K.; Galliker, M. Y.; and Levine, S. 2025. Real-Time Execution of Action Chunking Flow Policies. In Advances in Neural Information Processing Systems , volume 38. Curran Associates, Inc. Chen, J.; Wang, J.; and Zhou, G. 2026. Fast Enough to Act: Spatio-Temporal Visual Token Merging for Low-Latency Robotic VLMs and VLAs. arXiv:2606.29350. Cheng, J.; Wang, H.; Li, W.; Wang, G.; Zhang, Y.; Tang, X.; Wu, J.; Chen, X.; Liu, Y.; and Zhang, W. 2026. VLA-IAP: Training-Free Visual Token Pruning via In-teraction Alignment for Vision-Language-Action Models. arXiv:2603.22991. Dutson, M.; Li, Y.; and Gupta, M. 2023. Eventful Transform-ers: Leveraging Temporal Redundancy in Vision Transform-ers. In IEEE/CVF International Conference on Computer Vision , 16865–16877. Gemini Robotics Team; et al. 2025. Gemini Robotics: Bring-ing AI into the Physical World. arXiv:2503.20020. Guo, Y.; and Liu, B. 2026. Reflex: Real-Time Vision-Language-Action Control through Streaming Inference. In 
+
+Proceedings of the 43rd International Conference on Ma-chine Learning , volume 306 of Proceedings of Machine Learning Research . PMLR. Huang, Y.; Ding, L.; Tang, Z.; Zhu, Z.; Deng, J.; Lin, X.; Liu, S.; Ren, H.; Ji, J.; and Zhang, Y. 2026. Environment-Aware Adaptive Pruning with Interleaved Inference Orchestration for Vision-Language-Action Models. arXiv:2602.00780. Kim, M. J.; Finn, C.; and Liang, P. 2025. Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success. In 
+
+Proceedings of Robotics: Science and Systems . Los Angeles, CA, USA. Li, Q.; Liang, Y.; Wang, Z.; Luo, L.; Chen, X.; Liao, M.; Wei, F.; Deng, Y.; Xu, S.; Zhang, Y.; Wang, X.; Liu, B.; Fu, J.; Bao, J.; Chen, D.; Shi, Y.; Yang, J.; and Guo, B. 2024. Co-gACT: A Foundational Vision-Language-Action Model for Synergizing Cognition and Action in Robotic Manipulation. arXiv:2411.19650. Li, X.; Hsu, K.; Gu, J.; Mees, O.; Pertsch, K.; Walke, H. R.; Fu, C.; Lunawat, I.; Sieh, I.; Kirmani, S.; Levine, S.; Wu, J.; Finn, C.; Su, H.; Vuong, Q.; and Xiao, T. 2025. Evaluat-ing Real-World Robot Manipulation Policies in Simulation. In Proceedings of the 8th Conference on Robot Learning ,volume 270 of Proceedings of Machine Learning Research ,3705–3728. PMLR. Li, Y.; Ma, L.; Ding, H.; and Zhu, L. 2026. DepthCache: Depth-Guided Training-Free Visual Token Merging for Vision-Language-Action Model Inference. arXiv:2603.10469. Liu, B.; Zhu, Y.; Gao, C.; Feng, Y.; Liu, Q.; Zhu, Y.; and Stone, P. 2023. LIBERO: Benchmarking Knowledge Trans-fer for Lifelong Robot Learning. In Advances in Neural Information Processing Systems , volume 36, 44776–44791. Curran Associates, Inc. Liu, C.; Zhang, J.; Li, C.; Zhou, Z.; Wu, S.; Huang, S.; and Duan, H. 2026. TTF-VLA: Temporal Token Fusion via Pixel-Attention Integration for Vision-Language-Action Models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, 18452–18459. Liu, J. W. S.; Lin, K.-J.; Shih, W.-K.; Yu, A. C.-s.; Chung, J.-Y.; and Zhao, W. 1991. Algorithms for Scheduling Imprecise Computations. Computer , 24(5): 58–68. Liu, Z.; Chen, Y.; Cai, H.; Lin, T.; Yang, S.; Liu, Z.; and Zhao, B. 2025. Bridging the Semantic-Action Gap in Visual Token Pruning for Efficient VLA Inference. arXiv:2511.16449. Ma, S.; Zhang, C.; Wang, C.; Wang, Y.; Wu, Y.; Wang, Z.; Tian, J.; Zhu, Z.; and Tang, Y. 2026. SAFE-Pruner: Semantic Attention-Guided Future-Aware Token Pruning for Efficient Vision-Language-Action Manipulation. arXiv:2605.29662. Mahato, D. T.; and Ren, R. 2026. Early Warning Sig-nals for OpenVLA Failure under Visual Distribution Shift. arXiv:2606.29699. NVIDIA; et al. 2025. GR00T N1: An Open Foundation Model for Generalist Humanoid Robots. arXiv:2503.14734. Pan, Y.; Pan, M.; Lu, Q.; Huang, J.; Zhang, M.; Huang, S.; Li, X.; Zhang, J.; Shen, Y.; Zhang, X.; and Zhang, W. 2026. VLA-Corrector: Lightweight Detect-and-Correct Inference for Adaptive Action Horizon. arXiv:2607.01804. Qin, S.; Yu, H.; Wu, C.; Li, Z.; Cao, Y.; Zhuge, Z.; Zhou, Y.; Yao, W.; Zhang, Y.; Wang, Z.; Bai, S.; Zhang, J.; and Lin, J. 2025. VLCache: Computing 2% Vision Tokens and Reusing 98% for Vision-Language Inference. arXiv:2512.12977. Ross, S.; Gordon, G. J.; and Bagnell, D. 2011. A Reduc-tion of Imitation Learning and Structured Prediction to No-Regret Online Learning. In Proceedings of the 14th Inter-national Conference on Artificial Intelligence and Statistics ,volume 15 of Proceedings of Machine Learning Research ,627–635. PMLR. Seligmann, F.; Gospodinov, E.; Dincer, E. U.; and Neu-mann, G. 2026. VLA-FAIL: Efficient Task Failure De-tection for Finetuned Vision-Language-Action Models. arXiv:2606.21386. Sendai, K.; Alvarez, M.; Matsushima, T.; Matsuo, Y.; and Iwasawa, Y. 2025. Leave No Observation Behind: Real-time Correction for VLA Action Chunks. arXiv:2509.23224. Sun, Y.; Ye, T.; Dong, L.; Xia, Y.; Chen, J.; Gao, Y.; Cao, S.; Wang, J.; and Wei, F. 2025. Rectified Sparse Attention. arXiv:2506.04108. Tang, J.; Sun, Y.; Zhao, Y.; Yang, S.; Lin, Y.; Zhang, Z.; Hou, J.; Lu, Y.; Liu, Z.; and Han, S. 2025. VLASH: Real-Time VLAs via Future-State-Aware Asynchronous In-ference. arXiv:2512.01031. Tang, J.; Zhao, Y.; Zhu, K.; Xiao, G.; Kasikci, B.; and Han, S. 2024. QUEST: Query-Aware Sparsity for Efficient Long-Context LLM Inference. In Proceedings of the 41st Inter-national Conference on Machine Learning , volume 235 of 
+
+Proceedings of Machine Learning Research , 47901–47911. PMLR. Wang, H.; Xu, J.; Xiang, Y.; Pan, J.; Zhou, Y.; Li, Y.-L.; and Dai, G. 2026. SpecPrune-VLA: Accelerating Vision-Language-Action Models via Action-Aware Self-Speculative Pruning. In Proceedings of the 43rd International Confer-ence on Machine Learning , volume 306 of Proceedings of Machine Learning Research . PMLR. Xu, D.; Wu, H.; Shi, W.; Cui, Y.; Liu, Y.; Li, J.; Ma, H.; Liu, A.; Zhu, J.; and Xu, J. 2026. LoopGuard: Breaking Self-Reinforcing Attention Loops via Dynamic KV Cache Intervention. arXiv:2604.10044. Xu, S.; Wang, Y.; Xia, C.; Zhu, D.; Huang, T.; and Xu, C. 2025. VLA-Cache: Efficient Vision-Language-Action Ma-nipulation via Adaptive Token Caching. In Advances in Neu-ral Information Processing Systems , volume 38. Curran As-sociates, Inc. Zavala, V. M.; and Biegler, L. T. 2009. The Advanced-Step NMPC Controller: Optimality, Stability and Robustness. Au-tomatica , 45(1): 86–93. Zhang, Z.; Sheng, Y.; Zhou, T.; Chen, T.; Zheng, L.; Cai, R.; Song, Z.; Tian, Y.; Ré, C.; Barrett, C.; Wang, Z.; and Chen, B. 2023. H 2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models. In Advances in Neural Information Processing Systems , volume 36, 34661–34710. Curran Associates, Inc. 
+
+# A Technical Appendix 
+
+A.1 Baseline Fidelity Audit 
+
+VLA-Cache Our implementation follows VLA-Cache with several disclosed deviations from the released code. We use fixed, controlled skip ratios rather than adaptive reuse counts. We apply full-depth reuse under one mask rather than progressive per-layer schedules that recompute layers 0–1 at each step. The shallow-recompute control in Table 3 of the main paper restores this behavior. We combine the pixel and attention terms by summing their ranks rather than thresholding followed by hard exclusion. We aggregate atten-tion over all layers and non-visual queries rather than using text queries from a single layer. We restrict reuse to the agent view, a protocol-wide constraint shared by all arms. All of these choices are held fixed within each paired comparison. An update-ordering slip in the released OFT variant causes the pixel term to compare each frame with itself. We instead implement the intended semantics described in the paper. 
+
+VLA-Pruner Token scores use attention from layer 3, ag-gregated over all pre-action query rows, and pruning be-gins at layer 4. The action prior is an EMA( w=3 , γ =0 .8) of action-to-vision attention from layer 15 over the true action rows. Scores for dropped patches are zero-scattered exactly as in the released history update. We take the union of the top- ˜M tokens and apply MMDP with a maximal nearest-neighbor seed. Two sanity checks pass. At the identity bud-get, the forward matches dense bit-for-bit. Repeated calls with pruning enabled are deterministic. SIMPLER resets are not bit-deterministic across processes, so we run the CogACT equivalence checks within each process. The paired protocol is unaffected. The only retained difference from the released protocol is agent-view-only pruning at a matched ratio, a constraint shared by every arm in the paper. We also dis-close one implementation-level confound. The OFT action interface renormalizes proprioception in place, so the off-path refresh pass consumes a renormalized state within each chunk. This confound disfavors the refresh arms and makes their measured gains conservative. The two reuse cells of the controlled design share the confound symmetrically. 
+
+SAFE-Pruner No official implementation was available. We use the published OFT threshold γ=0 .92 . Full-token key steps compute all-layer pruning saliency, and the fore-cast linearly extrapolates the two most recent key steps. The trigger κt compares this forecast with shallow-layer saliency over surviving tokens. We use a same-step variant that favors SAFE-Pruner, so a fired refresh supplies the current action rather than only the next step. 
+
+A.2 Crash Attrition and Sensitivity 
+
+The LIBERO simulator aborts deterministically on specific combinations of episodes and experimental arms. These render-layer failures depend on the arm and concentrate in sparse arms, so we treat the missingness as informative rather than random. Running each episode in a separate process re-covers most affected cases. A small residual remains, with Object shallow-recompute completing 99 of 100 episodes. Attrition concentrates in the sparse arms for Long and Goal and in the Spatial VLA-Pruner subset. The Goal VLA-Cache cells have n=57 –58 , while the Goal VLA-Pruner cells have 
+
+n=66 . The Spatial VLA-Pruner subset has n=50 . For each head-to-head comparison, both arms use the same set of com-pleted episodes. This preserves pairing within each crash-survivor subset. Absolute success rates are reported with the corresponding n and excluded from the primary con-clusions. Under a pessimistic sensitivity analysis that scores every missing episode as a failure of the sparse arm, all 39 collapse verdicts remain unchanged. In contrast, 84 non-degraded cells would flip under this treatment and therefore rely on the complete-case analysis. 
+
+A.3 Latency Details 
+
+Latency is CUDA-synchronized wall-clock time from the in-rollout harness after discarding the first two encodes of the first episode for each arm and the first encode of every later episode. Table A6 reports task-level p50 separately for H100 and RTX 4090 and compares methods only within the same hardware setting. Our method has the lowest p50 for every task on both GPUs. All other latency and energy mea-surements use H100. Success-rate rollouts execute refresh synchronously because the simulator imposes no real-time deadline. Main-text VLA-Cache latency uses the compact deployment implementation, whereas the bit-exact injection Hardware Task Dense VC VP Ours                                 
+
+> H100 Object 61.9 52.7 54.6 49.0
+> Goal 63.2 53.6 56.1 53.3
+> Spatial 64.0 54.6 57.4 53.0
+> Long 64.4 54.8 56.4 52.5
+> RTX 4090 Object 129.8 107.2 112.8 98.2
+> Goal 123.8 105.8 111.8 103.2
+> Spatial 117.9 94.8 102.3 92.3
+> Long 121.9 97.2 105.2 94.2
+
+Table A6: Per-task serve latency on LIBERO, measured as in-rollout p50 in milliseconds. All methods use the same harness within each hardware setting. Best results are bold. instrument overwrites KV entries without skipping compu-tation and is used only for equivalence checks. Across 561 off-path refreshes, latency is 63.6, 68.5, 79.9, and 161.3 ms at p50, p95, p99, and maximum, respectively. All samples finish within the 400 ms actuation window, supporting the off-path schedule. The instrument arm uses approximately 
+
+1.6× the LLM FLOPs of dense and consumes 75.5 versus 63.9 J/chunk. The same accounting applies to the +refresh arms because they use the same dense refresh pass. 
+
+A.4 Qualitative Real-Robot Rollout 
+
+The platform uses an AgileX Piper 6-DoF arm with a 1.5 kg payload, 620 mm reach, and ±0.1 mm repeatability. Two In-tel RealSense D455 RGB-D cameras provide wrist-mounted and global views at 1920 ×1080 RGB and 1280 ×720 depth. Figure A8 shows one complete successful physical rollout from the platform of Sec. 5.7 of the main paper, sampled at 20 uniformly spaced frames. The task instruction is “Put the pens on the table into the pen holder.” The robot places the black, blue, and red pens into the holder in that order. This case illustrates the dual-view observations and closed-loop task execution. It is not used as success-rate evidence. 
+
+A.5 SAFE-Pruner Trigger Sensitivity 
+
+Across 1,530 pruned steps in 45 Object failure episodes, the self-harvested consistency κt exceeds the clean consistency on 67% of steps, with a median difference of +0 .005 . For 
+
+γ ∈ { 0.92 , 0.95 , 0.97 , 0.98 , 0.99 }, the self-harvested trig-ger fires on 0.0% , 0.5% , 5.7% , 17 .1% , and 85 .2% of these steps, respectively. The corresponding oracle-trigger rates are 0.1% , 7.5% , 33 .8% , 56 .5% , and 91 .2% . The closed-loop 
+
+γ-sweep and the oracle-driven arm are reported in Sec. 5.5 of the main paper. On CogACT, an oracle trigger at γ=0 .90 
+
+matches the dense success rate, so conclusions about trigger failure are substrate-specific. 
+
+A.6 Reactive Detector Protocol 
+
+We instrumented the action-level detectors from the silent-failure analysis in closed-loop rollouts that reproduced the collapse. Dense achieved a 1.00 success rate, whereas gated reuse achieved 0.66 and 0.50 at skip ratios of 0.85 and 0.9, re-spectively. We evaluated two signals. For mid-chunk re-query disagreement, we queried the policy again halfway through chunk execution and measured the ℓ2 distance between the two action chunks. Proprioceptive tracking deviation mea-sures the gap between the commanded and reached end-effector poses and is calibrated for each task against dense rollouts. Episode outcomes serve as labels. The early-window score aggregates each signal over the first third of an episode, when intervention remains possible. Across tasks, both sig-nals yielded early-window AUROC values of 0.45–0.65. The full-episode mean of re-query disagreement reached an AU-ROC of 0.80, but failures ran for all 35 chunks whereas successes ended after a median of 17–19 chunks. After con-ditioning on episode length, the AUROC fell to 0.26–0.44, showing that the apparent signal was a length artifact. These results show that the measured action-level detector family provides no useful early warning. Token-level triggers are analyzed separately in Sec. A.5. Feature-probe failure detec-tors discussed in the main paper target distribution shifts and remain untested for acceleration-induced corruption. 
+
+A.7 Instrument Details 
+
+We use previous-chunk action attention as the instrument gate and evaluate this empirical choice against alternative gate signals. On Long at a 0.9 skip ratio, clean reuse with the instrument gate reaches 0.88, compared with 0.73 for VLA-Cache with refresh and 0.92 for dense. This comparison suggests that gate design contributes to the remaining gap. When evaluated against action-level ground truth at matched ratios, pixel difference, token drift, and kinematic sweep un-derperform the instrument gate at every tested point, most by factors of 2–7. In closed-loop Spatial evaluation at a 0.9 skip ratio, optical-flow gating reaches a success rate of 0.74, com-pared with 0.94 for the instrument gate. Reused-token drift, the proxy underlying pixel and optical-flow gating, does not align with action-level relevance. A patch can change sub-stantially without affecting the action, whereas an apparently stable patch can remain action-critical. Additional results for the instrument arm include the full ratio ×provenance cliff grid and the partial-freshness arm. On Object, the partial-freshness arm reaches success rates of 0.98, 0.92, and 0.52 at skip ratios of 0.7, 0.9, and 0.97, respectively, interpolat-ing between self-harvested and clean gates. The remaining controls include inline anchoring (Sec. 5.6 of the main pa-per) and a one-step observation-delay probe that reduces the Spatial success rate by 0.08 despite dense computation. Figure A8: Qualitative rollout for “Put the pens on the table into the pen holder.” Frames proceed left-to-right and top-to-bottom. Within each frame, the left and right panels show the head- and wrist-camera views, respectively.
