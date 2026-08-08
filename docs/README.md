@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-07</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-08</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-07 21:15:54 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-08 20:52:38 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读17篇、速读7篇，共24篇论文，聚焦视频生成与机器人学习前沿。最值得关注两项9.0分工作：视频模型可作原生4D渲染器，及门控溯源机制对训练无关VLA令牌跳过的闭环可靠性限制。建议普通读者优先浏览精读列表，从高分的4D视频建模与VLA可靠性结论入手，速读部分可留待后续。</p>
+<p>今日共读9篇论文，精读6篇、速读3篇，核心聚焦视觉-语言-动作模型（VLA）与机器人操作。最值得关注的两篇满分精读：CofactVLA通过反事实干预消除VLA模型混淆，MobileWAM用链式预见机制赋能移动操作，均达9.0分。建议可优先追踪反因果干预与动作世界模型两大前沿方向，后续再看分层强化学习与3D场景对齐。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">17 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Video Models as Native 4D Renderers: World-Grounded Conditioning from Animated Mesh">Video Models as Native 4D Renderers: World-Grounded Conditioning from Animated Mesh</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping">The Gate, Not the Cache: Gate Provenance Bounds the Closed-Loop Reliability of Training-Free VLA Token Skipping</span></li><li><span class="dpr-home-dashboard-paper-title" title="UniMoCa: Unifying Motion and Camera Controls as Visual Proxies for Faithful Human Video Generation">UniMoCa: Unifying Motion and Camera Controls as Visual Proxies for Faithful Human Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CofactVLA: Deconfounding Vision-Language-Action Models via Counterfactual Intervention">CofactVLA: Deconfounding Vision-Language-Action Models via Counterfactual Intervention</span></li><li><span class="dpr-home-dashboard-paper-title" title="MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight">MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamWAM: Beyond RGB Future Prediction for World Action Models">DreamWAM: Beyond RGB Future Prediction for World Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>17</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="EvoHIL: Self-Evolving Reward and Flow-Matched Policy Optimization for Robust Human-in-the-Loop Reinforcement Learning">EvoHIL: Self-Evolving Reward and Flow-Matched Policy Optimization for Robust Human-in-the-Loop Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="ContextMaster: Interactive Multi-Shot Video Creation via Fixed-Budget Sparse Context Routing">ContextMaster: Interactive Multi-Shot Video Creation via Fixed-Budget Sparse Context Routing</span></li><li><span class="dpr-home-dashboard-paper-title" title="LAWM-3D: Learning 3D-Aware Latent Actions from Human Videos for Generalizable Robot World Models">LAWM-3D: Learning 3D-Aware Latent Actions from Human Videos for Generalizable Robot World Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="$ω$-0: A Latent Predictive World Action Model for Concurrent Humanoid Loco-Manipulation">$ω$-0: A Latent Predictive World Action Model for Concurrent Humanoid Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Sample Efficient Hierarchical Reinforcement Learning via Best Policy Identification">Sample Efficient Hierarchical Reinforcement Learning via Best Policy Identification</span></li><li><span class="dpr-home-dashboard-paper-title" title="ARGUS: Aligning Robot Scene Geometry Under Shifting Views with Large 3D Vision Models">ARGUS: Aligning Robot Scene Geometry Under Shifting Views with Large 3D Vision Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
 </div>
 
