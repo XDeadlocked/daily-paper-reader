@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-08</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-09</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 9 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-08 20:52:38 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-09 20:36:46 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读9篇论文，精读6篇、速读3篇，核心聚焦视觉-语言-动作模型（VLA）与机器人操作。最值得关注的两篇满分精读：CofactVLA通过反事实干预消除VLA模型混淆，MobileWAM用链式预见机制赋能移动操作，均达9.0分。建议可优先追踪反因果干预与动作世界模型两大前沿方向，后续再看分层强化学习与3D场景对齐。</p>
+<p>今日聚焦长时程视频世界模型与机器人物理安全防护，共精读2篇、速读3篇高分工作。最值得关注《WorldCycle》通过自验证强化学习提升视频世界模型长程一致性，以及《VLAGuard》针对无线传感器网络中VLA机器人的物理注意力劫持提出评估与缓解框架。建议优先精读这两篇，后续可探索动态可供性引导的操作策略与超低码率实时视频生成方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CofactVLA: Deconfounding Vision-Language-Action Models via Counterfactual Intervention">CofactVLA: Deconfounding Vision-Language-Action Models via Counterfactual Intervention</span></li><li><span class="dpr-home-dashboard-paper-title" title="MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight">MobileWAM: Bridging World Action Models to Mobile Manipulation with Chain-of-Foresight</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamWAM: Beyond RGB Future Prediction for World Action Models">DreamWAM: Beyond RGB Future Prediction for World Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WorldCycle: Self-Verifiable Reinforcement Learning for Long-Horizon Video World Models">WorldCycle: Self-Verifiable Reinforcement Learning for Long-Horizon Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLAGuard: A Framework for Evaluating and Mitigating Physical Attention Hijacking in Vision-Language-Action Robots within Wireless Sensor Networks">VLAGuard: A Framework for Evaluating and Mitigating Physical Attention Hijacking in Vision-Language-Action Robots within Wireless Sensor Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation">ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">3 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="$ω$-0: A Latent Predictive World Action Model for Concurrent Humanoid Loco-Manipulation">$ω$-0: A Latent Predictive World Action Model for Concurrent Humanoid Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Sample Efficient Hierarchical Reinforcement Learning via Best Policy Identification">Sample Efficient Hierarchical Reinforcement Learning via Best Policy Identification</span></li><li><span class="dpr-home-dashboard-paper-title" title="ARGUS: Aligning Robot Scene Geometry Under Shifting Views with Large 3D Vision Models">ARGUS: Aligning Robot Scene Geometry Under Shifting Views with Large 3D Vision Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AffordTrajDP: Dynamic Affordance-Guided Visuomotor Policy Learning for Robotic Manipulation">AffordTrajDP: Dynamic Affordance-Guided Visuomotor Policy Learning for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="GVC-RT: Towards Real-Time Generative Video Compression at Ultra-Low Bitrates">GVC-RT: Towards Real-Time Generative Video Compression at Ultra-Low Bitrates</span></li><li><span class="dpr-home-dashboard-paper-title" title="Vorch-Streamer: Extending Human Audio-Visual Generation to Real-Time Long-Form Streaming">Vorch-Streamer: Extending Human Audio-Visual Generation to Real-Time Long-Form Streaming</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 </div>
 
