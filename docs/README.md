@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-09 20:36:46 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-10 21:16:50 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦长时程视频世界模型与机器人物理安全防护，共精读2篇、速读3篇高分工作。最值得关注《WorldCycle》通过自验证强化学习提升视频世界模型长程一致性，以及《VLAGuard》针对无线传感器网络中VLA机器人的物理注意力劫持提出评估与缓解框架。建议优先精读这两篇，后续可探索动态可供性引导的操作策略与超低码率实时视频生成方向。</p>
+<p>今日精读9篇、速读11篇，聚焦机器人学习与世界模型评测；最值得看《Weights or Skills?》综述与《WorldExam》基准测试，分别梳理机器人技能获取路径并检验世界模型从表象到内在反应的能力。建议优先精读这两篇，再搭配Capek 0.5和SPADE了解具身智能与视频扩散加速新方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WorldCycle: Self-Verifiable Reinforcement Learning for Long-Horizon Video World Models">WorldCycle: Self-Verifiable Reinforcement Learning for Long-Horizon Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLAGuard: A Framework for Evaluating and Mitigating Physical Attention Hijacking in Vision-Language-Action Robots within Wireless Sensor Networks">VLAGuard: A Framework for Evaluating and Mitigating Physical Attention Hijacking in Vision-Language-Action Robots within Wireless Sensor Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation">ChainVLA: Chaining Vision-Language-Action Queries through a Unified Execution State for Long-Horizon Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Weights or Skills? A Survey of Robot-Learning Techniques: from Action-Predicting Weights to Robots that Write their Own Skills">Weights or Skills? A Survey of Robot-Learning Techniques: from Action-Predicting Weights to Robots that Write their Own Skills</span></li><li><span class="dpr-home-dashboard-paper-title" title="WorldExam: Benchmarking World Models from Apparent Appearance to Inherent Reactivity">WorldExam: Benchmarking World Models from Apparent Appearance to Inherent Reactivity</span></li><li><span class="dpr-home-dashboard-paper-title" title="Fast and Accurate: An Adaptive VLA Inference Framework through Environment-aware Model Selection">Fast and Accurate: An Adaptive VLA Inference Framework through Environment-aware Model Selection</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AffordTrajDP: Dynamic Affordance-Guided Visuomotor Policy Learning for Robotic Manipulation">AffordTrajDP: Dynamic Affordance-Guided Visuomotor Policy Learning for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="GVC-RT: Towards Real-Time Generative Video Compression at Ultra-Low Bitrates">GVC-RT: Towards Real-Time Generative Video Compression at Ultra-Low Bitrates</span></li><li><span class="dpr-home-dashboard-paper-title" title="Vorch-Streamer: Extending Human Audio-Visual Generation to Real-Time Long-Form Streaming">Vorch-Streamer: Extending Human Audio-Visual Generation to Real-Time Long-Form Streaming</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SPADE: An Input-Adaptive Sparse Attention Engine for Fast Video Diffusion Models Inference">SPADE: An Input-Adaptive Sparse Attention Engine for Fast Video Diffusion Models Inference</span></li><li><span class="dpr-home-dashboard-paper-title" title="Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence">Capek 0.5: An Execution-Centric Vision-Language Model for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Is Forward Prediction Enough? Physical State Grounding for JEPA World Models">Is Forward Prediction Enough? Physical State Grounding for JEPA World Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
