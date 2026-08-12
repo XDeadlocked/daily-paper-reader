@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 25 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-11 20:59:49 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-12 20:19:34 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读14篇、速读11篇，聚焦视觉-语言-动作（VLA）模型研究；其中两篇9.0分工作分别提出跨层信息路由（LIRA）与几何感知潜在世界建模（GWM-VLA），值得优先关注。速读中关于人体长程操作技能统一控制（LUCID）及轨迹不匹配审计也具启发性。建议普通读者从VLA解码效率与几何先验两个方向切入，跟踪后续开源代码与实验对比。</p>
+<p>今日精读7篇、速读3篇，聚焦视频生成与评估，其中RAVEN-Eval和Stream Forcing两篇获9.0高分，值得重点关注。最值得看的方向是视频生成模型的自动评估新方法（RAVEN-Eval），以及面向稳健流式视频生成的统一训练轨迹（Stream Forcing），两者均为9.0分。若时间有限，可优先精读这两篇，速读潜伏世界模型与4D世界两个方向，后续再扩展至具身控制视频评估。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">14 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LIRA: Local Cross-Layer Information Routing for Vision-Language-Action Decoding">LIRA: Local Cross-Layer Information Routing for Vision-Language-Action Decoding</span></li><li><span class="dpr-home-dashboard-paper-title" title="GWM-VLA: Geometry-Aware Latent World Modeling for Vision-Language-Action Learning">GWM-VLA: Geometry-Aware Latent World Modeling for Vision-Language-Action Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Distilling Physical Priors into Streaming World Models">Distilling Physical Priors into Streaming World Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RAVEN-Eval: Rubric-Guided Automatic Evaluation for AI Video Generation Models Based on LMM Preference Judgement">RAVEN-Eval: Rubric-Guided Automatic Evaluation for AI Video Generation Models Based on LMM Preference Judgement</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stream Forcing: Constructing Unified Training Trajectory for Robust Streaming Video Generation">Stream Forcing: Constructing Unified Training Trajectory for Robust Streaming Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Lost in Reconstruction: Aligning Action Representations with Language in Vision-Language-Action Models">Lost in Reconstruction: Aligning Action Representations with Language in Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>14</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LUCID: Latent-Skill Unified Control via Imagined Dynamics for Long-Horizon Humanoid Loco-Manipulation">LUCID: Latent-Skill Unified Control via Imagined Dynamics for Long-Horizon Humanoid Loco-Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Auditing Instruction-Trajectory Mismatches in Multimodal Robot Demonstrations">Auditing Instruction-Trajectory Mismatches in Multimodal Robot Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="4D-WAM: Infusing Spatiotemporal Awareness into World Action Models through Trajectory Fields">4D-WAM: Infusing Spatiotemporal Awareness into World Action Models through Trajectory Fields</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latent World Models with Monotone Planning Costs for Image-Goal Navigation">Latent World Models with Monotone Planning Costs for Image-Goal Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Beyond Pixels: From Video Priors to 4D Worlds">Beyond Pixels: From Video Priors to 4D Worlds</span></li><li><span class="dpr-home-dashboard-paper-title" title="Action- and Language-Conditioned Video Assessment for Embodied Control">Action- and Language-Conditioned Video Assessment for Embodied Control</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
 </div>
 
