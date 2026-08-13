@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-12</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-13</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-12 20:19:34 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-13 20:00:00 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读7篇、速读3篇，聚焦视频生成与评估，其中RAVEN-Eval和Stream Forcing两篇获9.0高分，值得重点关注。最值得看的方向是视频生成模型的自动评估新方法（RAVEN-Eval），以及面向稳健流式视频生成的统一训练轨迹（Stream Forcing），两者均为9.0分。若时间有限，可优先精读这两篇，速读潜伏世界模型与4D世界两个方向，后续再扩展至具身控制视频评估。</p>
+<p>今日共读19篇论文，精读8篇，高分集中在机器人柔顺操控与具身智能方向。最值得看获10分的《VIDP》——用变阻抗扩散策略实现柔顺操控，以及9分《Mind-VLA》的空间对齐思路；速读中GUARD的风险检测也值得参考。下一步建议围绕扩散策略在机器人操作中的对齐与安全检测深挖，兼顾性能与可靠性。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RAVEN-Eval: Rubric-Guided Automatic Evaluation for AI Video Generation Models Based on LMM Preference Judgement">RAVEN-Eval: Rubric-Guided Automatic Evaluation for AI Video Generation Models Based on LMM Preference Judgement</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stream Forcing: Constructing Unified Training Trajectory for Robust Streaming Video Generation">Stream Forcing: Constructing Unified Training Trajectory for Robust Streaming Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Lost in Reconstruction: Aligning Action Representations with Language in Vision-Language-Action Models">Lost in Reconstruction: Aligning Action Representations with Language in Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VIDP: Variable Impedance Diffusion Policy for Compliant Robot Manipulation from Diverse Demonstrations">VIDP: Variable Impedance Diffusion Policy for Compliant Robot Manipulation from Diverse Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Mind-VLA: Instruction-Aware Spatial Representation Alignment for Vision-Language-Action Models">Mind-VLA: Instruction-Aware Spatial Representation Alignment for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control">Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">3 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Latent World Models with Monotone Planning Costs for Image-Goal Navigation">Latent World Models with Monotone Planning Costs for Image-Goal Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Beyond Pixels: From Video Priors to 4D Worlds">Beyond Pixels: From Video Priors to 4D Worlds</span></li><li><span class="dpr-home-dashboard-paper-title" title="Action- and Language-Conditioned Video Assessment for Embodied Control">Action- and Language-Conditioned Video Assessment for Embodied Control</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GUARD: Grounding Uncertainty and Ablation-Based Risk Detection for Diffusion-Based VLAs">GUARD: Grounding Uncertainty and Ablation-Based Risk Detection for Diffusion-Based VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Quantum-Structured World Models (QSWMs) for Predictive Latent Dynamics">Quantum-Structured World Models (QSWMs) for Predictive Latent Dynamics</span></li><li><span class="dpr-home-dashboard-paper-title" title="UniVVT: A Unified End-to-End Framework for High-Fidelity Video Virtual Try-on">UniVVT: A Unified End-to-End Framework for High-Fidelity Video Virtual Try-on</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
