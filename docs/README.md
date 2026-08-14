@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-13</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-14</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-13 20:00:00 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-14 21:10:45 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读19篇论文，精读8篇，高分集中在机器人柔顺操控与具身智能方向。最值得看获10分的《VIDP》——用变阻抗扩散策略实现柔顺操控，以及9分《Mind-VLA》的空间对齐思路；速读中GUARD的风险检测也值得参考。下一步建议围绕扩散策略在机器人操作中的对齐与安全检测深挖，兼顾性能与可靠性。</p>
+<p>今日精读20篇论文，聚焦世界模型在机器人操控视频生成与行动预测的前沿突破。最值得关注的是H2R-Bench（10分）提出人-机器人操控视频生成的基准，以及Foresight（9分）用潜在未来信号训练行动模型。建议普通读者先看这两篇精读论文，理解世界模型如何提升机器人的动作规划与预测能力。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VIDP: Variable Impedance Diffusion Policy for Compliant Robot Manipulation from Diverse Demonstrations">VIDP: Variable Impedance Diffusion Policy for Compliant Robot Manipulation from Diverse Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Mind-VLA: Instruction-Aware Spatial Representation Alignment for Vision-Language-Action Models">Mind-VLA: Instruction-Aware Spatial Representation Alignment for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control">Learning When to Stop: Prefix-Optimal Dynamic Diffusion Policies for Continuous Control</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models">H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Foresight Without Seeing: Latent Futures for World Action Models">Foresight Without Seeing: Latent Futures for World Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlashDrive: Flash Vision-Language-Action Inference for Autonomous Driving">FlashDrive: Flash Vision-Language-Action Inference for Autonomous Driving</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GUARD: Grounding Uncertainty and Ablation-Based Risk Detection for Diffusion-Based VLAs">GUARD: Grounding Uncertainty and Ablation-Based Risk Detection for Diffusion-Based VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Quantum-Structured World Models (QSWMs) for Predictive Latent Dynamics">Quantum-Structured World Models (QSWMs) for Predictive Latent Dynamics</span></li><li><span class="dpr-home-dashboard-paper-title" title="UniVVT: A Unified End-to-End Framework for High-Fidelity Video Virtual Try-on">UniVVT: A Unified End-to-End Framework for High-Fidelity Video Virtual Try-on</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Scaling Automatic Research Agents via World Models">Scaling Automatic Research Agents via World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="BrainWAM: Action-Space Coordination of Semantic Priors and Predictive Dynamics for Autonomous Driving">BrainWAM: Action-Space Coordination of Semantic Priors and Predictive Dynamics for Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction">RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 </div>
 
