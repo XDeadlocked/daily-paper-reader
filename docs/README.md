@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-14</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-15</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 20 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 6 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>2</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-14 21:10:45 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-15 20:38:43 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读20篇论文，聚焦世界模型在机器人操控视频生成与行动预测的前沿突破。最值得关注的是H2R-Bench（10分）提出人-机器人操控视频生成的基准，以及Foresight（9分）用潜在未来信号训练行动模型。建议普通读者先看这两篇精读论文，理解世界模型如何提升机器人的动作规划与预测能力。</p>
+<p>今日聚焦图像生成视频一致性、无人机视觉导航与记忆规划等六项研究，两篇精读得分最高。</p>
+<p>最值得关注：Agentic优化突破视频对齐试错瓶颈；DreamFly以因果记忆+滚动扩散规划提升无人机导航。</p>
+<p>建议普通读者优先精读两篇8分工作，重点关注视频生成与具身导航交叉方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">2 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models">H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Foresight Without Seeing: Latent Futures for World Action Models">Foresight Without Seeing: Latent Futures for World Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlashDrive: Flash Vision-Language-Action Inference for Autonomous Driving">FlashDrive: Flash Vision-Language-Action Inference for Autonomous Driving</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Trial-and-Error: Agentic Optimization for Image-to-Video Adherence">Beyond Trial-and-Error: Agentic Optimization for Image-to-Video Adherence</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamFly: Causal Memory and Receding-Horizon Diffusion Planning for Aerial Vision-Language Navigation">DreamFly: Causal Memory and Receding-Horizon Diffusion Planning for Aerial Vision-Language Navigation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Scaling Automatic Research Agents via World Models">Scaling Automatic Research Agents via World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="BrainWAM: Action-Space Coordination of Semantic Priors and Predictive Dynamics for Autonomous Driving">BrainWAM: Action-Space Coordination of Semantic Priors and Predictive Dynamics for Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction">RGB-D Video Generation for Improving Human-to-Robot Object Handover Prediction</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SAIN: Structure-Aware Interactive Navigation with Active Dialogue Grounding for Mobile Robot">SAIN: Structure-Aware Interactive Navigation with Active Dialogue Grounding for Mobile Robot</span></li><li><span class="dpr-home-dashboard-paper-title" title="From Semantic Grounding to Decision Optimization: A Unified Framework for Long-Horizon UAV Vision-Language Navigation">From Semantic Grounding to Decision Optimization: A Unified Framework for Long-Horizon UAV Vision-Language Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynamic Context Adapters: Efficiently Infusing History into Vision-and-Language Models">Dynamic Context Adapters: Efficiently Infusing History into Vision-and-Language Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
 </section>
 </div>
 
