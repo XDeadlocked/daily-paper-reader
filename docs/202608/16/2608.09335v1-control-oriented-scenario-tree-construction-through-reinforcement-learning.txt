@@ -1,0 +1,987 @@
+Title: Control-Oriented Scenario Tree Construction through Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2608.09335v1
+
+Published Time: Tue, 11 Aug 2026 02:04:38 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Control-Oriented Scenario Tree Construction through Reinforcement Learning 
+
+## Fabio Pavirani a, Bert Claessens b, Pierre Pinson c and Chris Develder a
+
+> a
+
+IDLab Ghent university – imec, Technologiepark Zwijnaarde 126, 9052 Gent, Belgium 
+
+> b
+
+Beebop.ai, Belgium 
+
+> c
+
+Imperial College London, London, UK 
+
+A R T I C L E I N F O 
+
+Keywords :Stochastic Optimization Reinforcement Learning Scenario Tree Control Theory Machine Learning Artificial Intelligence Energy Trading 
+
+A B S T R A C T 
+
+Multistage stochastic model predictive control (MPC) handles uncertainty by optimizing over a scenario tree, a finite branching approximation of future outcomes constructed from sampled fore-casts. To build such a tree, conventional methods focus on matching the underlying probability distribution—e.g., via Wasserstein-based scenario reduction—but improved distributional accuracy does not necessarily yield better control performance. We propose a control-oriented approach that learns scenario tree construction directly from its impact on downstream decisions. Fixing the tree topology, we formulate tree construction as a sequential assignment of sampled scenarios to leaves. This assignment is parameterized by an attention-based policy over the scenario set and trained using reinforcement learning, with closed-loop control profit as the objective. Training is stabilized by an asymmetric critic that leverages realized future trajectories. We evaluate the method on a risk-averse battery arbitrage problem. Across a range of forecast set sizes, the learned construction consistently achieves the highest profit, outperforming classical forward and backward reduction methods and certainty-equivalent (single-trajectory forecast) control. The learned policy also exhibits greater robustness on challenging instances, consistently demonstrating better tail-risk characteristics. Analysis of the resulting trees indicates that our method constructs compact, selectively branching structures that capture high-impact events while keeping most trajectories nearly deterministic. These findings highlight that the value of a scenario tree depends critically on the decisions it supports, and provide an effective framework to train scenario tree constructors merely based on the closed-loop control optimization signal. 
+
+## 1. Introduction 
+
+Model-based planning underpins decision-making across many engineering domains, and the operation of modern power systems is a prominent example. In such settings, decisions must be taken ahead of time based on predictions of uncertain future quantities, such as electricity prices or demand. A common approach is to plan actions over a future horizon and commit to them in advance, allowing grid opera-tors to schedule resources, balance supply and demand, and maintain network stability [1]. However, the value of such planning is increasingly limited by uncertainty. The growing share of renewable generation, volatile prices, and flexible demand introduce substantial variability [1], so that deci-sions based on a single forecast can be far from optimal, or even infeasible, once reality deviates from it. This motivates planning techniques that explicitly account for uncertainty rather than reacting to it after the fact. A principled way to address this challenge is multistage stochastic optimization, typically deployed in a receding-horizon or model predictive control (MPC) fashion [2–4]. Instead of optimizing against a single predicted trajectory, the controller considers multiple possible futures and opti-mizes decisions with respect to their expected performance  
+
+> fabio.pavirani@ugent.be
+
+(F. Pavirani) 
+
+> ORCID
+
+(s): 0009-0005-7904-099X (F. Pavirani); 0009-0006-6116-1483 (B. Claessens); 0000-0002-1480-0282 (P. Pinson); 0000-0003-2707-4176 (C. Develder) 
+
+(and, under risk aversion, their worst-case outcomes), while ensuring that decisions only depend on information available at the time they are taken. Repeated over time as new infor-mation arrives, this results in a closed-loop controller that anticipates uncertainty by construction and can be solved using standard optimization tools [5]. Applying this framework in practice requires approx-imating the continuous, high-dimensional distribution of future outcomes by a finite, computationally tractable object: a scenario tree. A scenario tree represents uncertainty as a set of branching trajectories, where each path corresponds to one possible future and branching points indicate when uncertainty is revealed and decisions can diverge. The tree therefore determines both the size of the optimization prob-lem and how uncertainty is presented to the controller, making its construction central to control performance. The dominant approaches build the tree by distribution matching; i.e., scenarios are aggregated and reduced so as to minimize a probability metric — a Euclidean or, more generally, a Wasserstein-type distance — between the reduced tree and the original distribution [6–8]. These methods are well-founded and often effective, with stability guarantees that bound the deviation of the optimal value under the reduced tree. Yet, a tree that approximates the distribution well is not necessarily a tree that yields good decisions . Distribution-matching reduction is agnostic to the optimization problem the tree will feed. In other words, it minimizes a statistical 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 1 of 15 arXiv:2608.09335v1 [cs.AI] 10 Aug 2026 Control-Oriented Scenario Tree Construction through RL 
+
+distance but not the control cost, and there is no general guar-antee that the scenarios it deems representative are the ones that matter most for the decision at hand [9]. For example, two price trajectories that are close in their Euclidean space may call for opposite control actions, while two that are far apart may be handled identically; a reduction that is blind to the downstream objective cannot distinguish these cases. This gap between distributional fidelity and decision quality has motivated a broader line of work on decision-focused 
+
+or task-based learning, in which models and approximations are trained against the downstream objective rather than a surrogate loss [10, 11], and on problem-driven scenario generation that tailors the reduction to the optimization at hand [12]. In this work, we take a data-driven, control-oriented view of scenario-tree construction. Instead of optimizing a statistical distance, we directly optimize the quality of the decisions induced by the tree using reinforcement learning (RL). Concretely, we fix the tree topology and cast its con-struction as a sequential assignment problem: given a set of sampled future trajectories, the model learns how to assign them to the leaves of the tree so as to maximize the resulting closed-loop control performance. The policy is parameter-ized by an attention-based neural network and trained with Proximal Policy Optimization (PPO) [13, 14]. The resulting objective is therefore the realized control profit, rather than any proxy measure of distributional accuracy. We study the approach on a battery energy-arbitrage problem, a canonical storage-control task in which the oper-ator charges and discharges against uncertain prices under a risk-averse objective. Benchmarking against (i) classical re-duction heuristics (forward selection, backward reduction), (ii) a random-assignment baseline on the same topology, (iii) a certainty-equivalent (deterministic) controller, and (iv) an upper-bound unrealistic perfect-foresight oracle, our learned policy attains the highest profit among all realistic methods (i.e., all but the oracle one). The learned policy’s advantage is largest in the small-sample regime that keeps the online optimization tractable, and it narrows as the forecast is sampled more densely and certainty-equivalent control approaches optimality for this linear problem — a crossover that the learned policy reaches last, and from above, never falling below the certainty-equivalent refer-ence (as the distance-based heuristics do). An analysis of the learned trees shows that the policy spends most of its decisions building compact, near-deterministic trees and branches only selectively, which both explains its behavior and keeps the solved programs (i.e., the complexity of the optimization problem) limited. Our contributions are: • We formulate a scenario tree construction framework for multistage stochastic MPC, defining it as a se-quential decision problem. The framework allows a control-oriented model that learns the scenario tree construction with reinforcement learning, directly op-timizing the downstream realized control cost rather than a distributional distance. • We design and evaluate an attention-based assignment policy that maps an unordered set of forecast scenarios onto the leaves of a fixed tree topology, together with an asymmetric critic that exploits privileged future information at training time only. • On a risk-averse battery-arbitrage task, we show that the learned construction outperforms classical distance-based reduction and certainty-equivalent control, char-acterize the regime in which learning pays off, and analyze the structure of the compact and selectively branched trees the policy produces. 
+
+## 2. Related Work 
+
+The construction of scenario trees for multistage stochas-tic programming is classically posed as an approximation of the underlying probability distribution. Reduction methods select a small set of representative scenarios that minimize a probability metric to the original distribution, with forward-selection and backward-reduction heuristics being the stan-dard algorithms [6, 7]; the theory extends to multistage problems through process distances such as the nested dis-tance [8], and recent work has sharpened the fundamen-tal limits and guarantees of distance-based reduction [15]. These methods come with stability results that bound how much the optimal value can change under the reduced tree, and they are the workhorses against which we compare. Their objective, however, is distributional fidelity: they min-imize a statistical distance, with no reference to the decision the tree will inform. Our method departs from this premise, optimizing the tree directly against the realized control cost rather than a distance to the forecast. The latter concern is not new. A line of work close to ours recognizes that distributional accuracy does not necessarily align with decision quality, and tailors the scenario reduction steps to the optimization problem itself, measuring scenario similarity in a problem space induced by the decisions the scenarios entail rather than in the sample space directly [12]. Within this line, Bertsimas and Mundru [16] cast two-stage scenario reduction as a convex optimization that selects a representative distribution preserving the quality of the resulting sample-average decision, with recovery guarantees as the sample size grows. Hewitt et al. [17] formalize the same intuition through a symmetric opportunity-cost notion of similarity, grouping scenarios by mutual decision impact via a graph-clustering heuristic, while Keutchayan et al. [18] pursue a related problem-driven clustering scheme with an asymmetric distance. Closest to our domain, Zhuang et al. [19] make the idea concrete for two-stage stochastic dispatch in power systems: scenarios are projected onto a problem space defined by the dispatch program, an opportunity-cost-based distance is defined between them, and the represen-tative set is selected by a single mixed-integer program; in a following work [20] the same authors extended the framework to risk-averse formulations with a CVaR ob-jective through an iterative variant, in the same spirit as the earlier scheme of García-Bertrand and Mínguez [21],   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 2 of 15 Control-Oriented Scenario Tree Construction through RL
+
+who iteratively refine the tail-scenario set against a CVaR criterion. These approaches share our motivation, but differ in mechanism and scope. They are one-shot or iterative pro-cedures, typically derived for two-stage formulations, and they construct the representative set by solving an auxiliary optimization problem against the current forecast — a per-instance reduction whose offline cost grows with the original sample size and that must be repeated whenever the forecast or the system state changes. We instead learn a purely data-driven amortized construction policy — trained once and reused at every control step — whose training signal is the realized closed-loop objective cost/reward of a multistage, receding-horizon controller, obtained by simply rolling out the controller rather than by formulating a tractable surro-gate of the reduction problem to be solved at decision time. The same decision-oriented principle we use has been pursued from the machine-learning side, under the banner of decision-focused or task-based learning, where a predictive model is trained so that its outputs lead to good downstream decisions rather than low prediction error. This is achieved by differentiating through the optimization layer [10, 22, 23] or through surrogate losses such as the smart predict-then-optimize loss [11]. Two distinctions set our setting apart. First, we do not learn the forecast: the predictive distribution is given as a fan of samples, and we learn how to reduce 
+
+that fan into a tree. Second, building a tree from samples is a discrete, combinatorial operation — assigning scenarios to branches and pruning the result — through which gradients do not flow; rather than relax or differentiate through it, we treat the construction as a sequential decision process and optimize it with reinforcement learning, whose reward is the multistage control cost itself. Casting the problem this way places it alongside a grow-ing body of work that embeds learning inside optimization pipelines — e.g., learning to branch or select cuts in mixed-integer solvers [24], and solving combinatorial problems with attention-based policies trained by policy gradient [25, 26]. Our assignment policy architecturally fits in this lin-eage: it reads an unordered set with attention and emits an autoregressive sequence of discrete assignments trained with a policy-gradient method. What we learn is nonetheless different, in that we shape the uncertainty representation consumed by an exact optimizer rather than learning to solve or accelerate the optimization. The same holds for hybrid schemes that combine reinforcement learning with MPC by learning cost or value functions to steer the controller [27, 28]: we leave the controller’s objective untouched and learn only the scenario tree it acts on. This last distinction is sharpest against model-free RL, which has been applied directly to battery and storage dis-patch, replacing the optimizer with a learned policy that maps a state to an action [29, 30]. Such controllers are flex-ible but must learn to respect operational constraints — e.g., state-of-charge limits, power bounds, and risk preferences — from reward signals alone, which is notoriously difficult and offers no feasibility guarantees. Our design is deliberately the opposite: the exact, constrained, risk-averse multistage program remains in the loop and continues to guarantee fea-sibility and to encode the risk objective, while reinforcement learning is confined to constructing the uncertainty input the program reasons over. We thus aim to combine the adaptivity of reinforcement learning with the rigor of mathematical optimization, rather than substituting one for the other. Taken together, these threads locate our contribution at their intersection. To our knowledge, this is the first method to learn multistage scenario-tree construction as a set-to-assignment policy trained, by reinforcement learning, on the realized closed-loop cost of the downstream controller, while retaining an exact risk-averse optimizer. It inherits the decision-oriented goal of problem-driven scenario re-duction but replaces one-shot, distance-based procedures with a learned and reusable policy; it shares the end-to-end objective of decision-focused learning but targets a non-differentiable reduction step through reinforcement learning rather than the forecast through differentiable optimization; finally it borrows the architecture of neural combinatorial optimization while applying it to the representation of un-certainty rather than to the solution of the optimization. 
+
+## 3. Problem Formulation 
+
+We consider a grid-connected battery that performs en-ergy arbitrage, charging when electricity is cheap and dis-charging when it is expensive. We first formalize the dispatch problem that an operator would solve if the price trajec-tory over the planning horizon were known (Section 3.1), and then extend it to the realistic setting in which only a probabilistic forecast is available. The latter is handled by a multistage stochastic program defined on a scenario tree (Section 3.2), the construction of which is the central object of this work. 
+
+3.1. Battery arbitrage dispatch 
+
+We consider a simple but representative control prob-lem: operating a battery to perform energy arbitrage. The objective is to charge the battery when electricity prices are low and discharge it when prices are high, while respecting physical constraints such as capacity limits and maximum charging power. We consider a planning horizon of 𝐻 steps of length 
+
+Δ𝑡 hours. At each timestep 𝜏 = 0 , … , 𝐻 − 1 , the battery is described by its stored energy 𝑒 𝜏 ∈ [0 , 𝐸 max ] and is oper-ated through a net charging power 𝑢 𝜏 = 𝑢 + 
+
+> 𝜏
+
+− 𝑢 − 
+
+> 𝜏
+
+, decom-posed into nonnegative charging and discharging compo-nents 𝑢 + 
+
+> 𝜏
+
+, 𝑢 − 
+
+> 𝜏
+
+≥ 0, with 𝑢 𝜏 > 0 denoting charging and 𝑢 𝜏 < 0
+
+discharging. Over one step the stored energy evolves as 
+
+𝑒 𝜏 +1 = 𝑒 𝜏 +
+
+(
+
+𝜂 𝑐 𝑢 + 
+
+> 𝜏
+
+− 𝑢 −
+
+> 𝜏
+
+𝜂 𝑑 
+
+)
+
+Δ𝑡, 𝜏 = 0 , … , 𝐻 − 1 ,
+
+(1) where 𝜂 𝑐 , 𝜂 𝑑 ∈]0 , 1] are the charge and discharge efficien-cies, and the state and control are subject to the operating limits 
+
+0 ≤ 𝑒 𝜏 ≤ 𝐸 max , 0 ≤ 𝑢 + 
+
+> 𝜏
+
+, 𝑢 − 
+
+> 𝜏
+
+≤ 𝑃 max . (2)   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 3 of 15 Control-Oriented Scenario Tree Construction through RL
+
+The energy exchanged with the grid over step 𝜏 is defined as 𝑢 𝜏 Δ𝑡 . Given a price trajectory 𝑐 0∶ 𝐻 −1 , the instantaneous arbitrage profit is then 
+
+𝑟 𝜏 = − 𝑐 𝜏 𝑢 𝜏 Δ𝑡. (3) Starting from a given initial energy 𝑒 0, the optimal dispatch over the horizon solves the linear program 
+
+max  
+
+> {𝑢 𝜏 }𝜏 =0 ,…,𝐻 −1
+> 𝐻 −1
+
+∑
+
+> 𝜏 =0
+
+− 𝑐 𝜏 𝑢 𝜏 Δ𝑡 
+
+subject to (1)–(2) .
+
+(4) In closed loop, the operator applies the first optimal action in a receding-horizon fashion — solving (4) over the window [𝑡, 𝑡 + 𝐻 [, applying 𝑢 𝑡 , advancing one step, and re-solving — so as to maximize the realized cumulative profit 
+
+∑𝑇 𝑡 =0 𝑟 𝑡 . Were the future prices known, this loop would be optimal; i.e., given a long-enough horizon 𝐻 , solving (4) with the realized prices yields the perfect-foresight opti-mum, an unattainable upper bound we use as a reference in Section 5. In practice the future price trajectory is uncertain, which motivates the stochastic formulation below. 
+
+3.2. Decision-making under uncertainty with scenario trees 
+
+At decision time, the operator does not observe future prices but only a probabilistic forecast, represented by a fan of 𝑆 sampled price trajectories [𝝃 (𝑖 )]𝑆 𝑖 =1 over the horizon 
+
+𝐻 , with 𝝃 (𝑖 ) ∈ ℝ𝐻 each carrying a probability 𝑝 𝑖 . Replacing the unknown prices in (4) by a single point forecast (e.g., a trajectory containing the average of all the sampled prices) yields a certainty-equivalent controller that disregards uncer-tainty altogether. Properly accounting for uncertainty calls instead for a multi-stage stochastic program, in which the dispatch may adapt as prices are progressively revealed over the horizon, while satisfying the non-anticipativity property (i.e., the decision taken at any stage may depend only on the information available up to that stage). Formulating such a program directly over all 𝑆 trajectories usually is computationally prohibitive when 𝑆 is large. Therefore, the uncertainty is approximated by a scenario tree that aggre-gates the trajectories in a compact structure. A scenario tree  organizes the probabilistic forecast into a branching structure that reflects how uncertainty un-folds across the horizon. Its root 𝑛 0 represents the present step at which the state is known and a single decision must be taken; each subsequent child node corresponds to the decisions/states following the current one, and the branches leaving a node enumerate the alternative ways the future may evolve from the information state that node encodes. A node 
+
+𝑛 thus aggregates the scenarios that remain indistinguishable up to its stage, the root-to-leaf paths through the leaf set 
+
+are the representative trajectories the tree retains, and the branching points mark the stages at which the controller must commit to a decision before the associated uncertainty is resolved. Relative to the full fan of sampled trajectories (i.e., the probabilistic forecast), a tree with few nodes yields a small and tractable optimization problem, at the price of approximating the forecast distribution — an approximation whose fidelity depends on which scenarios are retained and where the tree is allowed to branch. The dispatch model of Section 3.1 is lifted onto the tree without modification. Every node 𝑛 carries its own energy state and charging decision; the energy recursion (Eq. (1)) is imposed along each parent-to-child edge, relating a node’s state to that of its children, and the operating limits (Eq. (2)) together with a terminal feasibility condition hold at every node. Non-anticipativity is naturally enforced: scenarios that share a node must also share the same decision up to that point, ensuring that decisions only depend on currently available information. Each node is summarized by the probability mass and conditional mean price of the scenarios it aggregates, 
+
+𝑝 𝑛 = ∑
+
+> 𝑖 ∈𝑛
+
+𝑝 𝑖 ,̄ 𝑐 𝑛 = 1
+
+𝑝 𝑛 
+
+∑
+
+> 𝑖 ∈𝑛
+
+𝑝 𝑖 𝝃 (𝑖 ) 
+
+> 𝑡 𝑛
+
+, (5) where 𝑡 𝑛 is the look-ahead index of node 𝑛 .The deterministic objective (4) generalizes to a probability-weighted expectation over the tree, augmented with a risk term that penalizes costly branches. The expected dispatch cost is 
+
+𝐶 (𝐮 ) = ∑
+
+> 𝑛 ∈
+
+𝑝 𝑛 ̄𝑐 𝑛 𝑢 𝑛 Δ𝑡, (6) where  denotes all the nodes in the tree. In addition to optimizing expected performance, we account for risk by penalizing unfavorable outcomes. To this end, we fol-low [20, 21] and use Conditional Value-at-Risk (CVaR), which captures the expected cost in the worst-performing scenarios and allows the controller to be sensitive to rare but impactful events. By associating with each leaf 𝓁 ∈  the cost accumulated along its root-to-leaf path: 
+
+Φ𝓁 (𝐮 ) = ∑
+
+> 𝑛 ⪯𝓁
+
+̄𝑐 𝑛 𝑢 𝑛 Δ𝑡 , (7) we can control the tail risk through a weighted sum of CVaR terms at the confidence level 𝛽 . Using the Rockafellar– Uryasev representation [31], 
+
+CVaR 𝛽 (𝐮 , 𝛼 ) = 𝛼 + 11 − 𝛽 
+
+∑
+
+> 𝓁 ∈
+
+̃𝑝 𝓁 
+
+[Φ𝓁 (𝐮 ) − 𝛼 ]+, (8) with ̃𝑝 𝓁 the leaf probabilities, the controller solves 1
+
+max   
+
+> 𝐮 ,𝜶
+
+−
+
+(
+
+𝐶 (𝐮 ) + ∑
+
+> 𝑘
+
+𝜆 𝑘 CVaR 𝛽 𝑘 (𝐮 , 𝛼 𝑘 )
+
+)
+
+s.t. the per-node form of Eqs. (1) and (2), (9) with multiple CVaR terms 𝛼 𝑘 , 𝛽 𝑘 , 𝜆 𝑘 (iterated with a generic index 𝑘 ). We use several confidence levels to allow the        
+
+> 1𝐮 indicates the vector of actions for each node of the tree. 𝜶 indicates the vector of CVaR values [𝛼 𝑘
+> ]
+> 𝑘
+> Pavirani et al.: Preprint submitted to Elsevier Page 4 of 15 Control-Oriented Scenario Tree Construction through RL
+> Figure 1: Control Loop used in our training framework. First, a fan of price trajectories is generated from a random distribution. Then, each trajectory gets assigned to a tree leaf with a fixed topology by a differentiable actor, constructing a scenario tree. The scenario tree is then fed into a mathematical programming solver, which applies the upcoming action to a battery, updating the system state and repeating the loop in a receding-horizon fashion. The constructor agent (made out of an actor and a critic, as in standard PPO) gets trained directly on the closed-loop control profit.
+
+controller to shape different parts of the loss tail rather than penalizing only a single quantile region. Equation (9) remains a linear program once the CVaR terms are linearized through Eq. (8). As in the deterministic case, only the root decision 𝑢 𝑛 0 is implemented before the horizon recedes and the program is re-solved at the next step. The formulation defined in Eqs. (5), (6), (8) and (9) is common to every method studied in this paper. What it leaves unspecified is the construction of the tree  from the fan — which scenarios to retain, how to group them, and where to branch. This choice fixes both the size of the program (9) and how faithfully it represents the forecast, and is the subject of the remainder of the paper. 
+
+## 4. Methodology 
+
+The framework of Section 3 leaves open how the sce-nario tree  is built from the fan. In our work, we learn this construction with a data-driven model. We frame the construction as a short sequential assignment problem (Sec-tion 4.1), solve it with an attention-based policy and an asymmetric critic (Section 4.2), and train them jointly with reinforcement learning so that the sole objective is the opti-mization of the control signal (i.e., the maximization of the reward, of the minimization of the cost) (Section 4.3). An overview of the control loop used to train and evaluate the agent is depicted in Fig. 1 
+
+4.1. Building the tree by sequential assignment 
+
+Our policy does not design the shape of the tree; it decides how the sampled scenarios populate a tree whose shape is fixed in advance. We therefore start from a fixed 
+
+topology : an empty template that specifies a root, a set of 
+
+𝐿 leaves, and the branches (node trajectories) that connect them, but that holds no scenarios yet. Since each leaf is reached from the root by a unique path, this template already fixes which intermediate nodes are shared between which leaves; the only thing left undecided is which scenarios travel down which branch. Filling the template comes down to a single operation of assigning each scenario to one leaf, repeated over all scenarios. Assigning scenario 𝑖 to a leaf places it in every node along the path from the root to that leaf. Two scenarios sent to the same leaf therefore share all the nodes their paths have in common, and scenarios sent to different leaves are treated as identical up to the stage at which those paths sep-arate — this is the non-anticipativity property discussed in Section 3, now realized concretely by the assignment. Once every scenario has been placed, the tree is fully populated: each node knows the set of scenarios routed through it, and its probability mass and representative price are obtained by aggregating that set as in Eq. (5). Any leaf that receives no scenario, together with any branch that is thereby left empty, is pruned. The policy thus implicitly decides not only       
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 5 of 15 Control-Oriented Scenario Tree Construction through RL
+> Figure 2: Graphical illustration of the scenario tree construction through assignment. Each sampled trajectory 𝝃 (𝑖 )is processed by a differentiable actor to obtain an assignment probability distribution, giving the probability of assigning each sample to a given branch of a fixed tree topology, indicated using different colors. During training, the tree is built by sampling from these assignment distributions; during inference, the assignments are obtained through arg max .
+
+how scenarios cluster but also how many branches the final tree really uses; in the extreme, routing all scenarios to a single leaf collapses the tree to one trajectory and reduces the controller to the certainty-equivalent dispatch of Section 3. A graphical illustration of the scenario-leaf assignment is depicted in Fig. 2. Rather than placing all 𝑆 scenarios in one shot, the policy assigns them a few at a time (i.e., groups the fan and assigns one group at a time), so that each decision can take the placements already made into account. This requires each partial construction to carry a state, which is represented through individual features built during the construction. Specifically, each scenario is described by a feature vector — its token , defined formally in Section 4.2 — which, beyond encoding the scenario’s price trajectory and system state (i.e., the state of the control system to be optimized; in our case the state of the battery), holds two bookkeeping fields: the leaf it has been assigned to so far (encoded with a one-hot representation, with an extra “unassigned” entry), and a flag indicating whether it is one of the scenarios being decided at the current group step. Given a timestep 𝑡 , the corresponding scenarios are arranged in a fixed order, by decreasing Euclidean deviation from the mean trajectory, so that the most atypical scenarios are placed first. They are then split into 𝐾 =
+
+⌈ 𝑆 𝐺 
+
+⌉
+
+groups (each spanning 𝐺 scenarios or fewer), denoted by (𝑘 ) 
+
+> 𝑡
+
+⊆
+
+{𝝃 (𝑖 )}𝑆 𝑖 =1 with: 
+
+|(𝑘 ) 
+
+> 𝑡
+
+| ≤ 𝐺 , ∀𝑘 = 1 , … , 𝐾 . (10) Construction proceeds over group steps 𝑘 = 1 , … , 𝐾 for each timestep 𝑡 . At group step 𝑘 , the policy reads the tokens of all 𝑆 scenarios — so it sees the whole fan and the partially built tree simultaneously — and assigns only the scenarios in the current group (𝑘 ) 
+
+> 𝑡
+
+to the corresponding fixed topology leaves. We denote the corresponding group action by 
+
+𝑎 (𝑘 ) 
+
+> 𝑡
+
+=
+
+(
+
+𝑎 (𝑖,𝑘 )
+
+> 𝑡
+
+)
+
+> 𝑖 ∈(𝑘 )
+> 𝑡
+
+; 𝑎 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∈ {1 , … , 𝐿 }. (11) After this action is taken, the tokens of the scenarios in 
+
+(𝑘 ) 
+
+> 𝑡
+
+are updated to record the chosen leaves, the next group becomes current, and the step repeats until no scenario remains unassigned. The state of the construction from one group step to the next is passed through two bookkeeping state fields: the assigned-leaf field reports the tree built so far, and the 
+
+current-group field tells the policy which scenarios it must place now. This iteration is depicted in Fig. 3. Constructing one tree is therefore a short sequential decision process, which we solve with reinforcement learn-ing. Each action assigns one group of scenarios to leaves; after the final group, the completed tree is handed to the optimization (9), the first-stage action is applied, and the environment returns the arbitrage profit (3). We use this profit as the reward, so the policy is optimized directly for downstream control performance, rather than for any statis-tical resemblance between the tree and the fan (as shown in Fig. 1). 
+
+4.2. Network architecture 
+
+The assignment policy acts on a set of 𝑆 scenarios, and the leaf chosen for any scenario should depend on the rest of the fan and on the assignments already committed, not on that scenario in isolation. We therefore parameter-ize the policy with a cross-attention set encoder, which is permutation-equivariant over the fan and conditions each scenario’s representation on all the others. The value func-tion is parameterized by a separate network of the same design; i.e., the actor and critic are trained jointly but share no parameters. At group step 𝑘 in timestep 𝑡 , each scenario is represented by a token vector 
+
+𝐱 (𝑖,𝑘 ) 
+
+> 𝑡
+
+= [̂𝑠 𝑡 ,̂ 𝝃 (𝑖 ), 𝑝 (𝑖 ), 𝑏 (𝑖,𝑘 ), 𝑚 (𝑖,𝑘 )], (12) concatenating the normalized system state ̂𝑠 𝑡 , the scenario’s normalized price trajectory ̂ 𝝃 (𝑖 ) over the horizon, its prob-ability 𝑝 𝑖 , and two features describing the partial tree con-struction. The vector 𝑏 (𝑖,𝑘 ) is the one-hot encoding of the leaf currently assigned to scenario 𝑖 before processing group 
+
+(𝑘 ) 
+
+> 𝑡
+
+, with an additional entry for unassigned scenarios. The indicator 
+
+𝑚 (𝑖,𝑘 ) = 𝟙 (𝑘 )
+
+> 𝑡
+
+(𝑖 ) (13)   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 6 of 15
+
+Control-Oriented Scenario Tree Construction through RL 
+
+Figure 3: Example showing the sequential steps the actor takes during one scenario tree construction, in a case with 𝑆 = 6 and 
+
+𝐺 = 2 . The scenarios are split into 3 groups that get assigned sequentially. After each group action, the corresponding assignment tokens are updated, with colors representing branches as in Fig. 2, until all scenarios are assigned. 
+
+marks whether scenario 𝑖 belongs to the group currently being assigned. As the network observes a scenario only through its token, these two fields are the channel through which the partially constructed tree is exposed to the policy. At each group-assigment step 𝑘 , each token is first in-dependently embedded into a latent vector using a shared projection (i.e., trained parameters 𝑊 ): 
+
+𝐡 (𝑖,𝑘 ) 
+
+> 𝑡
+
+= LN ( GELU( 𝑊 𝐱 (𝑖,𝑘 ) 
+
+> 𝑡
+
+)), 𝑖 = 1 , … , 𝑆. (14) with LN( ⋅) denoting layer normalization. This produces the context set 
+
+𝐶 (𝑘 ) =
+
+{
+
+𝐡 (𝑖,𝑘 )
+
+> 𝑡
+
+}𝑆 𝑖 =1 , (15) which represents all scenarios together with the partial as-signment state before processing group (𝑘 ) 
+
+> 𝑡
+
+. Within a given group step, these context vectors are kept fixed throughout the cross-attention encoder and provide information about the whole fan of scenarios. Next, we process the scenarios using multiple multi-head attention layers. Instead of processing all scenarios jointly as queries, the network focuses only on the scenarios that are currently being assigned. To do this, it builds a query set containing: (i) a learnable global token 𝐪 CLS , and (ii) the embeddings of the scenarios in the current group {
+
+𝐡 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∶ 𝑖 ∈ (𝑘 )
+
+> 𝑡
+
+}
+
+. The initial query set is therefore 
+
+𝑄 (𝑘, 0)  
+
+> 𝑡
+
+=
+
+[
+
+𝐪 CLS , {𝐡 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∶ 𝑖 ∈ (𝑘 ) 
+
+> 𝑡
+
+}
+
+]
+
+. (16) The query set is then updated using 𝑁 layers of cross-attention. For layer 𝑠 = 0 , … , 𝑁 − 1 , the queries attend to the full context 𝐶 (𝑘 ), i.e., to all scenarios: ̃𝑄 (𝑘,𝑠 +1)  
+
+> 𝑡
+
+= 𝑄 (𝑘,𝑠 ) 
+
+> 𝑡
+
++ MHA 
+
+(
+
+LN( 𝑄 (𝑘,𝑠 ) 
+
+> 𝑡
+
+), LN( 𝐶 (𝑘 )), LN( 𝐶 (𝑘 ))
+
+)
+
+,𝑄 (𝑘,𝑠 +1)  
+
+> 𝑡
+
+=̃ 𝑄 (𝑘,𝑠 +1)  
+
+> 𝑡
+
++ FFN 
+
+(
+
+LN( ̃ 𝑄 (𝑘,𝑠 +1)  
+
+> 𝑡
+
+)
+
+)
+
+.
+
+(17) Here MHA( ⋅, ⋅, ⋅) denotes multi-head attention and FFN( ⋅) afeed-forward network. Intuitively, each query vector repeatedly looks at all sce-narios and extracts the information it needs. After 𝑁 layers, the refined query corresponding to each current scenario encodes how that scenario should be interpreted relative to the entire fan and the current partial assignments. This architecture avoids full pairwise interactions between all scenarios. Instead, only the current group attends to the full set, leading to a computational cost of 𝑂 (𝐺 ⋅ 𝑆 ) rather than 
+
+𝑂 (𝑆 2).For each current scenario 𝑖 ∈ (𝑘 ) 
+
+> 𝑡
+
+, let 𝐪 (𝑖,𝑘 ) 
+
+> 𝑡
+
+denote the final query representation associated with that scenario. The actor maps this representation through a multilayer percep-tron (MLP) to produce logits over the leaves 𝓁 = 1 , … , 𝐿 :
+
+𝐳 (𝑖,𝑘 ) 
+
+> 𝑡
+
+= MLP (𝐪 (𝑖,𝑘 )
+
+> 𝑡
+
+),𝜋 𝜃 (𝑎 (𝑖,𝑘 ) 
+
+> 𝑡
+
+= 𝓁 ∣  (𝑘 ) 
+
+> 𝑡
+
+) = sof tmax (𝐳 (𝑖,𝑘 )
+
+> 𝑡
+
+) 
+
+> 𝓁
+
+. (18) Here  (𝑘 ) 
+
+> 𝑡
+
+denotes the tokenized partial construction state at group step 𝑘 , namely 
+
+ (𝑘 ) 
+
+> 𝑡
+
+∶= 
+
+{
+
+𝐱 (𝑖,𝑘 )
+
+> 𝑡
+
+}𝑆 𝑖 =1 . (19) Conditioned on this shared state representation, the group assignment distribution factorizes over the scenarios in the current group: 
+
+𝜋 𝜃 
+
+(
+
+𝑎 (𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 )
+
+> 𝑡
+
+)
+
+= ∏
+
+> 𝑖 ∈(𝑘 )
+> 𝑡
+
+𝜋 𝜃 
+
+(
+
+𝑎 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 )
+
+> 𝑡
+
+)
+
+. (20) During training, assignments are sampled from this distribu-tion, while at evaluation time the most probable leaves are selected. The critic uses the same cross-attention encoder as the actor, but with an independent set of parameters. In particu-lar, it similarly constructs a context 𝐶 (𝑘 ) and query set 𝑄 (𝑘, 0) ,consisting of the learnable token 𝐪 CLS and the current sce-narios (i.e., the scenarios in the current assignment group), and applies the same sequence of cross-attention layers de-scribed above. The key difference lies in the readout. Instead of producing per-scenario action logits, the critic maps the final representation of the global query token 𝐪 (𝑘,𝑁 )CLS to a scalar value estimate: 
+
+𝑉 𝜙 ( (𝑘 ) 
+
+> 𝑡
+
+) = 𝑤 ⊤𝐪 (𝑘,𝑁 )CLS + 𝑏. (21) This yields a prediction of the value of the current par-tial construction state. In addition, the critic has access to privileged information during training: its input tokens are 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 7 of 15 Control-Oriented Scenario Tree Construction through RL 
+
+Figure 4: Architecture visualization of a construction step, with 𝐺 = 2 , and 𝑆 = 10 . The example cover the forward step with 
+
+𝑘 = 3 , meaning that groups 1-2 have been assigned already, group 3 is currently under assignment, and groups 4-5 are left to be assigned in the following steps. 
+
+augmented with the realized future trajectories over the horizon. This information is not available to the actor and is used solely to reduce the variance of the value estimate. At deployment time, only the actor is used, so the dependency on future realized trajectories gets dropped, as in realistic conditions. The full architecture is depicted in Fig. 4 
+
+4.3. Training with PPO 
+
+We train with Proximal Policy Optimization (PPO) [13]. An episode is one receding-horizon rollout of length 𝑇 . At each physical time step 𝑡 , the policy constructs one scenario tree through 𝐾 = ⌈𝑆 ∕𝐺 ⌉ group decisions, indexed by 𝑘 =1, … , 𝐾 . Each pair (𝑡, 𝑘 ) is stored as a transition, together with the partial construction state  (𝑘 ) 
+
+> 𝑡
+
+at the corresponding timestep 𝑡 , the group action 𝑎 (𝑘 ) 
+
+> 𝑡
+
+, the corresponding log-probability, and the critic value 𝑉 𝜙 ( (𝑘 ) 
+
+> 𝑡
+
+). The profit 𝑟 𝑡 ob-tained after solving the resulting MPC problem is shared by all group decisions that contributed to the tree built at time 𝑡 .For a group action, the factorized policy in Eq. (20) gives 
+
+log 𝜋 𝜃 (𝑎 (𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 ) 
+
+> 𝑡
+
+) = ∑
+
+> 𝑖 ∈(𝑘 )
+> 𝑡
+
+log 𝜋 𝜃 (𝑎 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 ) 
+
+> 𝑡
+
+). (22) In practice, we store the mean per-scenario log-probability, 
+
+log 𝜋 𝜃 
+
+(𝑎 (𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 )
+
+> 𝑡
+
+) = 1
+
+|(𝑘 ) 
+
+> 𝑡
+
+|∑
+
+> 𝑖 ∈(𝑘 )
+> 𝑡
+
+log 𝜋 𝜃 (𝑎 (𝑖,𝑘 ) 
+
+> 𝑡
+
+∣  (𝑘 ) 
+
+> 𝑡
+
+), (23) as a scale-normalized surrogate for the group log-probability. Because the decision at each physical time step opti-mizes outcomes over a finite horizon of length 𝐻 , we use 
+
+𝐻 -step undiscounted returns to define the training targets. This choice both reduces the variance of the critic target by avoiding long-horizon bootstrapping, and aligns the credit assignment with the horizon over which actions are opti-mized for. For a stored transition 𝑗 corresponding to the pair 
+
+(𝑡 𝑗 , 𝑘 𝑗 ), we compute 
+
+𝐺 𝑗 =
+
+> 𝐻 −1
+
+∑
+
+> ℎ=0
+
+𝑟 𝑡 𝑗 +ℎ, 𝐴 𝑗 = 𝐺 𝑗 − 𝑉 𝜙 ( (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+), (24) truncating the sum at the episode end (i.e., when the price data terminates) and standardizing 𝐴 𝑗 within each batch. With the probability ratio 
+
+𝜌 𝑗 =
+
+𝜋 𝜃 (𝑎 (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+∣  (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+)
+
+𝜋 𝜃 old (𝑎 (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+∣  (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+)
+
+, (25) as in standard PPO, the actor maximizes the clipped surro-gate with an entropy bonus for exploration, while the critic regresses onto the returns: 
+
+𝜌 clip  
+
+> 𝑗
+
+= clip( 𝜌 𝑗 , 1 − 𝜖, 1 + 𝜖 ), (26) 
+
+actor (𝜃 ) = − 𝔼 𝑗 
+
+[
+
+min (𝜌 𝑗 𝐴 𝑗 , 𝜌 clip  
+
+> 𝑗
+
+𝐴 𝑗 
+
+)]
+
+− 𝜔 𝔼 𝑗 
+
+[(𝜋 𝜃 )], (27) 
+
+critic (𝜙 ) = 𝔼 𝑗 
+
+[𝓁 𝛿 
+
+(𝑉 𝜙 ( (𝑘 𝑗 ) 
+
+> 𝑡 𝑗
+
+) − 𝐺 𝑗 
+
+)] , (28) where 𝓁 𝛿 (⋅) denotes the Huber loss, 
+
+𝓁 𝛿 (𝑥 ) = 
+
+{ 12 𝑥 2, if |𝑥 | ≤ 𝛿, 𝛿 (|𝑥 | − 12 𝛿 ), otherwise. (29) Updates draw minibatches from a small replay buffer of recent rollouts. This design improves sample efficiency, as collecting new data requires computationally expensive optimization. At the same time, the buffer size is inten-tionally kept small, such that samples remain close to the current policy, thereby retaining an approximately on-policy training regime. We clip gradient norms for numerical sta-bility, and perform early stopping of the inner update loop 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 8 of 15 Control-Oriented Scenario Tree Construction through RL 
+
+when the KL divergence between the current policy and the behavior policy 𝜋 𝜃 old exceeds a predefined threshold. This is a standard practice in PPO to prevent overly large policy updates and ensure that training remains within the trust region implied by the surrogate objective. 
+
+## 5. Experiment Setup 
+
+5.1. Synthetic price environment 
+
+We evaluate our method in a synthetic electricity price environment with a known data-generating process. The purpose is not to reproduce a specific market, but to create a controlled setting in which uncertainty plays a central role, allowing us to assess how the quality of the scenario tree affects decisions. The model combines three key features of electricity prices: persistent fluctuations, predictable intraday patterns, and rare but significant shocks. These elements jointly make the scenario generation problem challenging, as both typical behavior and extreme outcomes must be represented. We model price dynamics through a latent state variable 
+
+𝑧 𝑡 evolving as 
+
+𝑧 𝑡 +1 = 𝑧 𝑡 + 𝜃 (𝜇 𝑡 − 𝑧 𝑡 ) + 𝜎𝜀 𝑡 + 𝐽 𝑡 , 𝜀 𝑡 ∼  (0 , 1); (30) where each term corresponds to one of the desired features. The first component, 𝜃 (𝜇 𝑡 − 𝑧 𝑡 ), captures mean reversion toward a time-dependent level 𝜇 𝑡 . This level follows a de-terministic 24-hour cycle, representing predictable intraday variation in electricity demand and prices. The parameter 
+
+𝜃 controls how quickly the process returns to this base-line. The second component, 𝜎𝜀 𝑡 , introduces continuous stochastic fluctuations around the mean. This term generates short-term variability and ensures that trajectories do not simply track the deterministic cycle. The final component, 
+
+𝐽 𝑡 , models rare but impactful events. These shocks oc-cur infrequently but can have large magnitudes, with both upward and downward movements. They are essential to reproduce heavy-tailed behavior, where extreme price real-izations, though rare, have a disproportionate impact. The observed price is obtained by applying a nonlinear transformation to the latent state. For moderate values of 𝑧 𝑡 ,the mapping is approximately linear, while extreme values are amplified. As a result, large shocks in the latent state translate into pronounced price spikes, reinforcing the im-portance of accurately capturing tail events in the scenario tree. From this process we generate two disjoint sets of price profiles , one for training and one for evaluation. Each set contains 200 trajectories of 𝑇 = 120 steps, obtained as inde-pendent realizations of Eq. (30) from a common initial state. Both sets follow the same distribution; all reported results are computed on the held-out evaluation set. 
+
+5.2. Forecast scenarios 
+
+At each control step, the controller is supplied with a fan of 𝑆 price trajectories over a look-ahead horizon 𝐻 ≐ 6.The fan is generated by simulating the same process as in Section 5.1, producing 𝑆 independent trajectories of length 
+
+𝐻 starting from the current state, each assigned uniform probability 𝑝 𝑖 = 1∕ 𝑆 . By construction, this forecast is sta-tistically consistent with the underlying dynamics, so that performance differences across methods reflect the quality of the scenario-tree construction rather than forecast bias. The fan size plays a dual role: it determines both the fidelity of the sampled future distribution and the computa-tional complexity of the aggregation problem. In particular, the number of possible assignments grows combinatorially with 𝑆 , making both tree construction and policy optimiza-tion increasingly expensive as 𝑆 grows. For this reason, we train the agent with a relatively small fan, 𝑆 = 10 , where the multistage program remains computationally tractable and the action space is sufficiently constrained to allow efficient learning. At evaluation time, we increase the fan size up to 𝑆 =300 to assess how well the learned policy generalizes to denser approximations of the future distribution. This setting probes whether the policy has learned a scalable assignment strategy, rather than overfitting to a specific fan size. Notably, the policy is trained only once with a limited number of scenarios 𝑆 = 10 to ease the computational cost of training. The policy is then applied and evaluated unchanged at larger fan sizes. 
+
+5.3. Tree-construction methods 
+
+All methods feed the same multistage program Eq. (9); they differ only in the tree handed to it. We compare the proposed agent against four classical constructions and a perfect-foresight reference. • RL Agent (proposed). The learned policy of Sec-tion 4, assigning the 𝑆 scenarios over a fixed topology with 𝐿 = 6 leaves. • Oracle . The dispatch (9) solved on a single trajectory equal to the realized future prices. It uses informa-tion unavailable at decision time and so provides an unattainable upper bound on profit. • Random . The same fixed 6-leaf topology as the RL Agent, but with each scenario assigned to a leaf uniformly at random. This isolates the value of the learned assignment from that of the topology itself. • Forward . A scenario tree built by forward selection, the standard scenario-reduction heuristic that greedily retains the most representative scenarios, at a leaf budget of 6.• Backward . A scenario tree built by backward reduc-tion, the complementary reduction heuristic that suc-cessively removes the least representative scenarios, at a leaf budget of 6.• Deterministic . The element-wise mean of the 𝑆 
+
+scenarios used as a single forecast trajectory, i.e. certainty-equivalent control.   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 9 of 15 Control-Oriented Scenario Tree Construction through RL
+
+The RL Agent and Random share an identical, prede-fined topology, whereas Forward and Backward construct their own branching at the same leaf budget; Oracle and Deterministic reduce to a single trajectory. We make this distinction explicit so that the comparison between learned and random assignment (shared topology) is read separately from the comparison against the reduction heuristics (differ-ent topology, equal budget). 
+
+5.4. Metrics 
+
+We report three families of metrics, averaged over the evaluation profiles. • Profit. The realized cumulative arbitrage profit of a control episode, ∑𝑡 𝑟 𝑡 , our primary measure of control quality. We report its mean and standard deviation across the test set profiles. The Oracle and Determin-istic methods bracket this metric, serving respectively as the perfect-foresight upper bound and the certainty-equivalent reference. • Tree size. The number of nodes | | and the ef-fective number of leaves || of the constructed tree (after empty nodes are pruned), which characterize the complexity of the resulting program and how much branching each method actually uses. • Computation. The wall-clock time to build the tree and the wall-clock time to solve the program (9), per control step, which together determine the online cost of each method. 
+
+## 6. Results 
+
+We evaluate every method on the same held-out set of 
+
+200 profiles at seven forecast-fan sizes ranging from 𝑆 =10 to 𝑆 = 300 . The policy is trained once, at 𝑆 = 10 , and applied unchanged at all larger fans, so the 𝑆 > 10 results also test how the learned construction transfers to denser forecasts than it saw in training. The Oracle ignores the fan and optimizes against the realized prices, so its score is identical across fan sizes ( 3702 ± 849 ) and serves as a fixed upper bound; the Deterministic baseline is certainty-equivalent control. 
+
+6.1. Profit across fan sizes 
+
+Table 1 reports the mean profits, and the left panel of Fig. 5 plots it against fan size. To compare methods on a common scale we report the gap closed — i.e., the percent-age of the distance between certainty-equivalent control and the perfect-foresight oracle that a method recovers — shown in Fig. 6. Most methods (all except forward reduction) converge toward a close value as the fan grows: the profit curves flatten and their error bars overlap heavily at the larger fans (Fig. 5, left), and the small between-fan fluctuations of the gap-closed curves in this regime (Fig. 6) are most parsimoniously read as evaluation noise around that common limit. The RL Agent reaches it the fastest, with its largest advantage at the smallest fans: it has the highest mean profit at every fan size up to 𝑆 = 200 , by a margin that declines from about 
+
+8% of the gap closed at 𝑆 = 10 to about 2% at 𝑆 = 200 ,and at 𝑆 = 300 backward reduction is marginally higher (1644 versus 1638 ) within the overlapping error bars. The Deterministic baseline improves steadily with the fan and converges for about 𝑆 = 150 onward (Table 1), from 1235 
+
+at 𝑆 = 10 to about 1615 at 𝑆 ≥ 150 . Indeed, averaging more trajectories resolves the conditional mean price more accu-rately, and because the dispatch problem is linear, certainty-equivalent control approaches optimality once that mean is well resolved. For these large fan sizes ( 𝑆 > 100 ), all but the Forward method converged to each other. Still, even within the con-vergence region, the RL Agent retains a place advantage: backward reduction’s mean at 𝑆 = 300 (1644 ) does not ex-ceed the RL Agent’s at 𝑆 = 200 (1645 ), so the learned policy reaches the same performance level with roughly a third fewer scenarios and a correspondingly smaller online pro-gram. More consistently, the RL Agent is the only method whose gap closed stays non-negative across the entire sweep (Fig. 6): backward reduction and random assignment dip just below the Deterministic reference at intermediate fans ( 𝑆 =150 –200 ) before recovering, and Forward selection sits well below it from 𝑆 = 50 onward (closing about −8 to −12% ). Backward reduction and Forward selection behave differ-ently relative to the Deterministic reference. Backward’s gap closed stays close to it across the whole sweep (between 
+
+−0 .8% and +3 .0% ), and the small dips below zero at 𝑆 =150 and 𝑆 = 200 are within the convergence-region noise discussed above. Forward selection, by contrast, sits clearly and persistently below the reference from 𝑆 = 50 onward (between −2% and −12% ), a gap too large and too sustained to attribute to noise. A plausible reason is its selection rule: Forward greedily picks scenarios that are far from those already chosen, which favors spread over representativeness. Hence, as the fan grows, the six retained leaves drift toward atypical trajectories rather than tracking the bulk of the forecast. The RL Agent, which adapts how many of its six leaves are actually populated (Section 6.4), does not show either pattern. Random assignment is more surprising. It uses no in-formation about which scenarios should be retained or grouped — yet its gap closed stays close to the Determin-istic reference across the sweep (between −3% and +3% ,returning to the reference at 𝑆 = 300 ), and on the lower tail it does better than the mean forecast at every fan size: 
+
+CVaR 10% for Random beats Deterministic throughout and is comparable to Backward’s (Table 2). A plausible reading is that drawing six scenarios uniformly from the fan is, in ex-pectation, an unbiased sample of the forecast distribution — the six retained leaves are then plausible futures rather than selected extremes or representatives, so the MPC is forced to hedge across realistic variability instead of committing to the conditional mean, without being pulled toward atypical trajectories by a selection criterion. The variance inherent in random sampling thus appears to function as a form of   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 10 of 15
+
+Control-Oriented Scenario Tree Construction through RL 
+
+Table 1 
+
+Realized cumulative profit (mean ± std over the 200 test profiles). Best non-oracle entry per fan size in bold. Forecast fan size 𝑆 
+
+Method 10 25 50 100 150 200 300 
+
+Oracle 3702 ± 849 3702 ± 849 3702 ± 849 3702 ± 849 3702 ± 849 3702 ± 849 3702 ± 849 
+
+RL Agent 𝟏𝟒𝟑𝟒 ± 𝟔𝟖𝟒 𝟏𝟓𝟓𝟒 ± 𝟔𝟗𝟔 𝟏𝟔𝟎𝟏 ± 𝟔𝟗𝟑 𝟏𝟔𝟑𝟎 ± 𝟕𝟑𝟖 𝟏𝟔𝟒𝟐 ± 𝟕𝟑𝟎 𝟏𝟔𝟒𝟓 ± 𝟕𝟏𝟒 1638 ± 730 
+
+Backward 1315 ± 675 1457 ± 670 1535 ± 711 1622 ± 747 1613 ± 703 1597 ± 738 𝟏𝟔𝟒𝟒 ± 𝟕𝟑𝟏 
+
+Deterministic 1235 ± 734 1402 ± 720 1489 ± 713 1592 ± 759 1619 ± 758 1607 ± 763 1615 ± 736 
+
+Random 1301 ± 679 1456 ± 722 1472 ± 679 1551 ± 712 1578 ± 715 1577 ± 712 1624 ± 718 
+
+Forward 1295 ± 661 1434 ± 636 1459 ± 704 1460 ± 663 1450 ± 594 1474 ± 668 1467 ± 645 10 25 50 100 150 200 300                 
+
+> Forecast fan size S
+> 1200 1300 1400 1500 1600 1700
+> Cumulative profit
+> 10 25 50 100 150 200 300
+> Forecast fan size S
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> Build time (ms)
+> 10 25 50 100 150 200 300
+> Forecast fan size S
+> 45 50 55 60 65 70 75 80 85
+> RL win rate (%)
+> RL Agent Backward Forward Random Deterministic
+
+Figure 5: Summary across fan sizes. Left: mean profit with error bars (non-oracle methods; the Oracle at 3702 is off-scale). 
+
+Centre: per-step tree-build time (log scale). Right: the RL Agent’s win rate against each baseline, with the 50% reference dashed. 1025 50 100 150 200 300 
+
+Forecast fan size S
+
+> 8
+> 6
+> 4
+> 2
+> 02468
+> Gap closed (%)
+> Deterministic (ref.) RL Agent Backward Forward Random
+
+Figure 6: Gap closed versus fan size. The dashed line at 
+
+0% is certainty-equivalent control (Deterministic) and 100% 
+
+is the Oracle. The RL Agent stays positive at every fan size; the distance-based reductions fall below the Deterministic reference at intermediate fan sizes, and Forward remains well below it from 𝑆 = 50 onwards. 
+
+implicit hedging, which is most useful on the lower tail and consistent with the risk-averse objective that the controller optimizes. 
+
+6.2. Per-profile comparison 
+
+The comparison also holds per profile, not only on average. Figure 7 plots the RL Agent against each baseline profile by profile: each point is one profile, and points above the diagonal are those on which the agent earns more. The win rate — the fraction above the diagonal — exceeds 50% 
+
+in every panel, i.e., against every baseline at every fan size. Its dependence on the fan is summarized in the right panel of Fig. 5: the win rate is highest against Deterministic at the smallest fan ( 79% ), is lowest against backward reduction at intermediate fans (about 55 –56% near 𝑆 = 100 –150 ), and lies in the 60 –66% range against all baselines at the larger fans. The win rate remains above 50% even at 𝑆 = 300 ,where the agent and backward reduction have near-equal mean profit, indicating the agent still wins on a majority of individual profiles despite the tie in the mean. 
+
+6.3. Lower-tail performance 
+
+Because the controller optimizes a risk-averse objective, we also compare the methods on their worst outcomes, using the conditional value-at-risk CVaR 5% and CVaR 10% — i.e., the mean profit over the worst 5% and 10% of profiles, respectively. Table 2 reports both. On CVaR 10% the RL Agent has the best lower tail at every fan size. On the more extreme CVaR 5% it is best at every fan size except 
+
+𝑆 = 100 and 𝑆 = 300 , where Forward selection — which has a markedly lower mean (Table 1) — attains a slightly 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 11 of 15 Control-Oriented Scenario Tree Construction through RL 01000 2000 3000 4000 5000 
+
+> S = 10
+> RL Agent profit  64% win
+
+vs Backward 
+
+> 72% win
+
+vs Forward 
+
+> 67% win
+
+vs Random 
+
+> 79% win
+
+vs Deterministic 
+
+01000 2000 3000 4000 5000    
+
+> S = 25
+> RL Agent profit  62% win 66% win 62% win 74% win
+
+01000 2000 3000 4000 5000    
+
+> S = 50
+> RL Agent profit  60% win 67% win 64% win 65% win
+
+01000 2000 3000 4000 5000    
+
+> S = 100
+> RL Agent profit  56% win 64% win 62% win 61% win
+
+01000 2000 3000 4000 5000    
+
+> S = 150
+> RL Agent profit  56% win 62% win 63% win 63% win
+
+01000 2000 3000 4000 5000    
+
+> S = 200
+> RL Agent profit  64% win 66% win 66% win 66% win
+
+0 2000 4000 
+
+Backward profit 
+
+01000 2000 3000 4000 5000 
+
+> S = 300
+> RL Agent profit  56% win
+
+0 2000 4000 
+
+Forward profit 
+
+> 64% win
+
+0 2000 4000 
+
+Random profit 
+
+> 60% win
+
+0 2000 4000 
+
+Deterministic profit 
+
+> 60% win
+
+Figure 7: Per-profile profit, RL Agent (vertical) against each baseline (horizontal), one row per fan size. Points above the dashed diagonal are profiles on which the RL Agent earns more; the boxed figure is the win rate. Pavirani et al.: Preprint submitted to Elsevier Page 12 of 15 Control-Oriented Scenario Tree Construction through RL 
+
+Table 2 
+
+Lower-tail profit by method and fan size: CVaR 5% and CVaR 10% 
+
+(mean profit over the worst 5% and 10% of profiles). Best non-oracle entry per column in bold. Forecast fan size 𝑆 
+
+Method 10 25 50 100 150 200 300 CVaR 5% 
+
+Oracle 2299 2299 2299 2299 2299 2299 2299 
+
+RL Agent 𝟒𝟒𝟔 𝟓𝟏𝟔 𝟓𝟗𝟐 589 𝟓𝟔𝟖 𝟔𝟑𝟑 559 
+
+Backward 315 423 515 560 497 499 500 
+
+Deterministic 121 335 462 372 491 480 449 
+
+Random 276 390 528 504 496 513 544 
+
+Forward 334 405 404 𝟔𝟏𝟓 531 532 𝟓𝟕𝟐 
+
+CVaR 10% 
+
+Oracle 2428 2428 2428 2428 2428 2428 2428 
+
+RL Agent 𝟓𝟐𝟒 𝟔𝟏𝟏 𝟔𝟗𝟏 𝟔𝟕𝟗 𝟔𝟖𝟑 𝟕𝟐𝟏 𝟔𝟕𝟖 
+
+Backward 427 533 639 672 630 630 654 
+
+Deterministic 278 450 576 515 599 598 585 
+
+Random 382 525 615 594 620 632 653 
+
+Forward 431 530 535 669 626 617 629 
+
+higher value. Read together with Section 6.1, this gives a sharper statement than either metric alone: at the larger fans, where the RL Agent’s mean profit is at most tied with the best classical method, its lower tail is clearly better, so the learned policy delivers the same or higher expected return as the classical reductions while exposing the controller to substantially less downside. Its tail advantage therefore does not come from trading expected return for safety; rather, the two improvements coexist. The difference is clearest at small fans, where the per-profile minima marked in Fig. 8 show the RL Agent staying profitable on every profile (its worst-case profit is 308 –
+
+453 across all fan sizes), while certainty-equivalent control reaches near-zero or negative worst-case profit at several fan sizes (e.g. −317 at 𝑆 = 10 , −66 at 𝑆 = 25 , and 17 
+
+at 𝑆 = 300 ). A likely explanation is that committing to a single mean forecast occasionally mishandles the worst cases, whereas even a little branching hedges against them. 
+
+6.4. Tree structure and computation 
+
+Table 3 relates the methods’ behavior to the trees they build. Although given six leaves, the RL Agent populates only about two of them on average (after empty branches are pruned), close to the single trajectory of certainty-equivalent control, whereas the reduction heuristics always use all six. This is the structural counterpart of the profit results: the learned policy behaves like certainty-equivalent control with a small, selective amount of branching, which is consistent with its tracking the Deterministic baseline from above rather than dropping below it. The compact trees also keep its LP-solve time roughly half that of the six-leaf trees. The two costs of online use — building the tree and solving the program — trade off across methods. The central panel of Fig. 5 shows the build time. For the RL Agent, it grows with the fan and is its dominant cost (from 61 ms at 𝑆 = 10 to about 1.3 s at 𝑆 = 300 ). Asymptotically, this growth is quadratic in 𝑆 , since building one tree requires 
+
+⌈𝑆 ∕𝐺 ⌉ sequential assignment passes each attending over all 𝑆 scenarios; over the tested range the measured time RL Agent Backward Forward Random Deterministic 01000 2000 3000 4000 5000       
+
+> Cumulative profit
+> S= 10
+> RL Agent Backward Forward Random Deterministic
+> S= 25
+> RL Agent Backward Forward Random Deterministic 01000 2000 3000 4000 5000
+> Cumulative profit
+> S= 50
+> RL Agent Backward Forward Random Deterministic
+> S= 100
+> RL Agent Backward Forward Random Deterministic 01000 2000 3000 4000 5000
+> Cumulative profit
+> S= 200
+> RL Agent Backward Forward Random Deterministic
+> S= 300
+
+Figure 8: Per-profile profit distributions by method, one panel per fan size. Black bars mark medians; coloured ticks mark each method’s worst (minimum) profile; the dotted line is the Oracle mean. The RL Agent’s minimum stays positive at all fan sizes, while Deterministic dips to or below zero at the smallest and largest fans. 
+
+Table 3 
+
+Constructed-tree statistics, shown as the range over the seven fan sizes: effective leaves used (after pruning, out of six), per-step LP-solve time, and per-step tree-build time. Method Effective leaves Solve (ms) Build (ms) RL Agent 1.7–2.4 3.4–4.5 61 –1347 
+
+Backward 6.0 4.9–9.5 1.4–4806 
+
+Forward 6.0 5.0–9.7 1.2–46 
+
+Random 5.0–6.0 5.3–10 .4 0.4–1.6
+
+Deterministic 1.0 2.2–3.1 0.1–0.6
+
+Oracle 1.0 1.4–3.3 0.1–0.5
+
+grows more slowly, as it is still dominated by the fixed overhead of the sequential passes rather than by the attention itself. Backward reduction grows faster — reflecting its pair-wise distance computations — and overtakes the RL Agent’s build time beyond 𝑆 ≈ 150 , reaching about 4.8 s at 𝑆 = 300 ,roughly three to four times the RL Agent’s. This matters for scalability in the convergence region of Section 6.1: for larger fan sizes, the RL Agent and backward reduction obtain similar mean profit, but the gap in construction cost widens sharply, so the cheaper way to achieve that performance level — particularly if the fan is to be increased further — is the learned policy rather than its distance-based counterpart. 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 13 of 15 Control-Oriented Scenario Tree Construction through RL 
+
+Build time is also the binding constraint during training, where a tree is constructed at every step of every rollout, which is why we train at 𝑆 = 10 .
+
+6.5. Discussion 
+
+Across the seven fan sizes, the learned construction is most useful where the forecast is sampled sparsely ( 𝑆 is lower), obtaining the highest mean profit, the best lower tail, and a clear majority of per-profile wins. As the fan grows the methods converge in mean profit, but within this convergence region the learned policy keeps two prac-tical advantages already noted above. It reaches a given performance level with substantially fewer scenarios than backward reduction (its mean at 𝑆 = 200 matches the best classical mean at 𝑆 = 300 , Section 6.1), and it does so at a build cost that grows more slowly than backward reduction’s (Section 6.4). Thus, as the fan size is increased further, the cheaper way to operate near the converged performance level is the learned policy rather than its distance-based counter-part. The second observation in the convergence region is that the comparison favors the RL Agent more clearly on the tail than on the mean: it has the best CVaR 10% at every fan size and the best CVaR 5% at all but two (Table 2), and its worst-case profit stays positive across the entire sweep while certainty-equivalent control posts near-zero or nega-tive worst cases at multiple fan sizes (Fig. 8). The learned policy thus delivers the same or higher expected return as the classical reductions while exposing the controller to substantially less downside, exactly what a risk-averse user would ask of a tree-construction method. A consistent reading of these observations is that the policy adapts how many leaves it uses — staying near the mean forecast and branching only when it helps — whereas the fixed six-leaf reductions cannot, so their fit to the fan degrades as it grows. Two limitations bound and contextualize these conclu-sions. First, the forecast used here is correctly specified by construction, which is the most favorable setting for both certainty-equivalent control and for distance-based reduc-tion, since both rely on the forecast distribution being a faithful description of the underlying process. The learned policy is trained on closed-loop control profit rather than on the forecast itself, so a biased or otherwise imprecise probabilistic forecast — the case encountered in practice — would not directly degrade its objective and may give it additional room to compensate for forecast inaccuracies; we would therefore expect the range of fan sizes over which the learned construction adds value to widen in that setting. Second, the dispatch problem studied here is linear, which is what allows certainty-equivalent control to approach op-timality as the fan size grows; on non-linear problems, Jensen’s inequality precludes that the convergence and the value of a well-constructed tree should remain substantial at all fan sizes. Together with using substantially larger forecast fans, evaluating the method on misspecified forecasts and on non-linear control problems is the most informative next step: the results presented here position the approach as a promising, control-oriented alternative to distance-based scenario reduction, but should be regarded as a preliminary investigation whose strongest case will be made on those harder settings. 
+
+## 7. Conclusions 
+
+We have presented a control-oriented, data-driven method for constructing the scenario trees that drive multistage stochastic MPC. Departing from the classical view of sce-nario reduction as an approximation of the forecast distri-bution under a probability metric, we cast tree construction as the sequential assignment of sampled scenarios to the leaves of a fixed topology and learn it with reinforcement learning, using the realized closed-loop control cost as the sole training signal. The tree construction is carried out by an attention-based policy over the scenario set, trained with PPO and supported by an asymmetric critic that exploits privileged future information only during training, so that the deployed controller depends on nothing but the forecast. On a risk-averse battery-arbitrage task evaluated across seven forecast fan sizes from 𝑆 = 10 to 𝑆 = 300 , the learned construction obtains the highest mean profit at every fan size up to 𝑆 = 200 , with the methods converging at larger fans as certainty-equivalent control approaches optimality on this linear problem. Two practical advantages persist throughout the convergence region: our learned RL policy reaches the converged performance level with fewer scenarios and a lower construction cost than backward reduction (which exceeds the agent’s build time beyond 𝑆 ≈ 150 ), and its lower tail is consistently better — the best CVaR 10% at every fan size, a positive worst-case profit throughout — so the same or higher expected return comes with substantially less downside. An analysis of the constructed trees shows that our policy builds compact, near-deterministic trees, popu-lating only about two of its six available leaves on average. Two features of the experimental setting bound these conclusions. The dispatch problem is linear, which is what allows certainty-equivalent control to approach optimality as the fan grows; under non-linearities, Jensen’s inequal-ity precludes that convergence and the value of a well-constructed tree should remain substantial throughout. The forecast is also correctly specified, the most favorable set-ting for both certainty-equivalent control and distance-based reduction, since both rely on the forecast being a faithful description of the underlying process — whereas our learned policy is trained on closed-loop profit rather than on the forecast itself, so a biased or imprecise forecast would not directly degrade its objective and may give it additional room to compensate. Last, the sizes of the forecasts used to build the tree in the experiment presented are limited to the computational costs of the techniques analyzed. We therefore position this work as a preliminary investigation whose strongest case will be made on misspecified forecasts, non-linear control problems, and at larger fan sizes, the last reachable with induced-set or linear-attention encoders that reduce the asymptotically quadratic build cost.   
+
+> Pavirani et al.: Preprint submitted to Elsevier Page 14 of 15
+
+Control-Oriented Scenario Tree Construction through RL 
+
+## Acknowledgments and funding 
+
+This research was partly funded by the Flemish Govern-ment through the “Onderzoeksprogramma Artificiële Intelli-gentie (AI) Vlaanderen” programme as well as a travel grant from the Research Foundation - Flanders. 
+
+## CRediT authorship contribution statement 
+
+Fabio Pavirani: Conceptualization, Methodology, Soft-ware, Formal analysis, Investigation, Visualization, Writ-ing - Original Draft. Bert Claessens: Conceptualization, Methodology, Supervision, Writing - Review & Editing. 
+
+Pierre Pinson: Conceptualization, Supervision, Writing -Review & Editing. Chris Develder: Supervision, Project administration, Funding acquisition, Writing - Review & Editing. 
+
+## References 
+
+[1] Morales, J.M., Conejo, A.J., Madsen, H., Pinson, P., Zugno, M., 2014. Integrating Renewables in Electricity Markets: Operational Problems. volume 205. Springer. [2] Rawlings, J.B., Mayne, D.Q., Diehl, M., 2017. Model Predictive Con-trol: Theory, Computation, and Design. 2 ed., Nob Hill Publishing. [3] Birge, J.R., Louveaux, F., 2011. Introduction to Stochastic Program-ming. 2 ed., Springer. [4] Mesbah, A., 2016. Stochastic model predictive control: An overview and perspectives for future research. IEEE Control Systems Magazine 36, 30–44. doi: 10.1109/MCS.2016.2602087 .[5] Shapiro, A., Dentcheva, D., Ruszczyński, A., 2021. Lectures on Stochastic Programming: Modeling and Theory. 3 ed., SIAM. [6] Dupčová, J., Gröwe-Kuska, N., Römisch, W., 2003. Scenario re-duction in stochastic programming: An approach using probability metrics. Mathematical Programming 95, 493–511. [7] Heitsch, H., Römisch, W., 2009. Scenario tree modeling for mul-tistage stochastic programs. Mathematical Programming 118, 371– 406. [8] Pflug, G.C., Pichler, A., 2014. Multistage Stochastic Optimization. Springer. [9] Teichgraeber, H., Brandt, A.R., 2019. Clustering methods to find representative periods for the optimization of energy systems: An initial framework and comparison. Applied energy 239, 1283–1293. [10] Donti, P.L., Amos, B., Kolter, J.Z., 2017. Task-based end-to-end model learning in stochastic optimization, in: Advances in Neural Information Processing Systems. [11] Elmachtoub, A.N., Grigas, P., 2022. Smart “predict, then optimize”. Management Science 68, 9–26. [12] Fairbrother, J., Turner, A., Wallace, S.W., 2022. Problem-driven scenario generation: an analysis of the quality of scenario reduction methods. Mathematical Programming 191, 141–182. [13] Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O., 2017. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 . [14] Lee, J., Lee, Y., Kim, J., Kosiorek, A., Choi, S., Teh, Y.W., 2019. Set transformer: A framework for attention-based permutation-invariant neural networks, in: International Conference on Machine Learning, PMLR. pp. 3744–3753. [15] Rujeerapaiboon, N., Schindler, K., Kuhn, D., Wiesemann, W., 2022. Scenario reduction revisited: Fundamental limits and guarantees. Mathematical Programming 191, 207–242. [16] Bertsimas, D., Mundru, N., 2023. Optimization-based scenario re-duction for data-driven two-stage stochastic optimization. Operations Research 71, 1343–1361. doi: 10.1287/opre.2022.2265 .[17] Hewitt, M., Ortmann, J., Rei, W., 2022. Decision-based scenario clus-tering for decision-making under uncertainty. Annals of Operations Research 315, 747–771. [18] Keutchayan, J., Ortmann, J., Rei, W., 2023. Problem-driven scenario clustering in stochastic optimization. Computational Management Science 20, 13. [19] Zhuang, Y., Cheng, L., Qi, N., Almassalkhi, M.R., Liu, F., 2025. Problem-driven scenario reduction framework for power system stochastic operation. IEEE Transactions on Power Systems 40, 3232– 3246. doi: 10.1109/TPWRS.2024.3523220 .[20] Zhuang, Y., Cheng, L., Qi, N., Almassalkhi, M.R., Liu, F., 2026. An iterative problem-driven scenario reduction framework for stochastic optimization with conditional value-at-risk, in: Proceedings of the 24th Power Systems Computation Conference (PSCC), Limassol, Cyprus. [21] García-Bertrand, R., Mínguez, R., 2014. Iterative scenario based reduction technique for stochastic optimization using conditional value-at-risk. Optimization and Engineering 15, 355–380. [22] Amos, B., Kolter, J.Z., 2017. Optnet: Differentiable optimization as a layer in neural networks, in: International Conference on Machine Learning, PMLR. pp. 136–145. [23] Wilder, B., Dilkina, B., Tambe, M., 2019. Melding the data-decisions pipeline: Decision-focused learning for combinatorial optimization, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 1658–1665. [24] Gasse, M., Chételat, D., Ferroni, N., Charlin, L., Lodi, A., 2019. Exact combinatorial optimization with graph convolutional neural networks, in: Advances in Neural Information Processing Systems. [25] Vinyals, O., Fortunato, M., Jaitly, N., 2015. Pointer networks, in: Advances in Neural Information Processing Systems. [26] Kool, W., van Hoof, H., Welling, M., 2019. Attention, learn to solve routing problems!, in: International Conference on Learning Representations. [27] Gros, S., Zanon, M., 2020. Data-driven economic nmpc using reinforcement learning. IEEE Transactions on Automatic Control 65, 636–648. [28] Madahi, S.S.K., Bruninx, K., Claessens, B., Develder, C., 2025. Model predictive control-guided reinforcement learning for implicit balancing. arXiv preprint arXiv:2510.04868 . [29] Cao, J., Harrold, D., Fan, Z., Morstyn, T., Healey, D., Li, K., 2020. Deep reinforcement learning-based energy storage arbitrage with accurate lithium-ion battery degradation model. IEEE Transactions on Smart Grid 11, 4513–4521. [30] Madahi, S.S.K., Claessens, B., Develder, C., 2024. Distributional reinforcement learning-based energy arbitrage strategies in imbalance settlement mechanism. Journal of Energy Storage 104, 114377. [31] Rockafellar, R.T., Uryasev, S., 2000. Optimization of conditional value-at-risk. Journal of Risk 2, 21–42. 
+
+Pavirani et al.: Preprint submitted to Elsevier Page 15 of 15

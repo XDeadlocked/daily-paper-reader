@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-15</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 6 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>2</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-15 20:38:43 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-16 20:31:03 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦图像生成视频一致性、无人机视觉导航与记忆规划等六项研究，两篇精读得分最高。</p>
-<p>最值得关注：Agentic优化突破视频对齐试错瓶颈；DreamFly以因果记忆+滚动扩散规划提升无人机导航。</p>
-<p>建议普通读者优先精读两篇8分工作，重点关注视频生成与具身导航交叉方向。</p>
+<p>今日精读聚焦具身世界模型仿真保真度与空中视觉语言导航的失败感知训练，共处理10篇论文。最值得看的是《WorldSimProbe》对动作条件世界模型诊断的9.0分方案，以及《RecoverFly》将强化学习用于导航恢复的9.0分框架。后续可关注速读中任务状态水平基准与离线大模型机械臂交互，用于补齐低维控制场景。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">2 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Trial-and-Error: Agentic Optimization for Image-to-Video Adherence">Beyond Trial-and-Error: Agentic Optimization for Image-to-Video Adherence</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamFly: Causal Memory and Receding-Horizon Diffusion Planning for Aerial Vision-Language Navigation">DreamFly: Causal Memory and Receding-Horizon Diffusion Planning for Aerial Vision-Language Navigation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WorldSimProbe: Diagnosing Simulator Faithfulness in Action-Conditioned World Models for Embodied Manipulation">WorldSimProbe: Diagnosing Simulator Faithfulness in Action-Conditioned World Models for Embodied Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RecoverFly: A Failure-Aware Reinforcement Learning Post-Training Framework for Aerial Vision-Language Navigation">RecoverFly: A Failure-Aware Reinforcement Learning Post-Training Framework for Aerial Vision-Language Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting">Embodied Multimodal Grounding for Open-Vocabulary Mobile Manipulation via Semantic 3D Gaussian Splatting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SAIN: Structure-Aware Interactive Navigation with Active Dialogue Grounding for Mobile Robot">SAIN: Structure-Aware Interactive Navigation with Active Dialogue Grounding for Mobile Robot</span></li><li><span class="dpr-home-dashboard-paper-title" title="From Semantic Grounding to Decision Optimization: A Unified Framework for Long-Horizon UAV Vision-Language Navigation">From Semantic Grounding to Decision Optimization: A Unified Framework for Long-Horizon UAV Vision-Language Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynamic Context Adapters: Efficiently Infusing History into Vision-and-Language Models">Dynamic Context Adapters: Efficiently Infusing History into Vision-and-Language Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Compiling and Benchmarking Task-State Horizons for Embodied Agents">Compiling and Benchmarking Task-State Horizons for Embodied Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Multi-modal Interactive Control of Robotic Arm based on Offline Large Language Models">Multi-modal Interactive Control of Robotic Arm based on Offline Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Control-Oriented Scenario Tree Construction through Reinforcement Learning">Control-Oriented Scenario Tree Construction through Reinforcement Learning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 </div>
 
