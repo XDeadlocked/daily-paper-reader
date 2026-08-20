@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-18</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-20</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-18 20:38:18 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-20 20:47:47 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日22篇论文精读11篇，聚焦视频编辑与世界模型两大方向。</p>
-<p>最值得精读《Qwen-Video-Edit》与《SCOPE》，分别用图像编辑迁移和代理优化突破视频生成局限。</p>
-<p>建议先看Qwen-Video-Edit，再以SCOPE的得分隔离思路对比速读中的无噪声条件生成方法。</p>
+<p>今日精读18篇、速读11篇，共29篇推荐，聚焦机器人学习与视觉-语言-动作模型前沿。</p>
+<p>最值得关注的是《Imagining Recovery》与《RAPAC-DP》两篇9.0分精读，分别提出推理时反事实对齐与延迟执行补偿机制，可显著提升策略鲁棒性。</p>
+<p>建议普通读者优先浏览速读中的《Teach and Grow》和《DriveCache》，了解通用机器人学习架构与驾驶世界模型的高效推理思路。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">18 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Qwen-Video-Edit: Instruction-Based Video Editing by Repurposing an Image Editing Model">Qwen-Video-Edit: Instruction-Based Video Editing by Repurposing an Image Editing Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="SCOPE: Score-Isolated Agentic Optimization for Video World Models">SCOPE: Score-Isolated Agentic Optimization for Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhaseLoRA: Control-Regime-Conditioned Low-Rank Adaptation for Continuous-Action Vision-Language-Action Policies">PhaseLoRA: Control-Regime-Conditioned Low-Rank Adaptation for Continuous-Action Vision-Language-Action Policies</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Imagining Recovery: Inference-Time Counterfactual Realignment for Vision-Language-Action Models">Imagining Recovery: Inference-Time Counterfactual Realignment for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution">RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="SparkVLA: Stop-Aware Hierarchical VLA with Adaptive Action Chunking for Long-Horizon Manipulation">SparkVLA: Stop-Aware Hierarchical VLA with Adaptive Action Chunking for Long-Horizon Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>18</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Equilibrium Forcing: Adaptive Video Generation Without Noise Conditioning">Equilibrium Forcing: Adaptive Video Generation Without Noise Conditioning</span></li><li><span class="dpr-home-dashboard-paper-title" title="StructRL: Structured Action-Space Exploration for Flow-Based VLAs">StructRL: Structured Action-Space Exploration for Flow-Based VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory">Remember Smarter: Visual History Compressor and Hyperbolic Experience Space for Robotic Memory</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Avatar-Forever: Decoupled Parallel Training for High-Quality Real-Time Infinite Avatars">Avatar-Forever: Decoupled Parallel Training for High-Quality Real-Time Infinite Avatars</span></li><li><span class="dpr-home-dashboard-paper-title" title="DriveCache: Action-Aware Caching for Driving World Model Inference">DriveCache: Action-Aware Caching for Driving World Model Inference</span></li><li><span class="dpr-home-dashboard-paper-title" title="Teach and Grow: An Agent-Centered Architecture for General Robot Learning">Teach and Grow: An Agent-Centered Architecture for General Robot Learning</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>

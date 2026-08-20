@@ -1,0 +1,435 @@
+Title: RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution
+
+URL Source: https://arxiv.org/pdf/2608.15924v1
+
+Published Time: Tue, 18 Aug 2026 01:23:04 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> PREPRINT 1
+
+# RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution 
+
+Tao Wang, Wei Wang, Jianhui Wang, Qi Wang, Weidi Huang, and Bing Xu 
+
+Abstract —Cloud-side inference gives imitation-learning poli-cies access to greater computational resources, but communica-tion and computation delays can degrade control performance. To compensate for these delays, we propose RAPAC-DP, a response-aligned pending-action compensation framework designed for both diffusion- and flow-based action generators. RAPAC-DP encodes the actions already scheduled for execution before the cloud response arrives into a pending-action sequence that serves as the conditioning input to a parameter-efficient compensa-tion pathway. When delay effects are negligible, bypassing this pathway exactly recovers the frozen base policy. For training, RAPAC-DP constructs delay-conditioned samples from delay-free demonstrations, requiring neither explicit system dynamics nor additional delayed demonstrations. At the largest fixed delay tested on Kinetix, RAPAC-DP retained 81.4% of its overall delay-free performance. At the largest fixed delay tested on each RoboMimic task, it achieved a mean success rate of 0.633 across the three tasks. These results demonstrate the effectiveness of pending-action compensation for cloud-deployed imitation-learning policies. 
+
+Index Terms —Imitation learning, diffusion policy, cloud robotics, execution delay, pending-action compensation. 
+
+I. I NTRODUCTION 
+
+# Imitation learning has made substantial progress in robotic manipulation and continuous control. By learning directly from expert demonstrations, imitation-learning policies can acquire complex behaviors and perform effectively in settings involving high-dimensional observations and complex dynam-ics [1]–[4]. As policy models grow in size and complexity, however, inference can require more computing power than many robotic platforms can provide locally [5], [6]. To meet these demands, policy inference can be performed in the cloud, where greater computational resources are available. In this architecture, the robot transmits observations to a cloud server and executes the actions returned by the policy [7], [8]. Cloud inference reduces the computational burden on the robot, but communication and remote computation introduce delays into the control loop. The end-to-end latency underlying these challenges arises from observation upload, cloud-side model inference, and control-command transmission [8]. Its duration varies with computational workload and network conditions, while ex-ecution jitter and asynchronous control updates introduce 
+
+This work was supported by the State Key Laboratory of High-end Heavy-load Robots (Open Fund Project No. HHR2025020105). Tao Wang, Jianhui Wang, Qi Wang, Weidi Huang, and Bing Xu are with Zhejiang University, Hangzhou, Zhejiang, China. Wei Wang is with the State Key Laboratory of High-end Heavy-load Robots, Midea Group, Foshan, Guangdong, China. Corresponding authors: Weidi Huang (e-mail: wdhuang@zju.edu.cn) and Wei Wang (e-mail: wangwei232@midea.com). 
+
+Fig. 1. Observation–execution misalignment under end-to-end decision delay. While a request is processed remotely, the local controller continues executing queued actions, so the returned chunk remains conditioned on an earlier observation. 
+
+additional timing uncertainty [9], [10]. As illustrated in Fig. 1, when a delayed action chunk arrives, a naive asynchronous executor discards actions associated with control steps that have already passed and executes only those intended for subsequent steps. However, these retained actions were gen-erated from the observation available when the request was sent, which no longer reflects the robot’s current state. This mismatch breaks the observation–action alignment assumed during delay-free policy training and makes the observed control process non-Markovian [11]. Consequently, policies trained under ideal delay-free conditions may suffer substantial performance degradation or even instability when deployed in cloud-based control systems. Delayed control has traditionally been addressed through information-state representations and model-based state pre-diction. Information-state methods augment the current obser-vation with action or observation histories, but longer delays require longer histories, increasing both input dimensionality and the difficulty of policy learning [12], [13]. Model-based methods instead predict the state reached during the delay interval, making their performance dependent on model accu-arXiv:2608.15924v1 [cs.RO] 16 Aug 2026 PREPRINT 2
+
+racy and multi-step prediction quality [14], [15]. More recent asynchronous action-chunking methods overlap inference with execution and coordinate successive chunks through inpaint-ing, online refinement, or masked generation [16]–[18]. These approaches show that delay compensation must account for both changes in the robot state and the actions executed while the new plan is being generated. During cloud inference, the robot continues to execute actions queued in the local controller while awaiting the response. We refer to these queued actions as the pending-action sequence. Executing them changes the robot’s state before the new action chunk arrives. However, the delay duration reveals only the number of pending actions, not how they affect the robot’s state. By the time the returned action chunk becomes available, some predicted actions correspond to control steps that have already elapsed and therefore can no longer be executed. Effective compensation must account for the pending actions and generate a new action sequence for execution after the response arrives. We propose RAPAC-DP, a response-aligned pending-action compensation framework for cloud-deployed action-generation policies. RAPAC-DP constructs training samples directly from delay-free expert trajectories. For each sample, the actions executed during a selected delay interval serve as the pending-action input, while the subsequent actions provide the response-aligned target. This construction requires no additional demonstrations under delayed execution. For parameter-efficient adaptation, RAPAC-DP adds a pending-action encoder and LoRA adapters to a frozen base policy and trains only these added modules. When compensation is unnecessary, the added modules can be bypassed to recover the base policy exactly. The main contributions of this paper are summarized as follows:  
+
+> •
+
+We introduce a training-sample construction strategy that converts delay-free expert trajectories into samples for delayed execution. The actions executed while the robot waits for the cloud response are used as pending-action inputs, and each target contains a complete ac-tion sequence beginning when the response arrives. This construction enables response-aligned training without requiring additional demonstrations under delayed exe-cution.  
+
+> •
+
+We develop RAPAC-DP by adding a pending-action encoder and LoRA adapters to a frozen action-generation policy. Only the added modules are trained for delay com-pensation, leaving the pretrained base weights unchanged. When compensation is unnecessary, these modules can be bypassed to recover the base policy exactly.  
+
+> •
+
+We evaluate RAPAC-DP against Naive asynchronous execution, RTC, and A2C2 on three RoboMimic tasks and 12 Kinetix environments. At the largest delay tested in each benchmark, RAPAC-DP retained 81.4% of its overall delay-free performance on Kinetix and achieved the highest mean success rate on each RoboMimic task. II. R ELATED WORK 
+
+This section reviews related work in three areas: diffusion-and flow-based action generation, latency compensation and asynchronous execution, and parameter-efficient policy adap-tation. 
+
+A. Diffusion- and Flow-Based Action Generation 
+
+Diffusion models learn complex distributions through it-erative denoising and have demonstrated strong generative performance in image synthesis [19], [20]. They have since been extended to planning and offline reinforcement learning, where they model trajectory and action distributions [21], [22]. In robot manipulation, Diffusion Policy formulates visuomo-tor control as conditional denoising over multi-step action sequences and executes only the near-term portion of each sequence before replanning [1]. Subsequent work reduces generation cost through consistency distillation and consis-tency flow matching [23], [24]. These methods improve action generation and sampling efficiency but do not address the prediction–execution offset introduced by delayed inference. 
+
+B. Latency Compensation and Asynchronous Execution 
+
+Delayed decision-making has been studied through time-delayed MDPs and augmented information states that com-bine delayed observations with intervening actions [11], [12]. Transformer- and encoder-based methods instead learn from histories of delayed states and intervening actions [13], [25]. Other approaches incorporate delay into learned dynamics, infer current information with world models, resample delayed trajectory fragments, or introduce temporal skip connections [14], [15], [26], [27]. Adversarial imitation learning has also been used to learn delay-robust policies from undelayed demonstrations [28]. Recent work focuses more directly on action-chunking poli-cies under asynchronous inference. Real-time Chunking (RTC) freezes the actions guaranteed to execute during inference and inpaints the remainder of the next chunk [16]. A2C2 applies a lightweight, time-aware correction at every control step using the latest observation and corresponding base action [17]. REMAC trains corrective updates by masking the actions at the beginning of each chunk and keeping them fixed during sampling to maintain continuity between successive chunks [18]. At the system level, SmolVLA decouples prediction from execution, whereas VLA-RAIL smooths and fuses successive action chunks [29], [30]. VLASH rolls the robot state forward under scheduled actions and trains the policy with temporally offset state–action targets [31]. 
+
+C. Parameter-Efficient Policy Adaptation 
+
+Low-Rank Adaptation (LoRA) represents updates to frozen weights with trainable low-rank factors, reducing the number of trainable parameters and adapter storage overhead [32]. In robot learning, LoRA has enabled efficient adaptation of Vision-Language-Action (VLA) policies to new tasks and robot embodiments [33], [34]. REMAC also uses LoRA to adapt a pretrained action-generation policy for asynchronous execution [18]. PREPRINT 3
+
+III. P RELIMINARIES 
+
+A. Generative Action-Sequence Policies 
+
+Diffusion-based policies [1] progressively perturb a clean sample x0 with Gaussian noise. At discrete diffusion step s,the noisy sample can be written as 
+
+xs = √¯αs x0 + √1 − ¯αs ϵ, ϵ ∼ N (0, I), (1) where ¯αs denotes the cumulative noise schedule. Generation is performed by learning a reverse denoising process that maps noisy samples back toward the data distribution. Flow-based policies [24], in contrast, model generation through a continuous vector field. A sample evolves according to dx τ
+
+dτ = vθ (xτ , τ | o), (2) where τ denotes continuous generative time and vθ is the observation-conditioned velocity field. Integrating this vector field transports samples from a simple prior distribution toward the target action distribution. Diffusion policies generate action sequences through dis-crete reverse denoising, whereas flow policies integrate a continuous vector field. 
+
+B. Low-Rank Adaptation 
+
+Low-Rank Adaptation (LoRA) is a parameter-efficient method for adapting pretrained models by introducing low-rank updates to frozen weights. Given a pretrained weight ma-trix W0 ∈ Rm×n, LoRA models the update as ∆W = αL 
+
+> r
+
+BA ,where A ∈ Rr×n and B ∈ Rm×r are trainable low-rank matrices with r ≪ min( m, n ). The forward pass is given by 
+
+h = W0x + ∆ W x. (3) In this formulation, W0 is frozen and only the low-rank parameters are optimized. 
+
+C. Control under Execution Delay 
+
+In this work, latency denotes the end-to-end delay from observation acquisition to receipt of the corresponding cloud-generated action sequence, excluding low-level servo and actuator delays. Let the nonnegative integer d denote the request-to-response delay in control steps. The policy output generated from ot becomes available to the local controller at time t + d. We assume that d is known and fixed within each evaluation setting. 
+
+a) No-delay case: In the delay-free setting, the policy receives observation ot at time t and predicts an H-step action sequence, where H denotes the prediction horizon: 
+
+ˆA(t) = π(ot) = 
+
+h
+
+ˆa(t) 
+
+> t
+
+, ˆa(t)
+
+> t+1
+
+, . . . , ˆa(t)
+
+> t+H−1
+
+i
+
+. (4) The controller then executes the corresponding actions imme-diately. Here, 1 ≤ K ≤ H denotes the number of actions executed before the next replanning step: 
+
+aexec  
+
+> k
+
+= ˆ a(t) 
+
+> k
+
+, ∀k ∈ [t, t + K − 1] . (5) 
+
+Algorithm 1 Naive Asynchronous Execution under Delay 
+
+Require: Current observation ot, prediction horizon H, exe-cution window K, delay d
+
+Require: Latest previous plan Apre = π(oτ ) available locally, generated at time τ < t 
+
+Ensure: Executed action segment under delayed cloud infer-ence  
+
+> 1:
+
+Extract the pending actions from the local queue: 
+
+Pt,d = [ˆ apre  
+
+> t
+
+, . . . , ˆapre 
+
+> t+d−1
+
+]. 
+
+> 2:
+
+Send the current observation ot to the remote policy.  
+
+> 3:
+
+During the waiting interval [t, t + d − 1] , execute Pt,d :
+
+aexec  
+
+> k
+
+= ˆ apre  
+
+> k
+
+, ∀k ∈ [t, t + d − 1] . 
+
+> 4:
+
+At t + d, receive the current inference plan: 
+
+Acur = π(ot) = [ˆ acur  
+
+> t
+
+, . . . , ˆacur 
+
+> t+H−1
+
+]. 
+
+> 5:
+
+Execute the remaining future actions in the current plan: 
+
+aexec  
+
+> k
+
+= ˆ acur  
+
+> k
+
+, k = t + d, . . . , t + d + K − 1.
+
+b) Naive asynchronous execution under delay: Under delayed cloud inference, the robot does not stop while waiting for the policy output generated from ot. Instead, it con-tinues executing pending actions from the latest previous plan available locally. As summarized in Algorithm 1, the current observation ot is sent to the remote policy, while the local controller executes the pending-action segment Pt,d 
+
+during the waiting interval. Once the current plan arrives, the local controller executes the remaining future actions. These actions are based on the earlier request-time observation rather than the robot’s current state, causing observation– execution misalignment. In contrast, RAPAC-DP conditions on the pending-action sequence and predicts a full H-step action chunk aligned with the response time. IV. M ETHOD 
+
+A. Delay-Conditioned Training Sample Construction 
+
+We construct training samples for delayed execution directly from delay-free expert trajectories. Let τ = {(oi, ai)}Ti=1 
+
+denote an expert trajectory, where oi and ai are the observation and action at time step i. For a valid starting time t, a discrete delay d ∈ { 0, . . . , d max } is sampled, where dmax denotes the maximum delay considered during training. Rather than training the policy on request-aligned targets at
+
+through at+H−1, we shift the supervision window by d steps to align it with the response time t + d. For a sampled delay 
+
+d, we construct 
+
+Atar  
+
+> t,d
+
+= [ at+d, at+d+1 , . . . , at+d+H−1],
+
+Apend  
+
+> t,d
+
+= [ at, at+1 , . . . , at+d−1]. (6) The target Atar  
+
+> t,d
+
+always contains H actions, preserving the full prediction horizon. The pending-action sequence contains the actions that would be executed locally while cloud inference is in progress. The sequence is empty when no delay is PREPRINT 4 
+
+> Fig. 2. Overview of RAPAC-DP. (a) Delay-free expert trajectories are converted into response-aligned samples. The pending-action sequence provides the conditioning input, and the target action sequence begins at the response time. (b) A pending-action encoder and LoRA adapters provide delay compensation while the base policy remains frozen. When compensation is unnecessary, these modules are disabled, and actions are generated by the frozen base policy alone. (c) During cloud inference, the local controller executes queued actions while awaiting the response. The returned action sequence is then inserted at the head of the execution queue, allowing the complete sequence to remain available for execution.
+
+present. These pending actions serve as the conditioning signal (Section IV-B) and are excluded from the target. 
+
+B. Pending-Action Encoder 
+
+A delay scalar specifies only the number of elapsed steps, whereas the pending-action sequence identifies the actions committed during that interval. For batch training, each se-quence Apend  
+
+> t,d
+
+is zero-padded to dmax slots, and a binary validity mask identifies the valid actions: 
+
+m(d) 
+
+> j
+
+= I[j < d ], j = 0 , . . . , d max − 1. (7) The padded sequence is normalized with the same action normalizer used by the base policy. We denote the normalized sequence as ¯Apend  
+
+> t,d
+
+and compute its embedding as 
+
+zpend  
+
+> t,d
+
+= gϕ
+
+ ¯Apend  
+
+> t,d
+
+, m(d)
+
+. (8) where gϕ encodes the normalized pending-action sequence, uses m(d) to mask padded slots, and supplies the resulting features to the corresponding base policy’s conditioning path-way. 
+
+C. Response-Aligned Policy Training 
+
+Using the delay-conditioned samples constructed above, we train the policy to predict the response-aligned action target conditioned on the request-time observation and pending-action representation. We retain the original training objective of the base policy and apply it to the shifted target: 
+
+LRA = Et,d 
+
+h
+
+ℓbase 
+
+
+
+Atar  
+
+> t,d
+
+| ot, zpend 
+
+> t,d
+
+i 
+
+, (9) where ℓbase denotes the original training objective of the base action-generation policy. RAPAC-DP changes the conditioning input and target timing without altering the generative loss, allowing the same formulation to be used with both standard diffusion and flow-based action-generation policies. For parameter-efficient training, the pretrained base policy is frozen, and LoRA adapters are introduced into selected linear projections of the underlying policy backbone. Together with the pending-action encoder, these adapters form the trainable compensation pathway. This pathway remains enabled for ev-ery sampled delay value, including d = 0 , when the pending-action sequence is empty and all padded slots are masked. Only the pending-action encoder and LoRA parameters are optimized. During deployment, when delay is absent or its effect is negligible, both modules can be bypassed to recover the frozen base policy exactly. 
+
+D. Asynchronous Policy Execution 
+
+At deployment, the pending-action condition is obtained from the local execution queue rather than from an expert trajectory. RAPAC-DP takes a known discrete request-to-response delay d, which remains fixed within each evaluation setting. When a cloud request is issued at time t, the actions scheduled for execution during the delay interval are denoted by 
+
+Pt,d = [ aqueue  
+
+> t
+
+, aqueue  
+
+> t+1
+
+, . . . , aqueue 
+
+> t+d−1
+
+]. (10) These queued actions are processed using the same padding, normalization, and masking procedure as Apend  
+
+> t,d
+
+. Unlike the expert actions used to construct training samples, however, deployment-time queued actions are policy-generated and may contain prediction errors. While cloud inference is in progress, the local controller continues executing these pending actions. Conditioned on the request-time observation and pending-action sequence, the policy predicts a response-aligned action chunk 
+
+ˆAt,d = [ˆ at+d, ˆat+d+1 , . . . , ˆat+d+H−1]. (11) PREPRINT 5
+
+By the time the response arrives at t + d, the d pending actions have already been executed and consumed by the local controller. The returned chunk is therefore inserted at the current queue head, providing H fresh actions starting from 
+
+t + d. Because the prediction is aligned with the response time, the full predicted action chunk remains available for subsequent execution. V. E XPERIMENTS 
+
+We evaluate RAPAC-DP under increasing fixed execution delays on RoboMimic’s Can, Square, and Transport manipu-lation tasks and on 12 Kinetix 2D physics-based control tasks. 
+
+A. Simulation Environments and Datasets a) RoboMimic: We evaluate the proposed method on the proficient-human datasets of three RoboMimic tasks [35]: Can ,
+
+Transport , and Square . These tasks cover object transfer, co-ordinated transport, and precision insertion, respectively. The policy receives visual observations and robot proprioceptive states, and performance is measured by task success rate. 
+
+b) Kinetix: We further evaluate the proposed method on 12 human-designed environments from Kinetix [36], covering diverse 2D physics-based control tasks such as locomotion, balancing, manipulation, and object interaction. Expert demon-strations are used for policy training, and performance is evaluated by task success rate. 
+
+B. Evaluation Methodology 
+
+To emulate an execution delay, we inject a fixed delay of d
+
+control steps into the policy–environment loop. 
+
+1) Comparison Paradigms: We compare four compensation paradigms under delayed execution:  
+
+> •
+
+Naive asynchronous policy (Naive ): the frozen base action-generation policy is executed asynchronously un-der the injected delay. Upon response arrival, actions associated with time steps that have already passed are discarded, and the remaining future actions are queued for execution. This baseline uses neither inference-time guidance nor trainable latency compensation.  
+
+> •
+
+RTC: Real-Time Chunking applies inference-time guid-ance to coordinate the previously committed actions with the newly generated action chunk [16]. It operates on the frozen base policy and introduces no additional trainable parameters.  
+
+> •
+
+A2C2: benchmark-specific residual correction policies update the base action at each physical control step using the latest observation [17].  
+
+> •
+
+RAPAC-DP (ours): the frozen base action-generation policy is augmented with a pending-action encoder and LoRA adapters, which together form the compensation pathway. This pathway is enabled throughout training and all reported evaluations, including at d = 0 . During deployment, it can be bypassed when delay is absent or its effect is negligible, recovering the frozen base policy exactly. 
+
+2) Training and Evaluation Protocol: All methods are evaluated under fixed execution delays with 50 rollouts per task-delay-seed setting. Unless otherwise noted, experiments are repeated with three seeds, and results are reported as mean 
+
+± standard deviation across seeds. The Kinetix Naive baseline is evaluated using a single seed and is reported only as a descriptive reference. RoboMimic uses a 16-step prediction horizon, executes 8 actions per query, and evaluates d ∈{0, . . . , 7} with 100 denoising steps. Kinetix uses an 8-step prediction horizon, executes 4 actions per query, and evaluates 
+
+d ∈ { 0, . . . , 4} with 5 Euler integration steps. RAPAC-DP is trained and evaluated with the compensation pathway enabled at every delay level. At d = 0 , the pending-action sequence is empty while the compensation pathway remains active. This setting evaluates the complete compensation model at the boundary of the considered delay range. 
+
+a) Implementation Details: For the Diffusion Trans-former policies, we concatenate each normalized pending action with its validity indicator and encode the pair as a 256-dimensional token using a two-layer MLP with Mish activation. Learned positional embeddings are added before the tokens are appended to the condition-memory sequence. Invalid tokens are zeroed and masked during attention. For Kinetix FlowPolicy, each pending action is projected into a 64-dimensional slot feature. The temporally ordered features are then flattened and mapped to an H × 256 condi-tioning feature, which is added residually to the policy input projection. Across both benchmarks, LoRA uses rank r=16 , scaling factor αL=16 , and a dropout rate of 0.05 . The adapter weights remain unmerged during inference. The LoRA adaptation introduces only 805 K trainable parameters for RoboMimic’s Can and Square tasks, representing 2.57% of the frozen base model. For Kinetix, it introduces 277 K trainable parameters, representing 9.02%. 
+
+C. Performance under Increasing Execution Delay 
+
+Figures 3 and 4 report success rates under increasing fixed execution delays. At the largest delay evaluated on each benchmark, RAPAC-DP achieved the highest mean success rate on all three RoboMimic tasks and remained competitive with A2C2 on Kinetix. On Kinetix, RAPAC-DP maintained strong performance across the evaluated delay range. With the compensation path-way enabled and the pending-action condition empty, RAPAC-DP achieved an equal-weight mean of 0.898 across the 12 environments at d = 0 , slightly above the 0.883 of the Naive base policy. At d = 4 , its mean remained 0.731, retaining 81.4% of its delay-free performance, whereas Naive retained only 21.2%. At this delay, RAPAC-DP outperformed RTC and Naive by 11.3 and 54.4 percentage points, respectively. This aggregate robustness was reflected across distinct control dynamics, including scores of 0.953 on Chain Lander, 0.920 on Cartpole Thrust, and 0.887 on H17 Unicycle. On RoboMimic, RAPAC-DP’s performance advantage be-came more pronounced at longer execution delays. At d = 7 ,it achieved the highest mean success rate on all three tasks, PREPRINT 6Car Launch Cartpole Thrust Catapult                        
+
+> Catcher V3 Hard Lunar Lander MJC Walker
+> 01234
+> Delay (steps)
+> 00.25 0.5 0.75 1
+> Success rate
+> 00.5 1
+> Success rate
+> Car Launch Cartpole Thrust Catapult Catcher V3
+> 00.5 1
+> Success rate
+> Chain Lander Grasp Easy H17 Unicycle Hard Lunar Lander
+> 024
+> Delay
+> 00.5 1
+> Success rate
+> MJC Half-Cheetah
+> 024
+> Delay
+> MJC Swimmer
+> 024
+> Delay
+> MJC Walker
+> 024
+> Delay
+> Trampoline
+> (a) Representative Kinetix tasks (b) Overall performance (c) Per-environment performance
+> Equal-weight mean across 12 environments within each seed
+> Ours A2C2 RTC Naive
+
+Fig. 3. Success rates under increasing execution delay on 12 Kinetix tasks. (a) Representative environments. (b) Overall performance, obtained by averaging the 12 environments equally within each seed before computing the across-seed mean. (c) Per-environment performance. RAPAC-DP keeps the compensation pathway enabled at every delay level, including d = 0 . For RAPAC-DP, A2C2, and RTC, thick curves show the mean, shaded bands show the standard deviation across three seeds, and pale curves show individual seeds. Naive is evaluated with one seed and therefore has no uncertainty band. 0 1 2 3 4 5 6 7
+
+Delay (steps) 
+
+00.25 0.5 0.75 1
+
+> Success rate
+
+(a) Can 
+
+0 1 2 3 4 5 6 7
+
+Delay (steps) 
+
+(b) Square 
+
+0 1 2 3 4 5 6 7
+
+Delay (steps) 
+
+(c) Transport 
+
+Ours A2C2 RTC Naive 
+
+Fig. 4. Success rates under increasing execution delay on RoboMimic: (a) Can, (b) Square, and (c) Transport. All methods use three seeds. For RAPAC-DP, the compensation pathway remains enabled at every delay level, including d = 0 . Thick curves and shaded bands denote the mean and sample standard deviation across seeds, respectively; pale curves show individual seeds. Naive denotes the asynchronous baseline defined above. 
+
+reaching 0.833 on Can, 0.473 on Square, and 0.593 on Trans-port. These results yielded an average success rate of 0.633, exceeding A2C2 by 20.6 percentage points across the three tasks. The separation was largest on Transport, where RAPAC-DP exceeded A2C2 by 44.0 percentage points while RTC and Naive both fell to zero. RAPAC-DP therefore sustained effective task execution across all three manipulation tasks under the most severe delay. Together, the Kinetix and RoboMimic results show that RAPAC-DP maintained strong performance at d = 0 and remained robust as execution delay increased. 
+
+D. Ablation Study 
+
+To assess the contribution of each component, we compared four cumulative variants on the three RoboMimic tasks: the Naive baseline, LoRA adaptation, response-aligned training, and the complete model with pending-action conditioning. Table I reports success rates over the low-delay, high-delay, and complete delay ranges, together with results at selected delay settings. Within each seed, success rates were averaged equally across tasks and delay settings before the mean and sample standard deviation were computed across seeds. LoRA adaptation alone left overall performance essentially unchanged and did not improve robustness at longer delays. Introducing response-aligned targets increased the high-delay average from 27.4% to 70.2%, but reduced the low-delay aver-age to 61.6%. Adding pending-action conditioning restored the low-delay average to 87.8% while preserving the improvement at longer delays, yielding the highest overall success rate of 79.0%. These ablations show that response-aligned training improves robustness to longer inference delays, while pending-action conditioning maintains performance across different delay levels. PREPRINT 7
+
+TABLE I ROBO MIMIC ABLATION RESULTS . R OWS ARE CUMULATIVE ; VALUES ARE MEAN SUCCESS RATES ± STANDARD DEVIATION OVER THREE SEEDS (%). 
+
+Delay-range averages Representative delays Method Low ( 0–3) High ( 4–7) Overall ( 0–7) d = 0 d = 3 d = 7 
+
+Naive 77 .4 ± 2.4 28 .2 ± 1.5 52 .8 ± 1.9 89 .1 ± 2.7 62 .9 ± 3.9 13 .6 ± 0.8
+
++ LoRA 78 .2 ± 1.3 27 .4 ± 0.8 52 .8 ± 1.0 85 .6 ± 0.4 63 .8 ± 2.8 12 .4 ± 2.0
+
++ response-aligned target 61 .6 ± 2.5 70 .2 ± 1.2 65 .9 ± 1.2 87 .1 ± 1.0 68 .0 ± 2.0 55 .8 ± 1.4
+
++ pending-action sequence 87 .8 ± 1.4 70 .2 ± 1.8 79 .0 ± 1.6 89 .3 ± 1.3 87 .3 ± 1.3 63 .3 ± 2.3
+
+VI. L IMITATIONS 
+
+This study evaluates RAPAC-DP in simulation under known discrete delays that remain fixed within each evaluation setting. Training constructs pending-action conditioning from expert trajectories, whereas deployment uses policy-generated queue contents. Evaluation under variable latency, including delay estimation and sensitivity to estimation error, and deployment on real robots remain for future work. VII. C ONCLUSION AND FUTURE WORK 
+
+In this paper, we presented RAPAC-DP, a pending-action compensation framework for improving the latency robustness of action-generation policies in imitation learning. RAPAC-DP addresses the mismatch between policy generation and delayed execution by constructing delay-conditioned train-ing samples from delay-free demonstrations. For parameter-efficient adaptation, the base policy remains frozen, while the pending-action encoder and LoRA adapters form the trainable compensation pathway. When delay is absent or its effect is negligible, this pathway can be bypassed to recover the frozen base policy exactly. Across fixed-delay simulations on three RoboMimic ma-nipulation tasks and 12 Kinetix physics-based control tasks, RAPAC-DP achieved the highest observed success rates on all three RoboMimic tasks at the maximum delay and remained comparable to A2C2 on Kinetix while far exceeding RTC and Naive; task-level rankings varied across environments. Future work will examine the interaction between inference latency and execution delay, extend RAPAC-DP to large-scale Vision-Language-Action policies and accelerated generative paradigms such as consistency models, and evaluate longer-horizon tasks. REFERENCES [1] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” The International Journal of Robotics Research , vol. 44, no. 10-11, pp. 1684–1704, 2025. [2] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-grained bimanual manipulation with low-cost hardware,” arXiv preprint arXiv:2304.13705 , 2023. [3] N. M. Shafiullah, Z. Cui, A. A. Altanzaya, and L. Pinto, “Behavior transformers: Cloning k modes with one stone,” Advances in neural information processing systems , vol. 35, pp. 22 955–22 968, 2022. [4] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Hausman, A. Herzog, J. Hsu et al. , “Rt-1: Robotics transformer for real-world control at scale,” arXiv preprint arXiv:2212.06817 , 2022. [5] B. Zitkovich, T. Yu, S. Xu, P. Xu, T. Xiao, F. Xia, J. Wu, P. Wohlhart, S. Welker, A. Wahid et al. , “Rt-2: Vision-language-action models transfer web knowledge to robotic control,” in Conference on Robot Learning . PMLR, 2023, pp. 2165–2183. [6] D. Driess, F. Xia, M. S. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, T. Yu et al. , “Palm-e: An embodied multimodal language model,” arXiv preprint arXiv:2303.03378 , 2023. [7] J. Ichnowski, K. Chen, K. Dharmarajan, S. Adebola, M. Danielczuk, V. Mayoral-Vilches, N. Jha, H. Zhan, E. LLontop, D. Xu et al. , “Fogros2: An adaptive platform for cloud and fog robotics using ros 2,” in 2023 IEEE international conference on robotics and automation (ICRA) .IEEE, 2023, pp. 5493–5500. [8] S. Chinchali, A. Sharma, J. Harrison, A. Elhafsi, D. Kang, E. Pergament, E. Cidon, S. Katti, and M. Pavone, “Network offloading policies for cloud robotics: a learning-based approach,” Autonomous Robots , vol. 45, no. 7, pp. 997–1012, 2021. [9] Y. Yuan and A. R. Mahmood, “Asynchronous reinforcement learning for real-time control of physical robots,” in 2022 International Conference on Robotics and Automation (ICRA) . IEEE, 2022, pp. 5546–5552. [10] K. Chen, N. Tian, C. Juette, T. Qiu, L. Ren, J. Kubiatowicz, and K. Goldberg, “Fogros2-plr: Probabilistic latency-reliability for cloud robotics,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 16 290–16 297. [11] Y. Sawaya, G. Issa, and S. E. Marzen, “Framework for solving time-delayed markov decision processes,” Physical Review Research , vol. 5, no. 3, p. 033034, 2023. [12] S. Nath, M. Baranwal, and H. Khadilkar, “Revisiting state augmen-tation methods for reinforcement learning with stochastic delays,” in 
+
+Proceedings of the 30th ACM international conference on information & knowledge management , 2021, pp. 1346–1355. [13] B. Xia, Z. Yang, M. Xie, Y. Chang, B. Yuan, Z. Li, X. Wang, and B. Liang, “Solving time-delay issues in reinforcement learning via transformers,” Applied Intelligence , vol. 54, no. 23, pp. 12 156–12 176, 2024. [14] B. Chen, M. Xu, L. Li, and D. Zhao, “Delay-aware model-based reinforcement learning for continuous control,” Neurocomputing , vol. 450, pp. 119–128, 2021. [15] A. Karamzade, K. Kim, M. Kalsi, and R. Fox, “Reinforcement learn-ing from delayed observations via world models,” arXiv preprint arXiv:2403.12309 , 2024. [16] K. Black, M. Y. Galliker, and S. Levine, “Real-time execution of action chunking flow policies,” arXiv preprint arXiv:2506.07339 , 2025. [17] K. Sendai, M. Alvarez, T. Matsushima, Y. Matsuo, and Y. Iwasawa, “Leave no observation behind: Real-time correction for vla action chunks,” arXiv preprint arXiv:2509.23224 , 2025. [18] H. Wang, G. Zhang, Y. Yan, Y. Shang, R. R. Kompella, and G. Liu, “Real-time robot execution with masked action chunking,” arXiv preprint arXiv:2601.20130 , 2026. [19] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,” 
+
+Advances in neural information processing systems , vol. 33, pp. 6840– 6851, 2020. [20] A. Q. Nichol and P. Dhariwal, “Improved denoising diffusion probabilis-tic models,” in International conference on machine learning . PMLR, 2021, pp. 8162–8171. [21] M. Janner, Y. Du, J. B. Tenenbaum, and S. Levine, “Planning with diffu-sion for flexible behavior synthesis,” arXiv preprint arXiv:2205.09991 ,2022. [22] Z. Wang, J. J. Hunt, and M. Zhou, “Diffusion policies as an expres-sive policy class for offline reinforcement learning,” arXiv preprint arXiv:2208.06193 , 2022. [23] A. Prasad, K. Lin, J. Wu, L. Zhou, and J. Bohg, “Consistency policy: Accelerated visuomotor policies via consistency distillation,” arXiv preprint arXiv:2405.07503 , 2024. PREPRINT 8
+
+[24] Q. Zhang, Z. Liu, H. Fan, G. Liu, B. Zeng, and S. Liu, “Flowpolicy: Enabling fast and robust 3d flow-based policy via consistency flow matching for robot manipulation,” in Proceedings of the AAAI Con-ference on Artificial Intelligence , vol. 39, 2025, pp. 14 754–14 762. [25] B. Xia, Y. Kong, Y. Chang, B. Yuan, Z. Li, X. Wang, and B. Liang, “Deer: A delay-resilient framework for reinforcement learning with variable delays,” arXiv preprint arXiv:2406.03102 , 2024. [26] Y. Bouteiller, S. Ramstedt, G. Beltrame, C. Pal, and J. Binas, “Rein-forcement learning with random delays,” in International conference on learning representations , 2020. [27] I. Anokhin, R. Rishav, M. Riemer, S. Chung, I. Rish, and S. E. Kahou, “Handling delay in real-time reinforcement learning,” arXiv preprint arXiv:2503.23478 , 2025. [28] M. Xie, B. Xia, Y. Yu, X. Wang, and Y. Chang, “Addressing delays in reinforcement learning via delayed adversarial imitation learning,” in 
+
+International conference on artificial neural networks . Springer, 2023, pp. 271–282. [29] M. Shukor, D. Aubakirova, F. Capuano, P. Kooijmans, S. Palma, A. Zouitine, M. Aractingi, C. Pascal, M. Russi, A. Marafioti, S. Alibert, M. Cord, T. Wolf, and R. Cadene, “Smolvla: A vision-language-action model for affordable and efficient robotics,” arXiv preprint arXiv:2506.01844 , 2025. [30] Y. Zhao, L. Zhao, B. Cheng, G. Yao, X. Wen, and H. Gao, “Vla-rail: A real-time asynchronous inference linker for vla models and robots,” 
+
+arXiv preprint arXiv:2512.24673 , 2025. [31] J. Tang, Y. Sun, Y. Zhao, S. Yang, Y. Lin, Z. Zhang, J. Hou, Y. Lu, Z. Liu, and S. Han, “Vlash: Real-time vlas via future-state-aware asynchronous inference,” arXiv preprint arXiv:2512.01031 , 2025. [32] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “Lora: Low-rank adaptation of large language models,” in International Conference on Learning Representations , 2022. [33] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi et al. , “Openvla: An open-source vision-language-action model,” arXiv preprint arXiv:2406.09246 ,2024. [34] D. Kim, M. Bae, U. Nam, G. Kim, S. Lee, K. Shim, and B. Shim, “Adaptive capacity allocation for vision language action fine-tuning,” 
+
+arXiv preprint arXiv:2603.07404 , 2026. [35] A. Mandlekar, D. Xu, J. Wong, S. Nasiriany, C. Wang, R. Kulkarni, L. Fei-Fei, S. Savarese, Y. Zhu, and R. Mart´ ın-Mart´ ın, “What matters in learning from offline human demonstrations for robot manipulation,” 
+
+arXiv preprint arXiv:2108.03298 , 2021. [36] M. Matthews, M. Beukman, C. Lu, and J. Foerster, “Kinetix: Investi-gating the training of general agents through open-ended physics-based control tasks,” in International Conference on Learning Representations ,2025.
