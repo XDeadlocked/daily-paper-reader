@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-20</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-21</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>18</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-20 20:47:47 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-21 20:12:02 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读18篇、速读11篇，共29篇推荐，聚焦机器人学习与视觉-语言-动作模型前沿。</p>
-<p>最值得关注的是《Imagining Recovery》与《RAPAC-DP》两篇9.0分精读，分别提出推理时反事实对齐与延迟执行补偿机制，可显著提升策略鲁棒性。</p>
-<p>建议普通读者优先浏览速读中的《Teach and Grow》和《DriveCache》，了解通用机器人学习架构与驾驶世界模型的高效推理思路。</p>
+<p>今日共读15篇论文，精读6篇、速读9篇，重点聚焦机器人控制与视频生成两大前沿方向。</p>
+<p>最值得关注两篇高分精读：机器人领域提出神经降阶动力学以学习正确抽象，视频生成领域实现流式自回归扩散模型的4D一致性，均达9.0/10。</p>
+<p>建议普通读者优先浏览这两篇精读的摘要与图表，并留意后续VLAs微调、视频生成视觉智能评测等速读文章，把握多任务操控与世界模型规划落地趋势。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">18 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Imagining Recovery: Inference-Time Counterfactual Realignment for Vision-Language-Action Models">Imagining Recovery: Inference-Time Counterfactual Realignment for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution">RAPAC-DP: Response-Aligned Pending-Action Compensation for Diffusion Policies under Delayed Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="SparkVLA: Stop-Aware Hierarchical VLA with Adaptive Action Chunking for Long-Horizon Manipulation">SparkVLA: Stop-Aware Hierarchical VLA with Adaptive Action Chunking for Long-Horizon Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning the Right Abstraction: Neural Reduced Dynamics for Complex Robot Control">Learning the Right Abstraction: Neural Reduced Dynamics for Complex Robot Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stream4D: 4D-Consistency for Streaming Autoregressive Diffusion Video Models">Stream4D: 4D-Consistency for Streaming Autoregressive Diffusion Video Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation">OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>18</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Avatar-Forever: Decoupled Parallel Training for High-Quality Real-Time Infinite Avatars">Avatar-Forever: Decoupled Parallel Training for High-Quality Real-Time Infinite Avatars</span></li><li><span class="dpr-home-dashboard-paper-title" title="DriveCache: Action-Aware Caching for Driving World Model Inference">DriveCache: Action-Aware Caching for Driving World Model Inference</span></li><li><span class="dpr-home-dashboard-paper-title" title="Teach and Grow: An Agent-Centered Architecture for General Robot Learning">Teach and Grow: An Agent-Centered Architecture for General Robot Learning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation">Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VGI-BENCH: Probing Visual Intelligence in Video Generation Models">VGI-BENCH: Probing Visual Intelligence in Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Model-Grounded LLM Planning for AUV and ASV Navigation Near Offshore Wind Farms">World-Model-Grounded LLM Planning for AUV and ASV Navigation Near Offshore Wind Farms</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 </div>
 
