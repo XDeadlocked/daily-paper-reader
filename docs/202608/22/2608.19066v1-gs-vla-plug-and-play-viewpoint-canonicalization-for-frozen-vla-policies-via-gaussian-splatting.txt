@@ -1,0 +1,473 @@
+Title: GS-VLA: Plug-and-Play Viewpoint Canonicalization for Frozen VLA Policies via Gaussian Splatting
+
+URL Source: https://arxiv.org/pdf/2608.19066v1
+
+Published Time: Thu, 20 Aug 2026 01:05:22 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# GS-VLA: Plug-and-Play Viewpoint Canonicalization for Frozen VLA Policies via Gaussian Splatting 
+
+Yechan Park 
+
+Dankook University Yongin, Republic of Korea 
+
+yechan3219@dankook.ac.kr 
+
+HyunJin Kim 
+
+Dept. of EEE, Dankook University Yongin, Republic of Korea 
+
+hyunjin2.kim@gmail.com 
+
+(Corresponding author) 
+
+# Abstract 
+
+This paper proposes a lightweight, plug-and-play framework that improves robust-ness to viewpoint shifts in Vision-Language-Action (VLA) policies without policy retraining. To our knowledge, this is the first approach to directly leverage 3D Gaussian-based novel-view synthesis for observation-space adaptation in VLA policies. Current VLA performance relies on the implicit assumption that training and deployment camera configurations are identical. Our experiments show that even a small displacement of the camera mount can reduce the success rate on the LIBERO benchmark from about 90% to about 10% in the worst case. Prior approaches, such as large-scale fine-tuning or generative data augmentation, are computationally expensive and risk catastrophic forgetting. To address this, view-point shifts are reformulated as a localized novel-view synthesis problem. Under a Locality assumption, that camera perturbations remain within a small bounded region relative to the workspace, viewpoint normalization reduces to a scene- and policy-independent disocclusion task. Our work implements this idea with a 4M-parameter 3D-Gaussian canonicalizer prepended to a frozen VLA policy. Without modifying policy weights, GS-VLA improves performance across three orthogonal 
+
+> Preprint. arXiv:2608.19066v1 [cs.CV] 19 Aug 2026
+
+axes: (1) Policy architectures , (2) Unseen task suites , and (3) Perturbation scales . These results show that a lightweight visual module can recover a large fraction of the performance lost under viewpoint shift, without policy retraining. 
+
+# 1 Introduction 
+
+Vision-Language-Action (VLA) models [3, 44, 32, 15, 16, 2, 11, 34, 7] have become a standard policy class for general manipulation. They perform strongly on benchmarks such as LIBERO [17] and CALVIN [21] and can transfer to real-world robots without additional modification. However, these successes often rely on an implicit assumption: the visual conditions at deployment closely match those used during training. In practice, even small deviations in camera viewpoint can lead to substantial performance degradation, highlighting viewpoint robustness as an important open challenge for reliable real-world deployment. However, improving robustness through additional data collection and policy fine-tuning is often impractical in real deployment settings, where new demonstrations are costly or unavailable. Also, there is a risk of policy collapse; trying to fine-tune the model for new camera views might ruin its original manipulation skills—a problem often called catastrophic forgetting. More fundamentally, performance drops under viewpoint shifts do not necessarily reflect failures in high-level reasoning or control capabilities; rather, they may stem from a mismatch between deployment-time observations and those encountered during training. This raises a broader question: 
+
+should robustness to viewpoint variation be learned entirely within policy parameters, or can it be achieved by adapting the observation space instead? 
+
+The latter observation space adaptation is not only possible but also cost-effective. In many real-world setups, camera changes are usually small and stay within a limited range. In practice, these perturbations are often small relative to the workspace, typically amounting to only a few to a few tens of centimeters. We refer to this practical property as Locality . Under this assumption, viewpoint changes affect only a limited portion of the image, while most pixels remain geometrically recoverable. Specifically, most of the visual content can be mapped to the canonical view using depth information and camera parameters. This means that learning is mainly needed for a narrow missing region, which can be treated as an inpainting problem. Importantly, this problem depends more on the visual domain than on the particular scene or policy. In this sense, viewpoint canonicalization is not a full novel-view-synthesis problem, but a simpler local adaptation problem that is largely independent of the scene and policy. We treat Locality as an empirically testable assumption. This makes viewpoint adaptation much more practical. Under Locality, there is no need for a large view-synthesis model designed for arbitrary scenes and camera baselines. Instead, a lightweight canonicalization module can be placed before a frozen VLA policy to restore aligned observations. This plug-and-play design recovers a substantial portion of the lost performance across different policy architectures, task suites, and perturbation scales without any policy retraining. The main contributions of this paper are as follows: • A new formulation of viewpoint adaptation for VLA policies: We show that viewpoint adaptation for frozen VLA policies can be addressed in observation space rather than in policy parameters, and formalize this perspective through Locality , a practical premise that reduces the problem to local disocclusion handling. • The first Gaussian-based canonicalization module for VLA policies: To the best of our knowledge, this is the first work to directly use a 3D Gaussian-based module for observation-space adaptation in VLA policies, thereby enabling efficient viewpoint canonicalization without policy retraining. The resulting module is lightweight and efficient to train, consist-ing of a 4M-parameter U-Net [27] adapter that predicts 14-dimensional Gaussian attributes and converges in only 5 hours on a single RTX A5000. • Generalization across policies, tasks, and perturbation scales: We demonstrate that a single checkpoint transfers across multiple policy architectures, unseen task suites, and large camera perturbations, recovering substantial performance without axis-specific re-training. • Empirical analysis of the recovery mechanism: We provide empirical evidence that most of the target view is handled by deterministic geometric mapping, while learning is needed only for a spatially localized residual region. 2Taken together, the above contributions suggest that viewpoint robustness for frozen VLA policies can be addressed effectively through lightweight observation-space adaptation, without modifying the policy itself. The rest of the paper is organized as follows. Firstly, prior works on VLA robustness and novel-view synthesis are reviewed. We then present our Locality-based formulation and the proposed 3D Gaussian canonicalization module. Finally, we evaluate the method across multiple policies, task suites, and perturbation scales, and provide an analysis of the recovery mechanism. 
+
+# 2 Related Works 
+
+VLA Foundation Policies. Recent VLA models [3, 44, 2, 11, 15, 16, 25, 34, 7, 32, 42, 41, 18, 40, 13] unified multi-modal inputs under large Transformer backbones trained on massive cross-embodiment datasets. Although these models achieved ≥ 90% success on LIBERO [17], their performances were predicated on static training camera setups. Unlike works that modified internal activations, we treat these multi-billion-parameter models as frozen, black-box policies and improve viewpoint robustness entirely in the observation space. This preserves the integrity of the policy while avoiding the costs of retraining. 
+
+Camera-Robust Robot Learning. Standard approaches to viewpoint robustness relied on retraining policies under augmented camera distributions. SPARTN [43] utilized NeRF [22] to generate novel-view trajectories for behavior cloning. The concurrent AnyCamVLA [10] similarly froze the policy but relied on LVSM [12] synthesizer with dual-view inputs, with evaluation limited to narrow perturbations. On the other hand, we introduce a Locality-based reformulation that reduces the number of parameters by 42 × compared with AnyCamVLA. 
+
+Feed-Forward Novel-View Synthesis. Novel-view synthesis (NVS) generates images from new camera poses given one or more input views. Per-scene radiance fields [22, 23, 1] achieve high fidelity but require per-scene optimization, while feed-forward predictors [38, 33] generalize across scenes. More recently, diffusion-based generators [28, 35] synthesize plausible views even under large baselines, at the cost of tens to hundreds of millions of parameters. Our contribution lies not in proposing a new NVS architecture but in reformulating the problem itself: by restricting the task to a bounded ε-ball under the Locality premise, we reduce capacity requirements by one to two orders of magnitude. 
+
+3D Gaussian Splatting Variants. Building on 3DGS [14] and its differentiable rasterizer [37], recent feed-forward variants predict per-pixel Gaussians from one or more views [30, 31, 38, 6] and improve rendering quality and structure [39, 20]. Flash3D in particular leverages monocular depth priors but targets cross-scene generalization.Our canonicalizer follows the pixel-aligned line but specializes the task to in-distribution camera perturbations, so the U-Net only needs to shape per-pixel Gaussians within an ε-ball around the training pose rather than synthesize arbitrary views. 
+
+Image Inpainting. Filling disocclusions resembles image inpainting [29, 26], but state-of-the-art inpainters require tens of millions of parameters to hallucinate semantic content over free-form holes. In our setting, ε-bounded camera shifts produce only O( ε)-thin holes along depth discontinuities, so no hallucination is needed and a 4M-parameter U-Net suffices 
+
+VLA Robustness Benchmarks. LIBERO-Plus [8] recently showed that camera viewpoint is a major source of fragility for state-of-the-art VLAs. In response to this challenge, we introduce an observation-space remedy and evaluate its effectiveness across three axes: policy, task suite, and perturbation scale. Unlike concurrent approaches targeting other robustness dimensions, such as SpatialVLA [25], our observation-space remedy is orthogonal to internal policy modifications and can be combined with them to achieve more comprehensive robustness. 
+
+# 3 Proposed method 
+
+This section presents our formulation of the Locality assumption as a practical module. We first define the objective of the canonicalizer, then show that Locality allows a computationally expensive novel-view synthesizer to be replaced with a lightweight U-Net. Additionally, the training procedure and the module deployment are described. 33.1 Motivation 
+
+A VLA policy trained at a fixed camera pose tends to collapse once the camera moves at deployment; in our worst LIBERO suite, the success rate decreases from 92 .4% to 9.3% . A natural remedy is to preprocess the observation back to the canonical view before feeding it to the policy. Although it seems like we need to solve a complex NVS problem, the changes in the camera position are actually very small. In practical settings, rig-mounted cameras typically drift by only a few centimeters, such that the majority of pixels remain visible after the pose change, while only a narrow region near depth discontinuities becomes newly exposed. That band has area O(ρ) in the perturbation magnitude ρ. A geometric argument for this area bound and the underlying geometry are detailed in Appendix A.1. Therefore, the core challenge of the learning problem reduces to inpainting a thin, newly disoccluded band along depth-discontinuity curves rather than synthesizing a general novel view. This makes our canonicalizer a natural fit: rather than generating the canonical image from scratch, it geometrically transports the visible source content into the canonical frame, leaving learning to handle only the narrow disoccluded regions. As a result, the learnable component remains highly lightweight—a 4M-parameter U-Net is all we need, which is over 25 × smaller than generic feed-forward NVS predictors [12, 31, 30]. We embed this same locality structure inside the architecture: each source pixel is back-projected through its depth to anchor a Gaussian primitive, the U-Net shapes each primitive (depth-bounded center offset, anisotropic scale, orientation, opacity, and color residual), and differentiable α-splatting [37] composes them at the canonical pose, jointly resolving occlusion ordering and blending across the disoccluded bands. Architectural details and the 14-dim descriptor are provided in Section 3.3. 
+
+3.2 Problem definition Setup and notation. We first define the input-output interface of the viewpoint canonicalizer fϕ.A frozen VLA policy πθ is trained at a canonical pose (the camera pose seen during πθ training), 
+
+C⋆ = ( R⋆, t ⋆) ∈ SE(3) . Here, SE(3) denotes the group of 3D rigid transformations, represented by a rotation and a translation without scale, and SO(3) denotes the group of 3D rotation matrices. We write R⋆ ∈ SO(3) for the camera rotation and t⋆ ∈ R3 for its world-space position. The camera intrinsics are given by the pinhole matrix K ∈ R3×3, which encodes the focal lengths and principal point. At deployment, the camera may move to a different source pose Cs = ( Rs, t s). For each frame, the canonicalizer receives an RGB image Is ∈ [0 , 1] H×W ×3, a per-pixel metric depth map 
+
+Ds ∈ RH×W>0 aligned with Is, and the camera parameters (Cs, C ⋆, K ). Here, Ds(u, v ) denotes the depth, in meters, of the 3D point observed at pixel (u, v ) in Is. Throughout the paper, we use the camera-to-world convention: a 3D point Xc ∈ R3 expressed in the camera frame is mapped to the world frame by Xw = RX c + t. The goal of the canonicalizer is to predict the image that would have been observed from the canonical pose, which is formulated as: 
+
+fϕ : ( Is, D s, C s, C ⋆, K ) 7 −→ bI⋆ ∈ [0 , 1] H×W ×3, (1) where bI⋆ is the predicted canonical-view image. The frozen policy then acts on this canonicalized observation, i.e., a = πθ (bI⋆). The policy parameters θ are never updated, and fϕ operates strictly on a per-frame basis, without temporal aggregation, multi-view input, or per-scene optimization. 
+
+Locality assumption. We formalize the Locality assumption described in Introduction Section. The deployment pose is assumed to remain within a bounded neighborhood of the canonical pose, with translation tolerance εt > 0 and rotation tolerance εR > 0. The Locality set, B(C⋆; εt, ε R), is defined as: 
+
+B(C⋆; εt, ε R) := 
+
+n
+
+(R, t ) : ∥t − t⋆∥2 ≤ εt, ∥log  (R⋆)⊤R∥2 ≤ εR
+
+o
+
+, (2) where 
+
+Cs ∈ B (C⋆; εt, ε R). (3) In (2), the term ∥log  (R⋆)⊤R∥2 represents the geodesic angle between the current rotation R and the canonical rotation R⋆. In our experiments, we relate the rotation limit εR to the translation limit 
+
+εt via a first-order scaling derived from the motion-field equation under a pinhole camera. Whereas translation-induced image motion scales inversely with depth, rotation induces depth-independent motion [19, 9]. Therefore, we use the approximation εR ≈ εt/d min , where dmin denotes the 4minimum scene depth. This allows us to control the overall camera perturbation using a single parameter, εt. To measure the total pose change, we define a normalized pose distance, ρ, as: 
+
+ρ = ∥ts − t⋆∥
+
+dmin 
+
++ ∥ log( R⋆⊤Rs)∥, (4) which combines translation and rotation into a unified scalar. Under our Locality assumption, the fraction of newly exposed regions, η(ρ), grows linearly to leading order as η(ρ) = αpar ρpar + αfr ρfr + O(ρ2) for ρ ≤ 1 in matched units, with ρpar = ∥ts − t⋆∥/d min 
+
+and ρfr = ∥ log( R⋆⊤Rs)∥. The two leading coefficients depend only on scene geometry: αpar on the silhouette length L⋆ 
+
+> px
+
+and the relative depth contrast (dmax −dmin )/d max , and αfr on the image-frame perimeter. We give a geometric argument for this bound, together with the explicit forms of αpar and 
+
+αfr , in Appendix A.1. We test this scaling empirically along three additional settings: Section 4.3 sweeps the perturbation scale εt ∈ { 5, 15 , 30 , 50 , 100 , 200 } cm; Section 4.5 stresses calibration noise; and Appendix A.2 verifies the linearity of η(ρ) directly. 
+
+3.3 Pixel-aligned 3D-Gaussian architecture 
+
+The canonicalizer fϕ is realized as follows. Under the Locality assumption, we only need to handle a thin disocclusion band, so we use a compact U-Net rather than a generic NVS backbone [14, 31, 30], which can reduce computational costs. A symmetric U-Net takes the channel-wise concatenation 
+
+[Is ∥ Ds] as input and is FiLM-modulated [24] by a pose-pair embedding, which is formulated as zpose = MLP( Cs, C ⋆) ∈ R128 . At every source pixel, the decoder predicts a 14 -dimensional Gaussian descriptor consisting of a position residual ( ∆μ), an anisotropic log-scale ( log s), an orientation quaternion ( q), an opacity ( α), and a color residual ( ∆c). All heads are zero-initialized so that fϕ starts exactly at the geometric warp. The Gaussian center is anchored at the world-space back-projection Xw = RsK−1Ds(u, v )[ u, v, 1] ⊤ + ts and is allowed only a depth-bounded residual, 
+
+μ = Xw + c∆μ Ds(u, v ) tanh(∆ μ), c∆μ = 0 .1, (5) which caps displacement at 10% of local depth. This keeps the residual from drifting away from the geometric base, which we found to be important for stability. One Gaussian per source pixel, with RGB Is(u, v ) + ∆ c, are rasterized at the canonical pose C⋆
+
+by gsplat ’s [37] differentiable α-blender, bI⋆(p) = P  
+
+> i∈N (p)
+
+Tiαici with Ti = Q
+
+> j<i
+
+(1 − αj ).Occlusion is resolved by depth-sorting, and the α-blender itself fills the disocclusion band, so we do not need a separate inpainting head. The canonicalizer only requires 4M parameters, roughly 840 ×
+
+smaller than finetuning π0.5 [11] and 42 × smaller than AnyCamVLA [10]. 
+
+3.4 Training 
+
+We intentionally avoid specialized training techniques so that the observed gains can be attributed to the Locality reduction rather than to the training method. We train on only one suite so that the remaining suites can serve as unseen test domains for cross-suite evaluation. The objective is the standard 3DGS [14] 0.8 : 0 .2 L1/SSIM reconstruction loss: 
+
+L = 0 .8∥bI⋆ −I⋆∥1 + 0 .2 1−SSIM . (6) 
+
+# 4 Experiments 
+
+In our experiments, we evaluate GS-VLA in terms of magnitude, generality, and deployment realism: we quantify the extent to which a canonicalizer recovers the performance lost under perturbations, relative to an upper bound given by the unperturbed (best-case) performance and a lower bound corresponding to the perturbed setting without canonicalization. We also evaluate whether a single checkpoint generalizes across different policies, benchmark suites, and perturbation levels ε. Ad-ditionally, we assess whether the performance gains persist under realistic deployment conditions, specifically in the presence of simultaneous translation–rotation drift and extrinsic-pose calibration error. All experiments use a single checkpoint trained once on libero_spatial at εt = 100 cm; no axis-specific retraining is performed. 54.1 Experimental setup Benchmark. We evaluate on the four LIBERO suites [17]— libero_spatial , libero_object ,
+
+libero_goal , and libero_10 —which cover diverse manipulation scenarios including spatial reasoning, object-centric interactions, and long-horizon tasks. Performance is measured by task success rate over multiple episodes. 
+
+Camera randomization. We add random Gaussian noise to both the camera’s position and its look-at point around the canonical pose. The parameter εt controls the size of this noise. We then adjust the camera’s orientation so it directly faces the new look-at point. If a shifted camera falls below the table, we discard it and sample a new one. Our default setting uses εt ≈ 100 cm , and we apply more noise in the sideways and vertical directions (orthogonal to the view) than in the depth direction. To test the model’s robustness at different noise levels, we simply scale this default setting. Figure 1 visualizes the resulting camera distribution. Finally, in order to isolate the effects of calibration errors, we inject independent location and rotation noise into the canonicalizer’s input. This simulates real-world scenarios in which the camera pose assumed by the system deviates slightly from the true pose. 
+
+Figure 1: Visualization of the random-ized camera distribution. 
+
+Policies. The main policy is π0.5 (lerobot/pi05_libero_finetuned ) [4]. For cross-policy transfer, we additionally evaluate OpenVLA-OFT [16], RynnVLA-002 [5], and XVLA [42], where all policies remain frozen throughout. Because rollout uses each policy’s native action-chunk configuration, we compare ∆ rather than absolute SR across policies. 
+
+Baselines. We evaluate two baselines. N O CANON passes the perturbed observation to the policy without canonicalization. F WD -WARP applies the closed-form depth-warp and zeros out the disoc-clusion region, which isolates the geometric component. Finally, GS-VLA denotes our proposed 4M-parameter canonicalizer detailed in Section 3.3. 
+
+4.2 Experimental results 
+
+Our first question is how much of the performance drop caused by camera perturbations can be recovered by a single canonicalizer across three critical axes: policy, suite, and perturbation magnitude. Table 1 summarizes these headline results. A single GS-VLA checkpoint consistently improves success rates (SR) across every evaluated setting. Consistent with our locality assumption, the gains are largest precisely where the unprotected baseline policy fails most severely. In these cases, a larger fraction of the raw input pixels is out-of-distribution, leaving greater room for the canonicalizer to restore useful visual structure. We break down the recovery along the three generalization axes: • Cross-policy generalization: GS-VLA effectively acts as a plug-and-play module for various architectures. As shown in Table 1(a), every frozen policy benefits without any fine-tuning. For instance, the pilot XVLA policy jumps from a near-total failure of 1.4% to 
+
+81 .0% (+79.6 pp ). Similarly, the 7B-parameter OpenVLA-OFT recovers dramatically to 
+
+81 .6% (+61.8 pp ). Notably, the magnitude of the benefit anti-correlates with the policy’s intrinsic robustness, suggesting that the canonicalizer serves as a broadly effective protective layer across policies. • Cross-suite generalization: Because the scene structure depends only on silhouette ge-ometry and not on task semantics, our module transfers zero-shot to unseen environments. As shown in Table 1(b), the most striking gain occurs on the long-horizon libero_10 
+
+suite, boosting π0.5 from 9.3% to 72 .1% (+62.8 pp ). We attribute this especially large improvement to reduced error accumulation over long trajectories: by keeping the inpainted region small at each step, the locality property limits frame-to-frame drift and prevents errors from compounding over time. 6Table 1: Three-axis generalization from a single checkpoint. GS-VLA is trained once on 
+
+libero_spatial at εt=100 cm, transfers without retraining across (a) policies, (b) suites, and (c) perturbation scales. Within each block,by descending ∆ in (a) and (b), by descending εt in (c). Boldface indicates the best result in each row, while bold ∆ highlights the headline cell of each block. The Fwd-warp column reports a depth-only forward-warp baseline where measured. Full per-cell matrices in Table 10 and Section 4.3.                                                                                           
+
+> Policy / Setting Suite No canon Fwd-warp GS-VLA (ours) ∆(pp)
+> SR (%) SR (%) SR (%) (a) Cross-policy generalization (εt=100 cm, 500 ep) XVLA spatial 1.419 .781 .0+79 .6
+> OpenVLA-OFT (7 B) object 19 .830 .581 .6+61 .8
+> RynnVLA-002 spatial 25 .837 .878 .6+52 .8
+> π0.5(3.4 B) spatial 42 .656 .586 .8+44 .2
+> (b) Cross-suite generalization (π0.5,εt=100 cm, 1000 ep)
+> π0.5libero_10 9.322 .972 .1+62 .8
+> π0.5spatial 42 .656 .586 .8+44 .2
+> π0.5object 64 .074 .690 .2+26 .2
+> π0.5goal 66 .372 .492 .2+25 .9
+> (c) Perturbation-scale robustness (π0.5×spatial ,1000 ep)
+> εt= 200 cm spatial 35 .749 .578 .5+42 .8
+> εt= 100 cm spatial 42 .656 .586 .8+44 .2
+> εt= 50 cm spatial 60 .966 .087 .2+13 .7
+> εt= 5 cm spatial 85 .287 .588 .0+2 .8
+
+Table 2: εt-sweep on π0.5 ×libero_spatial . The baseline drops 49 .5 pp across the sweep; GS-VLA drops only 9.5 pp. Term ∆ grows approximately linearly in εt within the Locality bound, matching Appendix A.1; the largest cell ( εt=100 cm) is in bold.                             
+
+> Method \εt(cm) 515 30 50 100 200
+> No canon 85 .282 .780 .673 .542 .635 .7
+> GS-VLA (ours) 88 .088 .687 .687 .286 .878 .5
+> ∆(pp) +2 .8+5 .9+7 .0+13 .7+44 .2+42 .8
+
+• Perturbation-scale robustness: On the core training setting ( π0.5 at εt = 100 cm), GS-VLA improves SR from 42 .6% to 86 .8% (+44.2 pp ). Even under extreme noise ( εt = 200 cm) where the baseline falls to 35 .7% , GS-VLA maintains high robustness at 78 .5% (+42.8 pp ), as seen in Table 1(c). 
+
+4.3 Scaling analysis 
+
+In order to know how performance changes as the perturbation grows, we sweep εt ∈{5, 15 , 30 , 50 , 100 , 200 } cm across all suites (Tables 2, 12). Three distinct regimes emerge: on 
+
+spatial and object , the unprotected policy stays near the performance ceiling for small εt, with the canonicalizer’s benefit ( ∆) growing sharply only past 50 cm. On goal , the gap remains consis-tently large ( +16 to +30 pp) across all values of εt, indicating that the policy is highly sensitive even to modest camera drift. On libero_10 , the canonicalizer outperforms the baseline across all perturbation levels, with the gain peaking at a +62.8 pp gain at εt = 100 cm before slightly tapering off at 200 cm as the perturbation approaches the Locality boundary (i.e., as ρ → 1). Within the εt ≤ 100 cm range, the ∆( εt) curve is approximately linear, and the per-suite slopes match our predicted αpar ratios to within 11% . This trend is consistent with the O(ρ) bound in Appendix A.1: larger failures of the unprotected policy leave more room for the canonicalizer to recover performance. 7Table 3: Joint translation × rotation. on π0.5 ×libero_spatial . Entries: N O CANON → GS-VLA (∆), in % SR. The bold ∆ flags the largest gain ( +42 .2 pp).                          
+
+> Yaw θε= 100 cm ε= 200 cm
+> θ= 10 ◦50 .0→81 .8(+31 .8)35 .8→78 .0(+42 .2)
+> θ= 20 ◦45 .5→66 .5(+21 .0)34 .8→69 .3(+34 .5)
+
+Table 4: Calibration stress. Pose noise (T cm , R ◦) injected on top of ε=100 cm and applied only to the pose seen by the canonicalizer. The shaded zero-noise row is the GS-VLA reference; degradation is graceful up to ∼ 3 cm/ 3◦, with long-horizon libero_10 the most sensitive at 5 cm/ 5◦.                                     
+
+> Calib. noise (T, R )object spatial goal libero_10
+> SR (%) SR (%) SR (%) SR (%)
+> (0 ,0) 89 .279 .988 .565 .4
+> (1 ,1) 87 .378 .286 .663 .4(2 ,2) 86 .175 .086 .559 .9(3 ,3) 84 .076 .085 .451 .6(5 ,5) 78 .470 .381 .041 .6∆(5 ,5) −10 .8−9.6−7.5−23 .8
+
+4.4 Joint translation–rotation 
+
+So far, we mainly varied translation and kept rotation small. To check that the picture survives once translation and rotation move together, we cross ε ∈ { 100 , 200 } cm with yaw θ ∈ { 10 ◦, 20 ◦} in Table 3. ∆ stays in the [+21 , +42] pp range across all four cells. Two trends are visible. First, larger 
+
+ε actually widens ∆: the baseline drops faster than the canonicalizer, so the gap between them grows. Second, larger θ narrows ∆, which we attribute to undersampling of large rotations at training time — a natural target for follow-up work, since it can be addressed entirely on the data side without changing the architecture. 
+
+4.5 Extrinsic-pose noise 
+
+The canonicalizer assumes that the deployment pose is known. In practice, it is only known up to calibration error, so we ask how much error is tolerated. To answer this, we inject (T cm , R ◦) of pose noise on top of ε=100 cm, applied only to the pose seen by the canonicalizer (Table 4). Within roughly 3 cm and 3◦ of calibration error, the canonicalizer remains stable, with a three-suite mean drop of at most 5 pp — comparable to ordinary camera re-mounting tolerances. Pushed to 5 cm and 
+
+5◦, the long-horizon libero_10 suite begins to suffer ( −23 .8 pp), which marks the practical limit of the calibration noise GS-VLA can absorb. Intrinsics noise is far less damaging: across the full focal-length sweep we report in Table 15, |∆| stays within 2.8 pp, so for the perturbation scales we care about, errors in the pinhole intrinsics matter much less than errors in the extrinsic pose. 
+
+# 5 Ablations 
+
+This section isolates which parts of the canonicalizer matter, and whether the picture changes when we swap out the depth source. 
+
+Capacity. A natural worry with a 4 M-parameter module is that more capacity would help. Doubling the base width to C=64 (15 M parameters) raises reconstruction PSNR from 26 .84 to 28 .4 dB but actually lowers SR to 85 .2% (Table 13). Beyond about 4M-parameters, reconstruction quality and policy success decouple: the extra capacity goes into texture detail that the policy never reads, so it does not translate into higher SR. This supports our intentionally compact design. 
+
+Data. Training set size shows the same kind of saturation. Sweeping pair counts in {10 k, 25 k, 50 k}
+
+yields 84 –87% SR, with the signal already saturated by about 10 k pairs (Table 14). This is consistent with the low intrinsic learning complexity that Locality predicts — the inpainting region is small, so it does not take many examples to cover it. 8Depth substitution. GS-VLA depends on calibrated metric depth, taken from a sensor or pre-calibrated estimator in our main experiments. Replacing this with zero-shot DepthAnything V2 [36], even with per-image analytical scale/shift calibration, yields only 44 .5% SR — the geometric base is no longer metric-aligned and per-frame calibration cannot recover the absolute scale required by (5). A short fine-tune of the depth backbone on 50 k LIBERO frames (3 epochs) bridges most of this gap, reaching 71 .7% SR ( −15 .1 pp from the GT-depth ceiling at 86 .8% and +27 .2 pp over calibration alone, Table 16). Beyond this point, neither doubling the depth-encoder capacity (ViT-S →ViT-B→ViT-L), appending a 0.8M-parameter UNet residual refinement head, nor passing end-to-end gradients through the splat module produced further SR gains; the refinement head in particular collapsed to a zero residual, indicating that the fine-tuned depth is already L1-optimal at the resolution our pipeline consumes. We therefore read the remaining −15 pp gap as a structural distribution mismatch and the splat module’s information bottleneck, rather than a depth-accuracy limitation. 
+
+# 6 Limitation 
+
+We close with the boundaries within which our results should be read. 
+
+Single-view input. The canonicalizer in this paper consumes a single source frame and its calibrated depth, so any scene content that the source camera does not observe at all cannot be recovered by the in-painter. We expect a multi-view extension — for example, fusing a wrist-mounted camera or a previous-step frame — to lift this ceiling without changing the underlying Locality reduction, and we leave that direction to future work. 
+
+Locality boundary on rotation. The translation budget in our default setting is already large (εt=100 cm relative to a ∼ 0.7 m workspace), and adding meaningful rotation on top of such translations frequently rotates the camera off the workspace entirely. We could not run a clean rotation sweep beyond the joint (εt, θ ) cells reported in Table 3 for this reason. Inspecting the failure-case rollouts, we found that a non-trivial fraction of the sampled cameras do not contain the workspace inside their frustum at all, which marks the practical ceiling of the perturbation distribution we used rather than a property of the canonicalizer itself. 
+
+Real-world evaluation. All experiments in this paper are run inside the LIBERO simulator. Val-idating GS-VLA on a real robot requires both an external metric-depth source (per the previous point) and the engineering effort to instrument a physical rig, neither of which we were able to put in place within the resource and personnel constraints of this project. We therefore report the simulator results as a strong but ultimately preliminary signal, and treat a real-robot replication as the natural follow-up. 
+
+# 7 Conclusion 
+
+We have presented GS-VLA, a 4M-parameter 3D-Gaussian canonicalizer that improves the camera-viewpoint robustness of frozen VLA policies without any policy updates. The design follows from a Locality reduction: under bounded perturbations, viewpoint canonicalization becomes a scene -and policy-independent disocclusion problem over an O(ρ)-area region ( A.1; the η(ρ) linearity link is confirmed at R2 ≥ 0.99 , with the full ε → η → residual → ∆ chain closing at R2 ∈ { 0.99 , 0.81 , 1.00 }). The practical consequence is that a single checkpoint trained on libero_spatial at εt=100 cm transfers without modification across 4 policies, 4 LIBERO suites (with a 4-suite mean of +39 .8 pp), and the full range εt ∈ [5 , 200] cm, while still tolerating roughly 3 cm and 3◦ of calibration noise. We see this as evidence for a broader reframing: “make a VLA camera-robust” can be turned from an axis-specific retraining problem into a visual-domain premise that a small observation-space module is enough to absorb. The same template should extend naturally to embodiment and lighting variation, once the corresponding “local” structure for those axes is identified. 9References 
+
+[1] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 5470–5479, 2022. [2] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. pi _0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [3] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn, Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. [4] Remi Cadene, Simon Aliberts, Francesco Capuano, Michel Aractingi, Adil Zouitine, Pepijn Kooijmans, Jade Choghari, Martino Russi, Caroline Pascal, Steven Palma, et al. Lerobot: An open-source library for end-to-end robot learning. arXiv preprint arXiv:2602.22818 , 2026. [5] Jun Cen, Siteng Huang, Yuqian Yuan, Kehan Li, Hangjie Yuan, Chaohui Yu, Yuming Jiang, Jiayan Guo, Xin Li, Hao Luo, et al. Rynnvla-002: A unified vision-language-action and world model. arXiv preprint arXiv:2511.17502 , 2025. [6] Yuedong Chen, Haofei Xu, Chuanxia Zheng, Bohan Zhuang, Marc Pollefeys, Andreas Geiger, Tat-Jen Cham, and Jianfei Cai. Mvsplat: Efficient 3d gaussian splatting from sparse multi-view images. In European conference on computer vision , pages 370–386. Springer, 2024. [7] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [8] Senyu Fei, Siyin Wang, Junhao Shi, Zihao Dai, Jikun Cai, Pengfang Qian, Li Ji, Xinzhe He, Shiduo Zhang, Zhaoye Fei, et al. Libero-plus: In-depth robustness analysis of vision-language-action models. arXiv preprint arXiv:2510.13626 , 2025. [9] Richard Hartley and Andrew Zisserman. Multiple view geometry in computer vision . Cambridge university press, 2003. [10] Hyeongjun Heo, Seungyeon Woo, Sang Min Kim, Junho Kim, Junho Lee, Yonghyeon Lee, and Young Min Kim. Anycamvla: Zero-shot camera adaptation for viewpoint robust vision-language-action models. arXiv preprint arXiv:2603.05868 , 2026. [11] Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, et al. pi 0.5: a vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 ,2025. [12] Haian Jin, Hanwen Jiang, Hao Tan, Kai Zhang, Sai Bi, Tianyuan Zhang, Fujun Luan, Noah Snavely, and Zexiang Xu. Lvsm: A large view synthesis model with minimal 3d inductive bias. 
+
+arXiv preprint arXiv:2410.17242 , 2024. [13] Tsung-Wei Ke, Nikolaos Gkanatsios, and Katerina Fragkiadaki. 3d diffuser actor: Policy diffusion with 3d scene representations. arXiv preprint arXiv:2402.10885 , 2024. [14] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, George Drettakis, et al. 3d gaussian splatting for real-time radiance field rendering. ACM Trans. Graph. , 42(4):139–1, 2023. [15] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [16] Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. 10 [17] Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. [18] Songming Liu, Lingxuan Wu, Bangguo Li, Hengkai Tan, Huayu Chen, Zhengyi Wang, Ke Xu, Hang Su, and Jun Zhu. Rdt-1b: a diffusion foundation model for bimanual manipulation. arXiv preprint arXiv:2410.07864 , 2024. [19] Hugh Christopher Longuet-Higgins and Kvetoslav Prazdny. The interpretation of a moving retinal image. Proceedings of the Royal Society of London. Series B. Biological Sciences , 208 (1173):385–397, 1980. [20] Tao Lu, Mulin Yu, Linning Xu, Yuanbo Xiangli, Limin Wang, Dahua Lin, and Bo Dai. Scaffold-gs: Structured 3d gaussians for view-adaptive rendering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 20654–20664, 2024. [21] Oier Mees, Lukas Hermann, Erick Rosete-Beas, and Wolfram Burgard. Calvin: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks. IEEE Robotics and Automation Letters , 7(3):7327–7334, 2022. [22] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoor-thi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. 
+
+Communications of the ACM , 65(1):99–106, 2021. [23] Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. ACM transactions on graphics (TOG) , 41(4): 1–15, 2022. [24] Ethan Perez, Florian Strub, Harm De Vries, Vincent Dumoulin, and Aaron Courville. Film: Visual reasoning with a general conditioning layer. In Proceedings of the AAAI conference on artificial intelligence , volume 32, 2018. [25] Delin Qu, Haoming Song, Qizhi Chen, Yuanqi Yao, Xinyi Ye, Yan Ding, Zhigang Wang, JiaYuan Gu, Bin Zhao, Dong Wang, et al. Spatialvla: Exploring spatial representations for visual-language-action model. arXiv preprint arXiv:2501.15830 , 2025. [26] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. [27] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In International Conference on Medical image computing and computer-assisted intervention , pages 234–241. Springer, 2015. [28] Kyle Sargent, Zizhang Li, Tanmay Shah, Charles Herrmann, Hong-Xing Yu, Yunzhi Zhang, Eric Ryan Chan, Dmitry Lagun, Li Fei-Fei, Deqing Sun, et al. Zeronvs: Zero-shot 360-degree view synthesis from a single image. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 9420–9429, 2024. [29] Roman Suvorov, Elizaveta Logacheva, Anton Mashikhin, Anastasia Remizova, Arsenii Ashukha, Aleksei Silvestrov, Naejin Kong, Harshith Goka, Kiwoong Park, and Victor Lempitsky. Resolution-robust large mask inpainting with fourier convolutions. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pages 2149–2159, 2022. [30] Stanislaw Szymanowicz, Chrisitian Rupprecht, and Andrea Vedaldi. Splatter image: Ultra-fast single-view 3d reconstruction. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10208–10217, 2024. [31] Stanislaw Szymanowicz, Eldar Insafutdinov, Chuanxia Zheng, Dylan Campbell, Joao F Hen-riques, Christian Rupprecht, and Andrea Vedaldi. Flash3d: Feed-forward generalisable 3d scene reconstruction from a single image. In 2025 International Conference on 3D Vision (3DV) ,pages 670–681. IEEE, 2025. 11 [32] Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, et al. Octo: An open-source generalist robot policy. arXiv preprint arXiv:2405.12213 , 2024. [33] Qianqian Wang, Zhicheng Wang, Kyle Genova, Pratul P Srinivasan, Howard Zhou, Jonathan T Barron, Ricardo Martin-Brualla, Noah Snavely, and Thomas Funkhouser. Ibrnet: Learning multi-view image-based rendering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 4690–4699, 2021. [34] Junjie Wen, Yichen Zhu, Jinming Li, Zhibin Tang, Chaomin Shen, and Feifei Feng. Dexvla: Vision-language model with plug-in diffusion expert for general robot control. arXiv preprint arXiv:2502.05855 , 2025. [35] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong Park, Ruiqi Gao, Daniel Watson, Pratul P Srinivasan, Dor Verbin, Jonathan T Barron, Ben Poole, et al. Reconfusion: 3d reconstruction with diffusion priors. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 21551–21561, 2024. [36] Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiaogang Xu, Jiashi Feng, and Hengshuang Zhao. Depth anything v2. Advances in Neural Information Processing Systems , 37:21875– 21911, 2024. [37] Vickie Ye, Ruilong Li, Justin Kerr, Matias Turkulainen, Brent Yi, Zhuoyang Pan, Otto Seiskari, Jianbo Ye, Jeffrey Hu, Matthew Tancik, et al. gsplat: An open-source library for gaussian splatting. Journal of Machine Learning Research , 26(34):1–17, 2025. [38] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo Kanazawa. pixelnerf: Neural radiance fields from one or few images. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 4578–4587, 2021. [39] Zehao Yu, Anpei Chen, Binbin Huang, Torsten Sattler, and Andreas Geiger. Mip-splatting: Alias-free 3d gaussian splatting. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 19447–19456, 2024. [40] Michał Zawalski, William Chen, Karl Pertsch, Oier Mees, Chelsea Finn, and Sergey Levine. Robotic control via embodied chain-of-thought reasoning. arXiv preprint arXiv:2407.08693 ,2024. [41] Tony Z Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipulation with low-cost hardware. arXiv preprint arXiv:2304.13705 , 2023. [42] Jinliang Zheng, Jianxiong Li, Zhihao Wang, Dongxiu Liu, Xirui Kang, Yuchun Feng, Yinan Zheng, Jiayin Zou, Yilun Chen, Jia Zeng, et al. X-vla: Soft-prompted transformer as scalable cross-embodiment vision-language-action model. arXiv preprint arXiv:2510.10274 , 2025. [43] Allan Zhou, Moo Jin Kim, Lirui Wang, Pete Florence, and Chelsea Finn. Nerf in the palm of your hand: Corrective augmentation for robotics via novel-view synthesis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 17907–17917, 2023. [44] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning , pages 2165–2183. PMLR, 2023. 12 A Appendix 
+
+A.1 Proposition 1 of locality reduction 
+
+Under the Locality assumption Cs ∈ B (C⋆, ε t, ε R) of Section 4.1, the canonical view partitions into a region recoverable by the closed-form depth-warp (the world point Xw = RsK−1Ds(u, v )[ u, v, 1] ⊤+
+
+ts re-projected to the canonical pixel via ΠK (R⋆⊤(Xw −t⋆)) , no learnable parameters) and a thin 
+
+disocclusion band of fractional area η ∈ [0 , 1] along depth edges, which has no defining input pixel and must be filled by a learned prior. 
+
+Proposition 1 (Locality Reduction) . Assume piecewise-smooth depth d ∈ [dmin , d max ] and silhouette edges that meet view rays transversely. Decompose ρ = ρpar + ρfr with ρpar = ∥ts − t⋆∥/d min and 
+
+ρfr = ∥ log( R⋆⊤Rs)∥. Then for every ρ ≤ 1,
+
+clow ρ ≤ η(Cs, C ⋆) ≤ αpar ρpar + αfr ρfr + C2 ρ2,
+
+where 
+
+αpar = L⋆
+
+> px
+
+π A px 
+
+· dmax − dmin 
+
+dmax 
+
+, αfr = Ppx 
+
+Apx 
+
+,L⋆ 
+
+> px
+
+is the canonical-view silhouette arc-length, Ppx is the image-frame perimeter, Apx = HW the image area, and clow , C 2 depend only on scene-regularity bounds. The two-term form makes explicit that the parallax contribution scales with translation and depth contrast, while the frame contribution scales with rotation and image perimeter. 
+
+Notation. We denote the parallax and frame contributions to η as ηpar and ηfr respectively, with 
+
+η = ηpar + ηfr . Pure translation has ηfr ̸ = 0 as well (translation also induces some image-plane motion); pure rotation has ηpar = 0 since rotation introduces no depth-parallax. The upper bound integrates a parallax shadow band along each silhouette; a matching lower bound via Cauchy–Schwarz on the silhouette-normal field certifies that the linear rate cannot be improved. Empirical validation in Appendix A.2 confirms the linear regime to ρ ≈ 0.5 with R2 ≥ 0.99 .
+
+Corollary 1 (Same-domain transfer) . Since αpar and αfr depend only on silhouette–depth and image-frame geometry, not on texture, lighting, or policy, a canonicalizer trained on one suite transfers to others in the same visual domain. 
+
+Verified in Section 4.2 and 1: the same checkpoint improves every policy and every off-training suite. 
+
+Success-rate coupling. A residual-aware Lipschitz argument composes the area bound into a success-rate drop ∆( ρ) = Lπ · crecon · (αpar ρpar + αfr ρfr ) + O(ρ2), where Lπ is the policy’s local Lipschitz constant on canonical inputs and crecon the residual– η slope of fϕ. The full chain 
+
+ε → η → residual → ∆ closes numerically in Appendix A.2 (Table 6). 13 A.2 Empirical validation of proposition 1 
+
+We test whether the Locality picture really holds at the level of individual quantities, not only at the level of ∆. Proposition A.1 is tested directly under controlled synthetic perturbations: 100 canonical frames combined with 10 perturbations each, using ground-truth depth and no policy in the loop. 
+
+Linearity. The first prediction is that η should grow linearly in ρ inside the Locality ball. We find η(ρ) is linear with R2 ≥ 0.99 for ρ ≤ 0.5 across translation, rotation, and joint perturbation modes, and across both spatial and object . On every (mode, suite) cell the slope satisfies 
+
+η(ρ)/ρ ∈ [0 .27 , 1.09] , which confirms the two-sided bound of Proposition A.1. Departure from linearity begins around ρ ≈ 0.5, well inside the validity range the proposition predicts. 
+
+Scene decomposition. A second, sharper prediction comes from Corollary A.1: the rotation contri-bution to η depends only on image-plane perimeter and should therefore be scene-invariant, while the translation contribution depends on silhouette length L⋆ and should not be. The data follow this split closely (Table 5). The rotation slope is essentially the same on both suites ( 1.084 on spatial vs. 
+
+1.089 on object , a 0.4% discrepancy), while the translation slope varies by about 60% . Predicting the per-suite translation-slope ratio from L⋆ · κ matches the observed value to within 11% .
+
+Silhouette hugging. The geometry implied by Proposition A.1 also predicts where the disocclusion pixels live: along depth silhouettes, not spread uniformly across the image. We see exactly that. Occluded pixels lie 5–7 px from the nearest depth edge on both suites, against 27 –33 px for uniform-random pixels — a roughly 5× tighter localization, in line with the geometry the proposition predicts. 
+
+End-to-end chain. Finally, we verify that the bound on η propagates all the way to the success-rate drop ∆. On 200 pairs the residual– η link is well captured by a single line (Pearson r = 0 .90 , R2 =0.81 , crecon = 0 .049 ). Composing the full chain ε → η → residual → ∆ implies a slope of L ≈ 213 pp per L1-residual unit. To check that this is physically plausible we estimate the policy’s local Lipschitz behaviour from the released π0.5 weights using power iteration: log Q
+
+> l
+
+(1 + Ll) = 389 across 421 
+
+weight matrices, comfortably above the value implied by L. All four links close numerically with 
+
+R2 ∈ { 0.99 , 0.81 , 1.00 } (Table 6). Taken together, these checks confirm that the Locality picture is not just consistent with the headline numbers but actually predicts the intermediate quantities they decompose into. 14 A.2.1 Locality slopes by mode × suite 
+
+Direct test of Proposition A.1 and Corollary A.1. We fit η(ρ) separately for translation, rotation, and joint perturbations on spatial and object ; numerical discussion is in Section A.2. Table 5: Empirical slopes of η(ρ). Per-mode slopes for parallax ( ηpar ), frame ( ηfr ), and total (ηtot ). Silhouette-hugging: occluded pixels average 5.05 /6.78 px from depth edges (spatial/object) vs. 
+
+26 .77 /33 .10 px for uniform-random pixels ( 5× tighter). Object suite uses translation- and rotation-only fits; joint mode pending.                               
+
+> Mode ηpar ηfr ηtot R2
+> libero_spatial (ρ≤0.5)Translation 0.082 0.281 0.363 0.999
+> Rotation <0.001 1.084 1.084 0.995
+> Joint 0.038 0.607 0.645 0.994
+> libero_object (ρ≤0.5)Translation 0.050 –––Rotation –1.089 ––
+
+A.2.2 Success-rate coupling chain 
+
+Quantitative check of the full ε → η → residual → ∆ chain proposed in Appendix A.1. The geometric (R2=0 .99 ) and policy-Lipschitz ( R2=1 .00 ) links are tight; the η → residual link is the loosest at R2=0 .81 , but the composite end-to-end fit still closes at R2=0 .996 within the linear regime (ε ≤ 50 cm). Table 6: Success-rate coupling chain (Appendix A.1). Each individual link and the end-to-end drop fit linearly with high R2. The implied L ≈ 213 pp per L1-residual unit lies inside the spectral-norm bound for π0.5 (log Q
+
+> l
+
+(1 + Ll) = 389 ).                                  
+
+> Link Quantity Slope R2
+> ε→ηjoint η/ρ slope (Tab. 5) ≈0.645 0.99
+> η→residual predictor linearity crecon = 0 .049 0.81
+> residual →∆policy Lipschitz L≈213 pp/L 11.00
+> ε→∆(composite) end-to-end ( ε≤50 )6.67 pp/ ρ0.996
+
+15 A.3 Environments A.3.1 Implementation detail 
+
+We summarize the architecture, training configuration, and runtime cost in Tables 7–9, and describe data composition and the software stack. Table 7: Canonicalizer architecture. With the listed initialization, fϕ starts at the closed-form forward warp at iteration 0 and learns only a residual. 
+
+Component Specification 
+
+Backbone Symmetric U-Net, base width C=32 , 4 down-/up-sampling levels Conv block FiLM-modulated ConvBlock at every scale Pose embedding zpose = MLP([ ts, q s, t ⋆, q ⋆]) ∈ R128 , 2-layer Input [Is ∥ Ds] ∈ R4×H×W , H=W =256 
+
+Per-pixel output 14-dim Gaussian descriptor (∆ μ, log s, q, α, ∆c)
+
+Centre clamp μ = Xw + 0 .1 Ds tanh(∆ μ) (≤ 10% of local depth) Initialization residual heads zero-init; opacity bias set so that α=1 at step 0 Parameters 4,047 ,824 ( ≈ 4M); encoder ≈ 60% , decoder ≈ 40% 
+
+Table 8: Training configuration. Only the canonicalizer parameters are updated; the policy is never touched. No discriminator or perceptual GAN loss is used. 
+
+Hyperparameter Value 
+
+Optimizer AdamW ( β1=0 .9, β2=0 .999 , weight decay 10 −4)Base learning rate 5×10 −5
+
+LR schedule 500 -step linear warmup (start factor 0.01 ), then cosine to 0
+
+Batch size 16 
+
+Epochs 50 
+
+Gradient clipping global norm 1.0
+
+L1 : SSIM weight 0.8 : 0 .2
+
+Scale cap weight λs 10 −3 on ReLU(log s − 2) 
+
+Position reg. λμ 10 −2 on |∆μ|/D s
+
+Background augmentation b ∼ U ([0 , 1] 3), resampled per step Image augmentation horizontal flip only Random seed 42 ; ±0.6 pp variation across 3 independent seeds Hardware 1× RTX A5000 (24 GB), peak memory ≈ 18 GB Wall-clock ≈ 5 h ( 50 × 500 s) Best val. PSNR 26 .84 dB 
+
+Table 9: Inference latency. The downstream policy keeps its native action-chunk schedule (e.g., 50 
+
+for π0.5), so the canonicalizer cost is amortized across many actions per frame. Softmax splatting is not used in the released checkpoint. 
+
+Stage Per-frame cost (A5000) 
+
+U-Net forward ≈ 5 ms Differentiable α-splat ( gsplat ) ≈ 8 ms 
+
+Total canonicalizer fϕ ≈ 13 ms ( ≈ 75 Hz) Rasterizer config 45 ◦ vertical FOV, bilinear splatting 
+
+A.3.2 Data setup 
+
+We train on 50 ,000 source →canonical pairs sampled from libero_spatial (10 tasks, multiple seeds per task), with 49 ,800 used for training and 200 held out for validation. Each pair is generated by rolling out the simulator at the canonical camera, then re-rendering the same scene under a perturbed camera Cs ∼ B (C⋆, ε t=100 cm , ε R) with εR ≈ εt/d min . We deliberately did not use colour jitter, multi-suite mixing, or per-task balancing, so the cross-suite results in Section 4.2 are zero-shot. 16 A.3.3 Software framework 
+
+PyTorch 2.4, CUDA 12 .1, gsplat [37] 0.1.x , robosuite 1.4 for LIBERO simulation, and lerobot [4] for the policy interface. Random seeds, full hyperparameter dumps, and the training command lines used to produce every released checkpoint are bundled with the released code. 17 A.4 Additional experimental results and ablation studies A.4.1 Full cross-policy × suite matrix 
+
+This appendix expands Table 1(a) into the full policy × suite matrix at εt=100 cm. Every cell is positive, and the largest gains track baselines closest to total failure — consistent with Locality predicting larger headroom where more pixels go out-of-distribution. Table 10: Full cross-policy × suite matrix with εt = 100 cm. Bold ∆ values denote the absolute increase in success rate (percentage points) for key configurations, such as XVLA ( +79 .6 pp), π0.5
+
+on libero_10 (+62 .8 pp), and OpenVLA-OFT on object-centric tasks ( +61 .8 pp).                                                  
+
+> Policy Suite No canon GS-VLA (ours) ∆(pp)
+> π0.5(3.4 B) spatial 42 .686 .8+44 .2
+> object 64 .090 .2+26 .2
+> goal 66 .392 .2+25 .9
+> libero_10 9.372 .1+62 .8
+> OpenVLA-OFT (7 B) spatial 87 .292 .0+4 .8
+> object 19 .881 .6+61 .8
+> goal 80 .491 .0+10 .6
+> libero_10 8.847 .0+38 .2
+> RynnVLA-002 spatial 25 .878 .6+52 .8
+> goal 29 .075 .8+46 .8
+> libero_10 53 .465 .2+11 .8
+> XVLA spatial 1.481 .0+79 .6
+> goal 5.480 .0+74 .6
+
+A.4.2 GS-VLA absolute SR across suites ( ε-sweep) 
+
+Companion to Table 2: GS-VLA absolute SR for all four suites as εt varies. object and goal stay within ∼ 2 pp of their small-ε ceilings up to εt=100 cm; the noticeable drop at 200 cm marks the per-suite Locality boundary. Table 11: GS-VLA absolute SR (%) across suites as εt varies. object and goal stay within ∼ 2 pp of their εt=5 ceiling up to εt=100 cm; the main drop appears at εt=200 cm—the per-suite Locality boundary.                               
+
+> Suite (GS-VLA) εt=5 15 30 50 100 200
+> spatial 88 .088 .687 .687 .286 .878 .5
+> object 92 .292 .291 .492 .790 .284 .7
+> goal 93 .993 .692 .493 .292 .085 .7
+> libero_10 71 .972 .773 .470 .872 .152 .9
+
+18 A.4.3 Magnitude sweep 
+
+Stress test pushing position σ and look-at σ jointly to 2× and 3× the default. ∆ stays large and grows monotonically — N O CANON decays faster than the canonicalizer, so the gap widens with magnitude until the Locality boundary. Table 12: Magnitude sweep on π0.5 ×libero_spatial . While the performance drop ( ∆) increases with perturbation magnitude, the canonicalizer exhibits significantly slower decay compared to the NO CANON baseline. This gap (utility) widens progressively until the Locality boundary. †The εt=15 
+
+row follows the single-scalar protocol from Table 2. ‡Labels 2×/3× are nominal; position σ is capped to remain within the workspace, and lookat σ is fixed at 1×.                                        
+
+> Condition pos σ(m) lookat σNo canon GS-VLA (ours) ∆(pp)
+> εt=15 (low) †n/a n/a 82 .788 .6+5 .91×(default, εt=100 )(0 .3,0.5,0.25) 0.06 42 .686 .8+44 .22×(bigrand) ‡(0 .6,0.8,0.5) 0.06 41 .680 .8+39 .23×(extreme) ‡(0 .9,1.2,0.75) 0.06 34 .476 .1+41 .7
+
+A.4.4 Capacity ablation 
+
+We sweep base width C ∈ { 16 , 24 , 32 , 64 } to test whether 4 M parameters are simply too few. Reconstruction PSNR keeps improving with C, but SR peaks at C=32 and drops slightly at C=64 
+
+— the policy does not consume the extra texture detail, supporting the intentionally compact design. Table 13: Capacity ablation. Reconstruction PSNR keeps improving with C, but SR peaks at C=32 .Beyond ∼ 4 M parameters, extra capacity goes to texture detail the policy does not consume.                        
+
+> Base CParams PSNR (dB) SR (%)
+> 16 ∼1M25 .77 –
+> 24 ∼2M26 .33 –
+> 32 (ours) 4M26 .84 86 .8
+> 64 15 M28 .40 85 .2
+
+A.4.5 Data-size ablation 
+
+Training-set sweep over N ∈ { 10 k, 25 k, 50 k} pairs. The signal saturates by ∼ 25 k pairs, with 50 koffering only ∼ 2 pp headroom over 10 k — consistent with the small intrinsic learning complexity that Locality predicts (the inpainting region is narrow). Table 14: Data-size ablation (C=32 , ε=100 cm). The signal saturates near 25 k pairs, consistent with the low intrinsic learning complexity that Locality predicts.             
+
+> Pairs NPSNR (dB) SR (%)
+> 10 k26 .06 ∼84 25 k26 .38 ∼85
+> 50 k(ours) 26 .84 86 .8
+
+19 A.4.6 Intrinsics robustness (fov y sweep) 
+
+Companion to the extrinsic-noise stress in Table 4: we instead inject focal-length error of ±5% 
+
+and ±10% on top of ε=100 cm. Worst-case |∆| = 2 .8 pp — about 4× smaller than the extrinsic-pose budget, indicating that intrinsics calibration is much less critical for deployment than extrinsic calibration. Table 15: Intrinsics stress on libero_object , 1000 ep, atop ε=100 cm extrinsic. Tolerance is ∼ 4×
+
+tighter than for extrinsic noise in Table 4.                 
+
+> fov ySR (%) ∆vs. ref
+> −10% (zoom-in) 86 .4−2.8
+> −5% 87 .9−1.3
+> ref ( 0% )(ours) 89 .2–
+> +5% 89 .1−0.1+10% (zoom-out) 89 .0−0.2
+
+A.4.7 Depth-substitution ablation 
+
+Companion to the Depth substitution paragraph in Section 5. The question is whether GT depth can be replaced by a learned monocular estimator without retraining the canonicalizer. We sweep the depth pipeline along three axes at fixed canonicalizer ( C=32 , ε=100 cm) on libero_spatial : (i) 
+
+calibration strategy applied to off-the-shelf DepthAnything V2, (ii) fine-tuning capacity (ViT-S/B/L on 50 k LIBERO frames), and (iii) pipeline modifications atop the best fine-tuned backbone (residual refinement head, end-to-end depth gradient, confidence gating). The sweep is designed to isolate where the gap to the 86 .8% GT-depth ceiling closes and where it stops moving — the first axis tests whether calibration alone is enough, the second whether a larger depth model is enough, and the third whether downstream-aware refinement is enough. Table 16: Depth-substitution ablation (libero_spatial , ε = 100 cm, 1000 ep unless marked). Calibration alone caps at 44 .5% ; a fine-tune reaches 71 .7% . Larger encoders, a refinement head, and end-to-end gradients all fail to improve further — the residual −15 pp gap is not a depth-accuracy bottleneck.                                     
+
+> Depth source Encoder val L1SR (%)
+> GT depth (upper bound) (ours) ––86 .8
+> Calibration only (no fine-tune)
+> DA V2, raw inverse ViT-S –40 .9
+> DA V2, metric indoor ViT-S –44 .5
+> Fine-tuned on 50 k LIBERO pairs (3 ep, L1+ edge-aware)
+> DA V2-S, FT ViT-S 0.0092 68 .6
+> DA V2-B, FT (ours) ViT-B 0.0083 71 .7
+> DA V2-L, FT ViT-L 0.0073 67 .3
+> Pipeline modifications atop DA V2-B FT
+> + UNet residual refinement ( 0.8M) ViT-B 0.0083 zero residual
+> + end-to-end depth gradient ( wanchor = 0 .5)ViT-B 0.0376 66 .1
+
+20

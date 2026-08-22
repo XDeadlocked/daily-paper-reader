@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-21</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-22</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 8 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-21 20:12:02 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-22 20:35:33 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读15篇论文，精读6篇、速读9篇，重点聚焦机器人控制与视频生成两大前沿方向。</p>
-<p>最值得关注两篇高分精读：机器人领域提出神经降阶动力学以学习正确抽象，视频生成领域实现流式自回归扩散模型的4D一致性，均达9.0/10。</p>
-<p>建议普通读者优先浏览这两篇精读的摘要与图表，并留意后续VLAs微调、视频生成视觉智能评测等速读文章，把握多任务操控与世界模型规划落地趋势。</p>
+<p>今日精读8篇，聚焦具身超声扫查与身份一致视频生成两大高分工作；最值得关注力觉感知VLA模型ForceU-VLA和关键帧编辑生成KeyID；建议优先精读这两篇，快速把握多模态动作生成与视频编辑的前沿方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning the Right Abstraction: Neural Reduced Dynamics for Complex Robot Control">Learning the Right Abstraction: Neural Reduced Dynamics for Complex Robot Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stream4D: 4D-Consistency for Streaming Autoregressive Diffusion Video Models">Stream4D: 4D-Consistency for Streaming Autoregressive Diffusion Video Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation">OrthoSkillVLA: Continual Skill Learning via Gradient-Informed Skill Subspace Adaptation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ForceU-VLA: A Force-Aware Vision-Language-Action Model for Embodied Ultrasound Scanning">ForceU-VLA: A Force-Aware Vision-Language-Action Model for Embodied Ultrasound Scanning</span></li><li><span class="dpr-home-dashboard-paper-title" title="KeyID: Decoupled Drafting and Keyframe Editing for Identity-Preserving Video Generation">KeyID: Decoupled Drafting and Keyframe Editing for Identity-Preserving Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SQuad: Sub-Quadratic Attention Distillation for Efficient Video Generation">SQuad: Sub-Quadratic Attention Distillation for Efficient Video Generation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation">Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VGI-BENCH: Probing Visual Intelligence in Video Generation Models">VGI-BENCH: Probing Visual Intelligence in Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Model-Grounded LLM Planning for AUV and ASV Navigation Near Offshore Wind Farms">World-Model-Grounded LLM Planning for AUV and ASV Navigation Near Offshore Wind Farms</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AlloEgo-VLM: Disambiguating Allocentric and Egocentric Reference Frames in Vision-Language Models">AlloEgo-VLM: Disambiguating Allocentric and Egocentric Reference Frames in Vision-Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DynaForcing: Overcoming Dynamic Collapse in Self-Forcing Distillation for Streaming Avatar Generation">DynaForcing: Overcoming Dynamic Collapse in Self-Forcing Distillation for Streaming Avatar Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="CL4D: Contrastive Language-4D Pretraining for Vision-Language Reasoning in Dynamic Scenes">CL4D: Contrastive Language-4D Pretraining for Vision-Language Reasoning in Dynamic Scenes</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
 </div>
 
