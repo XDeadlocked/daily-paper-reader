@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-22</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-23</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 8 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 7 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-22 20:35:33 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-23 19:56:59 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读8篇，聚焦具身超声扫查与身份一致视频生成两大高分工作；最值得关注力觉感知VLA模型ForceU-VLA和关键帧编辑生成KeyID；建议优先精读这两篇，快速把握多模态动作生成与视频编辑的前沿方法。</p>
+<p>今日精选7篇AI论文，精读4篇，聚焦人形机器人全身操控与多说话人视频配音两大前沿方向。</p>
+<p>最值得关注的是《HAF》以9.0高分提出层次化动作流与谱系潜在强化学习，突破人形机器人操作泛化瓶颈；《CineDub》则实现多说话人对话场景的端到端配音及连贯音效生成。</p>
+<p>建议优先深入阅读HAF论文，其方法对具身智能跨任务迁移具有显著参考价值，可延伸关注后续开源代码与硬件实验。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ForceU-VLA: A Force-Aware Vision-Language-Action Model for Embodied Ultrasound Scanning">ForceU-VLA: A Force-Aware Vision-Language-Action Model for Embodied Ultrasound Scanning</span></li><li><span class="dpr-home-dashboard-paper-title" title="KeyID: Decoupled Drafting and Keyframe Editing for Identity-Preserving Video Generation">KeyID: Decoupled Drafting and Keyframe Editing for Identity-Preserving Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SQuad: Sub-Quadratic Attention Distillation for Efficient Video Generation">SQuad: Sub-Quadratic Attention Distillation for Efficient Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="HAF: Adapting Generalist VLAs to Humanoid Whole-Body Loco-manipulation via Hierarchical Action Flow and Spectral Latent RL">HAF: Adapting Generalist VLAs to Humanoid Whole-Body Loco-manipulation via Hierarchical Action Flow and Spectral Latent RL</span></li><li><span class="dpr-home-dashboard-paper-title" title="CineDub: Scaling End-to-End Video Dubbing to Multi-Speaker Dialogues with Coherent Sound Effects">CineDub: Scaling End-to-End Video Dubbing to Multi-Speaker Dialogues with Coherent Sound Effects</span></li><li><span class="dpr-home-dashboard-paper-title" title="UniReflex: Plug-and-Play Force Control for Pretrained Generative Policies via Fast-Slow Reflex">UniReflex: Plug-and-Play Force Control for Pretrained Generative Policies via Fast-Slow Reflex</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AlloEgo-VLM: Disambiguating Allocentric and Egocentric Reference Frames in Vision-Language Models">AlloEgo-VLM: Disambiguating Allocentric and Egocentric Reference Frames in Vision-Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DynaForcing: Overcoming Dynamic Collapse in Self-Forcing Distillation for Streaming Avatar Generation">DynaForcing: Overcoming Dynamic Collapse in Self-Forcing Distillation for Streaming Avatar Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="CL4D: Contrastive Language-4D Pretraining for Vision-Language Reasoning in Dynamic Scenes">CL4D: Contrastive Language-4D Pretraining for Vision-Language Reasoning in Dynamic Scenes</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Visual CoT: Internalized Visual Thinking for Proactive Video Reasoning">Beyond Visual CoT: Internalized Visual Thinking for Proactive Video Reasoning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Adaptive Mixing of Policies from Searching and Policies from Learning">Adaptive Mixing of Policies from Searching and Policies from Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Abra: Scaling Diffusion Image Training">Abra: Scaling Diffusion Image Training</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
