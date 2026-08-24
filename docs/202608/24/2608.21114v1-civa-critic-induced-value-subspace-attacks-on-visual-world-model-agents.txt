@@ -1,0 +1,763 @@
+Title: CIVA: Critic-Induced Value-Subspace Attacks on Visual World-Model Agents
+
+URL Source: https://arxiv.org/pdf/2608.21114v1
+
+Published Time: Mon, 24 Aug 2026 01:04:02 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# CIVA: Critic-Induced Value-Subspace Attacks on Visual World-Model Agents 
+
+Jiancheng Wang Mingli Zhu Tong Zhang Jiaqi Ruan 
+
+Wei Wang Siyuan Liang ∗ Dacheng Tao Corresponding author: pandaliang521@gmail.com 
+
+# Abstract 
+
+Visual world-model agents such as DreamerV3 act through a recurrent latent state rather than a single observation, which weakens frame-wise observation attacks and makes their perturbations vary sharply over time under a strict per-frame perturbation constraint. We study white-box, causal, online attacks on such agents and propose Critic-Induced Value-Subspace Attacks ( CIVA ). Our key observation is that, along a rollout, critic-guided perturbations concentrate in a low-dimensional subspace induced by the victim’s own critic. Based on this observation, CIVA first probes the frozen victim offline with critic-guided PGD and extracts a low-rank value-subspace by SVD. At test time, it optimizes only the subspace coefficients, smooths them with an exponential moving average (EMA), and maps them back to pixels. This design attacks value-sensitive recurrent dynamics while keeping the online optimization cheap and temporally coherent. Extensive experiments on DMC walker walk, Atari Pong, and Crafter show that CIVA consistently outperforms five recent methods; on DMC walker walk, it achieves the largest reward drop of 26.07% while keeping temporal variation low, with TempAbs of 0.646. 
+
+# 1 Introduction 
+
+Visual world models are becoming a mainstream paradigm for visual decision-making. Rather than reacting to the current frame alone, Dreamer-style agents write each observation into a recurrent latent state and act through learned dynamics in that internal space [14, 16–18]. Related lines on planning with learned models [52], transformer- [42, 51, 71] and diffusion-based world models [1], large-scale generative environments [4], scalable model-based control [19], and robot deployment [65] further reinforce recurrent latent dynamics as a core primitive in visual RL [6, 13, 66]. As these agents move closer to safety-critical use, understanding how to attack them becomes increasingly important. Existing adversarial attacks on RL already show that deep policies are highly sensitive to small perturbations in visual or state observations [54, 11, 47, 44, 5, 41, 21, 26, 35, 48, 10, 29, 63, 30, 32, 31, 36, 58, 59]. Stronger variants have since been developed from several angles, including robust state-observation formulations [68, 69], real-time and universal observation attacks [56, 45, 61, 37], policy-aware attackers [53], detectability-aware stealthy attacks [9], and policy-distribution-based methods [7, 25, 2]. However, most of these methods still optimize perturbations directly in pixel space and treat each frame as an essentially independent target. That assumption is mismatched with visual world-model agents: what matters is not only whether one frame is perturbed, but whether the perturbation keeps steering the recurrent latent state under a realistic per-frame compute budget. We study this setting in a white-box, causal, online attack regime against a frozen DreamerV3 victim. The attacker may modify only the current image observation and must produce the perturbation before the next environment step. Across DMC walker walk (DeepMind Control Suite [55]), Atari Pong, and Crafter, we observe two consistent phenomena. First, naive per-frame full-pixel projected 
+
+> Preprint. arXiv:2608.21114v1 [cs.CV] 21 Aug 2026
+
+gradient descent (PGD) [41] is a weak primitive here: recurrent latent dynamics dilute isolated high-frequency perturbations, so greedy frame-wise attacks struggle to accumulate influence over long horizons. Second, effective attack directions do not spread uniformly across the full pixel space. When we stack critic-guided perturbations across time, their energy concentrates in a surprisingly low-dimensional subspace. This echoes subspace and low-frequency findings from supervised learning [67, 12, 45, 40, 23], but the structure here is induced by the victim’s own value landscape rather than by input statistics. These observations suggest a different attack strategy: identify value-sensitive directions once, then reuse them causally over time. We instantiate this idea as CIVA . CIVA first collects critic-guided perturbations offline and applies singular value decomposition (SVD) to extract a low-dimensional, victim-aware attack subspace. At deployment time, it no longer searches the full pixel space at every frame; instead, it optimizes only the subspace coefficients and smooths them with an exponential moving average before lifting them back to pixels. This directly addresses the core difficulty of attacking world-model agents under a tight ℓ∞ budget: the perturbation must remain strong enough to influence recurrent latent dynamics while also staying computationally cheap, temporally coherent, and visually subtle [20, 70, 60, 24, 72]. Across continuous control, discrete control, and open-ended tasks, CIVA yields stronger and more stable degradation than representative observation-space baselines [68, 56, 53, 9, 7], while preserving favorable temporal smoothness and perceptual similarity. Ablations further show that the gains come from the combination of a critic-induced subspace, online optimization constrained to that subspace, and temporal smoothing on its coefficients. Our contributions are threefold: • We identify a key mismatch between conventional frame-wise observation attacks and visual world-model agents: because decisions depend on recurrent latent state, successful attacks must shape the victim’s internal representation over time rather than only degrade individual frames [39, 38]. • We propose CIVA, a critic-induced value-subspace attack that extracts a low-rank victim-aware perturbation basis offline and performs efficient causal online optimization with temporal smoothing inside that subspace. • We evaluate CIVA on DMC walker walk, Atari Pong, and Crafter across attack effectiveness, action-distribution shift, temporal variation, and perceptual similarity, showing that low-dimensional critic-aligned perturbations are more effective for world-model agents than direct full-pixel frame-wise optimization. 
+
+# 2 Related Work 
+
+World-model reinforcement learning. World models build policies around a recurrent latent dynamics model that summarizes past observations and supports multi-step prediction [14]. The Dreamer line demonstrates that this recipe scales across continuous control, Atari, and open-ended visual domains under a largely unified configuration [16–18]. Parallel efforts extend the same general direction to planning with learned models [52], transformer- [42, 51, 71] and diffusion-based world models [1], large-scale generative environments [4], scalable model-based control [19], and robotic deployment [65]; recent surveys summarize this broader trend [6, 13, 66]. For our purposes, the important point is not only that these agents are powerful, but that their decision process is mediated by a recurrent latent state. That makes their adversarial surface fundamentally temporal rather than frame-local. 
+
+Adversarial attacks on deep policies. Adversarial vulnerability in supervised learning [54, 11, 47, 44, 5, 41] carries over directly to RL, where small perturbations in observations can cause severe behavioral degradation [21, 26, 35, 48]. Follow-up work has strengthened this line through robust state-observation formulations [68, 69], real-time and universal perturbations [56, 61, 37], policy-aware attackers [53], detectability-aware attacks [9, 20, 24], and policy-distribution-based objectives [7, 70, 60]. Other work studies adversarial agents or robustness notions more broadly in multi-agent and deep-RL settings [10, 25, 2, 39, 38]. These methods provide strong attack baselines, but most still optimize directly in pixel space and effectively target each frame separately. Our setting differs because the victim is a visual world-model agent whose behavior depends on how perturbations accumulate inside recurrent latent dynamics. 2Robust RL and defenses. From the defense side, robust RL has been studied via adversarial training with a learned attacker [49, 69], regularization against worst-case observation perturbations [46], worst-case-aware training without explicit adversarial rollouts [33], and game-theoretic formulations for temporally coupled disturbances [34]. This literature mainly asks how to train agents that remain reliable under perturbation. Our question is different: before defending visual world-model agents, we need to understand what strong causal observation attacks look like against them in the first place, and whether their recurrent latent structure induces a different geometry of effective perturbations. 
+
+Structured, low-dimensional, and temporally coherent attacks. Another relevant thread asks whether adversarial perturbations really need the full pixel space. In supervised learning, universal perturbations [45], low-frequency attacks [12], and subspace attacks [67, 40, 23] all show that effective directions often lie in much lower-dimensional or smoother spaces than raw pixels. In video and streaming settings, temporally coordinated attacks can be more effective and less perceptible than independent frame-wise perturbations [64, 28]. RL work such as real-time universal perturbations and policy-aware attackers similarly introduces cross-frame structure to improve efficiency or attack strength [56, 53, 7]. CIVA is related in spirit but differs in the origin of the subspace and in how it is deployed. Our attack basis is not hand-crafted, random, or derived from observation statistics; it is extracted directly from the victim critic’s attack gradients collected on rollouts of the target agent. The resulting basis is then reused causally across frames, with temporal coherence enforced by smoothing the subspace coefficients. This ties low-dimensional attack structure directly to the value landscape of a recurrent world-model agent. 
+
+# 3 Threat Model 
+
+3.1 Victim Model 
+
+We attack visual world-model reinforcement learning agents. The victim is a pretrained DreamerV3 
+
+policy [18]. At each step the agent receives an RGB image ot ∈ [0 , 255] H×W ×C with H=W =64 
+
+and C=3 . The world model updates a recurrent latent state from this image. The actor head then outputs an action, and the critic head outputs a categorical value distribution. We use the same victim setup on three tasks that cover different decision regimes: DMC walker walk (continuous control), Atari Pong (discrete control), and Crafter (open-ended world). The victim weights and the environment dynamics are frozen during the attack. The attacker does not retrain or fine-tune the victim. 
+
+3.2 Attacker’s Capability 
+
+The attacker can only modify the image observation that is fed into the agent. It cannot touch the actions, rewards, environment state, or the recurrent latent. We use a white-box online setting. The attacker has full access to the policy and value heads and can backpropagate through them. The attacker is also causal : at frame t it can only use the current and past observations, and it must produce δt before the next environment step. To match the comparison protocol in Section 5, this causal constraint applies at deployment time to all methods, including baselines. Methods that require one-time preprocessing (e.g., universal perturbation fitting or subspace extraction) are allowed to use clean rollouts from the same frozen victim before deployment, but the resulting parameters (e.g., the value-subspace basis Vr used by CIVA) are then frozen for the entire evaluation; no method may access future test observations, alter the environment. Each perturbation is bounded by an 
+
+ℓ∞ pixel budget, ∥δt∥∞ ≤ ε. We use ε = 24 /255 throughout this paper. A larger budget makes the perturbation visually obvious, while a much smaller budget barely degrades the agent. We find 
+
+24 /255 to be a good trade-off between attack strength and visual stealth. The attacker also has only a small per-frame compute budget, i.e. a few gradient steps per observation. A practical attack must therefore be both parameter-efficient and step-efficient. 33.3 Attacker’s Goal 
+
+Let T be the episode horizon and tstart the attack onset. The attacker minimizes the cumulative episodic return: 
+
+min 
+
+> {δt}Tt=tstart
+> T
+
+X
+
+> t=tstart
+
+rt s.t. ∥δt∥∞ ≤ ε, ot + δt ∈ [0 , 255] H×W ×C . (1) The reward is not differentiable through the environment. We therefore optimize victim-exposed differentiable surrogates, such as value-based, action-based, or reward-head objectives. Baselines are evaluated under the same threat model and keep their method-specific optimization forms when applicable, but all optimization signals are restricted to victim-exposed differentiable quantities and never use true environment reward gradients. Beyond reducing return, an effective attack should also be stealthy : temporally coherent, spatially structured, and visually close to the clean observation. 
+
+3.4 Challenges 
+
+The above setting raises three coupled challenges that motivate our design. (C1) Recurrent dilution. 
+
+A world-model agent integrates observations through a recurrent latent state. This latent state smooths out isolated high-frequency pixel noise. As a result, single-frame greedy attacks struggle to accumulate effect over a long horizon. (C2) Cost of full-pixel per-frame PGD. Running multi-step white-box PGD in the full D = H ×W ×3 pixel space at every frame is expensive. It also produces unstructured and temporally jittery perturbations. This is incompatible with the small per-frame compute budget stated in Section 3.2. (C3) Budget–effectiveness–stealth trilemma. Under a tight 
+
+ℓ∞ budget, we want strong return suppression, temporal smoothness, and visual naturalness at the same time. Naive PGD usually sacrifices at least one of the three. These three challenges point to the same need: a low-dimensional, data-driven perturbation parameterization that is shared across frames and explicitly enforces temporal coherence. We develop such a design in Section 4. 
+
+# 4 Method 
+
+Motivated by the challenges in Section 3.4, we propose CIVA (Critic-Induced Value-Subspace Attacks). Unlike prior subspace attacks that build the search space from input statistics (e.g., PCA over observations or hand-crafted DCT bases) [67, 12], CIVA constructs its low-dimensional subspace directly from the victim critic’s own attack gradients. As shown in Figure 1, CIVA proceeds in two stages. Stage A (offline) probes the victim with critic-guided per-frame PGD on a clean rollout, collects the resulting pixel perturbations, and extracts a low-dimensional value-subspace via SVD. 
+
+Stage B (online) performs per-frame PGD only inside this subspace, and uses an exponential moving average (EMA) on the subspace coefficients to enforce temporal coherence. We detail the two stages in Section 4.1 and Section 4.2. 
+
+4.1 Offline Value-Subspace Discovery Critic-guided per-frame PGD probing. The strong baseline implied by Section 3.2 is per-frame full-pixel PGD: at every frame the attacker searches the full D = H×W×C pixel space with multiple gradient steps [41, 56]. The resulting perturbations are independent across frames, temporally jittery, and sit in a D = 12288 dimensional space. A natural question is whether all D pixel directions are truly needed, or whether the effective attack directions concentrate in a much lower-dimensional subspace. To answer this, we first collect a set of critic-guided pixel perturbations on a clean rollout. We start the collection only after a short 200 -step warm-up so that the recurrent latent state has stabilised. The DreamerV3 critic outputs a categorical value distribution p(k | ot) over K symlog-spaced bins [18]. We do not need to decode this distribution back into a calibrated value: any quantity that is monotone in the agent’s predicted return suffices as an attack signal. We therefore use the expected 
+
+bin index 
+
+v(ot) = 
+
+> K
+
+X
+
+> k=1
+
+k · softmax( ℓk(ot)) , (2) 4Figure 1: CIVA framework. Stage A extracts a critic-induced value-subspace from offline PGD probes; Stage B performs online subspace-PGD with EMA smoothing. as a cheap differentiable surrogate (since the bins are sorted by value, lowering v(ot) shifts probability mass toward lower-value bins), and run L steps of ℓ∞ PGD per frame: 
+
+δ(ℓ+1) = Π Bε
+
+
+
+δ(ℓ) − η · normalize  ∇δ v(ot + δ(ℓ))
+
+, (3) where normalize( g) := g/ pE[g2] is RMS-normalization of the (sub)gradient [57] and Bε = {δ :
+
+∥δ∥∞ ≤ ε} is composed with the pixel-range projection ot + δ ∈ [0 , 255] H×W ×C . We denote the final perturbation as δi := δ(L) and repeat this for M frames. Stacking the flattened perturbations gives the attack-direction matrix 
+
+∆ = [ δ1, . . . , δ M ]⊤ ∈ RM ×D . (4) Each row of ∆ is, by construction, a pixel direction that empirically drives the victim critic toward lower predicted value. It is neither an observation, nor a hand-crafted low-frequency prior, but the victim’s own “where to push pixels” signal. 
+
+Constructing the critic-induced value-subspace. Given ∆, we take a truncated SVD [8] 
+
+∆ = U ΣV ⊤, Vr := V [: , :r] ∈ RD×r. (5) The columns of Vr are the top-r right singular vectors of ∆ and form an orthonormal basis of an 
+
+r-dimensional subspace of RD; we call its column span Sr := col( Vr ) the Critic-Induced Value-Subspace . CIVA confines all online perturbations to Sr. The basis Vr is computed once offline and remains frozen at evaluation time. With r = 32 ≪ D = 12288 , sharing this victim-aware, spatially structured basis across frames directly addresses challenges: it shrinks the per-frame search space, avoids the high-frequency artifacts of independent pixel-level PGD, and keeps consecutive perturbations on a common direction set that the EMA in Section 4.2 can smooth without losing critic-effectiveness. 
+
+Relation to existing subspace attacks. Prior subspace attacks typically derive their search spaces from input statistics, such as PCA or hand-crafted DCT bases, or from random/query-saving pro-jections in black-box settings. CIVA instead extracts its subspace directly from the victim critic’s gradients, making Vr victim-aware by construction. This distinction matters in our online recur-rent setting, where temporal coherence is central and is evaluated explicitly in Section 5 through comparison with a random-basis ablation. 54.2 Online Subspace Attack 
+
+Given Vr , we now describe how CIVA produces the per-frame perturbation δt during deployment. 
+
+Value-based attack objective. The true reward rt is non-differentiable through the environment (see Section 3.2), so we minimize the same critic-based surrogate used in Stage A. Given the current observation ot and a perturbation δt, we define the per-frame loss 
+
+Lval (δt; ot) = v(ot + δt), (6) where v(·) is the same expected value as in Eq. (2). Minimizing Lval makes the agent believe its future return is lower than it actually is, and indirectly induces suboptimal actions. Using the same surrogate in Stage A and Stage B keeps the directions in Vr semantically aligned with the online optimization target. 
+
+Subspace reparameterization. We reparameterize the per-frame perturbation as a low-dimensional coefficient [22] αt ∈ Rr :
+
+δt = Vr αt. (7) Online PGD then operates in Rr rather than RD. At each step we first take a pixel-space gradient 
+
+gδ = ∇δ Lval , project it into the subspace, and apply a normalized gradient step: 
+
+gα = V ⊤ 
+
+> r
+
+gδ , α(ℓ+1)  
+
+> t
+
+= α(ℓ) 
+
+> t
+
+− η · normalize( gα). (8) The ℓ∞ budget and the pixel-range constraint are still enforced in pixel space: after each update we lift αt to δt, project onto Bε and onto [0 , 255] H×W ×C , and re-project back to αt. This approximately enforces the subspace constraint, the ℓ∞ budget, and pixel validity at the same time; in practice the residual reprojection error is below 10 −3 in pixel scale and does not affect the reported results. 
+
+Temporal coherence via subspace EMA. C3 in Section 3.2 requires the perturbation sequence to be temporally coherent rather than just frame-wise strong. We enforce this directly on the subspace coefficients via an exponential moving average [50]: 
+
+αt = ρ · αt−1 + (1 − ρ) · α⋆t , (9) where α⋆t is the per-frame PGD optimum from Eq. (8), and ρ ∈ [0 , 1] controls the smoothing strength. With ρ → 1 the perturbation barely changes across frames (very smooth, slightly weaker); with 
+
+ρ → 0 CIVA reduces to independent per-frame attack (strongest, but most jittery). We stress that the EMA is meaningful precisely because it is applied in the subspace. A pixel-space EMA on δt would act as a temporal low-pass filter and could smooth the perturbation off the critic-effective direction set. Inside Sr , every αt is by construction a critic-effective direction, so temporal smoothing does not trade away attack strength. This is the direct payoff of sharing Vr across frames, as anticipated in Section 4.1. 
+
+Joint online procedure. Putting Eq. (6)–(9) together, CIVA produces δt at frame t as follows. (i) Warm-start from the previous (post-EMA) coefficient αt−1 and run a small number of subspace-PGD steps on Lval (Eq. (8)) to obtain α⋆t . (ii) Smooth via Eq. (9) to get αt. (iii) Lift to δt = Vr αt and project onto the ℓ∞ ball and the pixel range. (iv) Feed ot + δt to the victim and step the environment. The procedure is causal, online, parameter-efficient (only r scalars per frame), and step-efficient (a few PGD steps per frame), satisfying every constraint of Section 3.4. 
+
+# 5 Experiment 
+
+5.1 Experimental Setup Environments and victim. We evaluate on three visual control benchmarks covering distinct action regimes: DMC walker walk [55] (continuous), Atari Pong [3, 43] (discrete), and Crafter [15] (open-ended survival). All environments deliver 64 ×64 ×3 RGB observations ( D=12 ,288 ) with a 1,000-step episode horizon. The victim is DreamerV3 [18] trained per task with the official configuration; the resulting checkpoint is frozen for all attacks. 6Table 1: Attack results on DMC walker walk. “Natural” is the unattacked baseline; arrows show the favorable direction for the attacker. Bold = best, underline = second best.                                                      
+
+> Method Venue / Year Episode Reward ↓Drop% ↑Action-KL ↑TempAbs ↓SSIM ↑
+> Natural (no attack) —952.25 ———1.000 MAD [68] NeurIPS 2020 934.71 1.84% 0.753 9.126 0.748
+> UAP-RL [56] ESORICS 2022 730.86 23.25% 1.000 0.00 0.656 PA-AD [53] ICLR 2022 786.75 17.38% 1.35 19.97 0.35 Illusory [9] ICLR 2024 795.13 16.50% 1.018 10.97 0.445 DAPGD [7] ICASSP 2025 773.33 18.79% 0.775 12.31 0.501
+> CIVA (Ours) 2026 703.97 26.07% 1.130 0.646 0.710
+
+Table 2: Attack results on Atari Pong.                                                      
+
+> Method Venue / Year Episode Reward ↓Drop% ↑Action-KL ↑TempAbs ↓SSIM ↑
+> Natural (no attack) —21.0 ———1.000 MAD [68] NeurIPS 2020 7.0 66.67% 0.155 4.357 0.864
+> UAP-RL [56] ESORICS 2022 18.0 14.29% 0.098 0.000 0.344 PA-AD [53] ICLR 2022 17.0 19.05% 0.069 4.029 0.697 Illusory [9] ICLR 2024 16.0 23.81% 0.138 9.570 0.599 DAPGD [7] ICASSP 2025 19.0 9.52% 0.080 17.194 0.719
+> CIVA (Ours) 2026 3.0 85.71% 0.184 0.394 0.566
+
+Baselines and attack budget. We compare CIVA against five representative observation-space attackers: MAD [68], UAP-RL [56], PA-AD [53], Illusory [9], and DAPGD [7]. All methods share an ℓ∞ per-frame budget ε=24 /255 and identical white-box access to the frozen victim. 
+
+CIVA hyperparameters. Stage A (offline) collects M =600 critic-guided per-frame PGD pertur-bations with L=8 inner steps and step size η=ε/ 4, after a 200-step warm-up that lets the recurrent latent state stabilise. SVD on ∆ ∈ R600 ×12288 yields the top r=32 right singular vectors that form the columns of Vr ∈ R12288 ×32 . Stage B (online) reuses L=8 and η=ε/ 4 but optimises only the coefficient vector αt ∈ Rr , smoothed by an EMA with momentum ρ=0 .75 before being lifted back to pixels. The basis Vr is computed once and frozen at evaluation time. 
+
+Evaluation protocol. Each method is evaluated over 5 independent random seeds (one episode per seed) and we report the across-seed means of episode reward, the reward drop ratio ( Drop% ) relative to the natural policy following the convention of [48, 68], the Kullback–Leibler divergence [27] between clean and attacked action distributions ( Action-KL ) as used in policy-distribution attacks [53, 7], the mean absolute frame-to-frame change of the perturbation ( TempAbs ) inspired by temporal-coherence measures for video adversarial attacks [64, 28], and SSIM [62] between clean and perturbed observations. All experiments run on a single NVIDIA RTX PRO 6000 Blackwell GPU (96 GB). 
+
+5.2 Main Results 
+
+Tables 1 and 2 report main attack results on DMC walker walk (continuous control) and Atari Pong (discrete control). Crafter results are deferred to Appendix A.2. 
+
+Attack effectiveness. Under the same ℓ∞=24 /255 budget, Tables 1 and 2 show that CIVA achieves the strongest attack effectiveness on both tasks . On DMC walker walk, it attains the lowest attacked reward ( 703 .97 ) and the highest Drop% ( 26 .07% ), outperforming the strongest baseline UAP-RL (23 .25% ). On Atari Pong, the margin is larger: CIVA reaches 85 .71% Drop%, whereas the runner-up MAD reaches 66 .67% and all other baselines remain below 25% . Figure 2 is consistent with the table results: after the attack starts at t=200 , CIVA yields the slowest cumulative reward growth on both tasks, finishing lowest on DMC and plateauing near reward 3 on Pong. Overall, CIVA not only 7Figure 2: Attack dynamics over time. Cumulative reward (left pair) and Action-KL (right pair) on DMC walker walk and Atari Pong. The dashed line marks the attack start at t=200 .produces the best final reward suppression, but also degrades performance more persistently over time. 
+
+Behavioural deviation. The Action-KL column and the right half of Figure 2 show that CIVA produces the strongest behavioural deviation, reaching 1.130 on DMC and 0.184 on Pong. DMC also shows that KL alone is insufficient: PA-AD attains the largest Action-KL ( 1.35 ) but achieves only a 17 .38% reward drop. By constraining perturbations to the critic-relevant subspace, CIVA induces policy shifts that are better aligned with long-horizon value degradation. 
+
+Temporal coherence and visual stealth. Per-frame baselines pay a heavy temporal cost: PA-AD, Illusory and DAPGD report TempAbs of 10 –20 on DMC and 4–17 on Pong, one to two orders of magnitude above CIVA ( 0.646 and 0.394 ). UAP-RL has lower TempAbs only because it injects a static pattern, which caps its Pong drop at 14 .29% . CIVA delivers the strongest reward drop while maintaining very low temporal variation , improving TempAbs by roughly 10 × over per-frame baselines while keeping SSIM within 0.04 –0.30 of the most stealth-oriented baseline (MAD). On the same GPU, the online subspace optimization further reduces per-frame attack latency by roughly an order of magnitude relative to full-pixel per-frame PGD (V2 in Section 5.4), since the inner PGD operates over r=32 scalars instead of D=12 ,288 pixels. 
+
+5.3 Analysis of Policy Decision Shifts 
+
+To complement the aggregate reward and Action-KL metrics, Figure 3 compares the victim’s action logits under the natural policy, Illusory, and CIVA at three representative attack-time steps. Illusory changes the logit landscape but can leave the selected action unchanged, as at step 300. In contrast, CIVA consistently makes a different action dominant in these examples, showing that the critic-induced subspace translates distributional shifts into concrete decision changes. This also explains why CIVA’s large Action-KL in Tables 1 and 2 is coupled with larger reward degradation: the shifted distributions cross the policy’s action-selection boundary at decision-critical frames. 
+
+Figure 3: Policy-logit shifts across attacks on Atari Pong. Dark bars mark the selected actions. 
+
+5.4 Ablation Study 
+
+We ablate each component of CIVA on DMC walker walk; Tables 3 and 4 report effectiveness and stealth. From the full model (V0), each variant changes one component: V1 replaces the critic-induced subspace with a random orthonormal basis of the same rank; V2 removes the subspace and 8Table 3: Ablation: reward drop on DMC walker walk. The Online and EMA columns indicate whether subspace-restricted online PGD and temporal EMA are enabled.                                             
+
+> ID Variant (A) Signal (B) Subspace Online EMA EpReward ↓Drop% ↑
+> V0 CIVA (full) critic critic-SVD ✓✓703.97 26.07% V1 w/o critic-induced subspace critic random ✓✓886.54 6.90% V2 w/o subspace constraint (full-pixel) critic —✗✗832.21 12.61% V3 w/o temporal EMA critic critic-SVD ✓✗696.66 26.84%
+> V4 w/o critic (reward-grad subspace) reward reward-SVD ✓✓906.13 4.84%
+
+Table 4: Ablation: behavioural deviation and stealth (DMC walker walk). Companion to Table 3.                                                    
+
+> ID Variant (A) Signal (B) Subspace Online EMA Action-KL ↑TempAbs ↓SSIM ↑
+> V0 CIVA (full) critic critic-SVD ✓✓1.130 0.646 0.710 V1 w/o critic-induced subspace critic random ✓✓0.058 0.8439 0.612 V2 w/o subspace constraint (full-pixel) critic —✗✗0.730 3.2350 0.908
+> V3 w/o temporal EMA critic critic-SVD ✓✗0.798 1.7496 0.675 V4 w/o critic (reward-grad subspace) reward reward-SVD ✓✓1.054 0.542 0.833
+
+uses full-pixel PGD; V3 removes the EMA ( ρ=0 ); V4 replaces the critic-value surrogate with the victim’s reward-prediction-head gradient. 
+
+Critic-induced subspace. A random basis of the same rank (V1) drops effectiveness from 26 .07% 
+
+to 6.90% and KL from 1.130 to 0.058 . Full-pixel critic-PGD (V2) is also weak ( 12 .61% drop) and inflates TempAbs to 3.235 , the largest in the table. Low rank alone is not enough, and critic guidance alone is not enough either ; the gain comes from aligning a low-rank basis with critic-sensitive directions. 
+
+Temporal EMA. Disabling the EMA (V3) gives a marginal gain in effectiveness ( +0 .77 pp) but 
+
+nearly triples TempAbs (1.7496 vs. 0.646 ) and lowers SSIM by 3.5 points. Since CIVA targets the joint optimum of effectiveness and stealth, we keep the EMA in V0: the small reward-drop loss is outweighed by the much smoother and more imperceptible perturbation sequence. 
+
+Critic value vs. reward head. Replacing the critic-value gradient with the reward-head gradient (V4) drops effectiveness to 4.84% , the weakest variant, and Action-KL also falls below V0 ( 1.054 
+
+vs. 1.130 ). Although V4’s stealth indicators (TempAbs 0.542 , SSIM 0.833 ) look favourable, this is precisely because the reward-head signal points along directions that move the world model’s one-step predicted reward without affecting the long-horizon return that drives the policy: the perturbations are easy to make smooth and visually subtle, but no longer functionally adversarial. Taking effectiveness, behavioural deviation, and stealth together, V0 (full CIVA) gives the best overall trade-off among all variants. 
+
+# 6 Conclusion 
+
+This paper proposes CIVA , a critic-induced value-subspace attack for visual world-model agents under tight online and ℓ∞ constraints. CIVA extracts a low-dimensional attack subspace from the frozen DreamerV3 critic and optimizes only subspace coefficients online with EMA smoothing. Across diverse visual control tasks, CIVA consistently yields stronger performance degradation than prior attacks and highlights the value landscape as a realistic adversarial surface of recurrent world-model agents. 
+
+Limitations. CIVA targets the white-box online setting and needs access to the victim critic and clean rollouts; our evaluation uses a single backbone (DreamerV3). Full discussion is in Appendix A.5. 9Acknowledgments and Disclosure of Funding References 
+
+[1] Eloi Alonso, Adam Jelley, Vincent Micheli, Anssi Kanervisto, Amos Storkey, Tim Pearce, and François Fleuret. Diffusion for world modeling: Visual details matter in Atari. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [2] Fengshuo Bai, Runze Liu, Yali Du, Ying Wen, and Yaodong Yang. Rat: Adversarial attacks on deep rein-forcement agents for targeted behaviors. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 15453–15461, 2025. [3] Marc G. Bellemare, Yavar Naddaf, Joel Veness, and Michael Bowling. The arcade learning environment: An evaluation platform for general agents. Journal of Artificial Intelligence Research , 47:253–279, 2013. [4] Jake Bruce, Michael Dennis, Ashley Edwards, Jack Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar, Richie Steigerwald, Chris Apps, Yusuf Aytar, Sarah Bechtle, Feryal Behbahani, Stephanie Chan, Nicolas Heess, Lucy Gonzalez, Simon Osindero, Sherjil Ozair, Scott Reed, Jingwei Zhang, Konrad Zolna, Jeff Clune, Nando de Freitas, Satinder Singh, and Tim Rocktäschel. Genie: Generative interactive environments. In International Conference on Machine Learning (ICML) , 2024. [5] Nicholas Carlini and David Wagner. Towards evaluating the robustness of neural networks. In IEEE Symposium on Security and Privacy (SP) , 2017. [6] Jingtao Ding, Yunke Zhang, Yu Shang, Yuheng Zhang, Zefang Zong, Jie Feng, Yuan Yuan, Hongyuan Su, Nian Li, Nicholas Sukiennik, Fengli Xu, and Yong Li. Understanding world or predicting future? a comprehensive survey of world models. arXiv preprint arXiv:2411.14499 , 2024. [7] Tianyang Duan, Zongyuan Zhang, Zheng Lin, Yue Gao, Ling Xiong, Yong Cui, Hongbin Liang, Xianhao Chen, Heming Cui, and Dong Huang. Rethinking adversarial attacks in reinforcement learning from policy distribution perspective. In ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5. IEEE, 2025. [8] Carl Eckart and Gale Young. The approximation of one matrix by another of lower rank. Psychometrika , 1 (3):211–218, 1936. [9] Tim Franzmeyer, Stephen McAleer, João F. Henriques, Jakob N. Foerster, Philip H. S. Torr, Pushmeet Kohli, and Pratyush Maini. Illusory attacks: Information-theoretic detectability matters in adversarial attacks. In International Conference on Learning Representations (ICLR) , 2024. [10] Adam Gleave, Michael Dennis, Cody Wild, Neel Kant, Sergey Levine, and Stuart Russell. Adversarial policies: Attacking deep reinforcement learning. In International Conference on Learning Representations (ICLR) , 2020. [11] Ian J. Goodfellow, Jonathon Shlens, and Christian Szegedy. Explaining and harnessing adversarial examples. In International Conference on Learning Representations (ICLR) , 2015. [12] Chuan Guo, Jared S. Frank, and Kilian Q. Weinberger. Low frequency adversarial perturbation. In 
+
+Conference on Uncertainty in Artificial Intelligence (UAI) , 2019. [13] Zhixiang Guo, Siyuan Liang, Andras Balogh, Noah Lunberry, Rong-Cheng Tu, Mark Jelasity, and Dacheng Tao. When world models dream wrong: Physical-conditioned adversarial attacks against world models. 
+
+arXiv preprint arXiv:2602.18739 , 2026. [14] David Ha and Jürgen Schmidhuber. Recurrent world models facilitate policy evolution. In Advances in Neural Information Processing Systems (NeurIPS) , 2018. [15] Danijar Hafner. Benchmarking the spectrum of agent capabilities. arXiv preprint arXiv:2109.06780 , 2021. [16] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. arXiv preprint arXiv:1912.01603 , 2019. [17] Danijar Hafner, Timothy Lillicrap, Mohammad Norouzi, and Jimmy Ba. Mastering atari with discrete world models. arXiv preprint arXiv:2010.02193 , 2020. [18] Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. arXiv preprint arXiv:2301.04104 , 2023. 
+
+10 [19] Nicklas Hansen, Hao Su, and Xiaolong Wang. TD-MPC2: Scalable, robust world models for continuous control. In International Conference on Learning Representations (ICLR) , 2024. [20] Bangyan He, Xiaojun Jia, Siyuan Liang, Tianrui Lou, Yang Liu, and Xiaochun Cao. Sa-attack: Improving adversarial transferability of vision-language pre-training models via self-augmentation. arXiv preprint arXiv:2312.04913 , 2023. [21] Sandy Huang, Nicolas Papernot, Ian Goodfellow, Yan Duan, and Pieter Abbeel. Adversarial attacks on neural network policies. arXiv preprint arXiv:1702.02284 , 2017. [22] Andrew Ilyas, Logan Engstrom, Anish Athalye, and Jessy Lin. Black-box adversarial attacks with limited queries and information. In International Conference on Machine Learning (ICML) , 2018. [23] Yongcheng Jing, Seok-Hee Hong, and Dacheng Tao. Deep graph mating. Advances in Neural Information Processing Systems , 37:9753–9772, 2024. [24] Dehong Kong, Siyuan Liang, Xiaopeng Zhu, Yuansheng Zhong, and Wenqi Ren. Patch is enough: naturalistic adversarial patch against vision-language pre-training models. Visual Intelligence , 2(1):1–10, 2024. [25] Ezgi Korkmaz. Adversarial robust deep reinforcement learning requires redefining robustness. In Proceed-ings of the AAAI Conference on Artificial Intelligence , 2023. [26] Jernej Kos and Dawn Song. Delving into adversarial attacks on deep policies. In International Conference on Learning Representations (ICLR) Workshop , 2017. [27] Solomon Kullback and Richard A. Leibler. On information and sufficiency. Annals of Mathematical Statistics , 22(1):79–86, 1951. [28] Shasha Li, Ajaya Neupane, Sujoy Paul, Chengyu Song, Srikanth V. Krishnamurthy, Amit K. Roy-Chowdhury, and Ananthram Swami. Adversarial perturbations against real-time video classification systems. In Network and Distributed System Security Symposium (NDSS) , 2019. [29] Siyuan Liang, Xingxing Wei, Siyuan Yao, and Xiaochun Cao. Efficient adversarial attacks for visual object tracking. In Computer Vision–ECCV 2020: 16th European Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XXVI 16 , 2020. [30] Siyuan Liang, Xingxing Wei, and Xiaochun Cao. Generate more imperceptible adversarial examples for object detection. In ICML 2021 Workshop on Adversarial Machine Learning , 2021. [31] Siyuan Liang, Longkang Li, Yanbo Fan, Xiaojun Jia, Jingzhi Li, Baoyuan Wu, and Xiaochun Cao. A large-scale multiple-objective method for black-box attack against object detection. In European Conference on Computer Vision , 2022. [32] Siyuan Liang, Baoyuan Wu, Yanbo Fan, Xingxing Wei, and Xiaochun Cao. Parallel rectangle flip attack: A query-based black-box attack against object detection. arXiv preprint arXiv:2201.08970 , 2022. [33] Yongyuan Liang, Yanchao Sun, Ruijie Zheng, and Furong Huang. Efficient adversarial training without attacking: Worst-case-aware robust reinforcement learning. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. [34] Yongyuan Liang, Yanchao Sun, Ruijie Zheng, Xiangyu Liu, Benjamin Eysenbach, Tuomas Sandholm, Furong Huang, and Stephen McAleer. Game-theoretic robust reinforcement learning handles temporally-coupled perturbations. In International Conference on Learning Representations (ICLR) , 2024. [35] Yen-Chen Lin, Zhang-Wei Hong, Yuan-Hong Liao, Meng-Li Shih, Ming-Yu Liu, and Min Sun. Tactics of adversarial attack on deep reinforcement learning agents. In International Joint Conference on Artificial Intelligence (IJCAI) , 2017. [36] Aishan Liu, Jun Guo, Jiakai Wang, Siyuan Liang, Renshuai Tao, Wenbo Zhou, Cong Liu, Xianglong Liu, and Dacheng Tao. {X-Adv}: Physical adversarial object attacks against x-ray prohibited item detection. In 
+
+32nd USENIX Security Symposium (USENIX Security 23) , 2023. [37] Jiayang Liu, Siyu Zhu, Siyuan Liang, Jie Zhang, Han Fang, Weiming Zhang, and Ee-Chien Chang. Improving adversarial transferability by stable diffusion. arXiv preprint arXiv:2311.11017 , 2023. [38] Shunyu Liu, Yihe Zhou, Jie Song, Tongya Zheng, Kaixuan Chen, Tongtian Zhu, Zunlei Feng, and Mingli Song. Contrastive identity-aware learning for multi-agent value decomposition. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 11595–11603, 2023. 
+
+11 [39] Shunyu Liu, Jie Song, Yihe Zhou, Na Yu, Kaixuan Chen, Zunlei Feng, and Mingli Song. Interaction pattern disentangling for multi-agent reinforcement learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 46(12):8157–8172, 2024. [40] Tianrui Lou, Xiaojun Jia, Jindong Gu, Li Liu, Siyuan Liang, Bangyan He, and Xiaochun Cao. Hide in thicket: Generating imperceptible and rational adversarial perturbations on 3d point clouds. arXiv preprint arXiv:2403.05247 , 2024. [41] Aleksander Madry, Aleksandar Makelov, Ludwig Schmidt, Dimitris Tsipras, and Adrian Vladu. To-wards deep learning models resistant to adversarial attacks. In International Conference on Learning Representations (ICLR) , 2018. [42] Vincent Micheli, Eloi Alonso, and François Fleuret. Transformers are sample-efficient world models. In 
+
+International Conference on Learning Representations (ICLR) , 2023. [43] Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A. Rusu, Joel Veness, Marc G. Bellemare, Alex Graves, Martin Riedmiller, Andreas K. Fidjeland, Georg Ostrovski, Stig Petersen, Charles Beattie, Amir Sadik, Ioannis Antonoglou, Helen King, Dharshan Kumaran, Daan Wierstra, Shane Legg, and Demis Hassabis. Human-level control through deep reinforcement learning. Nature , 518(7540):529–533, 2015. [44] Seyed-Mohsen Moosavi-Dezfooli, Alhussein Fawzi, and Pascal Frossard. Deepfool: A simple and accurate method to fool deep neural networks. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2016. [45] Seyed-Mohsen Moosavi-Dezfooli, Alhussein Fawzi, Omar Fawzi, and Pascal Frossard. Universal adversar-ial perturbations. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2017. [46] Tuomas Oikarinen, Wang Zhang, Alexandre Megretski, Luca Daniel, and Tsui-Wei Weng. Robust deep reinforcement learning through adversarial loss. In Advances in Neural Information Processing Systems (NeurIPS) , 2021. [47] Nicolas Papernot, Patrick McDaniel, Somesh Jha, Matt Fredrikson, Z. Berkay Celik, and Ananthram Swami. The limitations of deep learning in adversarial settings. In IEEE European Symposium on Security and Privacy (EuroS&P) , 2016. [48] Anay Pattanaik, Zhenyi Tang, Shuijing Liu, Gautham Bommannan, and Girish Chowdhary. Robust deep reinforcement learning with adversarial attacks. In International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS) , 2018. [49] Lerrel Pinto, James Davidson, Rahul Sukthankar, and Abhinav Gupta. Robust adversarial reinforcement learning. In International Conference on Machine Learning (ICML) , 2017. [50] Boris T. Polyak and Anatoli B. Juditsky. Acceleration of stochastic approximation by averaging. SIAM Journal on Control and Optimization , 30(4):838–855, 1992. [51] Jan Robine, Marc Hoftmann, Tobias Uelwer, and Stefan Harmeling. Transformer-based world models are happy with 100k interactions. In International Conference on Learning Representations (ICLR) , 2023. [52] Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, et al. Mastering Atari, Go, chess and shogi by planning with a learned model. Nature , 588(7839):604–609, 2020. [53] Yanchao Sun, Ruijie Zheng, Yongyuan Liang, and Furong Huang. Who is the strongest enemy? towards optimal and efficient evasion attacks in deep RL. In International Conference on Learning Representations (ICLR) , 2022. [54] Christian Szegedy, Wojciech Zaremba, Ilya Sutskever, Joan Bruna, Dumitru Erhan, Ian Goodfellow, and Rob Fergus. Intriguing properties of neural networks. In International Conference on Learning Representations (ICLR) , 2014. [55] Yuval Tassa, Yotam Doron, Alistair Muldal, Tom Erez, Yazhe Li, Diego de Las Casas, David Budden, Abbas Abdolmaleki, Josh Merel, Andrew Lefrancq, et al. Deepmind control suite. arXiv preprint arXiv:1801.00690 , 2018. [56] Buse GA Tekgul, Shelly Wang, Samuel Marchal, and N Asokan. Real-time adversarial perturbations against deep reinforcement learning policies: Attacks and defenses. In European Symposium on Research in Computer Security , pages 384–404. Springer, 2022. 
+
+12 [57] Tijmen Tieleman and Geoffrey Hinton. Lecture 6.5—RMSProp: Divide the gradient by a running average of its recent magnitude. COURSERA: Neural Networks for Machine Learning, 2012. [58] Jialai Wang, Han Qiu, Yi Rong, Hengkai Ye, Qi Li, Zongpeng Li, and Chao Zhang. Bet: black-box efficient testing for convolutional neural networks. In Proceedings of the 31st ACM SIGSOFT International Symposium on Software Testing and Analysis , pages 164–175, 2022. [59] Jialai Wang, Yuxiao Wu, Weiye Xu, Yating Huang, Chao Zhang, Zongpeng Li, Mingwei Xu, and Zhenkai Liang. Your scale factors are my weapon: Targeted bit-flip attacks on vision transformers via scale factor manipulation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 20103–20112, 2025. [60] Lu Wang, Tianyuan Zhang, Yang Qu, Siyuan Liang, Yuwei Chen, Aishan Liu, Xianglong Liu, and Dacheng Tao. Black-box adversarial attack on vision language models for autonomous driving. arXiv preprint arXiv:2501.13563 , 2025. [61] Zhiyuan Wang, Zeliang Zhang, Siyuan Liang, and Xiaosen Wang. Diversifying the high-level features for better adversarial transferability. arXiv preprint arXiv:2304.10136 , 2023. [62] Zhou Wang, Alan C. Bovik, Hamid R. Sheikh, and Eero P. Simoncelli. Image quality assessment: From error visibility to structural similarity. IEEE Transactions on Image Processing , 13(4):600–612, 2004. [63] Xingxing Wei, Siyuan Liang, Ning Chen, and Xiaochun Cao. Transferable adversarial attacks for image and video object detection. arXiv preprint arXiv:1811.12641 , 2018. [64] Xingxing Wei, Jun Zhu, Sha Yuan, and Hang Su. Sparse adversarial perturbations for videos. In Proceedings of the AAAI Conference on Artificial Intelligence , 2019. [65] Philipp Wu, Alejandro Escontrela, Danijar Hafner, Ken Goldberg, and Pieter Abbeel. DayDreamer: World models for physical robot learning. In Conference on Robot Learning (CoRL) , 2022. [66] Shuhan Xu, Siyuan Liang, Hongling Zheng, Yong Luo, Han Hu, Lefei Zhang, and Dacheng Tao. Ctrlattack: A unified attack on world-model control in diffusion models. arXiv preprint arXiv:2603.13435 , 2026. [67] Ziang Yan, Yiwen Guo, and Changshui Zhang. Subspace attack: Exploiting promising subspaces for query-efficient black-box attacks. In Advances in Neural Information Processing Systems (NeurIPS) , 2019. [68] Huan Zhang, Hongge Chen, Chaowei Xiao, Bo Li, Mingyan Liu, Duane Boning, and Cho-Jui Hsieh. Robust deep reinforcement learning against adversarial perturbations on state observations. Advances in neural information processing systems , 33:21024–21037, 2020. [69] Huan Zhang, Hongge Chen, Duane Boning, and Cho-Jui Hsieh. Robust reinforcement learning on state observations with learned optimal adversary. arXiv preprint arXiv:2101.08452 , 2021. [70] Tianyuan Zhang, Lu Wang, Xinwei Zhang, Yitong Zhang, Boyi Jia, Siyuan Liang, Shengshan Hu, Qiang Fu, Aishan Liu, and Xianglong Liu. Visual adversarial attack on vision-language models for autonomous driving. arXiv preprint arXiv:2411.18275 , 2024. [71] Weipu Zhang, Gang Wang, Jian Sun, Yetian Yuan, and Gao Huang. STORM: Efficient stochastic transformer based world models for reinforcement learning. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. [72] Hanqing Zhao, Wenbo Zhou, Dongdong Chen, Tianyi Wei, Weiming Zhang, and Nenghai Yu. Multi-attentional deepfake detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 2185–2194, 2021. 
+
+# A Supplementary Material 
+
+A.1 Detailed Experimental Setup 
+
+This appendix expands the compressed description of the experimental pipeline in Section 5.1 into the level of detail required for full reproducibility, covering (i) the software and hardware environment, (ii) how the DreamerV3 victim checkpoint is trained for each task, and (iii) the attack-evaluation pipeline together with the formal definition of every metric reported in the main paper. 13 Software and hardware environment. All DreamerV3 training and CIVA attack experiments are run on a single NVIDIA RTX PRO 6000 Blackwell GPU with 96 GB of memory. Because the online attack only optimises a low-dimensional coefficient vector αt ∈ Rr with r=32 , its memory footprint is substantially smaller than that of training and can co-reside with the frozen victim on the same device. The DreamerV3 training stack is built on JAX, Flax and Optax, while the attack scripts additionally use NumPy and scikit-image for metric computation. 
+
+DreamerV3 victim training. CIVA attacks a DreamerV3 agent whose parameters are fully frozen 
+
+at evaluation time, so a victim checkpoint must first be trained independently for each task. We reuse the official DreamerV3 training implementation without modifying the model architecture, the loss formulation, or any hyperparameter ; different tasks simply use different training configurations: • DMC walker walk (continuous control): 1.1×10 6 training steps, train_ratio=256, vision-only 64 ×64 ×3 observations with proprioception disabled. • Atari Pong (discrete control): 5.1×10 7 training steps, train_ratio=32, with the default DreamerV3 image preprocessing (frame skipping, sticky actions, etc.). • Crafter (open-ended survival): 1.1×10 6 training steps, train_ratio=512, envs=1, 64 ×64 ×3
+
+observations. The trained weights, configuration, and training curves are saved for each task. The attack scripts load the checkpoint and keep all victim parameters frozen during evaluation; only critic forward passes and gradients are used to optimise the perturbation. 
+
+Attack evaluation pipeline. Given a frozen victim, CIVA proceeds in two stages, exactly as in Section 5.1, but the per-stage operations are described in more detail here: 1. Stage A — offline subspace discovery. The frozen victim is rolled out on the target task with a 200 -step warm-up that lets the RSSM latent state stabilise. Critic-induced PGD then produces M =600 per-frame perturbations; the flattened matrix ∆ ∈ RM ×D with 
+
+D=12 ,288 is subjected to a truncated SVD, whose top r=32 right singular vectors form the basis matrix Vr ∈ RD×r. The basis is saved to disk and kept fixed throughout evaluation. 2. Stage B — online low-dimensional PGD attack. A fresh episode is launched and the attack starts at t=t0=200 . At every attacked step the attacker performs L=8 PGD updates on 
+
+αt ∈ Rr with step size η=ε/ 4, smooths the result with an EMA of momentum ρ=0 .75 , lifts it back to pixel space through Vr, and projects onto both ∥δt∥∞ ≤ ε=24 /255 and the valid pixel range [0 , 255] . Each task is evaluated on five independent random seeds (one episode per seed); CIVA and all baselines share the same victim checkpoint, the same ε, and the same evaluation script to ensure a strict apples-to-apples comparison. 
+
+Metric definitions. Let T be the length of an evaluation episode and t0=200 the attack-start step. Denote the clean and attacked episodic returns by Rnat = PTt=1 rt(ot) and Ratk = PTt=1 rt(˜ ot),where ot ∈ [0 , 255] H×W ×3 is the clean observation, δt the per-frame perturbation, and 
+
+˜ot=clip( ot+δt, 0, 255) the corresponding attacked observation. Each metric below is computed per seed and then averaged over the five seeds: • Episode Reward. The attacked episodic return, Ratk = PTt=1 rt(˜ ot).• Drop%. The relative reward drop with respect to the natural policy, following [48, 68]: 
+
+Drop% = Rnat − Ratk 
+
+Rnat × 100% . (10) • Action-KL. The mean Kullback–Leibler divergence [27] between the victim’s clean and attacked action distributions, averaged over the attacked window: Action-KL = 1
+
+T − t0
+
+> T
+
+X
+
+> t=t0+1
+
+KL( π(· | ot) ∥ π(· | ˜ot)) . (11) For DMC’s continuous policy we use the closed-form diagonal-Gaussian KL, and for the discrete policies on Pong / Crafter we apply the discrete KL on softmax-normalised logits. 14 Table 5: Attack results on Crafter.                                                      
+
+> Method Venue / Year Episode Reward ↓Drop% ↑Action-KL ↑TempAbs ↓SSIM ↑
+> Natural (no attack) —10.10 ———1.000 MAD [68] NeurIPS 2020 8.10 19.80% 1.837 6.25 0.874 UAP-RL [56] ESORICS 2022 7.10 29.70% 0.310 0.00 0.527 PA-AD [53] ICLR 2022 8.10 19.80% 0.913 8.12 0.478 Illusory [9] ICLR 2024 8.10 19.80% 1.562 19.99 0.495 DAPGD [7] ICASSP 2025 9.10 9.90% 1.960 33.64 0.529
+> CIVA (Ours) 2026 7.10 29.70% 0.326 0.27 0.970
+
+• TempAbs. The mean absolute frame-to-frame change of the perturbation, used to quan-tify temporal coherence (analogous to temporal-coherence measures for video adversarial attacks [64, 28]): 
+
+TempAbs = 1(T − t0 − 1) HW C  
+
+> T−1
+
+X
+
+> t=t0+1
+
+δt+1 − δt 1. (12) Smaller values indicate that consecutive perturbations are closer, making temporal flicker harder to detect. • SSIM. The structural similarity index [62] between clean and attacked observations, aver-aged over the attacked window: 
+
+SSIM = 1
+
+T − t0
+
+> T
+
+X
+
+> t=t0+1
+
+SSIM( ot, ˜ot), SSIM( x, y ) = (2 μxμy + c1)(2 σxy + c2)(μ2 
+
+> x
+
++ μ2 
+
+> y
+
++ c1)( σ2 
+
+> x
+
++ σ2 
+
+> y
+
++ c2) .
+
+(13) We use the default scikit-image implementation with a data range of 255, computed per channel and averaged. 
+
+A.2 Additional Results on Crafter Why we defer Crafter to the appendix. Crafter’s reward signal differs structurally from the dense per-step rewards used in DMC walker walk and Atari Pong. Crafter [15] returns reward only when the agent unlocks one of a fixed set of achievements, so the episodic return is a sparse, integer-valued count rather than a smooth per-step quantity. As a result, the same metrics used in the main paper carry slightly different weight here: Drop% reflects how many achievement events the attacker prevents rather than a continuous performance gap, and Action-KL measures policy drift relative to a victim that already exhibits diverse exploratory behaviour on this benchmark. The visual-stealth metrics ( TempAbs , SSIM ) are computed exactly as in the main experiments and remain directly comparable across tasks. The full experimental setup, including the DreamerV3 victim training and the precise definition of every metric, is described in Appendix A.1. 
+
+Attack effectiveness. Under the same budget, CIVA matches the strongest baseline in reward suppression: the episode reward drops from the natural 10 .10 to 7.10 , yielding a Drop% of 29 .70% 
+
+that ties with UAP-RL and is clearly above MAD, PA-AD, and Illusory ( 19 .80% ) and far above DAPGD ( 9.90% ). Given that Crafter rewards are discrete and sparse, suppressing roughly 30% of the achievement events is already a substantial attack effect. 
+
+Behavioural deviation. CIVA reaches an Action-KL of 0.326 on Crafter, which is not the largest in the table (DAPGD attains 1.960 and MAD 1.837 ). This does not contradict the trend on DMC and Pong where larger Action-KL coincides with stronger attacks: DAPGD pushes the action distribution the furthest yet only achieves a 9.90% reward drop, indicating that its perturbations are injected into directions that are largely orthogonal to long-horizon value. By construction, CIVA confines its perturbations to the critic-induced subspace and therefore concentrates the policy shift on directions that are aligned with long-horizon return. Even though the resulting distributional change appears milder, it is more effective at suppressing achievement unlocks, reaffirming the observation that “larger KL does not imply a stronger attack” also holds in the sparse-reward regime. 15 Figure 4: Perturbation visualization on Crafter. Temporal coherence and visual stealth. CIVA dominates both stealth metrics. Its TempAbs of 
+
+0.27 is the second lowest among all methods. UAP-RL achieves a TempAbs of 0.00 because it uses a fixed universal perturbation that never changes across frames. CIVA follows closely while remaining fully adaptive per frame, and improves over PA-AD ( 8.12 ), Illusory ( 19 .99 ), and DAPGD (33 .64 ) by one to two orders of magnitude. On SSIM, CIVA reaches 0.970 , which is at least 0.09 
+
+higher than every baseline and far above UAP-RL ( 0.527 ) and MAD ( 0.874 ). Combined with the perturbation visualisation in Appendix A.3 (Figure 4), this confirms that CIVA’s perturbations are spatially concentrated and visually close to the clean observations. 
+
+A.3 Perturbation Visualization 
+
+Figure 4 visualizes the perturbation magnitude maps on six representative Crafter frames for CIVA and three baselines. Each row corresponds to one attack method; brighter colors indicate larger perturbation intensity. The contrast is consistent with the quantitative results in Table 5: compared with MAD, PA-AD, and Illusory, CIVA concentrates its perturbation on a smaller set of task-relevant regions, producing more spatially focused patterns with visibly less scattered high-intensity responses across the image. This spatial concentration helps explain why CIVA maintains the strongest visual stealth on Crafter while matching the largest reward drop. 
+
+A.4 From Full-Space Attacks to Value-Aligned Subspaces 
+
+This appendix collects the theoretical formulation of the five baselines and our method. We first state a unified threat model. We then derive each baseline’s attack objective and present its algorithm. Finally, we give the formulation of CIVA. 
+
+Unified threat model. Let πθ (· | st) be the victim policy and vψ (st) be its critic. The latent state 
+
+st is produced by the recurrent encoder from past observations. At each step t, the attacker observes the clean frame ot ∈ [0 , 255] H×W ×C and outputs a perturbation δt under the ℓ∞ budget ∥δt∥∞ ≤ ε.The victim then receives ˜ot = clip( ot + δt, 0, 255) . We write ΠBε for the projection onto the ℓ∞ ball of radius ε and clip [0 ,255] for the pixel-range projection. All baselines and CIVA share this setting. 16 A.4.1 MAD: Maximum-Action-Deviation Attack 
+
+MAD [68] maximises the divergence between the clean and the attacked action distributions. The per-frame objective is 
+
+LMAD (δ; ot) = KL( πθ (· | ot) ∥ πθ (· | ot + δ)) . (14) For a discrete policy this is the categorical KL on the softmax outputs. For a Gaussian policy it has the closed-form 
+
+KL( N (μ1, σ 1) ∥ N (μ2, σ 2)) = 12
+
+h
+
+log σ22
+
+> σ21
+
++ σ21 +( μ1−μ2)2
+
+> σ22
+
+− 1
+
+i
+
+. (15) The attacker applies L steps of ℓ∞ PGD on Eq. (14) per frame. 
+
+Algorithm 1 MAD attack 
+
+Require: victim policy πθ , frame ot, budget ε, steps L, step size η 
+
+> 1:
+
+Initialise δ ← 0 
+
+> 2:
+
+for ℓ = 1 , . . . , L do  
+
+> 3:
+
+g ← ∇ δ KL( πθ (· | ot) ∥ πθ (· | ot + δ))  
+
+> 4:
+
+δ ← ΠBε
+
+ δ + η · sign( g) 
+
+> 5:
+
+end for  
+
+> 6:
+
+return δt ← clip [0 ,255] (ot + δ) − ot
+
+A.4.2 UAP-RL: Universal Adversarial Perturbation for RL 
+
+UAP-RL [56] learns a single perturbation δu ∈ RD that is reused on every frame. The perturbation is trained offline on a buffer D of clean observations: 
+
+δu = arg max 
+
+> ∥δ∥∞≤ε
+
+Eo∼D [ L(δ; o)] , (16) where L is a policy-deviation loss such as the KL in Eq. (14). At test time the same δu is applied to every frame, so the temporal variation is zero by construction. 
+
+Algorithm 2 UAP-RL training 
+
+Require: buffer D, budget ε, epochs E, batch size B, step size η 
+
+> 1:
+
+Initialise δu ← 0 
+
+> 2:
+
+for e = 1 , . . . , E do  
+
+> 3:
+
+for each minibatch {oi}Bi=1 ⊂ D do  
+
+> 4:
+
+g ← 1
+
+> B
+
+PBi=1 ∇δ L(δu; oi) 
+
+> 5:
+
+δu ← ΠBε
+
+ δu + η · sign( g) 
+
+> 6:
+
+end for  
+
+> 7:
+
+end for  
+
+> 8:
+
+return δu
+
+A.4.3 PA-AD: Policy-Aware Adversarial Attack 
+
+PA-AD [53] treats the attacker as a learned policy πadv  
+
+> ϕ
+
+(δ | ot). The attacker is trained by RL to minimise the victim’s return. Let τ = ( o1, δ 1, . . . , o T , δ T ) be the joint rollout and rt be the victim reward. The attacker’s objective is 
+
+max  
+
+> ϕ
+
+Eτ ∼πadv  
+
+> ϕ,π θ
+
+"
+
+−
+
+> T
+
+X
+
+> t=1
+
+rt
+
+#
+
+s.t. ∥δt∥∞ ≤ ε. (17) A standard policy-gradient estimator gives 
+
+∇ϕJ (ϕ) = E
+
+" TX
+
+> t=1
+
+∇ϕ log πadv  
+
+> ϕ
+
+(δt | ot) · ˆAt
+
+#
+
+, (18) 17 where ˆAt is an advantage estimate based on the negated victim reward. 
+
+Algorithm 3 PA-AD attacker training 
+
+Require: victim πθ , attacker πadv  
+
+> ϕ
+
+, budget ε, iterations I 
+
+> 1:
+
+for i = 1 , . . . , I do  
+
+> 2:
+
+Roll out joint trajectory τ with δt ∼ πadv  
+
+> ϕ
+
+(· | ot), projected to Bε 
+
+> 3:
+
+Compute attacker reward radv  
+
+> t
+
+= −rt and advantages ˆAt 
+
+> 4:
+
+Update ϕ by Eq. (18) with PPO/A2C  
+
+> 5:
+
+end for  
+
+> 6:
+
+return πadv 
+
+> ϕ
+
+A.4.4 Illusory: Detectability-Aware Attack 
+
+Illusory [9] adds a stealth term so that the attacked observation stays close to a plausible clean prediction ˆot (e.g. produced by a learned dynamics model). The objective is 
+
+LIll (δ; ot) = −Ea∼πθ (·| ot+δ)[ Q(ot, a ) ] + λ · D (ot + δ, ˆot), (19) where the first term degrades the action value and the second term penalises detectable deviation. D
+
+is a perceptual distance (e.g. ℓ2 or LPIPS) and λ > 0 trades off attack strength against stealth. 
+
+Algorithm 4 Illusory attack 
+
+Require: victim πθ , Q , frame ot, predictor ˆot, budget ε, steps L, step size η, weight λ 
+
+> 1:
+
+Initialise δ ← 0 
+
+> 2:
+
+for ℓ = 1 , . . . , L do  
+
+> 3:
+
+g ← ∇ δ LIll (δ; ot) ▷ Eq. (19)  
+
+> 4:
+
+δ ← ΠBε
+
+ δ − η · sign( g) 
+
+> 5:
+
+end for  
+
+> 6:
+
+return δt ← clip [0 ,255] (ot + δ) − ot
+
+A.4.5 DAPGD: Distribution-Aware Projected Gradient Descent 
+
+DAPGD [7] replaces the point-wise KL with a distance between the full action distributions. For a discrete policy with logits ℓ(o) ∈ R|A| , DAPGD uses the Bhattacharyya distance 
+
+LDAPGD (δ; ot) = − log X
+
+> a∈A
+
+ppθ (a | ot) · pθ (a | ot + δ), (20) where pθ (a | o) = softmax( ℓ(o)) a. Maximising Eq. (20) pushes the two action distributions apart in a distributional sense rather than along a single mode. 
+
+Algorithm 5 DAPGD attack 
+
+Require: victim πθ , frame ot, budget ε, steps L, step size η 
+
+> 1:
+
+Initialise δ ← 0 
+
+> 2:
+
+for ℓ = 1 , . . . , L do  
+
+> 3:
+
+g ← ∇ δ LDAPGD (δ; ot) ▷ Eq. (20)  
+
+> 4:
+
+δ ← ΠBε
+
+ δ + η · sign( g) 
+
+> 5:
+
+end for  
+
+> 6:
+
+return δt ← clip [0 ,255] (ot + δ) − ot
+
+The five baselines all act in the full pixel space and treat each frame independently (UAP-RL is the only exception, using one shared perturbation). None of them exploits the victim critic’s gradient structure across frames. They therefore either lose temporal coherence (MAD, PA-AD, Illusory, DAPGD) or lose per-frame adaptivity (UAP-RL). CIVA addresses both issues at once by sharing a critic-induced subspace across frames and smoothing its coefficients in time. 18 A.4.6 CIVA: Critic-Induced Value-Subspace Attack 
+
+The main paper presents the algorithmic form of CIVA. Here we expand on the parts that the method section only states briefly. We discuss (i) why the categorical-bin surrogate is a valid attack signal, (ii) why the critic-gradient matrix ∆ is approximately low-rank, (iii) what we lose by restricting the attack to Sr , (iv) how the pixel-range and ℓ∞ projections interact with the subspace constraint, (v) a frequency-domain view of the EMA, and (vi) a recipe for choosing the rank r.
+
+(i) Validity of the categorical-bin surrogate. DreamerV3’s critic returns a categorical distribution 
+
+p(k | o) = softmax( ℓk(o)) over K symlog-spaced bins [18]. The attacker does not need a calibrated value; any monotone surrogate of the predicted return suffices. Let bk be the value of bin k (sorted so that b1 < · · · < b K ). The calibrated value is V (o) = P 
+
+> k
+
+bk p(k | o), and our surrogate 
+
+v(o) = P 
+
+> k
+
+k p (k | o) replaces bk by k. Both are linear in p(· | o) with positive, increasing coefficients, so they share the same monotonicity in distributional sense: if p′ first-order stochastically dominates p, then V (p′) ≥ V (p) and v(p′) ≥ v(p). Therefore lowering v shifts probability mass toward lower-value bins, which is exactly the attacker’s goal. Using v instead of V avoids the symlog inverse and removes the bin-spacing constants from the gradient, which makes step sizes more stable across tasks with different return scales. 
+
+(ii) Why ∆ is approximately low-rank. A natural concern is whether the SVD of ∆ can really capture the attack directions when each row is computed independently. Two structural reasons explain the observed low rank. First, the rows of ∆ are produced by gradients of the same critic network. Let f = ∇δ v(o + δ) δ=0 
+
+be the first-order critic gradient at frame o. By backpropagation, f = Jenc (o)⊤ ∇sv(s), where Jenc 
+
+is the Jacobian of the visual encoder and ∇sv(s) is the gradient of the critic with respect to the latent state s ∈ Rds . Since ds ≪ D, the column space of J⊤ 
+
+> enc
+
+has rank at most ds. The first-order critic gradient at any frame therefore lies in a ds-dimensional subspace of RD .Second, the rollout visits a slow time-varying region of observation space. The Jacobian Jenc (o)
+
+changes smoothly with o, so neighbouring frames produce highly correlated gradients. PGD adds high-frequency components on top of f , but those components are bounded by the budget and do not span new directions on average. Empirically, the top r=32 singular values explain over 95% of the spectral energy of ∆ on every task we tested, which matches the latent dimension ds used by DreamerV3. Two conclusions follow: • the rank of ∆ is governed by the latent dimension ds, not the pixel dimension D; and • the SVD basis Vr is essentially a basis of the encoder’s pull-back of the critic gradient. This explains why a critic-induced subspace generalises across frames in a way that a PCA basis built from raw observations cannot: PCA captures appearance variance, while Vr captures value sensitivity .
+
+(iii) Suboptimality bound of the subspace attack. Let δ⋆ be the optimum of the per-frame full-pixel attack and δ⋆r = Vr V ⊤ 
+
+> r
+
+δ⋆ its projection onto Sr. Assume v(o + ·) is Lv -smooth in δ on the budget ball. By smoothness, 
+
+v(o + δ⋆r ) − v(o + δ⋆) ≤ ⟨∇ δ v(o + δ⋆), δ ⋆r − δ⋆⟩ + Lv 
+
+> 2
+
+∥δ⋆r − δ⋆∥22. (21) At a stationary point of the inner ℓ∞ problem the first-order term vanishes on active coordinates, and the residual is quadratic in the projection error ξ := ∥δ⋆ − Vr V ⊤ 
+
+> r
+
+δ⋆∥2. By Eckart–Young, ξ is bounded by the tail singular energy of ∆:
+
+ξ ≤ σr+1 (∆) + ∥δ⋆ − ¯δ∥2, (22) where ¯δ is the closest row of ∆ to δ⋆. So when the singular spectrum of ∆ decays fast and the test frame is not too far from the probed distribution, the suboptimality of the subspace attack is 
+
+O(Lv σr+1 (∆) 2). The fast spectral decay observed empirically is therefore the formal reason that CIVA does not lose much per-frame attack strength. 19 (iv) Pixel-range and ℓ∞ projection inside the subspace. The reparameterisation δ = Vr α does not automatically respect the ℓ∞ ball or the pixel range. The exact constrained problem 
+
+min  
+
+> α∈Rr
+
+v(o + Vr α) s.t. ∥Vr α∥∞ ≤ ε, o + Vr α ∈ [0 , 255] D , (23) has a non-axis-aligned feasible set in Rr, so its projection has no closed form. We use a cheap two-step alternation: lift α to δ = Vr α, apply the closed-form projections ΠBε and clip [0 ,255] in pixel space, then push back via α ← V ⊤ 
+
+> r
+
+δ. This is a single iteration of Dykstra’s projection between the affine set Sr and the box Bε ∩ [0 , 255] . The remaining residual δ − Vr V ⊤ 
+
+> r
+
+δ measures by how much the pixel-space constraints push the perturbation off Sr. Empirically this residual is below 10 −3 in pixel scale at ε=24 /255 , because the budget is small and the box almost never binds at training time. 
+
+(v) Frequency-domain view of the EMA. The EMA in Eq. (9) is a first-order infinite-impulse filter on the per-frame solutions {α⋆t }. Its discrete-time transfer function is 
+
+H(z) = 1 − ρ
+
+1 − ρz −1 , (24) which is low-pass with cutoff ωc ≈ − log ρ (in radians per frame). At ρ=0 .75 the cutoff is roughly 
+
+0.29 rad/frame, so the EMA strongly suppresses frequency components above ∼ 5 frames. This is exactly the temporal scale of high-frequency PGD jitter that hurts the TempAbs metric. Two consequences follow. • The EMA only attenuates fast variations in the coefficients α⋆t . Slow drifts—which carry the actual value-degrading signal—are passed through with unit gain in the limit. • Because Vr is shared across frames, filtering in coefficient space corresponds to filtering each pixel direction in Sr with the same H(z). The pixel-space perturbation δt = Vr αt
+
+inherits the same low-pass property without leaving Sr .Combined with the bound ∥δt − δt−1∥2 ≤ (1 − ρ)∥Vr α⋆t − δt−1∥2 already discussed in the main paper, this gives a clean way to trade TempAbs against per-frame attack strength by tuning a single scalar ρ.
+
+(vi) Choosing the rank r. A practical recipe is to pick r from the cumulative spectral energy of ∆:
+
+r⋆(τ ) = min 
+
+(
+
+r :
+
+Pri=1 σ2 
+
+> i
+
+(∆) 
+
+PMi=1 σ2 
+
+> i
+
+(∆) ≥ τ
+
+)
+
+, (25) with τ ∈ [0 .9, 0.99] . On all three tasks, τ =0 .95 gives r⋆ ∈ [28 , 40] , which justifies the fixed choice 
+
+r=32 used in the main experiments. Two practical notes: • Increasing r beyond the knee of the spectrum brings near-zero improvement in attack strength but slightly increases the per-frame optimisation cost and the spatial complexity of the perturbation, which weakens SSIM and TempAbs .• Decreasing r below ds is cheap but quickly truncates critic-aligned directions, which costs reward suppression. The spectrum-based rule above sits naturally between these two regimes and removes the need to tune r per task. 
+
+Putting it together. Each design choice in CIVA matches one structural fact above. The categorical-bin surrogate (i) provides a stable attack signal with the same monotonicity as the calibrated value. The latent-state geometry (ii) makes ∆ approximately low-rank, so the SVD basis Vr captures most of the value-degrading directions. The smoothness bound (iii) shows that restricting to Sr costs only O(Lv σ2
+
+> r+1
+
+) in attack strength. The two-step projection (iv) handles the pixel-range and ℓ∞
+
+constraints with negligible residual. The low-pass property of the EMA (v) suppresses temporal jitter without filtering out the attack signal. The spectrum-based rank rule (vi) removes a hyperparameter without sacrificing performance. 20 A.5 Limitations and Future Directions 
+
+Our method assumes a white-box online attacker with access to the victim critic and its gradients, and therefore does not directly apply to strict black-box settings where only actions or rewards are observable. The offline subspace discovery stage further requires clean rollouts from the target agent, and the learned subspace may need to be refreshed if the deployment environment changes substantially. Our evaluation also covers a single world-model backbone, DreamerV3, and three representative visual control tasks spanning continuous control, discrete control, and open-ended world interaction; broader validation on additional world-model architectures, larger observation resolutions, and more diverse environments is left to future work. Along the same line, future work may study query-efficient or transfer-based variants of the proposed attack, adaptive subspace updates under distribution shift, and dedicated defenses against critic-aligned temporal perturbations. 
+
+Broader impact. CIVA exposes a previously under-studied attack surface of visual world-model agents and could in principle be misused against deployed agents (e.g., visual policies for robotics or simulated control). On balance we believe the positive impact outweighs this risk: CIVA requires white-box access to the victim critic, which limits realistic misuse, and surfacing such failure modes is a prerequisite for designing robust world-model agents and certified defenses. We will release our code so that defense research can be reproduced on the same footing as the attack. 21 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract and Section 1 list three contributions—a critic-induced value subspace, a two-stage offline-probe + online-subspace-PGD attack with temporal EMA, and a joint effectiveness/behaviour/stealth evaluation.The claims made match the theoretical and experimental results. Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: A dedicated Limitations paragraph in Section 6 states that CIVA assumes white-box access to the victim critic and clean rollouts, is evaluated on three visual benchmarks (DMC walker_walk , Atari Pong, Crafter) with a single victim backbone (DreamerV3), and a fuller discussion is given in Appendix A.5. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be. • The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated. • The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren’t acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an impor-tant role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations. 22 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [Yes] Justification: The assumptions in the paper are clearly stated . Guidelines: • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. • Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main ex-perimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [Yes] Justification: Section 5.1 fully specifies the victim (DreamerV3 with official per-task config-uration) and our framework, and provide parameters. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed. • While NeurIPS does not require releasing code, the conference does require all submis-sions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example (a) If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. (b) If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. (c) If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset). (d) We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results. 23 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-tions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [Yes] Justification: We submit the code and data, and introduce the data processing method. . Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. • Please see the NeurIPS code and data submission guidelines ( https://neurips.cc/ public/guides/CodeSubmissionPolicy ) for more details. • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark). • The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines ( https: //neurips.cc/public/guides/CodeSubmissionPolicy ) for more details. • The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why. • At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable). • Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-rameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [Yes] Justification: Section 5.1 reports the victim configuration (DreamerV3 official per-task setting, frozen), the three benchmarks, all CIVA hyperparameters ( ε, η, L, M , r, ρ, warm-up), the optimizer choice (per-frame projected gradient descent), and the 5-seed evaluation protocol. The ablations in Section 5.4 document how the key design choices (subspace, EMA, critic vs. reward head) were selected. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [Yes] Justification: As stated in Section 5.1, every reported number in Table is the mean across 5
+
+independent random evaluation seeds (one rollout per seed); the seed-to-seed variation is much smaller than the gap between CIVA and the strongest baseline (e.g., 19 percentage points of Drop% on Pong), so we report means in the main tables for readability. Guidelines: • The answer [N/A] means that the paper does not include experiments. 24 • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions). • The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.) • The assumptions made should be given (e.g., Normally distributed errors). • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis of Normality of errors is not verified. • For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g., negative error rates). • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the com-puter resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [Yes] Justification: Section 5.1 states that all attack and evaluation runs use a single NVIDIA RTX PRO 6000 Blackwell GPU (96 GB); a full evaluation of one method on one task completes within a few hours, and the offline subspace probing (Stage A) takes under one hour per task. Pilot tuning of CIVA hyperparameters used the same single GPU and consumed an additional compute amount comparable to the reported main experiments. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn’t make it into the paper). 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification:We comply with the NeurIPS Code of Ethics. Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity (e.g., if there is a special consid-eration due to laws or regulations in their jurisdiction). 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? 25 Answer: [Yes] Justification: A Broader impact paragraph in Appendix A.5 acknowledges that CIVA exposes a new attack surface of visual world-model agents and could be misused, but its white-box requirement limits realistic misuse; releasing the attack and the accompanying code on the same footing is intended to enable robust world-model agents and certified defenses. Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deployment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations. • The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate Deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster. • The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology. • If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitoring misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML). 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: We did not use data or models that have a high risk of misuse. Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. • Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images. • We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? Answer: [Yes] Justification: All existing assets used in this work are publicly released open-source artefacts and are cited at first use: DreamerV3 [18] (MIT License), the DeepMind Control Suite [55] 26 (Apache 2.0), the Arcade Learning Environment [3] (GPL-2.0), and Crafter [15] (MIT License); we use them in accordance with their respective licenses. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license (e.g., CC-BY 4.0) should be included for each asset. • For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, paperswithcode.com/datasets 
+
+has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset. • For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [N/A] Justification: The paper does not release new assets. Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their submissions via structured templates. This includes details about training, license, limitations, etc. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: The paper does not involve crowdsourcing or research with human subjects. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine, but if the main contribu-tion of the paper involves human subjects, then as much detail as possible should be included in the main paper. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? 27 Answer: [N/A] Justification: The paper does not involve research with human subjects. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. • We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity (if applicable), such as the institution conducting the review. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [N/A] Justification: LLMs are not used as any important, original, or non-standard component of the core method; their use, if any, is limited to incidental writing and editing assistance. Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to our LLM policy in the NeurIPS handbook for what should or should not be described. 28
