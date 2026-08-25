@@ -1,0 +1,965 @@
+Title: Where World Models Break: Natural-Input Failure Discovery
+
+URL Source: https://arxiv.org/pdf/2608.22421v1
+
+Published Time: Tue, 25 Aug 2026 01:11:05 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Where World Models Break: Natural-Input Failure Discovery 
+
+Zhanpeng Shi 1,† , Zi Liang 2,† , Rong Feng 3,
+
+Shiqin Tang 4, Xuyang Chen 5, Hongzong Li 1,6,*   
+
+> 1School of Computer Science, Northwestern Polytechnical University
+> 2The Hong Kong Polytechnic University
+> 3Department of Data Science, City University of Hong Kong
+> 4Centre for Artificial Intelligence and Robotics, Hong Kong Institute of Science & Innovation, Chinese Academy of Sciences
+> 5Department of Electrical and Computer Engineering, National University of Singapore
+> 6Generative AI Research and Development Center, The Hong Kong University of Science and Technology
+> †Equal contribution. *Corresponding author.
+> Correspondence: lihongzong@nwpu.edu.cn
+
+Abstract 
+
+World models predict action-conditioned fu-tures and serve as critical internal simulators for downstream planning and control. However, catastrophic prediction failures of world mod-els could dangerously propagate through the control pipeline, as subsequent agent or model training and decision-making depend heavily on the continuous environment evolution fore-casted by these world models. Existing eval-uations overlook this systemic risk: by aggre-gating average errors over benign generations from general queries, they fail to stress-test the model against catastrophic collapses under rare or unobserved condition-action combinations. To bridge this gap, we formalize the natural-input failure discovery problem: under a finite query budget, finding environment-valid con-ditions and action prefixes that induce severe prediction risk, verifying whether these fail-ures reproduce on fresh seeds, and testing their persistence under nearby valid edits. Discov-ering such critical failures is computationally challenging, as valid condition-action combi-nations explode exponentially, rendering ex-haustive search or standard sampling infeasi-ble given the high cost of noisy rollouts. To tackle this, we propose B ASIN LENS , which ex-ploits the underlying structure of valid inputs, where each coordinate possesses environment-defined semantic types and admissible domains, by pairing uncertainty-guided global search with typed local replacements. Across diverse benchmarks and world-model families, B ASIN -LENS exposes reproducible and locally persis-tent failure modes that conventional evaluations fail to reveal, showing that average-case bench-marks can mask important vulnerabilities in world-model-driven control. 
+
+1 Introduction 
+
+World models learn action-conditioned environ-ment dynamics in observation space or in task-relevant latent representations. They now serve as internal simulators for model-based planning and control, from recurrent imagination models (Ha and Schmidhuber, 2018; Hafner et al., 2020) to scalable latent-control systems (Hafner et al., 2025; Hansen et al., 2024). Because planners compare futures predicted by the model, a localized forecast error can change action rankings even when aggre-gate prediction error or benchmark return remains strong. Evaluation should therefore ask not only how well a world model performs on average, but which environment-valid resets or action sequences make its forecasts unreliable. WorldBench reports aggregate and per-concept fidelity over randomized video continuations (Upadhyay et al., 2026), while interactive and closed-loop evaluations aggregate behavior over sampled interactions or trajectories (Kong et al., 2026; Li et al., 2026). These proto-cols compare systems but do not adaptively identify valid conditions that repeatedly trigger local fail-ures. Robustness methods address related but dif-ferent targets. Adversarial examples perturb in-puts (Goodfellow et al., 2015), adversarial poli-cies attack victims through legal opponent actions (Gleave et al., 2020), and world-model attacks per-turb physical-conditioning channels (Guo et al., 2026a). These methods target classifiers, policies, or features, not fixed-model prediction failures over valid inputs. Adaptive stress testing targets decision failures (Koren et al., 2018), while VerifAI searches Scenic-defined scenarios for specification viola-tions (Dreossi et al., 2019; Fremont et al., 2019). Gaussian-process Bayesian optimization can locate high-loss inputs (Srinivas et al., 2010), but it does not determine whether a discovered failure repro-duces across seeds or persists under nearby legal changes. We therefore formalize natural-input fail-ure discovery : given a fixed world model, a finite 1arXiv:2608.22421v1 [cs.AI] 23 Aug 2026 query budget, and an environment-defined valid-input set, locate reset conditions or action prefixes that induce high prediction risk. The difficulty is twofold. The valid input space grows combinatori-ally, and evaluating each candidate requires costly and noisy model and environment rollouts. Be-cause adaptive search favors extreme observations, selected failures must be tested independently for reproducibility and local persistence. Valid inputs have explicit coordinate structure. Each input coordinate has a semantic type, an ad-missible domain, and an environment-valid edit operator. Replacing one coordinate with another admissible value yields an executable and inter-pretable local move without assuming that all normalized directions have the same semantics. BASIN LENS combines uncertainty-guided global proposals with typed local replacements (Figure 1). Global proposals maintain coverage, typed replace-ments refine high-risk candidates, and a joint ac-quisition rule allocates the remaining budget. The search returns a ranked set of concrete inputs. After the search trace is fixed, these inputs are evaluated on held-out seeds and in fresh legal neighborhoods without updating the acquisition process. In this framing, B ASIN LENS is one implementation of the discovery problem, while the independently check-able failure record is the primary scientific object. On a 12,016-candidate online PushT grid (Chi et al., 2023; Florence et al., 2022), fixed-threshold discovery at budget 64 occurs in 54 .7% of B ASIN -LENS runs, 40 .6% of Gaussian-process upper con-fidence bound (GP-UCB) runs, and 10 .9% of random-search runs; the GP-UCB comparison at this threshold is descriptive. Selected inputs re-tain elevated risk on disjoint seeds, and radius-1 neighborhoods around top-score anchors reach mean conditional value at risk (CVaR) 1.252 , com-pared with at most 0.608 for controls. Studies on four additional world-model families show that the discovery formulation transfers, while also reveal-ing a useful boundary: typed expansion is most helpful in heterogeneous, interacting input spaces, whereas standard search can remain preferable in low-dimensional or homogeneous spaces. Our contributions are threefold: • Problem and evidence standard. We for-malize finite-budget natural-input failure dis-covery for fixed world models and distinguish discovery, held-out point reproducibility, and fresh-neighborhood persistence. • Structured implementation. We introduce BASIN LENS , which combines uncertainty-guided global proposals with valid typed re-placements to return executable, inspectable test cases. • Empirical findings and scope. Across five world-model families and four prediction in-terfaces, we expose valid failure conditions, verify selected PushT cases independently, and identify settings in which typed structure helps or standard search remains competitive. 
+
+2 Problem Formulation 
+
+Let E be an environment with observation space 
+
+O and action space A, let M be a trained action-conditioned world model, and let π be a fixed roll-out policy. A valid natural input x ∈ X specifies an environment-valid condition, such as reset vari-ables, a goal, or an action prefix. An input specifi-cation defines both the admissible set X and which coordinate changes preserve validity. When x con-tains an action prefix, execution applies that prefix before following π for the remaining rollout. For an input x and environment random seed ξ,applying any action prefix in x and then following 
+
+π in E produces a trajectory 
+
+τ (x, ξ ) =  o0, a 0, o 1, a 1, . . . , a T −1, o T
+
+,
+
+where ot ∈ O is the observation at time t,
+
+at ∈ A is the action applied after observing ot,and T is the rollout length. At a forecast ori-gin H and prediction horizon K, define the ob-served history as hH = ( o0, a 0, . . . , a H−1, o H )
+
+and the future action sequence as aH:H+K−1 =(aH , . . . , a H+K−1). The world model predicts 
+
+byH+1: H+K = M  hH , a H:H+K−1
+
+.
+
+The corresponding reference target is 
+
+yH+1: H+K = Φ  oH+1: H+K
+
+,
+
+where K ≥ 1, 0 ≤ H < H + K ≤ T , model-side decoding or readout is absorbed into M , and Φ
+
+maps the environment future into the same evalua-tion space. Depending on the interface, Φ can be an encoder, a simulator-state readout, or the identity map in observable space. Let d(·, ·) be a nonnegative discrepancy function, such as mean squared error in a latent or decoded space. The per-rollout prediction risk is 
+
+ℓ(x, ξ ) = d(byH+1: H+K , y H+1: H+K ) .
+
+2A. PROBLEM SETTING & MOTIVATION 
+
+1) Aggregate evaluation hides localized failures 
+
+Average performance can be low-error while a small, coherent region of legal inputs still causes large prediction error. 
+
+…
+
+Missed valid region (high risk) 
+
+Legal input Low benchmark mean error 2) A valid failure condition 
+
+The environment evolves while the frozen model stalls, creating divergence. 
+
+ENVIRONMENT FUTURE 
+
+t t+1 t+2 t+3 
+
+MODEL PREDICTION (frozen) 
+
+t t+1 t+2 t+3 
+
+DIVERGENCE 3) Reproducible local failure 
+
+The error reproduces on new seeds and persists under nearby valid edits. 
+
+Held-out seeds 
+
+…
+
+Radius-1 valid neighborhood 
+
+Risk elevated in nearby legal inputs 
+
+B. BASINLENS ALGORITHM OVERVIEW: TYPED GLOBAL-LOCAL SEARCH  
+
+> 1TYPED LEGAL INPUT SPACE
+> Each coordinate j has • semantic type • valid domain • edit operator
+> type domain edit op.
+
+………   
+
+> 2EVALUATED SET
+> Scouts + queried scores
+> 3a GLOBAL PROPOSAL (explore)
+> Surrogate coverage beyond current anchors
+> 3b TYPED FRONTIER (exploit locally)
+> : replace one typed coordinate and retain only legal inputs
+
+…          
+
+> 4MERGED ACQUISITION
+> evaluated proposed next query
+> 5QUERY & UPDATE
+> repeat while
+> 6RANKED DISCOVERY RECORD
+> Finite-budget executable condition
+> Rank Condition Score 10.87 20.82 30.79 k0.62
+
+Passed to fresh seed tests and local tests 
+
+C. VALIDATION PROTOCOL 
+
+1 HELD-OUT REEVALUATION 
+
+: disjoint seeds 
+
+…
+
+> Reproduces on fresh seeds
+
+2 LOCAL PERSISTENCE (RADIUS-1) 
+
+: all adjacent one-coordinate valid edits 
+
+…
+
+> Risk elevated in neighborhood
+
+3 RISK SUMMARY 
+
+：highest-risk α-fraction of seeds high risk Risk over seeds Target / goal Agent / object Obstacle / key element Evaluated input Proposed (unqueried) Evaluated & validated 
+
+NOTATION 
+
+Legal input space Legal input (reset or prefix) Model prediction rollout Environment rollout Risk on held-out seeds Acquisition score Query budget Top-k report size                   
+
+> 𝑥 ∈ 𝒳 𝒩 !(𝑥) 𝒱 !
+> ℰ!
+> 𝒳 = #
+> "#! $
+> 𝒱 "𝒬 %= {𝑥 &}&#! %
+> 𝑠 &= 𝑅 '()* (𝑥 &)𝒫 %+*,-= 𝑇𝑜𝑝 .(𝒳 ∖ 𝒬 %; 𝜇 %+ 𝛽𝜎 %)𝒫 %*,/ = [ 8
+> 0∈ℋ "
+> 𝓡(ℎ)] ∖ 𝒬 %
+> ℛ(ℎ)
+> 𝑥 %3! = 𝑎𝑟𝑔𝑚𝑎𝑥 4∈𝒫 "𝐴 %(𝑥)
+> 𝐴 %(𝑥)
+> 𝒫 %= 𝒫 %+*,-∪ 𝒫 %*,/
+> 𝑥 𝑡 < 𝐵
+> 𝑠 %3! = 𝑅 '()* (𝑥 %3! )𝒬 %3! = 𝒬 %∪ {𝑥 %3! }𝒞 6= 𝑇𝑜𝑝 6(𝒬 7; 𝑅 '()* )
+> 𝑥 ($)
+> 𝑥 (&)
+> 𝑥 (')
+> 𝑥 (()
+> 𝑅 ()* (𝑥) 𝒩 !(𝑥) 𝑅 ()* (𝑥) = 1|𝒮 8(𝑥)| G
+> 9∈𝒮 )(4)
+> ℓ (𝑥, 𝜉) 𝒮 8(𝑥) 𝐴 %(𝑥) 𝐵 𝑦(𝑥, 𝜉) 𝑥 ∈ 𝒳 ŷ(𝑥, 𝜉) 𝒳 𝑘 𝑅 ()* (𝑥)
+
+Figure 1: Problem, structured search, and independent evidence. Aggregate evaluation can miss a small region of legal inputs (left). B ASIN LENS represents legal conditions as typed coordinates, maintains the evaluated set, forms global-surrogate and typed-frontier proposal pools, and queries their merged acquisition until returning a finite-budget discovery record (center). Held-out-seed re-evaluation and fresh radius-1 legal neighborhoods test reproducibility and local persistence without feeding validation evidence back into search (right). 
+
+For an evaluation seed set Seval , the aggregate pre-diction risk of x is 
+
+Rpred (x) = ρ {ℓ(x, ξ ) : ξ ∈ S eval },
+
+where ρ is a prespecified aggregation operator, such as the mean, maximum, or upper-tail conditional value at risk (CVaR) (Rockafellar and Uryasev, 2000). When a protocol also requires task-active rollouts, let v(x) ≥ 0 be its prespecified activity violation and define the search score 
+
+Reval (x) = Rpred (x) − λact v(x),
+
+where λact ≥ 0 is the task-activity penalty weight; protocols without this adjustment set λact = 0 . An adaptive algorithm may evaluate at most B valid inputs, producing QB ⊆ X with |Q B | ≤ B. For a prespecified shortlist size 1 ≤ k ≤ |Q B |, it selects 
+
+Ck = Top k(QB ; Reval )
+
+and, when fresh evaluation is available, returns validation records 
+
+bVk = {(x, R val (x)) : x ∈ C k},
+
+where Top k(Q; R) returns the k elements of Q
+
+with the largest values under R and a fixed tie-breaking rule, and Rval uses a disjoint seed set 
+
+Sval . Only shortlisted candidates, rather than every queried input, receive held-out validation. Search performance can be measured by best discovered score, the probability of finding any input above a threshold θ, or threshold-averaged discovery. The goal is to identify a small set of valid inputs for inspection, not to estimate average risk under a deployment distribution. For validation, the input specification induces a valid-input graph G = ( X , EG ), where (x, x ′) ∈ E G
+
+when one valid edit moves one typed coordinate to an adjacent value in its ordered grid. Let dG be the shortest-path distance on this graph. For radius 
+
+r ∈ N0, define 
+
+Nr(x) = {x′ ∈ X : dG (x, x ′) ≤ r}
+
+as the radius-r valid neighborhood. Its fresh-evaluation mean risk is 
+
+Rval ,r (x) = 1
+
+|N r(x)|
+
+X
+
+x′∈N r (x)
+
+Rval (x′).
+
+3We compare this quantity with neighborhoods around prespecified control anchors. Cached di-agnostic studies additionally use a broader replace-ment graph, connecting inputs that differ by any valid single-coordinate replacement, and measure how many oracle top-score inputs from one refer-ence component are covered within budget. This reference-component metric is defined in the sup-plement and is not part of the core failure definition. Validity does not imply prevalence. A natural input is executable through the environment’s ordi-nary reset or action interface and passes prespeci-fied validity checks; it need not be common under an unknown deployment distribution. The finite library defines a reproducible search domain and is not used to estimate failure frequency. Discov-ery returns concrete valid conditions under a stated query budget. Each reported score is specific to its prediction interface, evaluation seeds, and validity rules. 
+
+3 A Structured Implementation: BASIN LENS 
+
+BASIN LENS instantiates natural-input failure dis-covery as a structured budgeted search (Figure 1). It maintains an evaluated set, forms complemen-tary global and typed-local candidate pools, ranks their union, and returns a shortlist for indepen-dent follow-up evaluation. A global surrogate can reach distant candidates, but normalized geometry alone does not identify meaningful or environment-valid edits. A frontier preserves typed semantics, but a frontier-only search can remain confined around early anchors. B ASIN LENS therefore uses global proposals for coverage and typed replace-ments for executable local refinement; held-out and adjacency-neighborhood measurements remain separate from acquisition. 
+
+3.1 Typed Valid Frontier 
+
+Let Qt be the inputs evaluated after t queries and let Ht ⊆ Q t contain the highest-scoring evaluated inputs used as anchors. Let the replacement neigh-borhood R(x) contain valid candidates obtained by replacing one typed coordinate of x with any other allowed value. The unevaluated local frontier is 
+
+Ploc  
+
+> t
+
+= [
+
+> x∈H t
+
+R(x)
+
+!
+
+\ Q t.
+
+An edit substitutes an admissible value for one typed reset field or action-prefix entry; the input specification retains environment-valid candidates. Search uses the broader replacement neighbor-hood for exploration, whereas persistence valida-tion uses the stricter adjacency neighborhood N1,which changes one coordinate to an adjacent grid value. The coordinate-only variant B ASIN LENS -FRONTIER uses the replacement frontier without global proposals. This mechanism is related to combinatorial testing over parameter-value combi-nations (Kuhn et al., 2015), but operates directly on valid environment variables. 
+
+3.2 Global–Local Acquisition 
+
+BASIN LENS augments the frontier with global ex-ploration. A normalized representation ψ(x) maps each typed input to a coordinate scale. After ev-ery evaluation, the method fits a Gaussian-process surrogate to {(ψ(x), R eval (x)) : x ∈ Q t}. For an unevaluated input x, the surrogate provides a posterior mean μt(x) and standard deviation σt(x).Following GP-UCB (Srinivas et al., 2010), its score uses a fixed standard-deviation multiplier: 
+
+aUCB ,t (x) = μt(x) + βσ t(x),
+
+where β > 0 controls exploration. The global pool 
+
+Pglob  
+
+> t
+
+contains the highest-scoring unevaluated in-puts under aUCB ,t . Unlike frontier expansion, this pool can propose candidates far from the current anchors. The two candidate sources are combined as 
+
+Pt = Ploc  
+
+> t
+
+∪ P glob  
+
+> t
+
+.
+
+Within this pool, a practical ranking rule standard-izes the UCB score by the mean and standard devi-ation of the observed search scores and augments it with three structural terms: 
+
+At(x) = zUCB  
+
+> t
+
+(x) + λpzpar  
+
+> t
+
+(x)+ λdκanc  
+
+> t
+
+(x) + λnδnov  
+
+> t
+
+(x). (1) Here, zpar  
+
+> t
+
+(x) is the largest standardized search score among anchors whose replacements produce 
+
+x; κanc  
+
+> t
+
+(x) measures Gaussian proximity to the anchors; and δnov  
+
+> t
+
+(x) is the minimum normalized distance to an evaluated input. The parent and proximity terms retain local evidence, while the novelty term encourages coverage. Our experi-ments use one fixed setting of λp, λd, and λn across all LeWM PushT online protocols and a separate model-specific setting for DINO-WM. Exact defi-nitions and settings are reported in the supplement. 4Normalization supports global surrogate model-ing, whereas typed edits define valid local changes. Normalization supplies the global surrogate with a numerical coordinate system; the replacement graph defines meaningful local changes. Every edit maps back to one named field, is checked against its admissible values, and remains executable even when Euclidean proximity would be misleading. The method requires neither world-model gradi-ents nor a differentiable simulator; it only requires a prediction-risk value for each queried input. 
+
+3.3 Discovery Records and Independent Evidence 
+
+When the budget is exhausted, B ASIN LENS returns the shortlist Ck, not an inferred risk surface. Each discovery record retains the stable identifier, typed values, evaluation seeds, per-seed losses, activity measurements when applicable, ranking score, and ordered query trace. These fields make each se-lected condition reproducible and allow the com-plete search trace and comparator pairing to be verified. Follow-up evidence is attached only after the query trace and shortlist are frozen. Held-out evalu-ation changes the seeds while preserving the input; neighborhood evaluation applies adjacent typed ed-its on fresh seeds. Neither measurement updates the surrogate or reranks the trace. The initial search identifies candidates for inspection, held-out eval-uation tests pointwise reproducibility, and fresh-neighborhood evaluation tests local persistence. To-gether, these evaluations determine whether a dis-covered input represents a repeatable point failure or a locally persistent failure region. BASIN LENS -I NTERACTION adds pairwise co-ordinate features in combinatorial reset spaces, whereas B ASIN LENS -B EAM expands multiple high-score anchors without a global GP-UCB re-fresh. These cached component-isolation tools test whether interactions or multi-anchor expansion ex-plain gains under different input structures; their complete scoring rules are reported in the supple-ment. 
+
+4 Experimental Setup 
+
+4.1 Models and Prediction Measures 
+
+The main study uses LeWorldModel (LeWM) checkpoints (Maes et al., 2026) on PushT (Chi et al., 2023; Florence et al., 2022) and TwoRooms. Additional checks use DINO World Model (DINO-WM) on PushT (Zhou et al., 2025), a joint-embedding predictive architecture world model (JEPA-WM) on PointMaze (Terver et al., 2026), and DIAMOND and IRIS on Atari (Alonso et al., 2024; Micheli et al., 2023). The main LeWM PushT prediction risk Rpred is the upper-tail CVaR of state-probe mean squared error (MSE) at the final forecast step, computed across evaluation seeds. LeWM observes three frames and predicts three frames sampled at five-simulator-step intervals from a 40-step rollout. The tail contains the largest ⌈0.4n⌉ errors among n
+
+seeds: four of eight search-seed errors and seven of 16 validation-seed errors. Online acquisition sub-tracts a task-activity penalty from candidates that violate prespecified rollout thresholds; held-out and neighborhood risks are unpenalized CVaR. DINO-WM uses final-step visual-feature MSE, JEPA-WM uses latent visual MSE plus 0.1 times latent propri-oceptive MSE, and Atari uses future-frame MSE. Risk magnitudes are interpreted only within a proto-col because prediction spaces differ across models. Exact definitions and activity penalties are in the supplement. We evaluate LeWM through a latent-to-state probe rather than its optional diagnostic red–green– blue (RGB) decoder, obtaining PushT state-space risk and physical readouts. The LeWM results evaluate the complete pipeline from latent world-model prediction to state readout. Separate held-out checks measure the probe’s in-distribution ac-curacy. In the displayed TwoRooms case, future-position mean absolute error (MAE) rises from 
+
+13 .2 to 89 .0 pixels while probe MAE changes from 
+
+1.13 to 1.66 pixels, showing that readout error alone does not explain that case. DINO-WM pro-vides probe-independent evidence through visual-feature prediction. 
+
+4.2 Protocols and Comparisons 
+
+The experiments use distinct protocols for on-line discovery, held-out point validation, fresh-neighborhood evaluation, component isolation, and cross-model scope. Cached studies use a dense agent-start library (8,177 candidates; 3,928 environment-valid inputs) and a cached combinato-rial grid (431 environment-valid combinations). The large online grid contains 12,016 valid can-didates and uses scout size three, 64 paired algo-rithm restarts, eight evaluation seeds per candi-date, and budgets 16, 32, and 64. A separate 576-candidate point-validation library has 96 scout-size-5Table 1: Protocol map. Each row answers a different question; measurements are not pooled across rows.                      
+
+> Question Library / bud-get Independent record Discovery 12,016; B∈{16 ,32 ,64 }
+> Search score, fixed-threshold hit, and mean best score Held-out 576; B= 32 Selected points on 16 disjoint seeds Local 3,510; B=32
+> Fresh radius-1 neighbor-hoods around top, mid, and random anchors Components Cached grids; other inter-faces Common-scout hit or coverage; no cross-interface scale pooling
+
+three search runs at budget 32; its pooled validation set adds 32 existing scout-size-four runs, yielding 128 restarts, and uses 16 disjoint validation seeds. The 3,510-candidate wide validation grid couples budget-32 search with fresh radius-1 neighborhood evaluation. All three LeWM online libraries use the same acquisition-parameter setting; seed partitions and parameters are listed in the supplement. In the cached DINO-WM component analyses, every method receives the same random scout queries and spends the remaining budget under its own selection rule. We compare best discovered search score and reference-component coverage on the same top-score set. Sharing the scout queries isolates the continuation policy from variation in the initial observations. Search baselines are random search, GP-UCB without a typed frontier, and, in cached abla-tions, the cross-entropy method (CEM) (Rubin-stein, 1999). Comparisons match budgets, candi-date libraries, and restart streams. Validation uses protocol-specific held-out references; neighbor-hoods around mid-score and random anchors pro-vide local controls. One-sided exact sign tests as-sess paired scalar outcomes, McNemar tests paired hit indicators, and exact permutation tests compare prespecified neighborhood groups; ties are omitted. 
+
+5 Results 
+
+5.1 Discovery under a Finite Budget 
+
+On the 12,016-candidate large online grid, ran-dom search crosses Reval ≥ 1.60 in only 10 .9% of budget-64 runs, compared with 40 .6% for GP-UCB and 54 .7% for B ASIN LENS (Figure 2A). Paired McNemar tests give p = 4 .18 ×10 −6 against ran-dom search and p = 0 .061 against GP-UCB; the latter fixed-threshold difference is therefore de-scriptive. This rate indicates that random search rarely reaches the threshold within 64 queries in the finite library. It does not estimate failure prevalence under deployment. Mean-best and threshold-averaged measures give complementary evidence. At budget 64, mean best search scores are 1.572 , 1.547 , and 1.512 
+
+for B ASIN LENS , GP-UCB, and random search; the paired comparison with GP-UCB gives p =0.0027 . Averaged over 16 prespecified thresholds from 1.50 to 1.65 , the corresponding discovery rates are 0.572 , 0.474 , and 0.255 , with p = 0 .004 
+
+against GP-UCB. Full budget-wise statistics appear in the supplement. 
+
+5.2 Reproducibility and Local Persistence 
+
+The point-validation protocol evaluates shortlisted inputs on 16 disjoint seeds. The pooled 128-restart analysis contains 27 unique B ASIN LENS selections, of which 24 have complete held-out measurements under the prespecified validation caps. Their mean held-out prediction CVaR is 1.311 , compared with 
+
+1.186 for the default reset evaluated on the same seeds (Figure 3A). Because this protocol does not evaluate other methods’ shortlists, the result estab-lishes reproducibility but not comparative shortlist quality. Fresh-seed evaluation on the wide validation grid tests local persistence. At budget 32, B ASIN LENS 
+
+has the highest mean best search score, and an independent seed split preserves the ordering (Fig-ure 2B). Radius-1 neighborhoods around the eight top-score anchors have mean prediction CVaR 
+
+1.252 , versus 0.608 around mid-score controls and 
+
+0.546 around random controls (Figure 3B). Both exact permutation tests satisfy p ≤ 6.99 ×10 −4.The tests treat anchors, rather than individual neigh-bors, as independent units. 
+
+5.3 What the Discovered Failures Reveal 
+
+Holding the PushT block and goal fixed while changing only the valid agent start raises the pre-dicted final block–goal distance ratio from 0.941 to 
+
+1.110 across 64 paired seeds; the ratio is higher in 
+
+98 .4% of pairs (Figure 2D). This physical readout illustrates the effect of one selected condition. In TwoRooms, changing only the valid start produces a much larger change in future-position error than in probe error (Figure 3C–D). Across the quali-tative cases, failures appear as temporal collapse in TwoRooms, prediction stalling in PushT, and a missed wall-opening transition in DINO-WM. A 61 16 32 48 64 
+
+> evaluated candidates
+> 0% 20% 40% 60%
+> discovery rate  ↑
+
+A High-risk discovery     
+
+> 10.9% 40.6%
+> 54.7%
+> Reval ≥1.60
+> Random GP-UCB BasinLens
+> 1.57 1.61 1.65
+> mean best search score ↑
+
+B Online search quality 
+
+> 1.587 1.620
+> 1.647
+> Random GP-UCB
+> BasinLens
+
+C Structure changes the best search rule  
+
+> 0% 50% 100%
+> top-set hit @ 32  ↑
+> PushT 1D
+> Random
+> GP-UCB
+> Frontier BasinLens
+> 87.5%
+> PushT 6D
+> Random GP-UCB Frontier BasinLens Interact.
+> Beam
+> 96.3%
+> Reference Risk-elevated
+> 0.9 1.0 1.1
+> final BG ratio  ↑ worse
+
+D Fixed-geometry case 
+
+> 0.941 1.110
+
+Figure 2: Discovery and structure-sensitive search evidence. (A) Cumulative probability of crossing Reval ≥ 1.60 
+
+on the 12,016-candidate large online grid. (B) Mean best search score at budget 32 on the 3,510-candidate wide validation grid. (C) Cached budget-32 hit rates for the top 2% of the single-factor grid and top 5% of the combinatorial grid: GP-UCB leads in the former, whereas the interaction-aware and beam variants lead in the latter. (D) With block and goal fixed, changing only the valid agent start increases the predicted final block–goal distance ratio; higher is worse. 
+
+prioritized local Wall library contains 92 no-cross cases among 900 valid configurations; matched trajectories are visualized in the supplement. 
+
+5.4 When Does Typed Structure Help? 
+
+Matched cached experiments isolate search com-ponents at budget 32 (Figure 2C). On the single-factor grid, GP-UCB attains the highest top-2% hit rate, 0.875 , followed by B ASIN LENS at 0.867 . On the cached combinatorial grid, B ASIN LENS -B EAM 
+
+and B ASIN LENS -I NTERACTION reach top-5% hit rates of 0.963 and 0.961 ; random search is the strongest standard baseline at 0.828 , while stan-dard B ASIN LENS reaches 0.803 . Thus, pairwise features and multi-anchor expansion help in this combinatorial setting, whereas GP-UCB remains preferable in the single-factor setting. In DINO-WM common-scout replays, B ASIN -LENS reaches mean best score 2.908 versus 2.863 
+
+for GP-UCB and top-5% reference-component coverage 4.898 versus 3.195 ; an independent 384-candidate library preserves both advantages. BASIN LENS -F RONTIER attains slightly higher cov-erage, indicating that typed replacement is the use-ful component for covering multiple high-risk in-puts from one reference component. On JEPA-WM PointMaze, typed action-neighborhood search reaches mean best composite risk 5.113 at budget 16, versus 4.935 for random search. In four DI-AMOND and IRIS action-prefix studies, random search or UCB is strongest. Across the studied libraries, typed expansion is most useful when valid inputs contain semantically distinct coordinates and combinatorial interactions. Its advantage is smaller in single-factor and homo-geneous action-prefix spaces. Because model, task, and prediction interface vary together, this pattern should be interpreted as a scope observation rather than a controlled causal comparison. The cross-model studies therefore characterize where typed search is useful across prediction interfaces. 
+
+5.5 Scope and Boundaries 
+
+Natural-input failure discovery targets executable prediction failures under environment-valid inputs. Selected PushT conditions are reevaluated on dis-joint seeds and in fresh legal neighborhoods. This protocol filters out invalid perturbations and fail-ures caused by a single noisy evaluation. The finite libraries do not estimate failure prevalence under deployment, and risk values are not comparable across prediction interfaces. Search performance also varies with the structure of the input space. Each reported failure record should include the 7reference selected 
+
+> 1.15 1.25 1.35
+> prediction CVaR  ↑
+
+A Held-out point   
+
+> 1.186
+> 1.311
+> top mid random
+> 0.5 0.9 1.3
+> neighborhood CVaR  ↑
+
+B Local persistence  
+
+> 1.252
+> 0.608 0.546
+> reference selected
+> 040 80
+> future-position MAE (px)  ↑
+
+C TwoRooms forecast  
+
+> 13.2
+> 89.0
+> reference selected
+> 1.0 1.4 1.8
+> probe MAE (px)  ↑
+
+D Readout check 
+
+> 1.13
+> 1.66
+
+Figure 3: Independent validation and measurement boundary. (A) B ASIN LENS -selected inputs retain higher mean prediction conditional value at risk (CVaR) on held-out seeds than the default-reset reference. (B) Fresh radius-1 neighborhoods around top-score anchors have higher mean prediction CVaR than neighborhoods around mid-score and random controls, supporting local persistence. (C) In a deterministic TwoRooms case, changing only the valid start raises future-position mean absolute error (MAE) from 13 .2 to 89 .0 pixels. (D) Probe MAE changes only from 
+
+1.13 to 1.66 pixels in the same case; readout error alone therefore does not explain the forecast error. Panels C and D use different vertical scales. 
+
+environment-valid trigger, search budget, predic-tion metric, held-out result, and behavior of nearby valid inputs. This record distinguishes a repeatable local weakness from an invalid perturbation or an isolated noisy maximum. The search policy con-structs these records, and its effectiveness depends on the input structure. Standard search can remain competitive in low-dimensional or homogeneous spaces, whereas typed replacement is most useful when coordinates have distinct semantics and inter-actions. 
+
+6 Related Work 
+
+Planning systems use latent-space online planning (Hafner et al., 2019), latent imagination for pol-icy learning (Hafner et al., 2020), task-relevant learned dynamics (Schrittwieser et al., 2020), or la-tent model predictive control (Hansen et al., 2022). Their interfaces span discrete-token space (Micheli et al., 2023), pixel space via diffusion (Alonso et al., 2024), and pretrained visual-feature space (Zhou et al., 2025). Benchmarks assess physical fidelity (Upadhyay et al., 2026), interactive behavior (Kong et al., 2026; Fang et al., 2026), and closed-loop out-comes (Li et al., 2026; Zhang et al., 2026), while uncertainty monitors robot failures (Ward et al., 2026). We instead seek environment-valid triggers of model-specific future-prediction risk under fixed models. Software testing uses combinatorial designs (Kuhn et al., 2015), while neural-system testing uses coverage (Pei et al., 2017), metamorphic trans-
+
+Table 2: Positioning relative to adjacent evaluation set-tings. Individual methods may combine multiple ele-ments.             
+
+> Paradigm Typical output Aggregate benchmarks Aggregate performance over sam-pled rollouts Adversarial testing High-loss cases under optimized perturbations or conditions Policy stress testing Policy failures in valid scenarios Scenario falsification Counterexamples to stated require-ments Black-box optimization Best queried inputs for scalar ob-jectives This work Environment-valid triggers with held-out point and legal-neighborhood evidence
+
+formations (Tian et al., 2018), and behavioral tem-plates (Ribeiro et al., 2020). Rare-failure evaluation and adaptive stress testing target agent or policy failures (Uesato et al., 2019; Koren et al., 2018). VerifAI searches Scenic-defined scenarios for re-quirement violations (Dreossi et al., 2019; Fremont et al., 2019), and related falsification methods sup-port robust reinforcement learning (Wang et al., 2020). Bayesian safety validation estimates failure probability (Moss et al., 2024), whereas Bayesian-optimization falsification targets requirement viola-tions (Ramezani et al., 2025). Natural-input failure discovery searches a fixed world model’s predic-tions and attaches independent point and neighbor-hood evidence to returned conditions. Adversarial examples perturb inputs (Goodfel-low et al., 2015), physical attacks alter sensed ob-8jects (Eykholt et al., 2018), and adversarial rein-forcement learning attacks policies through pertur-bations or opponent actions (Huang et al., 2017; Gleave et al., 2020). World-model attacks perturb physical-conditioning channels or search attack configurations (Guo et al., 2026a,b); the Tail-Aware Ranking Attack for World-Model Planning (TRAP) targets imagined-trajectory rankings (Duan et al., 2026). GP-UCB searches expensive black-box ob-jectives (Srinivas et al., 2010). We instead search for valid inputs that expose prediction failures and validate those failures across seeds and nearby legal edits. B ASIN LENS combines GP-UCB coverage with typed replacements for this purpose. 
+
+7 Conclusion 
+
+We introduced natural-input failure discovery, a finite-budget evaluation problem for locating environment-valid resets or action prefixes that induce reproducible, locally persistent prediction failures. Across PushT and four additional world-model settings, the results suggest that typed ex-pansion is most useful for semantically distinct, interacting coordinates, while standard search re-mains competitive in simpler spaces. B ASIN LENS 
+
+provides a structured implementation of this prob-lem and complements aggregate benchmarks by turning hidden weaknesses into inspectable failure records supported by held-out and neighborhood evidence. 9References 
+
+Eloi Alonso, Adam Jelley, Vincent Micheli, Anssi Kan-ervisto, Amos Storkey, Tim Pearce, and François Fleuret. 2024. Diffusion for world modeling: Vi-sual details matter in atari. In Advances in Neural Information Processing Systems , volume 37, pages 58757–58791. Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin C. M. Burchfiel, and Shuran Song. 2023. Diffusion policy: Visuomotor policy learning via action diffusion. In Proceedings of Robotics: Science and Systems XIX , Daegu, Republic of Korea. Tommaso Dreossi, Daniel J. Fremont, Shromona Ghosh, Edward Kim, Hadi Ravanbakhsh, Marcell Vazquez-Chanlatte, and Sanjit A. Seshia. 2019. VerifAI: A toolkit for the formal design and analysis of artificial intelligence-based systems. In Computer Aided Veri-fication , volume 11561 of Lecture Notes in Computer Science , pages 432–442. Springer. Siyuan Duan, Ke Zhang, and Xizhao Luo. 2026. TRAP: Tail-aware ranking attack for world-model planning. 
+
+Preprint , arXiv:2605.01950. Kevin Eykholt, Ivan Evtimov, Earlence Fernandes, Bo Li, Amir Rahmati, Chaowei Xiao, Atul Prakash, Tadayoshi Kohno, and Dawn Song. 2018. Robust physical-world attacks on deep learning visual clas-sification. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pages 1625–1634. Jianjie Fang, Yingshan Lei, Qin Wan, Ziyou Wang, Yuchao Huang, Yongyan Xu, Baining Zhao, Weichen Zhang, Chen Gao, Xinlei Chen, and Yong Li. 2026. iWorld-Bench: A benchmark for interactive world models with a unified action generation framework. In Proceedings of the 43rd International Conference on Machine Learning . Accepted at ICML 2026; final proceedings metadata pending verification. Pete Florence, Corey Lynch, Andy Zeng, Oscar A. Ramirez, Ayzaan Wahid, Laura Downs, Adrian Wong, Johnny Lee, Igor Mordatch, and Jonathan Tompson. 2022. Implicit behavioral cloning. In Pro-ceedings of the 5th Conference on Robot Learning ,volume 164 of Proceedings of Machine Learning Research , pages 158–168. PMLR. Daniel J. Fremont, Tommaso Dreossi, Shromona Ghosh, Xiangyu Yue, Alberto L. Sangiovanni-Vincentelli, and Sanjit A. Seshia. 2019. Scenic: A language for scenario specification and scene generation. In Pro-ceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation ,pages 63–78. ACM. Adam Gleave, Michael Dennis, Cody Wild, Neel Kant, Sergey Levine, and Stuart Russell. 2020. Adversarial policies: Attacking deep reinforcement learning. In 
+
+International Conference on Learning Representa-tions .Ian J. Goodfellow, Jonathon Shlens, and Christian Szegedy. 2015. Explaining and harnessing adversar-ial examples. In International Conference on Learn-ing Representations .Zhixiang Guo, Siyuan Liang, András Balogh, Noah Lunberry, Rong-Cheng Tu, Márk Jelasity, and Dacheng Tao. 2026a. When world models dream wrong: Physical-conditioned adversarial attacks against world models. Preprint , arXiv:2602.18739. Zhixiang Guo, Siyuan Liang, Shi Fu, Cheng Guo, András Balogh, Márk Jelasity, and Dacheng Tao. 2026b. WMAttack: Automated attack search for ad-versarial evaluation of world-model agents. Preprint ,arXiv:2605.23220. David Ha and Jürgen Schmidhuber. 2018. Recurrent world models facilitate policy evolution. In Ad-vances in Neural Information Processing Systems ,volume 31, pages 2451–2463. Curran Associates, Inc. Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mo-hammad Norouzi. 2020. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations .Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James David-son. 2019. Learning latent dynamics for planning from pixels. In Proceedings of the 36th Interna-tional Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pages 2555–2565. PMLR. Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timo-thy Lillicrap. 2025. Mastering diverse control tasks through world models. Nature , 640(8059):647–653. Nicklas Hansen, Hao Su, and Xiaolong Wang. 2024. TD-MPC2: Scalable, robust world models for con-tinuous control. In The Twelfth International Confer-ence on Learning Representations .Nicklas A. Hansen, Hao Su, and Xiaolong Wang. 2022. Temporal difference learning for model predictive control. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of 
+
+Proceedings of Machine Learning Research , pages 8387–8406. PMLR. Sandy Huang, Nicolas Papernot, Ian Goodfellow, Yan Duan, and Pieter Abbeel. 2017. Adversarial attacks on neural network policies. In 5th International Conference on Learning Representations, Workshop Track . OpenReview.net. Lingdong Kong, Ao Liang, Tianyi Yan, Hongsi Liu, Yu Yang, Ziqi Huang, Xian Sun, Wei Yin, Jialong Zuo, Yixuan Hu, Dekai Zhu, Dongyue Lu, Youquan Liu, Guangfeng Jiang, Linfeng Li, Xiangtai Li, Long Zhuo, Lai Xing Ng, Benoit R. Cottereau, and 4 others. 2026. Is your driving world model an all-around player? In CVPR 2026 Workshop on Video World Models . Poster. 
+
+10 Mark Koren, Saud Alsaif, Ritchie Lee, and Mykel J. Kochenderfer. 2018. Adaptive stress testing for au-tonomous vehicles. In 2018 IEEE Intelligent Vehicles Symposium (IV) , pages 1–7. IEEE. D. Richard Kuhn, Renee Bryce, Feng Duan, Laleh Sh. Ghandehari, Yu Lei, and Raghu N. Kacker. 2015. Combinatorial testing: Theory and practice. In Ad-vances in Computers , volume 99, pages 1–66. Else-vier. Yaxuan Li, Zhongyi Zhou, Yefei Chen, Yaokai Xue, and Yichen Zhu. 2026. dWorldEval: Scalable robotic pol-icy evaluation via discrete diffusion world model. 
+
+Preprint , arXiv:2604.22152. Accepted to ICML 2026 as a Spotlight; final proceedings metadata pend-ing verification. Lucas Maes, Quentin Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero. 2026. Leworldmodel: Stable end-to-end joint-embedding predictive architecture from pixels. Preprint ,arXiv:2603.19312. Vincent Micheli, Eloi Alonso, and François Fleuret. 2023. Transformers are sample-efficient world mod-els. In The Eleventh International Conference on Learning Representations .Robert J. Moss, Mykel J. Kochenderfer, Maxime Gariel, and Arthur Dubois. 2024. Bayesian safety valida-tion for failure probability estimation of black-box systems. Journal of Aerospace Information Systems ,21(7):533–546. Kexin Pei, Yinzhi Cao, Junfeng Yang, and Suman Jana. 2017. DeepXplore: Automated whitebox testing of deep learning systems. In Proceedings of the 26th Symposium on Operating Systems Principles , pages 1–18. ACM. Zahra Ramezani, Kenan Šehi´ c, Luigi Nardi, and Knut Åkesson. 2025. Falsification of cyber-physical sys-tems using bayesian optimization. ACM Transac-tions on Embedded Computing Systems , 24(3):1–23. Marco Tulio Ribeiro, Tongshuang Wu, Carlos Guestrin, and Sameer Singh. 2020. Beyond accuracy: Be-havioral testing of NLP models with CheckList. In 
+
+Proceedings of the 58th Annual Meeting of the Asso-ciation for Computational Linguistics , pages 4902– 4912, Online. Association for Computational Lin-guistics. R. Tyrrell Rockafellar and Stanislav Uryasev. 2000. Op-timization of conditional value-at-risk. The Journal of Risk , 2(3):21–41. Reuven Y. Rubinstein. 1999. The cross-entropy method for combinatorial and continuous optimiza-tion. Methodology and Computing in Applied Proba-bility , 1(2):127–190. Julian Schrittwieser, Ioannis Antonoglou, Thomas Hu-bert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. 2020. Mastering Atari, Go, Chess and Shogi by plan-ning with a learned model. Nature , 588(7839):604– 609. Niranjan Srinivas, Andreas Krause, Sham M. Kakade, and Matthias W. Seeger. 2010. Gaussian process optimization in the bandit setting: No regret and experimental design. In Proceedings of the 27th In-ternational Conference on Machine Learning , pages 1015–1022. Basile Terver, Tsung-Yen Yang, Jean Ponce, Adrien Bardes, and Yann LeCun. 2026. What drives success in physical planning with joint-embedding predictive world models? Transactions on Machine Learning Research . Reproducibility Certification. Yuchi Tian, Kexin Pei, Suman Jana, and Baishakhi Ray. 2018. DeepTest: Automated testing of deep-neural-network-driven autonomous cars. In Proceedings of the 40th International Conference on Software Engineering , pages 303–314. ACM. Jonathan Uesato, Ananya Kumar, Csaba Szepesvári, Tom Erez, Avraham Ruderman, Keith Anderson, Kr-ishnamurthy Dvijotham, Nicolas Heess, and Push-meet Kohli. 2019. Rigorous agent evaluation: An adversarial approach to uncover catastrophic failures. In International Conference on Learning Representa-tions .Rishi Upadhyay, Howard Zhang, Jim Solomon, Ayush Agrawal, Pranay Boreddy, Shruti Satya Narayana, Yunhao Ba, Alex Wong, Celso M. de Melo, and Achuta Kadambi. 2026. WorldBench: Disambiguat-ing physics for diagnostic evaluation of world models. 
+
+Preprint , arXiv:2601.21282. Xiao Wang, Saasha Nair, and Matthias Althoff. 2020. Falsification-based robust adversarial reinforcement learning. In 2020 19th IEEE International Con-ference on Machine Learning and Applications (ICMLA) , pages 205–212. IEEE. Isaac R. Ward, Michelle Ho, Houjun Liu, Aaron Feld-man, Joseph Vincent, Liam Kruse, Sean Cheong, Duncan Eddy, Mykel J. Kochenderfer, and Mac Schwager. 2026. Foundational world models accu-rately detect bimanual manipulator failures. In IEEE International Conference on Robotics and Automa-tion . Accepted; final IEEE pages and DOI pending verification. Jiahan Zhang, Muqing Jiang, Nanru Dai, Taiming Lu, Arda Uzunoglu, Shunchi Zhang, Yana Wei, Jia-hao Wang, Vishal M. Patel, Paul Pu Liang, Daniel Khashabi, Cheng Peng, Rama Chellappa, Tianmin Shu, Alan Yuille, Yilun Du, and Jieneng Chen. 2026. World-in-world: World models in a closed-loop world. In The Fourteenth International Conference on Learning Representations . Oral presentation. Gaoyue Zhou, Hengkai Pan, Yann LeCun, and Ler-rel Pinto. 2025. DINO-WM: World models on pre-trained visual features enable zero-shot planning. In 
+
+11 Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 79115–79135. PMLR. 
+
+12 Appendix A Supplement Overview 
+
+The experiments answer complementary questions with separate protocols. The 12,016-candidate large online grid measures discovery; a 576-candidate library reevaluates shortlisted points; two splits of the 3,510-candidate wide validation grid measure search replication and fresh-neighborhood risk; cached libraries isolate search components; and seed-matched planning compares controller outcomes under different ranking rules. The first three stages form the main evidence chain. Compo-nent and cross-model studies test method behavior and interface scope, while planning is an indepen-dent consequence diagnostic. All differences and gains are computed from unrounded run-level val-ues; displayed summaries are rounded. 
+
+B Reading the Discovery Workflow 
+
+Figure B.1 expands the compact overview in the main paper. It separates the object being tested, the budgeted search process, and the evidence re-turned after discovery. This separation is essential: a valid query defines an executable test condition; an acquisition rule determines which conditions are evaluated; and held-out or local evaluation deter-mines what can be concluded about the returned condition. The schematic PushT input x = ( A, B, G ) con-tains an agent start, a block start, and a goal posi-tion. These coordinates are ordinary reset variables accepted by the environment; the search neither perturbs pixels nor constructs an invalid simulator state. Other model interfaces replace this tuple with their own typed specification, such as a reset seed and action template. In every case, the environ-ment execution supplies the matched future used to evaluate the fixed world model. The shaded center region visualizes the motiva-tion for local expansion: nearby valid inputs may share elevated prediction risk. The algorithm never observes this complete landscape. It sees only queried risks, uses a global surrogate proposal to avoid premature localization, and expands around observed anchors through valid one-coordinate re-placements. The ranked output is therefore a fi-nite discovery record, not a claim that all high-risk regions have been enumerated. Held-out reevalu-ation and fresh-neighborhood evaluation are run after search and do not change the recorded query sequence. 
+
+C BASIN LENS Implementation 
+
+Each coordinate is min–max normalized over the valid candidate library. We denote by R(x) the search frontier obtained by replacing one typed coordinate with any other value available in that coordinate’s library and retaining the candidate only if the resulting tuple belongs to the valid li-brary. Fresh radius-1 neighborhood evaluation is narrower: it changes one coordinate by one adja-cent grid level. Thus, position, goal, and action-prefix coordinates are never assigned values out-side their prespecified input specification, while search expansion and validation locality remain distinct. Stable candidate identifiers are assigned before normalization, so the discrete input and ev-ery permitted replacement remain reconstructible independently of the surrogate representation. For the merged-pool score, let Rt and sRt =max(std {Reval (x) : x ∈ Q t}, 10 −6) be the mean and standard deviation of the observed search scores. The upper confidence bound (UCB) and structural terms from the main paper are 
+
+zUCB  
+
+> t
+
+(x) = μt(x) + βσ t(x) − Rt
+
+sRt
+
+, (C.1) 
+
+zpar  
+
+> t
+
+(x) = max  
+
+> h∈H t:x∈R (h)
+
+Reval (h) − Rt
+
+sRt
+
+, (C.2) 
+
+κanc  
+
+> t
+
+(x) = max 
+
+> h∈H t
+
+exp 
+
+
+
+− ∥ψ(x) − ψ(h)∥22
+
+2s2
+
+
+
+,
+
+(C.3) 
+
+δnov  
+
+> t
+
+(x) = min 
+
+> q∈Q t
+
+∥ψ(x) − ψ(q)∥2. (C.4) For a global candidate with no frontier parent, the implementation sets zpar  
+
+> t
+
+(x) = −3. Ties in the complete score are broken by the algorithm-restart random-number generator. The LeWorldModel (LeWM) and DINO World Model (DINO-WM) implementations use a Gaus-sian process (GP) with a constant kernel fixed at 1 multiplied by a radial-basis-function kernel, plus a fixed white-noise kernel of 10 −4. Each normalized coordinate has initial length scale 0.25 with bounds 
+
+[0 .03 , 3.0] ; the regressor uses α = 10 −6, normal-ized targets, and no optimizer restarts. Table C.1 lists the remaining parameters. The LeWM column is used unchanged for the 576-, 3,510-, and 12,016-candidate online PushT protocols; DINO-WM uses the separate setting shown in its column. Here, b0
+
+13 Question Model/task Valid-input library Query setting Evidence returned Discovery LeWM PushT Large online grid (12,016)                           
+
+> B=16 ,32 ,64 ; 64 restarts Best search score and threshold crossing un-der matched budgets Point validation LeWM PushT Point-validation li-brary (576)
+> B=32 ;pooled 128 restarts Shortlisted points reevaluated on 16 disjoint seeds Local persistence LeWM PushT Wide validation grid (3,510)
+> B= 32 ; two seed splits Fresh radius-1 neighborhoods around top, mid-score, and random anchors Component isolation LeWM PushT Cached combinatorial grid (431)
+> B=8,16 ,32 ;512 restarts Top-set hit rate for global, frontier, interac-tion, and beam variants Replication DINO-WM PushT 512 and 384 geome-tries
+> B= 32 ; 128 paired replays Point discovery and reference-component coverage after a common scout Interface scope JEPA-WM/Atari 480/128/36 valid in-puts Protocol-specific budgets Latent-feature or future-frame prediction-risk discovery Consequence LeWM PushT Four selected contexts 8context seeds Environment outcomes under model-ranked and oracle-ranked control
+
+Table A.1: Protocol map. Candidate libraries, seed partitions, and measurements are intentionally distinct because each row answers a different question. Core claims do not combine unmatched protocols into a single statistic. 
+
+is the scout size, Anchors is |H t|, Global pool is 
+
+|P glob  
+
+> t
+
+|, and s is the anchor-proximity scale.                         
+
+> Parameter LeWM PushT DINO-WM PushT Scout size b038UCB exploration coeffi-cient β
+> 0.35 0.45 Number of anchors 44Global-pool size 16 24 Parent weight λp0.10 0.10 Proximity weight λd0.08 0.12 Novelty weight λn0.05 0.05 Proximity scale s0.50 0.45
+
+Table C.1: Parameters used by the LeWM online proto-cols and the DINO-WM common-scout replay. 
+
+BASIN LENS -I NTERACTION fits a ridge predic-tor with penalty 1.0 to normalized linear, squared, and pairwise-product features in the cached com-binatorial analysis. At each round, it scores ev-ery unseen input by its predicted search score plus 0.30 sR times distance to the nearest obser-vation and 0.25 sR times Gaussian proximity to observed anchors, where sR is the robust observed-score scale, the proximity scale is 0.18 , and the anchors are observations at or above the current upper quartile (the maximum before four observa-tions). B ASIN LENS -B EAM is a separate frontier-only diagnostic with width four. At each query, it recomputes the four highest-scoring observed an-chors, collects every valid one-coordinate replace-ment, and omits the global candidate pool. After eight observations, a ridge predictor with penalty 
+
+2.0 scores linear, squared, and pairwise coordinate features; before then, its predicted-score term is zero. Its acquisition is 0.55 times standardized par-ent score plus 0.30 times standardized predicted score, 0.30 times novelty, and 0.25 times anchor proximity. It evaluates one maximizer and then re-computes the anchors. These variants are reported as component-isolation tools; the online 12,016-and 3,510-candidate results use B ASIN LENS .The cached component analysis initializes the cross-entropy method (CEM) with three random inputs. At each subsequent query, the best ⌈0.35 t⌉
+
+of the t observations are elites. For every unseen normalized input, CEM computes the minimum Euclidean distance d to an elite, assigns unnormal-ized weight 0.85 exp[ −d2/(2 · 0.22 2)] + 0 .15 , and samples one input from the normalized weights. 
+
+C.1 Complete Discovery Procedure 
+
+The implementation follows the same execution or-der in every finite-library protocol; only the model-specific evaluator, input specification, and parame-ters change. 1. Construct and verify the library. Enumerate all tuples from the typed input specification, apply the environment-specific validity filters, and assign each retained tuple a stable candi-date identifier. Candidate values, identifiers, and normalized coordinates are fixed before any search restart. 2. Create a paired scout. For algorithm-restart seed s, sample the first b0 candidate identi-fiers without replacement. Every method in a 14 Figure B.1: Detailed natural-input failure-discovery workflow. Left: one legal typed input is executed in the environment and the frozen world model, producing a prediction-risk observation. Center: active search alternates global refreshes with typed moves around evaluated high-risk inputs while querying only members of the legal input set. Right: returned inputs are ranked and evaluated using held-out seeds and nearby legal changes. The orange contours are a schematic risk landscape, not an oracle surface available to the search algorithm. 
+
+matched comparison receives the same scout order and the same stored evaluation for each scout candidate. Thus, differences after the scout arise from the continuation policy rather than initial observations. 3. Evaluate a query. Execute the candidate on the prespecified seed set, compute each per-seed prediction loss, aggregate it into predic-tion risk, and apply the task-activity adjust-ment when required. The resulting record stores the typed input, per-seed losses, predic-tion risk, activity measurements, and search score. Previously evaluated candidate identi-fiers are never queried again within a restart. 4. Build global and local pools. Fit the sur-rogate to all records available in the current restart and select the highest-UCB unseen candidates for the global pool. Separately, take the current high-score anchors, enumer-ate their valid one-coordinate replacements, and remove all evaluated identifiers to obtain the local pool. Pool membership is recom-puted after each query. 5. Rank the merged pool. Compute the acqui-sition At(x) for every candidate in the union. The highest acquisition value determines the next query. Exact acquisition ties are resolved using the restart-specific random-number gen-erator, which avoids dependence on incidental file order while preserving complete replaya-bility from the seed. 6. Return a discovery record. After B queries, rank evaluated candidates by search score us-ing a stable identifier-based tie rule. The record contains the entire query sequence and the top-k shortlist; it does not silently replace the final choice with an oracle scan of the full library. 7. Run follow-up evaluation separately. Held-out point and neighborhood measurements use their own seed sets and do not update the com-pleted search trace. This separation prevents validation outcomes from leaking back into acquisition or shortlist ranking. For cached replay, Step 3 reads a fixed candi-date record rather than executing a new model– environment rollout. All compared methods read the same cache entry for a given candidate, so the replay changes only the order in which candidates 15 are revealed. For online protocols, candidate eval-uations are written once and reused by all post-processing summaries. Summary tables are com-puted from unrounded run-level values. 
+
+D Protocol Details 
+
+The main protocols use LeWorldModel (LeWM) (Maes et al., 2026) on PushT (Chi et al., 2023; Florence et al., 2022). Cross-interface analyses use DINO World Model (DINO-WM) (Zhou et al., 2025), a joint-embedding predictive architecture world model (JEPA-WM) (Terver et al., 2026), DI-AMOND (Alonso et al., 2024), and IRIS (Micheli et al., 2023). The shared formulation uses each interface’s prediction target: state-probe output for LeWM, visual features for DINO-WM, joint em-beddings for JEPA-WM, directly generated frames for DIAMOND, and decoded RGB frames from discrete tokens for IRIS. The experiments were run on Debian GNU/Linux 12 with two Intel Xeon Plat-inum 8558 processors (192 logical CPUs), 2.0 TiB of system memory, and an NVIDIA H20-3e GPU with 143771 MiB of memory and driver 575.57.08. The recorded environment used uv 0.10.9 and Python 3.12.13. Key package versions were PyTorch 2.9.1, NumPy 2.4.1, SciPy 1.17.0, scikit-learn 1.8.0, Matplotlib 3.10.8, Transformers 4.57.3, Gymnasium 1.2.3, MuJoCo 3.6.0, Pymunk 7.2.0, TensorDict 0.11.0, Einops 0.8.2, and Pillow 12.1.0. The LeWM implementation uses stable-worldmodel 0.0.6 pinned to commit prefix 
+
+ba10600b31ab . The code supplement provides 
+
+pyproject.toml , uv.lock , and the complete recorded package list. The anonymous code supplement contains the core discovery, validation, neighborhood, component-isolation, probe, controller, and cross-model entry points, together with their local de-pendencies and seed specifications. Model-specific adapters require the cited upstream repositories and pretrained checkpoints; these external assets are not duplicated because their distribution and licenses remain controlled by their original main-tainers. The adapters accept explicit repository and checkpoint paths. Validity is an environment-level property; local-ity is defined only after invalid tuples have been removed. The search frontier may replace one coor-dinate with any allowed value, which enables larger moves within the same typed factor. Radius-1 val-idation is stricter and uses only an adjacent value in the coordinate’s ordered grid. Consequently, ev-ery radius-1 neighbor is valid by construction, but not every valid one-coordinate replacement is a radius-1 neighbor. For categorical action templates without an intrinsic ordering, the protocol reports typed replacement results rather than claiming geo-metric radius. Table D.2 records every seed partition used in the principal LeWM PushT evidence chain. Search, point validation, and neighborhood evaluation use disjoint environment-seed sets within each proto-col. Algorithm-restart seeds determine scout order and acquisition tie breaking; they do not replace environment seeds. The 576-candidate reference is the simulator reset obtained without a geometry override and reevaluated on the same held-out seeds as the se-lected candidate. Each pooled-validation run has a prespecified validation cap; incomplete availabil-ity is reported rather than filled by reusing search seeds. The 576-candidate protocol uses agent and goal positions {96 , 256 , 416 } and block positions 
+
+{128 , 256 , 384 } on each axis. It retains Cartesian combinations whose agent–block and block–goal center distances are both at least 80 pixels. The 12,016-candidate library is generated from six typed coordinates. Agent x/y positions use 
+
+{56 , 116 , 176 , 236 , 296 }; block x/y positions use 
+
+{112 , 176 , 240 , 304 , 368 }; and goal x/y positions use {80 , 160 , 240 , 320 , 400 }. From the 56 =15 , 625 Cartesian combinations, the input specifi-cation removes inputs whose agent–block or block– goal center distance is below 80 pixels, leaving 12,016 valid candidates. The 3,510-candidate library uses the same six coordinate types and validity filter. Agent po-sitions use {56 , 176 , 296 , 416 }, block positions use {112 , 208 , 304 , 400 }, and goal positions use 
+
+{96 , 200 , 304 , 416 } on each axis. Filtering the 
+
+46 = 4 , 096 Cartesian combinations by the same 80-pixel agent–block and block–goal distance con-straints leaves 3,510 valid candidates. The 576-, 3,510-, and 12,016-candidate online protocols use final-step conditional value at risk (CVaR) as the raw prediction risk Rpred . Let bprog ,
+
+bcon , and bpath be the default reset’s mean block– goal progress ratio, total contacts, and block path length on the same evaluation seeds. The task-16 Model/task Typed natural input Validity rule Prediction-risk interface LeWM PushT Agent, block, and goal x/y                    
+
+> coordinates Candidate must instantiate a simulator reset and satisfy the protocol’s minimum agent– block and block–goal distances Upper-tail CVaR of final-step state-probe MSE LeWM TwoRooms Agent start x/y with fixed target Start lies in navigable free space under the fixed room geometry Predicted-future position MAE and target-distance gap DINO-WM PushT Agent, block, and goal x/y
+> coordinates Simulator-valid reset with mini-mum geometry distances Upper-tail CVaR of final-step visual-feature MSE DINO-WM Wall Start, goal, and opening ge-ometry Simulator-valid local configu-ration with a matched environ-ment rollout Decoded-path discrepancy and visible cross-ing outcome JEPA-WM Point-Maze Reset seed, action template, and scale Scaled actions remain in
+> [−1,1] 2and use the fixed action horizon Visual-latent MSE plus 0.1proprioceptive-latent MSE DIAMOND Atari Reset seed and four discrete prefix actions Every prefix entry belongs to the game’s action set One-step future-frame MSE IRIS Atari Reset seed, no-op count, and action template Nonnegative no-op count and game-valid template actions Four-step future-frame MSE
+
+Table D.1: Typed input specifications and model-specific prediction risks. A local replacement changes one listed input field and retains the candidate only if the corresponding validity rule still holds. 
+
+activity floors are 
+
+fprog = max {− 1, b prog − 0.15 },fcon = 0 .5bcon , fpath = 0 .5bpath .
+
+For candidate measurements rprog , ncon , and Lpath 
+
+in the same order, the normalized violations are 
+
+vprog = [fprog − rprog ]+
+
+max(0 .1, |fprog |) ,vcon = [fcon − ncon ]+
+
+max(1 , f con ) ,vpath = [fpath − Lpath ]+
+
+max(1 , f path ) .
+
+where [z]+ = max( z, 0) . Online acquisition uses 
+
+Reval = Rpred − 20( vprog + vcon + vpath ). A can-didate is task-active when all three violations are zero. The reported best is selected among task-active evaluated candidates whenever that set is nonempty and otherwise among all evaluated can-didates. Every reported best is task-active in these analyses, so the displayed best scores equal unpe-nalized CVaR; held-out point and neighborhood tables also report unpenalized CVaR. For each B ASIN LENS budget-32 restart, the pro-tocol records the best selected candidate; repeated candidate identifiers are merged by retaining their largest search score, and the eight highest-scoring unique candidates form the reported top-score an-chor group. A Gaussian-process upper confidence bound (GP-UCB) top-eight set is constructed iden-tically but is used only when constructing exclu-sions. The mid-score controls are the eight cen-tral entries after restricting the source search’s online evaluations to records marked task-active, deduplicating by candidate identifier with the final recorded search score, and sorting by that score. Stable source order breaks equal scores. A random-number generator with seed 20260601 samples eight random controls without replacement from the full valid library after excluding the B ASIN -LENS and GP-UCB top sets and the mid-score con-trols. Each anchor statistic is the mean candidate-level conditional value at risk (CVaR) over the an-chor and its unique valid radius-1 neighbors; a candidate shared by different anchors or groups re-mains in each corresponding anchor statistic. The one-sided exact permutation test treats the eight anchor statistics in each group as its units and enu-merates all  16 8
+
+ reallocations. The PushT fixed-geometry case holds the block at (128 , 256) and goal at (256 , 256) while chang-ing the agent start from (56 , 96) to (256 , 256) . The final block–goal (BG) ratio is the final predicted block–goal center distance divided by its initial distance, so a larger value indicates less predicted task progress. The ratio is a model-predicted task-outcome readout rather than Rpred or Reval . The two starts are compared on paired rollout seeds. In deterministic TwoRooms, the target is fixed at 
+
+(168 , 196) while the agent start varies; reference and risk-elevated starts have predicted-future x–y
+
+position mean absolute errors (MAEs) of 13 .2 and 
+
+89 .0 pixels (px) and final target-distance gaps of 
+
+27 .2 and 149 .3 px. Probe MAEs on environment-encoded latents are 1.13 and 1.66 px. DINO-WM observes one frame and autore-17 Protocol Restart seeds Search-evaluation seeds Point-validation seeds Neighborhood seeds Notes 576-candidate search 32–127 0–7 – – Scout size three; bud-get 32 576-candidate pooled validation 0–127 0–7 16–31 – 96 runs use scout size three and 32 use scout size four; 24 of 27 unique B ASIN -LENS selections have complete held-out measurements 3,510-candidate split A 192–255 0–7 32–47 48–63 Budget 32; point and radius-1 neighborhood records are kept sepa-rate 3,510-candidate split B 256–383 16–23 80–95 96–111 Independent restart and environment-seed split; budget 32 12,016-candidate dis-covery 384–447 24–31 – – Budgets 16, 32, and 64 
+
+Table D.2: Seed ledger for the principal LeWM PushT protocols. A dash indicates that the corresponding follow-up evaluation is not part of that protocol.               
+
+> Term Symbol or endpoint Definition Permitted interpretation Prediction risk Rpred or Rval Aggregate discrepancy between world-model predictions and matched envi-ronment futures Prediction quality under the specified model interface and seed set Search score Reval Prediction risk minus a prespecified task-activity penalty Acquisition and shortlist ranking; equal to prediction risk only for task-active candidates Task consequence Environment progress Closed-loop block–goal progress un-der a controller Outcome of the controller protocol; not another prediction-risk measure-ment
+
+Table D.3: Terminology used throughout the paper. Prediction risk, search score, and task consequence are distinct quantities and are not substituted for one another. 
+
+gressively predicts eight visual-feature states sam-pled at five-simulator-step intervals from a 40-step PushT rollout. For each seed, the raw risk is the final-step mean squared error between the predicted visual features and DINO-encoded simulator-frame features. The 512-candidate library uses agent coordinates {56 , 136 , 216 , 296 }, block coor-dinates {112 , 208 , 304 , 400 }, and goal coordinates 
+
+{96 , 192 , 288 , 416 } on each axis; seed 20260602 controls its random subsampling. The indepen-dent 384-candidate library uses {56 , 176 , 296 },
+
+{112 , 256 , 384 }, and {96 , 256 , 416 }, respectively, with subsampling seed 3. Both libraries remove combinations whose agent–block or block–goal distance is below 70 pixels and then sample with-out replacement to reach the stated size. The 512-candidate replay aggregates evaluation seeds 16–23 with upper-tail CVaR at tail fraction 0.4, i.e., the mean of the four largest values among eight seeds. The 384-candidate replay uses evaluation seeds 4–7 and the same tail fraction, i.e., the mean of the two largest values among four seeds. A can-didate is task-active when its mean contact steps are at least 1, mean block path length is at least 10 pixels, and mean block–goal progress ratio is at least −1. Its stored replay score Reval equals CVaR when task-active and CVaR minus 2 other-wise. Common-scout acquisition, best-score re-porting, and oracle top-score sets all use this stored score. Let GR be the valid-input graph that con-nects inputs differing by one arbitrary allowed co-ordinate replacement. For an evaluated trace T and oracle top-q% score set Hq, reference-component coverage is Cq(T ) = max C∈Comp GR (Hq ) |T ∩ C|,or zero if no top-score input is evaluated. Compo-nents are computed on the full reference subgraph, not on the trace-induced subgraph. The LeWM checkpoints lack a red–green–blue 18 (RGB) decoder, so a latent-to-state probe sup-plies both the reported PushT state mean squared error (MSE) risk and interpretable state read-outs. Table D.4 quantifies the probe’s held-out, in-distribution accuracy. The LeWM results there-fore evaluate the complete world-model-to-state-readout pipeline.                
+
+> Model Task Target Unit MAE ↓N
+> LeWM PushT Agent position px 19.64 48 LeWM PushT Block position px 8.90 48 LeWM PushT Block angle deg 3.84 48 LeWM TwoRooms Agent position px 1.55 11
+> Table D.4: Held-out probe checks for LeWM tasks with-out native RGB decoding. MAE denotes mean absolute error, px denotes pixels, deg denotes degrees, and Nis the number of held-out samples; lower is better.
+
+D.1 Probe-Specific Diagnostic and Scope 
+
+Figure D.1 shows an existing fixed-geometry di-agnostic that was generated before the large-grid protocols. It keeps the block and goal fixed, scans valid agent starts, and compares one lower-score start with one higher-score start under the same readout pipeline. The panel is useful because it ex-poses all layers of the measurement at once: the le-gal reset, probe-decoded future states, task-activity measurements from the matched environment roll-out, and physical distance traces derived from the decoded prediction. The held-out check establishes that the probe recovers ordinary environment states with the er-rors listed in Table D.4; it does not prove that the same probe is uniformly accurate on every model-predicted latent encountered by search. Conse-quently, the LeWM result is stated as failure of the complete frozen world-model-to-state-readout pipeline. We do not attribute the entire measured er-ror uniquely to latent dynamics, and the LeWM ev-idence is complemented by DINO-WM and JEPA-WM protocols that define risk directly in their visual-feature spaces. The fresh-seed and fresh-neighborhood results address repeatability of the measured pipeline failure, not an untestable de-composition of that failure into model and probe components. 
+
+E Online Discovery and Replication F Consolidated Quantitative Ledger 
+
+The detailed tables above separate budgets, thresh-olds, and validation protocols. Table F.1 provides a single endpoint ledger for the principal online PushT searches so that their sample sizes and paired comparisons can be read without combining incompatible measurements. The mean-best rows measure the largest search score observed within a budget; the final two rows measure whether a run crossed the prespecified 1.60 threshold. The latter comparison with GP-UCB is reported as descrip-tive evidence because its paired value is p = 0 .061 .The ledger also shows why discovery is not summarized by one universal performance num-ber. Mean-best search score is useful for rank-ing methods within one library, while threshold crossing makes the rare-event discovery interpre-tation explicit. Held-out point risk and fresh-neighborhood risk are intentionally absent from this table because they are follow-up measurements on returned cases rather than additional online-search endpoints; those results remain in Tables H.1 and E.6. 
+
+G Qualitative Failure Cases 
+
+The deterministic TwoRooms example holds the target fixed and changes only the valid agent start. The two starts are close in the input grid, yet their predicted futures differ sharply. The reference start has future-position mean absolute error (MAE) 
+
+13 .2 pixels and final target-distance gap 27 .2 pix-els; the selected start has MAE 89 .0 pixels and fi-nal gap 149 .3 pixels. Its latent-to-state probe MAE remains 1.66 pixels, compared with 1.13 pixels for the reference start. Figure G.1 visualizes the temporal mismatch: the selected prediction stops advancing after the early forecast steps even though the matched environment trajectory continues. Figure G.2 provides a second-model PushT ex-ample using DINO-WM rather than the LeWM state probe. Both rows are valid reset geome-tries with active matched rollouts. The displayed searched case has final-step visual-feature MSE 
+
+3.395 and mean horizon MSE 3.074 , compared with 1.635 and 1.105 for the displayed lower-risk case. Their matched rollouts contain 73 and 72 contact steps and block paths of 479 .4 and 536 .2
+
+pixels, respectively, so the higher discrepancy is not produced by an inactive rollout. A historical DINO-WM Wall scan supplies a visually direct example of the same problem at a different prediction interface. The shifted library contains 900 prioritized local start, goal, and door configurations drawn from 7,560 Cartesian com-19 Figure D.1: LeWM PushT probe diagnostic under fixed block–goal geometry. The left panel shows the historical legal-start scan; the upper and lower strips compare a lower-score and a higher-score start for one representative seed; and the lower-right plot shows physical distances decoded from the predicted latent sequence. The listed held-out probe errors are measured on environment-encoded latents. This figure is illustrative and is not counted as an additional statistical sample.                         
+
+> Method Selected unique Validated Mean CVaR Task-active Contacts Block path Random 46 39 1.292 1.000 10.05 93.18 GP-UCB 34 30 1.278 0.900 10.61 88.06 BASIN LENS 27 24 1.311 0.958 11.58 94.59
+
+Table D.5: Method-specific held-out summary for the 576-candidate protocol. Selected unique counts are dedu-plicated candidates returned under the per-run validation caps; Validated counts have complete measurements on the 16 disjoint seeds. Contacts and block path are validation-seed averages, with block path measured in pixels. Because methods produce different candidate sets and validation availability, this table is descriptive rather than a paired search-performance comparison. 
+
+binations. Ninety-two inputs satisfy the prespec-ified visible no-cross criterion: the environment trajectory crosses the opening, while the decoded predicted future does not. Figure G.3 shows four cases. This result is used as a scoped qualitative failure bank, not as a distribution-wide frequency estimate or a claim that the canonical B ASIN LENS 
+
+variant dominates search baselines on Wall. Figure G.4 shows one selected PushT start and three comparison starts under the same fixed block– goal geometry. The selected start has final-step MSE 2.086 , compared with 0.935 , 0.937 , and 
+
+1.065 for the displayed comparisons. Its nearest-neighbor prediction proxy repeatedly retrieves the same early state, while the matched environment rollout continues to move the block. The panel is qualitative; the held-out and neighborhood proto-cols provide the independent quantitative evidence. 
+
+G.1 What the Discovered Cases Reveal 
+
+The qualitative cases expose two recurring forms of error that an average benchmark score does not localize. In the temporal cases, requested later fu-tures map to an early or weakly changing predicted state even though the environment continues to evolve. In the topological case, the predicted future remains on the wrong side of a traversable opening. Table G.1 records the changed legal factor, the visi-ble failure pattern, and the evidence boundary for 20 B Method Mean ± SEM pR pG                              
+
+> 16 Random 1.368 ±0.017 ––GP-UCB 1.370 ±0.027 ––BASIN LENS 1.411 ±0.023 0.0056 0.295 32 Random 1.444 ±0.014 ––GP-UCB 1.481 ±0.020 ––BASIN LENS 1.493 ±0.018 0.0011 0.175 64 Random 1.512 ±0.010 ––GP-UCB 1.547 ±0.013 ––BASIN LENS 1.572 ±0.011 5.56 ×10 −60.0027
+
+Table E.1: Mean best search score on the 12,016-candidate PushT grid across 64 paired restarts (mean ±
+
+standard error of the mean (SEM); higher is better). pR
+
+and pG compare B ASIN LENS with random search and Gaussian-process upper confidence bound (GP-UCB) search.                                           
+
+> BMethod Hit rate BASIN LENS gain Paired p
+> 16 Random 0.056 0.117 7.2×10 −4
+> GP-UCB 0.148 0.024 0.229 BASIN LENS 0.173 ––32 Random 0.135 0.188 7.0×10 −4
+> GP-UCB 0.298 0.025 0.140 BASIN LENS 0.323 ––64 Random 0.255 0.317 8.7×10 −6
+> GP-UCB 0.474 0.099 0.004 BASIN LENS 0.572 ––
+
+Table E.2: Threshold-averaged hit rate on the 12,016-candidate large online PushT grid (higher is better). B is the query budget. Each score averages 16 hit indicators over Reval ∈ [1 .50 , 1.65] in increments of 0.01. On a comparator row, B ASIN LENS gain is B ASIN LENS 
+
+minus that method, and paired p is the corresponding one-sided exact paired sign-test value. 
+
+Figure E.1: Cumulative fraction of paired restarts that have discovered search score at least 1.60 after each query on the 12,016-candidate PushT grid. The endpoint values are 0.547 for B ASIN LENS , 0.406 for GP-UCB, and 0.109 for random search. 
+
+each case family. 
+
+H Validation and Planning 
+
+The seed-matched model predictive control (MPC) protocol uses the four validated inputs with the highest held-out prediction CVaR. Each case is evaluated with context seeds 0–7. After a 15-step observed prefix, the controllers replan ev-ery 10 simulator steps for 40 control steps us-ing a 30-step horizon. At each replan, both controllers use proposal seeds 100–115 with the same state-conditioned PushT proposal generator (WeakPolicy ) to instantiate 16 proposals from their respective current states. The model-ranked MPC controller scores model-predicted state sequences, whereas the environment-oracle-ranked MPC con-troller scores simulator state sequences, using 
+
+U = −g + 0 .8p + 0 .3m + 0 .2u + 0 .2c. 
+
+Here, g is the final block–goal distance divided by its distance at the forecast origin; p = 1 − g is nor-malized block–goal progress; m is the fraction of forecast steps whose block–goal distance decreases by at least 2 pixels from the immediately preceding state; u is the fraction of forecast steps whose agent– block distance is at most 90 pixels and whose block moves at least 8 pixels from the immediately pre-ceding state; and c is the fraction of forecast steps satisfying the stepwise conditions for both m and 
+
+u. Each controller selects the proposal with maxi-mum U under its ranking rule, executes its first 10 actions, and then replans from its resulting state. 21 B Threshold Random GP-UCB BasinLens Gain R pR pG                                                                                     
+
+> 16 R≥1.55 0.078 0.172 0.219 2.8 ×0.011 0.274 16 R≥1.60 0.016 0.094 0.062 4.0 ×0.188 0.855 16 R≥1.62 0.016 0.031 0.047 3.0 ×0.312 0.500 32 R≥1.55 0.188 0.422 0.438 2.3 ×0.003 0.500 32 R≥1.60 0.047 0.234 0.203 4.3 ×0.011 0.760 32 R≥1.62 0.031 0.078 0.109 3.5 ×0.090 0.377 64 R≥1.55 0.359 0.625 0.719 2.0 ×3.0×10 −40.154 64 R≥1.60 0.109 0.406 0.547 5.0 ×4.2×10 −60.061 64 R≥1.62 0.078 0.281 0.328 4.2 ×0.001 0.304
+
+Table E.3: Prespecified threshold-crossing rates on the 12,016-candidate grid. B denotes query budget, Gain R
+
+is the ratio of B ASIN LENS and random-search hit rates, and pR/p G are one-sided paired values against random search and GP-UCB. Reporting several thresholds prevents the discovery conclusion from depending on the single headline cutoff.                               
+
+> BRandom GP-UCB BasinLens Gain RpRGain GpG
+> 16 16.89 16.58 16.67 0.22 0.188 -0.09 0.746 32 32.33 30.00 30.52 1.81 0.011 -0.52 0.798 64 61.27 51.69 49.69 11.58 2.4×10 −62.00 0.087
+
+Table E.4: Mean capped first-hit step for search score at least 1.60 on the largest PushT grid; lower is better. A run that does not cross the threshold is assigned one step beyond its budget. Gain columns are comparator minus BASIN LENS , so positive values favor B ASIN LENS .            
+
+> Split Random GP-UCB B ASIN LENS pRpG
+> A1.388 1.393 1.433 7.81 ×10 −40.052 B1.587 1.620 1.647 4.81 ×10 −90.010
+
+Table E.5: Budget-32 best-search-score replication on two independent, non-overlapping seed splits of the same 3,510-candidate library (higher is better). Splits A and B use 64 and 128 paired restarts. pR and pG com-pare B ASIN LENS with random search and GP-UCB.              
+
+> Split Random Mid-score Top pRpM
+> A0.648 0.653 0.997 0.00458 0.00117 B0.546 0.608 1.252 6.99 ×10 −47.77 ×10 −5
+
+Table E.6: Fresh radius-1 neighborhood conditional value at risk (CVaR) around B ASIN LENS top-score an-chors on the same two wide-grid splits (higher indi-cates greater prediction risk). pR and pM compare these neighborhoods with random-control and mid-score-control neighborhoods; this table does not com-pare B ASIN LENS neighborhoods with GP-UCB neigh-borhoods. 
+
+A random controller samples a proposal generated from the same proposal-seed set. If a simulated pro-posal terminates before the fixed horizon, its last state is repeated and zero actions provide absorbing padding. The stratified analysis uses 24 proposal seeds, 100–123, with the same context seeds and replan-ning schedule. Its top group contains the four task-active inputs with the highest held-out prediction risk among the B ASIN LENS top-eight anchors and their radius-1 neighbors; the mid-score and random-control groups contain the first four task-active in-puts in their prespecified anchor lists. This fixed, task-active set supports within-set controller com-parisons rather than a prevalence estimate. 
+
+I Statistical Comparisons 
+
+Search methods share the same algorithm-restart seed within each comparison, so the unit is the paired run. For a directional comparison, let n+
+
+and n− be the numbers of strictly positive and negative paired differences; exact sign-test values are upper-tail binomial probabilities under success probability 1/2, with ties removed. Mean differ-ences and standard errors are still computed from all paired run-level values. This test does not as-sume normally distributed search scores. Threshold crossing is binary. Let b count restarts 22 Protocol Endpoint Comparator Comp. BASIN LENS ∆ W/L/T p
+
+Online 6D, B = 32 Mean best R Random 1.368 1.415 +0.047 67/27/2 2.25 ×10 −5
+
+Online 6D, B = 32 Mean best R GP-UCB 1.375 1.415 +0.040 47/23/26 0.0028 Wide 3,510, B = 32 Mean best R Random 1.587 1.647 +0.060 95/31/2 4.81 ×10 −9
+
+Wide 3,510, B = 32 Mean best R GP-UCB 1.620 1.647 +0.027 66/41/21 0.010 Large 12,016, B = 64 Mean best R Random 1.512 1.572 +0.060 49/14/1 5.56 ×10 −6
+
+Large 12,016, B = 64 Mean best R GP-UCB 1.547 1.572 +0.025 37/16/11 0.0027 Large 12,016, B = 64 Hit at R≥1.60 Random 0.109 0.547 +0.438 34/6/24 4.18 ×10 −6
+
+Large 12,016, B = 64 Hit at R≥1.60 GP-UCB 0.406 0.547 +0.141 18/9/37 0.061 
+
+Table F.1: Consolidated online LeWM PushT endpoints from existing run-level records. Comp. is the named comparator, ∆ is B ASIN LENS minus that comparator, and W/L/T gives paired wins, losses, and ties. Rows remain protocol-specific and are not averaged across candidate libraries. 
+
+Case family Legal factor varied Observed prediction pattern Evidence boundary LeWM TwoRooms Agent start with fixed target Predicted position stops advancing and later requested times retrieve nearly the same early state Deterministic paired visualization; not a frequency estimate over all naviga-tion layouts LeWM PushT Agent start with fixed block and goal Later target times repeatedly map to an early state while the matched roll-out continues moving the block Illustrated case; independent held-out and neighborhood tables support re-peatability at the protocol level DINO-WM PushT Legal agent, block, and goal geometry Decoded future diverges from the ac-tive matched rollout and yields ele-vated visual-feature error Illustrative returned record; quantita-tive search evidence comes from the paired replay tables DINO-WM Wall Start, goal, and opening geometry Environment trajectory crosses the opening while the decoded prediction remains on the original side 92 visible no-cross cases in the prior-itized 900-input shifted library; not a distribution-wide prevalence claim 
+
+Table G.1: Qualitative characterization of discovered legal-input failures. The cases explain what fails while keeping each conclusion attached to the protocol that produced it. 
+
+Protocol Endpoint Control Control value Selected ∆ Evidence Fixed PushT Final BG ratio Reference start 0.941 1.110 +0.169 Higher in 98.4% of 64 pairs Held-out point CVaR Default reset 1.186 1.311 +0.125 24 reevaluated cases Wide-grid local Radius-1 CVaR Random controls 0.546 1.252 +0.706 p = 6 .99 ×10 −4
+
+Wide-grid local Radius-1 CVaR Mid-score controls 0.608 1.252 +0.644 p = 7 .77 ×10 −5
+
+Table H.1: Fixed-case, held-out point, and fresh-neighborhood evidence. BG denotes block–goal and CVaR denotes conditional value at risk. For the BG ratio, higher means less predicted task progress; for CVaR, higher means greater prediction risk. Here, ∆ is Selected minus Control. 
+
+Protocol Context group Model-ranked Env.-oracle-ranked ∆ W/L/T p
+
+MPC, 16 proposal seeds Selected -0.080 0.445 +0.525 30/2/0 1.23 ×10 −7
+
+Stratified MPC Top held-out risk -0.100 0.344 +0.443 29/3/0 1.28 ×10 −6
+
+Stratified MPC Mid-control 0.061 0.532 +0.471 29/3/0 1.28 ×10 −6
+
+Stratified MPC Random-control 0.045 0.373 +0.328 28/4/0 9.65 ×10 −6
+
+Table H.2: Seed-matched model predictive control (MPC) results. At every replan, the model-ranked and environment-oracle-ranked controllers use the same proposal-seed set and state-conditioned proposal genera-tor; higher environment-side progress is better. Here, ∆ is environment-oracle-ranked minus model-ranked progress. W/L/T denotes paired wins/losses/ties for Oracle versus Model, and p is the one-sided exact sign-test value. 
+
+in which B ASIN LENS crosses the threshold but the comparator does not, and let c count the re-verse. The one-sided exact McNemar value is the binomial upper tail for b successes among b + c dis-cordant pairs. Threshold-averaged discovery first averages the 16 prespecified hit indicators within each run and then applies the paired scalar compar-ison to those run-level averages. The fresh-neighborhood comparison treats the eight anchor-level neighborhood means in each group as its units. For two groups of eight, the exact permutation distribution enumerates all  16 8
+
+ assign-23 Figure G.1: TwoRooms case with a fixed target and two valid agent starts. The top panel compares matched environment frames with nearest-neighbor visual proxies for predicted future states. The lower curve maps requested future time to the retrieved prediction time. The selected high-error start (red) collapses to nearly the same predicted state after the early horizon, whereas the reference start (green) continues to track the requested future.         
+
+> Seeds Model Oracle Random Gap Paired evidence 8 -0.107 0.253 -0.072 0.360 24/32 wins; p= 0 .0035 ;11 sign reversals 16 -0.080 0.445 -0.274 0.525 30/32 wins;
+> p= 1 .23 ×10 −7; 16 sign reversals
+
+Table H.3: MPC sensitivity to proposal-seed set size. Model, Oracle, and Random are environment-side progress under the model-ranked, environment-oracle-ranked, and random controllers. Gap is Oracle minus Model; higher progress is better. Paired evidence re-ports Oracle wins, the one-sided exact sign-test value, and the number of negative-to-positive sign reversals. 
+
+ments of the 16 observed anchor statistics into two groups of size eight. The reported one-sided value is the fraction whose difference in group means is at least the observed difference. Candidate overlap across different anchor neighborhoods is retained because the inferential unit is the prespecified an-chor, not the unique candidate. 
+
+J Component Isolation and DINO-WM Replication 
+
+The component analysis separates global uncer-tainty, coordinate expansion, pairwise features, and multi-anchor expansion. The DINO-WM replay then compares continuation policies after an iden-tical random scout, so differences in best search score and reference-component coverage arise only from the remaining queries. All DINO-WM replay tables use 128 paired replay seeds, 0–127. 24 Figure G.2: Illustrative DINO-WM PushT discovery record. Each large strip shows decoded world-model futures at five-step intervals, and each small strip shows the matched environment rollout. The lower legal input, A =(289 , 248) , was returned with higher visual-feature prediction risk than the displayed comparison input, A =(245 , 291) . This case illustrates the content of a returned record and is not an additional independent search trial. 
+
+Figure G.3: Four valid DINO-WM Wall configura-tions from the shifted local library. Black shows the matched environment rollout and orange the decoded world-model future. In each case, the environment tra-jectory passes through the opening while the predicted future remains on the original side. The gap labels de-note the opening widths in pixels.                            
+
+> Method Hit@8 ↑Hit@16 ↑Hit@32 ↑
+> Random 0.361 0.562 0.828 GP-UCB 0.475 0.689 0.801 CEM 0.326 0.572 0.811 BASIN LENS -F RONTIER 0.287 0.527 0.773 BASIN LENS 0.455 0.672 0.803 BASIN LENS -I NTERACTION 0.512 0.869 0.961 BASIN LENS -B EAM 0.479 0.834 0.963
+
+Table J.1: Top-5% hit rate on the 431-candidate cached combinatorial grid across query budgets and 512 paired restarts. CEM denotes the cross-entropy method. For BASIN LENS -I NTERACTION /B ASIN LENS -B EAM ver-sus GP-UCB, one-sided exact sign-test values are 
+
+0.083 /0.472 at budget 8, 1.81 ×10 −16 /2.10 ×10 −9 at budget 16, and 7.32 ×10 −17 /8.77 ×10 −20 at budget 32. 
+
+K Cross-Model Scope 
+
+This section reports the JEPA-WM, DIAMOND, and IRIS protocols. Model names are used di-rectly rather than repeatedly expanding branded acronyms. The JEPA-WM PointMaze library contains 
+
+480 = 12 ×10 ×4 inputs: reset seeds 0–11, ten valid two-dimensional action templates, four scales 
+
+{0.25 , 0.5, 0.75 , 1.0}, and a fixed three-action hori-zon. The objective is visual-latent mean squared error plus 0.1 times proprioceptive-latent mean squared error. The templates are right (1 , 0) ,left (−1, 0) , up (0 , 1) , down (0 , −1) , the diago-nals (0 .75 , 0.75) and (0 .75 , −0.75) , and the two-step sequences [(1 , 0) , (−1, 0)] , [(0 , 1) , (0 , −1)] ,
+
+[(1 , 0) , (0 , 1)] , and [(0 , 1) , (−1, 0)] . Multi-action templates cycle to length three, are scaled and clipped to [−1, 1] 2, and repeat each macro action for five simulator steps. The library order is shuf-fled once with seed 13, and results average 128 paired search seeds, 0–127. The search representa-tion is 
+
+ϕ(x) = sseed /64 , ¯ax, ¯ay, ∥¯a∥2, σ x + σy,
+
+mean t ∥at+1 − at∥2, γ .
+
+Here, sseed is the reset seed, γ is the action scale, ¯a is the mean action vector, σx and σy
+
+are its componentwise temporal standard devi-ations, and the penultimate entry is the mean change between successive actions. For obser-vations (xi, r i), the kernel-weighted UCB com-parator uses weights wi(x) = exp( −∥ ϕ(x) −
+
+ϕ(xi)∥22/(2 · 0.55 2)) , their weighted risk mean 
+
+μ and variance v, and acquisition A(x) =
+
+μ(x) + pv(x) + η2/(P 
+
+> i
+
+wi + 10 −6), where η =max {std( r), 0.25 max i |ri|, 10 −8}. Within each paired search seed, all methods share the first two shuffled scout candidates. The global compara-tor maximizes A over every unseen input. The structured policy instead maximizes A over neigh-bors of the three highest-prediction-risk observa-tions, reverting to all unseen inputs only if that 25 Figure G.4: PushT temporal comparison under fixed block–goal geometry. Each pair of rows shows the matched environment rollout and nearest-neighbor visual proxies for the predicted future. The selected start A = (96 , 56) 
+
+has the largest displayed final-step MSE and repeatedly maps later target times to the same early predicted state. The comparison starts show lower error and more temporal variation. 
+
+N Top Method Best score ↑ Top count ↑ Comp. ↑ Hit ↑
+
+512 5% Random 2.712 1.594 0.984 0.812 GP-UCB 2.863 5.617 3.195 1.000 BASIN LENS -F RONTIER 2.849 5.781 4.914 0.906 BASIN LENS 2.908 7.023 4.898 1.000 384 5% Random 2.748 1.688 1.148 0.828 GP-UCB 2.845 4.062 3.180 0.977 BASIN LENS -F RONTIER 2.840 4.773 4.344 0.992 BASIN LENS 2.858 4.734 4.195 0.992 
+
+Table J.2: DINO World Model (DINO-WM) PushT common-scout replication on independent 512- and 384-candidate libraries. N is the candidate-library size. Every method receives the same eight random scout points and a total budget of 32. Best score measures point discovery; Top count is the mean number of evaluated nodes in the prespecified top-score set; Comp. is the mean reference-component coverage Cq ; and Hit is the fraction of runs that evaluate at least one top-score candidate. Higher is better. 
+
+Library Outcome ∆G pG ∆F pF
+
+512 candidates Best score 0.045 3.1×10 −4 – –Comp. cov. 1.703 1.1×10 −14 -0.016 0.929 384 candidates Best score 0.013 0.006 – –Comp. cov. 1.016 6.9×10 −6 -0.148 0.988 
+
+Table J.3: Paired DINO-WM top-5% comparisons for B ASIN LENS . Comp. denotes reference-component coverage, 
+
+∆G = BASIN LENS − GP -UCB , and ∆F = BASIN LENS − BASIN LENS -F RONTIER . Each p entry is the corre-sponding one-sided exact sign-test value. The frontier-only variant has slightly higher mean component coverage in both libraries. 
+
+26 (B, S ) Top Best score ∆G                                                                     
+
+> (16 ,8) 10% 2.738 0.008
+> (16 ,8) 5% 2.738 0.008
+> (32 ,4) 10% 2.880 0.024
+> (32 ,4) 5% 2.880 0.024
+> (32 ,8) 10% 2.908 0.045
+> (32 ,8) 5% 2.908 0.045
+> (32 ,16) 10% 2.877 0.023
+> (32 ,16) 5% 2.877 0.023
+> (B, S )Top Comp. ∆GpG∆F
+> (16 ,8) 10% 2.891 0.750 1.9×10 −7-0.945
+> (16 ,8) 5% 1.992 0.547 1.9×10 −5-0.828
+> (32 ,4) 10% 7.141 1.961 1.9×10 −7-0.117
+> (32 ,4) 5% 5.016 1.578 1.3×10 −10 -0.164
+> (32 ,8) 10% 6.891 2.320 9.5×10 −15 0.094
+> (32 ,8) 5% 4.898 1.703 1.1×10 −14 -0.016
+> (32 ,16) 10% 5.602 1.430 2.4×10 −14 -1.398
+> (32 ,16) 5% 4.055 1.117 6.0×10 −14 -1.148
+
+Table J.4: DINO-WM sensitivity over total query bud-get B and scout size S. Comp. denotes reference-component coverage, ∆G = BASIN LENS − GP -UCB ,and ∆F = BASIN LENS − BASIN LENS -F RONTIER .The upper panel reports point discovery; the lower panel reports component coverage, with pG giving the one-sided exact sign-test value for the comparison with GP-UCB. 
+
+frontier is empty. A neighbor shares the reset seed and satisfies at least one of |γ′ − γ| ≤ 0.26 ,
+
+∥¯a′ − ¯a∥2 ≤ 0.85 , or ¯a′⊤ ¯a > 0.DIAMOND inputs are a reset seed and four valid action-prefix entries at fixed context index four; IRIS inputs are a reset seed, pre-context no-op count, and action-template label at a fixed con-text length and a prediction horizon of four. The final DIAMOND studies use candidate-library size 
+
+N = 128 , query budget B = 16 , and eight paired search seeds; the IRIS studies use N = 36 , B = 6 ,and four paired search seeds. Both optimize future-frame MSE. Their portfolio method follows the random baseline’s candidate stream until at least three risks have been observed and 
+
+rmax > median( r)+ max {6 MAD( r),
+
+0.5| median( r)|, 10 −8},
+
+where MAD is the median absolute deviation of the observed risks. The condition is recomputed after every query. When it is active, the first query is structured and the portfolio then alternates one structured query with one query from the random stream; when it is inactive, it continues the ran-dom stream. An exhausted random stream falls back to structured selection. DIAMOND forms typed replacements of reset seed or one action-prefix entry around the three highest-prediction-risk observations and adds the eight leading global UCB proposals; IRIS replaces seed, no-op count, or template around the two highest-prediction-risk observations and adds the five leading global UCB proposals. Their kernel-weighted UCB rules use exploration coefficient 1.0 and length scales 0.75 and 0.60, respectively, and query the candidate with the largest score. 
+
+L Reproduction Record 
+
+Each reported protocol can be reconstructed from five record types. Keeping these records separate makes it possible to verify candidate validity, re-play search decisions, and recompute summaries without rerunning model inference. 
+
+L.1 Executable Code Map 
+
+The code supplement is organized by evidence type rather than by paper section. Table L.2 maps the principal reported protocols to their retained entry points. Some filenames retain the historical string 
+
+basin_gcg ; this is an implementation filename only and does not denote gradient-based prompt optimization. The release uses uv , not Conda. Running uv sync –frozen under Python 3.12 reconstructs the locked Python environment from pyproject.toml 
+
+and uv.lock ; uv run python -m compileall -q scripts provides a dependency-light syntax check of every retained entry point. Model-specific ex-ecution additionally requires the cited upstream repositories and checkpoints. Those assets remain under their original licenses, so the adapters re-ceive their locations through explicit command-line arguments or configuration fields rather than anonymous-repository-relative assumptions. A complete rerun first constructs and validates the finite candidate library, then generates evalu-ation records, replays or executes paired search traces, and finally runs held-out point or neighbor-hood evaluation from frozen selected identifiers. Tables are aggregated only after these records pass the consistency checks below. This order prevents a validation result from changing the candidate li-brary, search trace, or shortlist that it is intended to assess. Before aggregation, every trace is checked for a query count no larger than B, unique candidate identifiers within a restart, and membership of ev-27 Model, case, and metric B/N Random UCB Structured Paired p                             
+
+> LeWM PushT 6D, best search score 32/3510 1.587 1.620 1.647 4.81 ×10 −9/0.010 DIAMOND Breakout, best MSE ( ×10 −4)16/128 1.6930 2.3203 1.8154 1.000/1.000 DIAMOND Pong, best MSE ( ×10 −4)16/128 2.3478 2.0902 2.2117 0.500/1.000 IRIS Breakout, best MSE ( ×10 −5)6/36 1.4400 1.4401 1.4400 –/1.000 IRIS Pong, best MSE ( ×10 −4)6/36 1.1885 1.2057 1.0004 1.000/1.000 JEPA-WM PointMaze, composite latent risk 16/480 4.935 4.042 5.113
+> 8.55 ×10 −4/
+> 2.49 ×10 −8
+
+Table K.1: Cross-model search summary. B/N is query budget/library size. Structured denotes B ASIN LENS for LeWM and the protocol-specific policies described in this section for the other models. The final column gives paired p values versus random/UCB; a dash marks an unavailable comparison. Higher is better, and bold marks the largest score in each row.                                                               
+
+> BNMethod Mean best risk Top-5 hit Top-10 hit Top-10% hit 4480 Random 3.635 0.016 0.031 0.281 GP-UCB 3.449 0.008 0.016 0.203 Structured 3.902 0.039 0.094 0.344
+> 8480 Random 4.281 0.062 0.133 0.555 GP-UCB 3.655 0.008 0.047 0.414 Structured 4.226 0.086 0.156 0.648
+> 16 480 Random 4.935 0.125 0.266 0.781 GP-UCB 4.042 0.008 0.141 0.602 Structured 5.113 0.234 0.359 0.867
+> 32 480 Random 5.907 0.297 0.484 0.961 GP-UCB 5.186 0.008 0.383 0.992
+> Structured 6.277 0.359 0.570 0.922
+
+Table K.2: JEPA-WM PointMaze budget sweep over 128 paired replay seeds. Higher is better for all columns because the objective is to discover inputs with higher prediction risk. The structured policy is strongest in mean best risk at budgets 4, 16, and 32; random search is slightly higher at budget 8, illustrating that method ordering depends on the available budget and risk landscape. 
+
+ery query in the protocol’s valid library. Common-scout comparisons additionally verify identical scout identifiers and values across methods. Held-out records are checked for disjoint search and validation seed sets. Neighborhood records are re-generated from typed coordinates and compared with their stored candidate identifiers; duplicate candidates within one anchor neighborhood are removed, while a candidate shared by two differ-ent anchors remains in both anchor-level statistics. Finally, all displayed means, differences, and test values are recomputed from the unrounded records. The main search curves use cumulative threshold indicators from complete search traces. Validation bars use candidate-level or anchor-level measure-ments from separate records, as stated in each cap-tion. The TwoRooms and Wall panels are generated from matched environment and model-prediction outputs for the displayed valid inputs. They are illustrative cases and are not used as additional independent samples in the statistical comparisons. 
+
+M Interpretation of Cross-Model Results 
+
+The cross-model rows establish that natural-input failure discovery can be instantiated whenever a world model exposes an executable input speci-fication and a prediction target that can be com-pared with the environment. They do not define a universal numerical risk scale: LeWM, DINO-WM, JEPA-WM, DIAMOND, and IRIS operate in different output spaces, so magnitudes are in-terpreted only within each protocol. Likewise, the structured policy is not assumed to dominate ev-ery comparator. The DINO-WM and JEPA-WM studies show positive cases for typed expansion, whereas the Atari rows document settings in which random search or the UCB comparator is stronger. These outcomes are retained because the central object is the discovered prediction failure and its input condition, not a cross-architecture optimizer leaderboard. The main validation claim remains tied to LeWM PushT, where selected points and neigh-28 Record Required fields Verification supported Candidate library Stable identifier, typed input values, normalized representation, validity status Candidate count, coordinate ranges, one-coordinate replacement graph Evaluation record Candidate identifier, environment seeds, per-seed losses, activity measurements, prediction risk, search score Risk aggregation, activity adjustment, equality of cached values across methods Search trace Restart seed, ordered scout, ordered queries, ac-quisition values, top-k output Query budget, no repeated query, common-scout pairing, best-score and hit-rate summaries Validation record Selected identifier, disjoint validation seeds, per-seed losses, control identifier Held-out point comparison without acquisition leakage Neighborhood record Anchor identifier, generated radius-1 identifiers, group label, fresh losses Neighborhood validity, anchor-level aggregation, exact permutation test 
+
+Table L.1: Minimal record schema for reproducing the reported discovery and validation results. Tables and figures are derived from these records rather than transcribed from console output. 
+
+Evidence type Entry point Primary record produced or consumed LeWM PushT discovery scripts/lewm_pusht_online_basin_gcg. py 
+
+Valid candidate library, per-candidate evalua-tions, and ordered search traces Held-out point validation scripts/validate_online_basin_ candidates.py 
+
+Selected identifiers and disjoint-seed point-validation records Fresh-neighborhood persis-tence 
+
+scripts/validate_online_widegrid_ neighborhoods.py 
+
+Radius-1 candidate lists, fresh losses, and anchor-level summaries Component isolation scripts/combinatorial_basin_gcg_ benchmark.py 
+
+Cached paired search traces for the global, fron-tier, interaction, and beam policies LeWM state readout scripts/lewm_pusht_state_probe_ mainline.py 
+
+Probe checkpoint, held-out errors, and decoded state sequences Controller consequence scripts/lewm_pusht_closed_loop_mpc_ audit.py 
+
+Seed-matched proposal rankings and environment-side controller outcomes DINO-WM PushT scripts/dino_pusht_online_basin_gcg. py 
+
+Visual-feature risk evaluations and discovery traces DINO-WM common-scout replay 
+
+scripts/dino_basin_expansion_audit.py Paired continuation-policy traces and component-coverage summaries JEPA-WM PointMaze scripts/jepa_wm_pointmaze_search.py Latent-risk candidate records and budget-sweep traces Atari interfaces scripts/diamond_atari_multiseed_ truepred.py ; scripts/iris_atari_ search_smoke.py 
+
+Future-frame risk records for DIAMOND and IRIS 
+
+Table L.2: Code-to-evidence map for the anonymous supplement. Each entry point accepts explicit upstream-repository and checkpoint paths rather than embedding machine-local locations. 
+
+borhoods are evaluated with disjoint seeds. The DINO-WM replication uses two independent can-didate libraries and common-scout replay, provid-ing method-level replication but not the same held-out neighborhood protocol. The TwoRooms and Wall cases provide interpretable views of temporal and topological prediction failure. This separation keeps each result attached to the protocol that gen-erated it. 
+
+N Reporting Natural-Input Failure Discovery 
+
+A complete discovery result should identify the input condition, the prediction quantity that failed, and the evidence that the case is not an artifact of invalid inputs or reused evaluation noise. The search algorithm is only one part of that record. Table N.1 summarizes the reporting fields used in this paper and their purpose. This separation also clarifies negative or mixed method results. A search policy can fail to out-perform a comparator while still returning a valid high-risk case; conversely, a high search score does not by itself establish reproducibility or local per-sistence. For that reason, the main paper reports search, held-out point, and neighborhood results under their own protocols and uses distinct terms for prediction risk, search score, and task conse-quence. 29 Reporting item Required content Question answered Input specification Typed coordinates, allowed values, and environment-level validity checks Is the discovered condition executable without an adversarial or off-support perturbation? Prediction interface Forecast origin and horizon, reference target, dis-crepancy, and seed aggregation What exactly does “prediction failure” measure? Discovery protocol Candidate library, query budget, scout rule, com-parator pairing, and search score How was the case found, and were budgets com-parable? Selected case Stable identifier, typed values, search score, pre-diction risk, and activity status Can the reported condition be reconstructed and inspected? Held-out evidence Disjoint seeds, control definition, and candidate-level aggregation Does elevated prediction risk reproduce beyond the search measurements? Neighborhood evi-dence Valid edit rule, radius, anchor groups, and fresh evaluation seeds Does elevated risk persist under nearby valid changes? Task consequence Controller, proposals, task metric, and its separa-tion from prediction risk Is a downstream outcome being measured, and what causal claim is supported? 
+
+Table N.1: Reporting fields for natural-input failure discovery. The fields separate discovery efficiency from evidence about the returned condition. 
+
+30

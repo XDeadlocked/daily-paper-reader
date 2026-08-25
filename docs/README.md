@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-24</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-25</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-24 20:32:48 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-25 19:54:25 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦扩散模型视频压缩与外视到自我视频生成，两篇均获9分高分；速读覆盖身份保持视频生成、图算子世界模型与对抗攻击。最值得关注的是视频压缩与跨视角生成的分数领先，或为视频生成落地关键。建议普通读者优先精读这两篇高分论文，探索扩散模型在视频任务中的跨模态应用。</p>
+<p>今日共读22篇，精读14篇、速读8篇，聚焦VLA端到端驾驶与反事实监督方向。</p>
+<p>最值得看的是均获9.0分的《A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving》与《CounterAlign》。</p>
+<p>建议优先精读这两篇，再速读三篇8分操作与蒸馏论文。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">14 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DiffVC-ONE: Diffusion-based Generative Video Compression with One-Step Video Diffusion Transformer">DiffVC-ONE: Diffusion-based Generative Video Compression with One-Step Video Diffusion Transformer</span></li><li><span class="dpr-home-dashboard-paper-title" title="Grounded-Exo2Ego: Structured Semantic Grounding for Robust Exocentric-to-Egocentric Video Generation">Grounded-Exo2Ego: Structured Semantic Grounding for Robust Exocentric-to-Egocentric Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Logic-VLA: A Temporal Logic Conditioned Vision-Language-Action Model">Logic-VLA: A Temporal Logic Conditioned Vision-Language-Action Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving">A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="CounterAlign: Counterfactual Supervision for Vision-Language-Action Models">CounterAlign: Counterfactual Supervision for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Counterfactual Quotient Models: Learning What Actions Change, Not What the World Does">Counterfactual Quotient Models: Learning What Actions Change, Not What the World Does</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>14</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Identity-Preserving Text-to-Video Generation via Agentic Enhancement and Semantic Repair">Identity-Preserving Text-to-Video Generation via Agentic Enhancement and Semantic Repair</span></li><li><span class="dpr-home-dashboard-paper-title" title="Graph-Operator World Models for Morphology-Parameter Generalization in Continuous Control">Graph-Operator World Models for Morphology-Parameter Generalization in Continuous Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="CIVA: Critic-Induced Value-Subspace Attacks on Visual World-Model Agents">CIVA: Critic-Induced Value-Subspace Attacks on Visual World-Model Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Inferring Action from Future Latent State for Robotic Manipulation">Inferring Action from Future Latent State for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamMimic: Learning Visuomotor Whole-Body Loco-Manipulation via World Model">DreamMimic: Learning Visuomotor Whole-Body Loco-Manipulation via World Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="WAM-OPD: On-Policy Distillation for World Action Models">WAM-OPD: On-Policy Distillation for World Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
 </div>
 
