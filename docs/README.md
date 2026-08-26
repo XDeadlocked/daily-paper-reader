@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-25</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-26</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 14 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>14</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-25 19:54:25 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-26 21:54:25 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读22篇，精读14篇、速读8篇，聚焦VLA端到端驾驶与反事实监督方向。</p>
-<p>最值得看的是均获9.0分的《A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving》与《CounterAlign》。</p>
-<p>建议优先精读这两篇，再速读三篇8分操作与蒸馏论文。</p>
+<p>今日聚焦机器人学习与动作模型，精读两篇9.0分论文，速读三篇8分工作。最值得关注的方向是推理延迟下的策略微调与层级技能检索，两者均致力于提升VLA模型的数据效率与部署表现。建议优先精读这两篇高分论文，再扩展至世界模型相关速读内容。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">14 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving">A Collaborative Multi-Modality Interaction for VLA-based End-to-End Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="CounterAlign: Counterfactual Supervision for Vision-Language-Action Models">CounterAlign: Counterfactual Supervision for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Counterfactual Quotient Models: Learning What Actions Change, Not What the World Does">Counterfactual Quotient Models: Learning What Actions Change, Not What the World Does</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning to Act While Waiting: RL Finetuning of Generalist Robot Policies Under Inference Latency">Learning to Act While Waiting: RL Finetuning of Generalist Robot Policies Under Inference Latency</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models">Hierarchical Skill Retrieval for Data-Efficient Adaptation of Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="TrAct: Bridging Robot Control and Visual Prediction with Visual Tracks">TrAct: Bridging Robot Control and Visual Prediction with Visual Tracks</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>14</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Inferring Action from Future Latent State for Robotic Manipulation">Inferring Action from Future Latent State for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DreamMimic: Learning Visuomotor Whole-Body Loco-Manipulation via World Model">DreamMimic: Learning Visuomotor Whole-Body Loco-Manipulation via World Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="WAM-OPD: On-Policy Distillation for World Action Models">WAM-OPD: On-Policy Distillation for World Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Scaling Reinforcement Learning for Diffusion Models via Velocity Matching">Scaling Reinforcement Learning for Diffusion Models via Velocity Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="GlanceWAM: Sparse Test-Time Imagination for World-Action Models">GlanceWAM: Sparse Test-Time Imagination for World-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Latent Action as Intention Enables Efficient Future Imagination for World Action Models">Latent Action as Intention Enables Efficient Future Imagination for World Action Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
