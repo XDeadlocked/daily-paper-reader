@@ -1,0 +1,561 @@
+Title: Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling
+
+URL Source: https://arxiv.org/pdf/2608.29322v1
+
+Published Time: Tue, 01 Sep 2026 01:00:20 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling 
+
+# HANGZHOU HE ∗, Peking University, China and Alibaba Group, China 
+
+# LUNHAO DUAN, Alibaba Group, China 
+
+# SHANSHAN ZHAO †, Alibaba Group, China 
+
+# KAIWEN LI, Peking University, China 
+
+# QING-GUO CHEN, Alibaba Group, China 
+
+# WEIHUA LUO, Alibaba Group, China 
+
+# YANYE LU †, Peking University, China Base model: CogVideoX-2B Prompt: a koala bear playing piano in the forest. ( and are evaluated using fully denoised videos.) 
+
+Video-T1 EvoSearch 
+
+GEARS (Ours)   
+
+> 𝑡 = 𝑇 𝑡 = 𝑇 𝑡 = 𝑇 𝑡 = 0 𝑡 = 0 𝑡 = 0
+> ❌❌❌✅
+> ❌❌
+> ❌
+> ✅
+> ✅
+> mutation
+> ❌❌
+
+Direct Generation 
+
+> 𝑡 = 𝑇 𝑡 = 0
+
+DLBS    
+
+> 𝑡 = 𝑇 𝑡 = 0
+> ❌❌
+> ✅❌❌❌
+> ✅❌
+
+Fig. 1. Left: Test-time scaling paradigms along the denoising axis ( 𝑡 =1 →𝑡 =0). Video-T1 [Liu et al. 2025b] samples independent trajectories and selects the best video at the end; DLBS [Oshima et al. 2025] seeks a better diffusion path by keeping K elites for each step as beam search; EvoSearch [He et al. 2025b] adds mid-denoising mutation around elites but still clusters candidates locally; GEARS further recycles low-scoring candidates via diagnostic latent editing (green dashed arrows), rerouting them back into denoising at two scheduled stages to reach regions noise-space search alone cannot. Right: Qualitative comparison. Baselines suffer from subject-background inconsistency or stagnant motion, while GEARS produces a coherent koala playing piano throughout. 
+
+Recent video diffusion models have achieved remarkable generation quality, but high-fidelity results still largely depend on closed-source systems or costly large-scale infrastructure. Test-time scaling (TTS) offers a training-free way to improve lightweight generators by spending additional infer-ence compute, yet existing methods mostly remain within a noise-search paradigm: they sample, select, or perturb denoising trajectories and dis-card low-scoring candidates after expensive generation. This generate-and-discard process wastes not only computation but also the partial motion, layout, or appearance structure already encoded in recoverable samples. We present GEARS (Guided Editing for Adaptive Recycling Search), a 
+
+> ∗
+
+Work done during an internship at Alibaba Group. 
+
+> †
+
+Corresponding author. Email: sshan.zhao00@gmail.com, yanye.lu@pku.edu.cn. 
+
+training-free framework that introduces diagnosis-guided candidate re-cycling into video TTS by turning such candidates into editable priors through a generation-evaluation-editing loop. GEARS consists of two col-laborative components. The Stage-Aware Scheduler determines what to repair, when to repair it, and which candidates should be preserved, recy-cled, or discarded. The Candidate Recycler diagnoses recoverable failures from keyframes and multi-dimensional reward feedback, derives candidate-specific repair prompts, and repairs the corresponding candidates through manifold-aware latent SDEdit. The repaired candidates are recycled into the search pool, creating refinement paths beyond standard noise perturbation while preserving useful structure. Under matched NFE budgets, GEARS consistently outperforms existing video TTS methods on VBench, bringing a 1.3B model to a total score comparable to a 14B counterpart, and ablations ver-ify the necessity of adaptive scheduling, diagnosis-conditioned editing, and arXiv:2608.29322v1 [cs.CV] 29 Aug 2026 2 • He et al. 
+
+> manifold-aware re-denoising. Code is available at https://github.com/ATH-MaaS/Guided_Editing_for_Adaptive_Recycling_Search. Additional Key Words and Phrases: Test-time scaling, video generation
+
+1 Introduction 
+
+Recent advancements in video generation heavily rely on scaling model capacity and extensive training datasets [Google DeepMind 2025; Kling 2024; Liu et al. 2024; Seedance et al. 2026; Wan et al. 2025]. While large closed-source models achieve impressive cinematic quality, their prohibitive computational demands drive a parallel effort to develop lightweight models suitable for consumer hardware [Hong et al. 2022; Wan et al. 2025; Wu et al. 2025b; Yang et al. 2024; Zheng et al. 2025]. However, a substantial quality gap persists between open-source models and larger counterparts. Test-time scaling (TTS) provides an opportunity to bridge this gap by allocating additional computation during inference without alter-ing model weights. Inspired by search strategies in large language models [Chen et al. 2024; Snell et al. 2024], recent TTS methods for diffusion models search over prompts, initial noises, or denoising trajectories with reward-based verifiers [Ma et al. 2025]. Prompt-space methods refine text conditions before generation [Gao et al. 2025; Long et al. 2025; Song et al. 2026], whereas generation-space methods explore denoising trajectories through discrete sampling [Liu et al. 2025b], evolutionary optimization [He et al. 2025b], beam search [Oshima et al. 2025], or semantic budget allocation [Wu et al. 2026]. However, these methods largely retain a generate-evaluate-discard paradigm, where lower-ranked candidates are discarded after expensive denoising and evaluation. However, video generation is inherently open-ended and sub-jective: a plausible video may still receive a low reward because it underperforms along a particular aspect such as visual fidelity, motion dynamics, or text alignment [Liu et al. 2025a]. As shown in Fig. 2 (left), a low overall score does not necessarily indicate a globally defective sample: many low-scoring candidates remain plausible in some dimensions while failing predominantly along one recoverable aspect [Luo et al. 2026]. Discarding such candi-dates therefore wastes both the useful structure they encode and the computation already spent on their generation. Furthermore, existing search methods obtain diversity mainly from independent initial noises or local stochastic perturbations around promising trajectories (Fig. 1 left). Such exploration remains confined to the forward noise-search process, causing candidates to cluster around similar denoising basins and leading to rapidly diminishing returns as more inference compute is spent. Although diffusion models naturally support training-free editing through noise-and-redenoise procedures [Lugmayr et al. 2022; Meng et al. 2021], this capability remains largely underexplored as an integral component of TTS for text-to-video generation. In this paper, we introduce GEARS (Guided Editing for Adaptive 
+
+Recycling Search), a training-free framework that reframes low-scoring but structurally plausible candidates as editable priors rather than failed samples. Instead of continuing the generate-evaluate-discard loop, GEARS diagnoses the dimension-specific failures of these candidates, repairs them by editing their re-noised latent states at the denoising stage where the target attribute is most controllable, t = 0.9   
+
+> t = 0.6
+> t = 0.3
+> t = 0.0 Visual Quality (VQ) Motion Quality (MQ)
+> Base GEARS
+> Fig. 2. Left : Joint and marginal distributions of Base and GEARS candidates in the VQ–MQ space. Contours visualize the joint density, while the top and right curves show the VQ and MQ marginal profiles, respectively. GEARS redirects recoverable candidates toward higher joint quality. Right : High-noise stages establish coarse motion and layout, whereas low-noise stages refine appearance and texture.
+
+and recycles the corrected candidates back into the search pool. We refer to this diagnose-repair-recycle mechanism as diagnosis-guided candidate recycling, which realizes a generation-to-editing transi-tion by converting wasted computation into structural diversity and shifting test-time compute from passive noise selection to active refinement. GEARS realizes this transition through two collabora-tive components: the Stage-Aware Scheduler (Scheduler) and the 
+
+Candidate Recycler (Recycler). The Scheduler determines what to repair, when to repair it, and which candidates should be preserved, recycled, or discarded. It uses the denoising hierarchy to assign motion and coarse-structure re-pair to high-noise stages and visual refinement to low-noise stages. At each stage, it preserves high-scoring candidates as elites, dis-cards severely misaligned samples, and sends semantically valid but dimensionally deficient candidates to the Recycler. The Recycler diagnoses and repairs the recoverable candidates selected by the Scheduler and returns them to the search pool. Given multi-dimensional reward and visual anchors from the video, an MLLM diagnoses the primary failure mode and produces a candidate-specific repair instruction. The Recycler then re-noises the candidate latent to the scheduled denoising stage and re-denoises it under the repair condition, correcting the diagnosed deficiency while preserv-ing useful motion, layout, or appearance. We further use a manifold-aware SDE (MA-SDE) [Zheng et al. 2026] during re-denoising to reduce off-manifold artifacts and temporal jitter. Together, this structurally aware generation-evaluation-editing loop moves beyond the local neighborhoods explored by standard noise perturbation and opens new refinement paths through edited structural priors. Quantitative and qualitative evaluations show that GEARS consistently outperforms existing noise-space TTS methods under matched compute budgets, providing a new generation-to-editing paradigm that shifts the focus of video test-time scaling from passive noise selection to active, structured refinement. Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling • 3
+
+2 Related Work 2.1 Video Generation and Editing 
+
+Diffusion- and flow-matching-based video generation [Dhariwal and Nichol 2021; Lipman et al. 2023] has advanced rapidly, driven by progress in model architectures [Liu et al. 2022; Peebles and Xie 2023] and training-time scaling [Gu et al. 2025; He et al. 2025c; Yu et al. 2025]. Large-scale systems such as Kling [Kling 2024], Veo [Google DeepMind 2025], and Seedance [Seedance et al. 2026] have demonstrated cinematic-quality generation, while open-source mod-els [Kong et al. 2024; Wan et al. 2025; Wu et al. 2025b; Yang et al. 2024; Zheng et al. 2025] have made text-to-video generation increas-ingly accessible on consumer hardware. Despite this progress, small models still lag behind their large-scale counterparts, motivating inference-time strategies that improve generation quality without additional training or model-size scaling. A complementary line of work studies training-free video edit-ing. Diffusion and flow-matching models naturally support editing through their forward-reverse generative structure. SDEdit [Meng et al. 2021] shows that adding noise to an existing sample and re-denoising it under new conditioning can produce meaningful edits without fine-tuning. Recent video editing methods further exploit this property through noise inversion, clean-latent manipulation, localized noise splicing, or context-aware refinement [Bai et al. 2025; Chen et al. 2026a; Lee et al. 2024; Samuel et al. 2025]. These works demonstrate the built-in capacity for refinement and correction. However, existing editing methods are typically formulated as standalone editing or post-processing procedures applied to a given output. Their correction ability remains largely disconnected from test-time scaling, where additional compute is instead spent on sampling, scoring, and selecting candidates. GEARS bridges this gap by embedding MLLM-guided latent-space editing directly into the inference-time search loop. Rather than editing only a final output, GEARS diagnoses low-scoring but structurally plausible candidates during search, repairs them through latent re-denoising, and recycles the corrected candidates back into the candidate pool. 
+
+2.2 Test-Time Scaling for Video Generation 
+
+Test-time scaling (TTS) improves model outputs by allocating addi-tional computation during inference. Originally studied extensively in LLMs [Snell et al. 2024], TTS commonly takes the form of parallel sampling, such as Best-of-N, or long sequential reasoning chains [Wei et al. 2022]. TTS has also been extended to image generation with diffusion models [Ma et al. 2025; Song et al. 2021]. However, simply increasing the number of denoising steps is often ineffective and may even degrade visual quality due to accumulated errors [Ma et al. 2025]. Instead, diffusion TTS methods typically improve outputs by searching over prompts [Qu et al. 2026; Wang et al. 2026], initial noises [Guo et al. 2024; Wang et al. 2025], or denoising trajectories with reward-based verifiers [Ren et al. 2025]. Video TTS largely follows the design dimensions of verifiers and 
+
+search algorithms , but its high-dimensional and temporal nature introduces additional challenges beyond image generation. Each candidate is substantially more expensive to generate and evaluate, while its quality depends on multiple coupled factors such as visual fidelity, motion dynamics, temporal consistency, and text alignment [Liu et al. 2025a; Wu et al. 2025a]. This makes the generate-and-discard strategy inefficient for video generation, since low-ranked candidates may still contain useful structure or motion patterns that have already consumed significant inference compute. Along the verifier axis, Video-T1 [Liu et al. 2025b] shows that ensembling complementary metrics is more effective than relying on a single reward, while Baraldi et al. [2025] demonstrates that stronger reward models can yield disproportionate gains under inference-time scaling. Unlike verifiable domains such as mathe-matics or programming [Chen et al. 2026b; Li et al. 2025], video generation is open-ended and subjective, making reward construc-tion substantially more challenging [He et al. 2025a, 2024; Liu et al. 2025a; Xu et al. 2026]. Recent work therefore studies more scalable and efficient reward mechanisms, including reward scaling for vi-sual generation [Wu et al. 2025a] and latent reward models that score noise directly without full VAE decoding [Zhao et al. 2026]. Along the search algorithm axis, prompt-space methods such as VISTA [Long et al. 2025], VQQA [Song et al. 2026], and RAPO ++ 
+
+[Gao et al. 2025] iteratively rewrite prompts to improve genera-tion quality, which is suitable for closed-source systems where only prompt-level access is available. For noise-space search, Video-T1 [Liu et al. 2025b] applies Best-of-N sampling to validate test-time scaling laws for video generation and proposes a Tree-of-Frames strategy for more efficient scaling in autoregressive video gener-ation. Diffusion Latent Beam Search (DLBS) [Oshima et al. 2025] maintains multiple candidate trajectories with lookahead estimation, showing that reliable candidate assessment may require multi-step or full denoising. EvoSearch [He et al. 2025b] formulates noise-space exploration as evolutionary optimization with selection, crossover, and mutation. ImagerySearch [Wu et al. 2026] adaptively allocates search budgets according to prompt complexity and semantic de-pendency. Despite their effectiveness, most video TTS methods still follow a generation-and-discard paradigm, where unselected candidates are discarded after costly denoising and evaluation. GEARS departs from this paradigm by recycling recoverable low-scoring candidates through diagnosis-conditioned latent editing, turning already-spent inference compute into structured diversity for subsequent search. 
+
+3 Methodology 3.1 Overview of GEARS 
+
+Consider a pretrained latent text-to-video generator G that operates in the latent space. Given a text prompt 𝑝 and an intermediate latent 
+
+𝑥 𝑡 at noise level 𝑡 ∈ [ 0, 1] (where 𝑡 = 1 denotes pure noise and 𝑡 = 0denotes a clean latent), the generator defines a conditional reverse denoising process: 
+
+𝑥 𝑡 ′ = G𝑡 →𝑡 ′ (𝑥 𝑡 , 𝑝 ), 0 ≤ 𝑡 ′ < 𝑡 ≤ 1. (1) The clean latent 𝑥 0 is decoded into a video 𝑣 by the decoder Dec (·) of VAE. GEARS also uses the standard forward perturbation operation associated with the same generator schedule. Given a clean latent 
+
+𝑥 0, we can perturb it back to a target noise level 𝑡 as 
+
+𝑥 𝑡 = 𝜆 𝑡 𝑥 0 + 𝜎 𝑡 𝜖, 𝜖 ∼ N ( 0, 𝐼 ), (2) where 𝜆 𝑡 and 𝜎 𝑡 are the signal and noise coefficients determined by the diffusion or flow-matching sampler schedule. 4 • He et al. Video 1 (1) prompt: 𝑝 !!    
+
+> "
+> (2) gaussian noise: 𝑁 #× 𝑥 !!
+> "
+> Initial Stage Input
+> Video 2 Video 3
+> Video 4 Video 5 Video 6
+
+⋯ ⋯   
+
+> (1) candidate prompt: 𝑝 !"
+> "
+> (2) noise re-encoded from previous stage’s video:
+> 𝑥 !"
+> "= 𝜆 !"𝑥 #"+ 𝜎 !"𝜖
+> Late Stage Input
+
+𝑠 ! 𝑠 " 𝑠 # 𝑠 $ 𝑠 $%" 𝑠 &'" 𝑠 &  
+
+> High-noise regime: {𝑠 #, … , 𝑠 $}
+> ~ Motion Focus Low-noise regime: {𝑠 $%& , … , 𝑠 '}
+> ~ Visual Focus
+
+Inputs   
+
+> re-noise Video 2 Video 5 Video 6
+
+Generate & Evaluate         
+
+> Video 2 Video 5 Video 6
+> 𝑅 𝑣 #= VQ 𝑣 #+ MQ 𝑣 #+ TA 𝑣 #.
+> Denoising input at stage 𝑠 (
+> to clean video 𝑣 "
+
+⋯
+
+> Video 1 Video 2 Video 5
+> Video 6
+
+Stage-Aware Scheduler Candidate Recycler  
+
+> 𝑡 = 1 𝑡 = 0
+
+⋯⋯⋯               
+
+> Discard Elites (from Scheduler) Edited (from Recycler)
+> According to the motion/visual focus, and the key frames, the current prompt 𝑝 $!
+> #can be improved to 𝑝 $!"#
+> #.MLLM
+> Manifold-Aware SDE Denoise
+> high noise low noise Determine Stage Focus
+> 𝜌 %𝑣 = 4 MQ(𝑣), 𝑖 ≤ 𝛼 VQ(𝑣), 𝑖 > 𝛼
+> Rank & Route
+> Reward Model
+> MQ
+> (Motion Quality)
+> VQ
+> (Visual Quality)
+> TA
+> (Text Alignment)
+> Recycler
+> (recycle & edit)
+> Elites
+> (preserved)
+> Discard
+> (drop)
+> Semantic Gating (Low TA)
+> (Keep 𝐾 $valid candidates)
+> Weak-but-Promising
+> (Bottom 𝑞 edit by 𝜌 $(𝑣) )
+> Remaining Valid Candidates
+
+Fig. 3. Overview of GEARS. Along the denoising trajectory from pure noise to clean latent, GEARS inserts multiple generation-to-editing checkpoints 
+
+{𝑠 0, 𝑠 1, . . . , 𝑠 𝑘 }. At each checkpoint, candidates are first fully denoised, decoded, and evaluated as clean videos; noisy latents are never scored. The Scheduler determines the current repair focus and routes the evaluated candidates into preserved elites, recoverable candidates for the Recycler, and discarded samples. The Recycler diagnoses and repairs the recoverable candidates through prompt-guided latent editing, after which they are returned to the search pool via re-noising. High-noise checkpoints prioritize motion correction, while low-noise checkpoints focus on visual refinement. 
+
+As shown in Fig. 3, GEARS selects a sequence of discrete noise levels as generation-to-editing checkpoints along the denoising trajectory: 1 = 𝑠 0 > 𝑠 1 > · · · > 𝑠 𝑘 > 0. (3) Each 𝑠 𝑖 is a specific noise level which defines an outer-loop recycling stage. Every candidate is first rolled out from 𝑠 𝑖 to 0, decoded, and scored as a clean video, while 𝑠 𝑖 controls the editing strength and tar-get attributes. This process is implemented by two components: the Scheduler determines the repair focus and routes candidates at each checkpoint, while the Recycler diagnoses and repairs the selected recoverable candidates. Here, we first provide a brief overview of this generation-evaluation-editing loop. At checkpoint 𝑠 𝑖 , GEARS maintains a candidate pool P𝑖 consisting of latent-prompt pairs (𝑥 𝑗 𝑠 𝑖 , 𝑝 𝑗 𝑠 𝑖 ). The first checkpoint starts from Gaussian noise: 
+
+P0 = {( 𝑥 𝑗 𝑠 0 , 𝑝 𝑗 𝑠 0 )} 𝑁 0
+
+> 𝑗 =1
+
+, 𝑥 𝑗 𝑠 0 ∼ N ( 0, 𝐼 ), (4) where 𝑁 0 is the initial sample size. While all initial prompts 𝑝 𝑛 𝑠 0 equal the original prompt 𝑝 , subsequent prompts 𝑝 𝑗 𝑠 𝑖 become candidate-specific, as the Recycler may modify them to guide targeted repairs. For each candidate in P𝑖 , we run the generator from 𝑠 𝑖 to 0 and decode the resulting clean latent: 
+
+𝑥 𝑗  
+
+> 0
+
+= G𝑠 𝑖 →0 (𝑥 𝑗 𝑠 𝑖 , 𝑝 𝑗 𝑠 𝑖 ), 𝑣 𝑗 = Dec (𝑥 𝑗  
+
+> 0
+
+). (5) Each generated video 𝑣 𝑗 is then evaluated by a multi-dimensional reward model along visual quality (VQ), motion quality (MQ), and text alignment (TA). Here we use VideoAlign [Liu et al. 2025a] with its default unweighted sum as the global ranking score, without tuning it on VBench or human preferences: 
+
+𝑅 (𝑣 𝑗 ) = VQ (𝑣 𝑗 ) + MQ (𝑣 𝑗 ) + TA (𝑣 𝑗 ). (6) After evaluation, the Scheduler routes the candidates into three groups, as illustrated in Fig. 3. Candidates with poor text alignment are discarded by a semantic gate; among the remaining candidates, those with low scores under the current stage focus are sent to the generation-to-editing branch, while the others are preserved as elites, denoted by E𝑖 . The Recycler diagnoses and repairs the selected candidates through prompt-guided re-denoising, producing next-checkpoint prompts 𝑝 𝑗 𝑠 𝑖 +1 for the repaired candidates. The preserved elites and repaired candidates are then merged into a survivor set B𝑖 ,which stores each surviving clean latent together with the prompt to be used at the next checkpoint. For preserved elites, the prompt is carried over unchanged, i.e., 𝑝 𝑗 𝑠 𝑖 +1 = 𝑝 𝑗 𝑠 𝑖 .For 𝑖 < 𝑘 , the non-elite survivors in B𝑖 \ E 𝑖 are perturbed to the next checkpoint 𝑠 𝑖 +1 by Eq. (2) to form the next candidate pool: 
+
+P𝑖 +1 = {( 𝑥 𝑗 𝑠 𝑖 +1 , 𝑝 𝑗 𝑠 𝑖 +1 ) | ( 𝑥 𝑗 
+
+> 0
+
+, 𝑝 𝑗 𝑠 𝑖 +1 ) ∈ B 𝑖 \ E 𝑖 }. (7) Preserved elites retain their clean latents, inherited prompts, and reward scores, and are directly merged with the newly evaluated candidates at checkpoint 𝑠 𝑖 +1 for Scheduler routing. GEARS repeats this loop at each subsequent checkpoint until the final output is selected by the ranking score 𝑅 at the last checkpoint. 
+
+3.2 Stage-Aware Scheduler Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling • 5
+
+The Scheduler determines what to repair, when to repair it, and which candidates to discard, preserve, or recycle at each generation-to-editing checkpoint. Its design follows the hierarchical nature of the denoising process: earlier checkpoints with higher noise levels have stronger influence on global layout and motion, whereas later checkpoints with lower noise levels mainly refine appearance, texture, and local visual fidelity (Fig. 3 right). To operationalize this hierarchy, we introduce an empirically chosen transition index 
+
+𝛼 over the checkpoint sequence {𝑠 1, . . . , 𝑠 𝑘 }, which partitions the checkpoints into a high-noise regime {𝑠 0, . . . , 𝑠 𝛼 } and a low-noise regime {𝑠 𝛼 +1, . . . , 𝑠 𝑘 }. The Scheduler then assigns a stage-dependent editing focus: 
+
+𝜌 𝑖 (𝑣 ) =
+
+(
+
+MQ (𝑣 ), 𝑖 ≤ 𝛼, 
+
+VQ (𝑣 ), 𝑖 > 𝛼. (8) Here, 𝜌 𝑖 (𝑣 ) indicates the attribute to prioritize when selecting re-coverable candidates for editing at checkpoint 𝑠 𝑖 : motion quality in the high-noise regime and visual quality in the low-noise regime. The Scheduler routes candidates through a rank-based procedure rather than a fixed-score threshold. At checkpoint 𝑠 𝑖 , let 𝐾 𝑖 denote the number of candidates to be kept for the next checkpoint. Given the evaluated candidate set, the Scheduler first discards candidates with the lowest text-alignment scores until 𝐾 𝑖 candidates remain. Let C𝑖 denote this set of remaining valid candidates. This semantic filtering removes samples whose content is missing, incorrect, or too far from the prompt, for which structure-preserving editing is usually unreliable [Lee et al. 2024; Meng et al. 2021]. The Scheduler then ranks C𝑖 by the current stage focus 𝜌 𝑖 , which serves as the single-dimensional criterion for deciding whether a candidate should be repaired at checkpoint 𝑠 𝑖 . We introduce an editing ratio 𝑞 edit ∈ [0, 1]: the bottom 𝑞 edit fraction under 𝜌 𝑖 is selected as weak-but-promising candidates 
+
+W𝑖 = Bottom 𝑞 edit 
+
+ C𝑖 ; 𝜌 𝑖 
+
+, (9) and sent to the Recycler for diagnosis and targeted repair. The remaining candidates are directly preserved as elites, 
+
+E𝑖 = C𝑖 \ W 𝑖 . (10) The edited candidates and preserved elites are merged to form the survivor set for the next checkpoint. 
+
+3.3 Candidate Recycler 
+
+The Recycler diagnoses and repairs the recoverable candidates se-lected by the Scheduler and returns them to the search pool. For a weak-but-promising candidate, the goal is not to restart generation from random noise, but to reuse its clean latent as a structured prior and correct the diagnosed deficiency through prompt-guided re-denoising. Given a candidate 𝑗 ∈ W 𝑖 at checkpoint 𝑠 𝑖 , the Recycler takes the clean latent 𝑥 𝑗  
+
+> 0
+
+encoded from video 𝑣 𝑗 , the current prompt 
+
+𝑝 𝑗 𝑠 𝑖 , reward scores, and the stage-dependent focus 𝜌 𝑖 assigned by the Scheduler as inputs. We uniformly sample four keyframes K ( 𝑣 𝑗 )
+
+from 𝑣 𝑗 and use them as visual anchors for an MLLM M to generate an enhanced prompt 𝑝 𝑗 𝑠 𝑖 +1 with stage-specific instruction 𝐼 detailed in Appendix Sec. B: 
+
+𝑝 𝑗 𝑠 𝑖 +1 = M  𝑝 𝑗 𝑠 𝑖 , 𝜌 𝑖 (𝑣 𝑗 ), K ( 𝑣 𝑗 ), 𝐼 . (11) A beautiful coastal beach in spring, waves lapping on sand, in cyberpunk style. 
+
+> Recycler
+> Recycler
+> Stage 1
+> Stage 2
+> A fat rabbit wearing a purple robe walking through a fantasy landscape.
+
+Fig. 4. Stage-aware candidate repair by the Scheduler and Recycler. Top: At Stage 1 (high noise), the candidate under-realizes the requested walking motion. The Recycler restores coherent subject motion while re-taining the rabbit and the fantasy scene. The rightmost insets summarize background-compensated optical flow across the three frames under a shared scale; warmer colors indicate larger residual motion, and arrows show its direction. Bottom: At Stage 2 (low noise), the candidate preserves the beach layout and wave dynamics but misses the requested cyberpunk appearance. The Recycler introduces neon structures while maintaining the coastal composition, as highlighted by the enlarged regions. Together, the two cases illustrate how the Scheduler assigns motion and appearance deficiencies to their appropriate repair stages. 
+
+The output 𝑝 𝑗 𝑠 𝑖 +1 is a complete prompt that preserves the original se-mantics while emphasizing the current deficiency: motion dynamics in the high-noise regime and visual details in the low-noise regime. As established in Sec. 3.1, this updated text will serve as the specific prompt condition for this candidate in the subsequent generation stage. Since the rewriting is conditioned on both visual anchors and reward feedback, the Recycler operates on the existing candidate rather than acting as a prompt-only refinement method. The Recycler then performs latent-space re-denoising under the enhanced prompt. It first perturbs the clean latent 𝑥 𝑗  
+
+> 0
+
+back to the active checkpoint 𝑠 𝑖 using the same forward perturbation schedule as in Eq. (2), yielding ˆ 𝑥 𝑗 𝑠 𝑖 . Starting from ˆ 𝑥 𝑗 𝑠 𝑖 , the Recycler re-denoises the latent with the enhanced prompt using a manifold-aware SDE (MA-SDE) sampler. We denote the corresponding reverse process by GMA -SDE , and the re-denoised latent is obtained by ˆ𝑥 𝑗  
+
+> 0
+
+= GMA -SDE   
+
+> 𝑠 𝑖 →0
+
+( ˆ𝑥 𝑗 𝑠 𝑖 , 𝑝 𝑗 𝑠 𝑖 +1 ), (12) where the newly generated ˆ 𝑥 𝑗  
+
+> 0
+
+replaces the original 𝑥 𝑗  
+
+> 0
+
+, and the updated pair ( ˆ𝑥 𝑗 
+
+> 0
+
+, 𝑝 𝑗 𝑠 𝑖 +1 ) is merged into the survivor set B𝑖 for the next stage. The use of MA-SDE is motivated by the need to balance exploration and preservation. During editing, the trajectory is al-ready perturbed in two ways: the generated latent is re-noised, and the text condition is changed from 𝑝 𝑗 𝑠 𝑖 to 𝑝 𝑗 𝑠 𝑖 +1 . If the SDE solver injects excessive stochasticity on top of these perturbations, the 6 • He et al.   
+
+> Table 1. Quantitative Comparison Results. (Results of ImagerySearch are from [Wu et al. 2026])
+
+VBench VideoAlign Method Total Score Quality Score Semantic Score Background Consistency Imaging Quality Motion Smoothness Subject Consistency Visual Quality Motion Quality Wan2.1-T2V-14B 0.8369 0.8559 0.7611 0.9809 0.6943 0.9830 0.9752 1.3807 0.9499 HunyuanVideo 13B 0.8324 0.8509 0.7582 0.9776 0.6756 0.9899 0.9737 1.4240 1.0920 Wan2.1-T2V-1.3B 0.8192 0.8471 0.7076 0.9655 0.6844 0.9674 0.9687 1.3737 0.9552 
+
++ Video-T1 0.8294 0.8490 0.7508 0.9656 0.6832 0.9644 0.9684 1.4464 1.1222 
+
++ DLBS 0.8224 0.8483 0.7188 0.9485 0.7039 0.9619 0.9627 1.4405 1.0834 
+
++ EvoSearch 0.8190 0.8478 0.7038 0.9483 0.6951 0.9585 0.9562 1.4609 1.1009 
+
++ ImagerySearch - - - 0.9600 0.6920 0.9800 0.9590 - -
+
++ GEARS ( Ours ) 0.8375 0.8553 0.7661 0.9725 0.6960 0.9727 0.9815 1.4733 1.1064 sample may move away from the pretrained generator’s data man-ifold [Chung et al. 2025; Karras et al. 2022; Xu et al. 2023], which can lead to subject drift or background inconsistency. Following Zheng et al. [2026], for two consecutive solver noise levels 𝑢 𝑚 > 𝑢 𝑚 +1, the injected noise standard deviation is 
+
+Σ1/2 
+
+> 𝑚
+
+= 𝜂 sde √︂ −( 𝑢 𝑚 − 𝑢 𝑚 +1) + log 1 − 𝑢 𝑚 +1
+
+1 − 𝑢 𝑚 
+
+, (13) where 𝜂 sde controls the amount of stochastic exploration. Unlike first-order SDE discretizations that estimate the noise variance with a linear approximation, MA-SDE integrates the diffusion coefficient exactly over each solver step, which reduces excess noise energy, thereby keeping the noise trajectory closer to the data manifold. As illustrated in Fig. 4, GEARS performs stage-aware candidate repair along the denoising trajectory, correcting motion and coarse structure at high-noise checkpoints while refining appearance and local details at low-noise checkpoints.  
+
+> Table 2. Generalization across Backbones .
+
+CogVideoX-2B Wan2.1-VACE-1.3B Method Quality Semantic Quality Semantic Base 0.8097 0.7639 0.8480 0.6573 
+
++ Video-T1 0.8070 0.7679 0.8454 0.7415 
+
++ DLBS 0.8079 0.7716 0.8382 0.6985 
+
++ EvoSearch 0.8006 0.7639 0.8703 0.6512 
+
++ GEARS ( Ours ) 0.8166 0.7973 0.8527 0.7616 
+
+4 Experiments 4.1 Experiment Settings 
+
+Implementation Details. We evaluate GEARS on Wan2.1-T2V-1.3B/-14B [Wan et al. 2025], Wan2.1-VACE-1.3B [Jiang et al. 2025], and CogVideoX-2B [Yang et al. 2024]. All Wan2.1 models generate 33-frame, approximately 2-second videos (81 frames for 5-second) at 832 × 480. CogVideoX-2B generates 49 frames at 720 × 480. We use dpmsolver ++ for Wan2.1 and an SDE-augmented DDIM sched-uler for CogVideoX. VideoAlign [Liu et al. 2025a] serves as the   
+
+> Fig. 5. Scaling behavior on Wan2.1-T2V-1.3B and Wan2.1-VACE-1.3B.
+
+multi-dimensional reward model, and Qwen3.5-Plus [Bai et al. 2023; Qwen Team 2026] is the default MLLM in the Recycler. Our default configuration uses checkpoints {𝑠 0 = 1, 𝑠 1 = 0.6, 𝑠 2 = 0.3}, transi-tion index 𝛼 = 1, 𝐾 1 = 𝐾 2 = 4, and 𝑞 edit = 0.5, which recycles the bottom two valid candidates at each checkpoint. For NFE-matched comparisons [He et al. 2025b; Liu et al. 2025b], we set the initial population 𝑁 0 to 10 for Video-T1 and DLBS [Oshima et al. 2025], 8 for EvoSearch [He et al. 2025b], and 6 for GEARS. The same GEARS and candidate-budget configuration is used for Wan2.1-T2V-14B; detailed NFE accounting is provided in Appendix Sec. A. 
+
+Evaluation Metrics and Protocol. We use VBench [Huang et al. 2024] as the primary independent evaluation and report its total, quality, and semantic scores, together with background consistency, imaging quality, motion smoothness, and subject consistency. We additionally report VideoAlign visual- and motion-quality rewards to measure search efficiency in the reward space. Following [Oshima et al. 2025] and [He et al. 2025b], the evaluations use 110 prompts uniformly sampled across the VBench dimensions. We run five matched seeds per prompt for all locally evaluated methods, yielding 550 output videos per method. 
+
+4.2 Results 
+
+Quantitative Results. As shown in Table 1, GEARS achieves the highest Total Score among the compared TTS methods. On Wan2.1-T2V-1.3B, it improves the base model from 0 .8192 to 0 .8375, reach-ing a level comparable to or slightly above larger backbones such Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling • 7 
+
+> Table 3. Evaluation on 5-Second Videos and a Larger Backbone.
+
+(a) 5-Second Videos 
+
+Method Total 
+
+Wan2.1-T2V-1.3B 0.8207 
+
++ Video-T1 0.8272 
+
++ EvoSearch 0.8261 
+
++ GEARS ( Ours ) 0.8371 
+
+(b) Larger Backbone 
+
+Method Total 
+
+Wan2.1-T2V-14B 0.8369 
+
++ Video-T1 0.8410 
+
++ EvoSearch 0.8388 
+
++ GEARS ( Ours ) 0.8425                      
+
+> Table 4. Prompt-level stability and blinded human evaluation of Wan2.1-T2V-1.3B +GEARS. Prompt-level results average five independent seeds for each of the 110 prompts; human results report Win/Tie/Loss.
+> Compared Method ΔScore Prompt Wins Human W/T/L
+> Wan2.1-T2V-1.3B +0.018 97/110 75/11/14
+> +Video-T1 +0.007 79/110 68/14/18
+> +EvoSearch +0.019 85/110 85/3/12 Wan2.1-T2V-14B +0.004 71/110 68/3/29
+
+as the Wan2.1-T2V-14B (0 .8369). The per-dimension results also suggest that different strategies introduce different trade-offs. For example, EvoSearch improves imaging quality but decreases motion smoothness and subject consistency, indicating that local noise per-turbations may disrupt temporal or structural coherence. Video-T1 improves VideoAlign rewards but shows limited gains on several VBench dimensions, consistent with the reward-overfitting issue dis-cussed in prior work [Liu et al. 2025b]. In contrast, GEARS achieves stronger overall performance by recycling low-scoring but recover-able candidates through diagnosis-conditioned editing. 
+
+Generalization across Different Backbones. We further evaluate GEARS on different model families, including CogVideoX-2B [Yang et al. 2024] and Wan2.1-VACE-1.3B [Jiang et al. 2025]. As shown in Table 2, GEARS consistently improves semantic scores and main-tains stable quality gains across both backbones, demonstrating its applicability across different backbones. 
+
+Scaling Behavior at Test-Time. Fig. 5 compares the scaling be-havior of GEARS and baseline methods on Wan2.1-T2V-1.3B and Wan2.1-VACE-1.3B. At small compute budgets (e.g., NFEs=400, cor-responding to four initial videos), GEARS and EvoSearch under-perform Video-T1, suggesting that directly allocating compute to sample more initial candidates is more effective when the candidate pool is limited. As the compute budget increases, however, GEARS exhibits more efficient performance gains, indicating that recycling and editing partially successful candidates becomes increasingly effective once sufficient candidate diversity is available. 
+
+Longer-Video Generation. We use the approximately 2-second setting above to follow recent video TTS methods [He et al. 2025b; Wu et al. 2026] and enable broad comparisons under our compute budget; GEARS itself is not restricted to this duration. On 5-second Wan2.1-T2V-1.3B videos, GEARS reaches a VBench Total of 0.8371 and outperforms the base model, Video-T1, and EvoSearch under comparable budgets (Table 3(a)).               
+
+> Table 5. End-to-end inference cost. PFLOPs are measured with a local Qwen3.5-9B. GEARS wall-clock time includes MLLM API latency.
+> Method PFLOPs Time (s) 33 frames
+> Wan2.1-T2V-14B 50.53 200 .37 ±3.04 Wan2.1-T2V-1.3B +GEARS 52.77 189 .66 ±4.91
+
+Scaling to a Larger Backbone. We further apply GEARS to Wan2.1-T2V-14B using the same evaluation protocol and candidate-budget configuration as the main experiment. As shown in Table 3(b), GEARS improves the 14B base model from 0.8369 to 0.8425, outper-forming Video-T1 (0.8410) and EvoSearch (0.8388). This result shows that candidate recycling remains effective on a strong large-scale backbone, beyond helping a smaller model close the quality gap. 
+
+Prompt- and Seed-Level Stability. After averaging the five seeds for each prompt, Wan2.1-T2V-1.3B with GEARS improves the nor-malized prompt-level score over the 1.3B base model, Video-T1, and EvoSearch by 0.018, 0.007, and 0.019, respectively, and wins on 97, 79, and 85 of the 110 prompts (Table 4). It also outperforms the Wan2.1-T2V-14B base model by 0.004 and wins on 71 of the 110 prompts. These paired results indicate that the gains are not driven by a particular prompt subset or initial noise pool. 
+
+Human Evaluation and Reward Robustness. We conduct a blinded pairwise study in which participants view the original prompt and two anonymized videos in randomized order and select “prefer A,” “prefer B,” or “tie.” We collect 400 judgments from 20 participants over 20 prompts, with one comparison per prompt for each par-ticipant. As shown in the last column of Table 4, GEARS obtains 296/31/73 wins/ties/losses overall. GEARS uses VideoAlign-derived rewards for routing and final ranking, whereas VBench and human preferences are used only for evaluation. The consistent gains under these independent evaluations suggest that the improvements are not solely an artifact of optimizing the routing reward. 
+
+End-to-End Compute. Table 5 complements NFE accounting with end-to-end FLOPs and wall-clock time. Under the setting of Table 1, GEARS uses approximately 52.77 PFLOPs: 51.92 for the Wan2.1-1.3B generator, 0.70 for VideoAlign, and approximately 0.15 for a local Qwen3.5-9B. This is about 1.04 × the 50.53 PFLOPs of Wan2.1-14B. On one NVIDIA H100, generating 33 frames takes 189 .66 ± 4.91 seconds for GEARS and 200 .37 ± 3.04 seconds for Wan2.1-14B; the GEARS measurement uses the MLLM API and includes its latency. 
+
+Qualitative Explanation and Comparison. Qualitative results illus-trate how GEARS converts low-ranked but recoverable candidates into competitive outputs. In Fig. 4, the Stage 1 rabbit candidate preserves its subject identity and visual quality but under-realizes the requested walking motion. The Scheduler therefore routes it to high-noise motion repair, where the Recycler produces coherent whole-body displacement; the background-compensated optical-flow visualization further corroborates the stronger subject motion. Conversely, the Stage 2 beach candidate already exhibits plausi-ble layout and wave dynamics but lacks the requested cyberpunk 8 • He et al. MLLM-based Prompt Diagnosis: 
+
+The rabbit is not walking, needs to place stronger emphasis on the movement and explicitly specify the camera motion. 
+
+A fat rabbit wearing a purple robe walking through a fantasy landscape.  
+
+> t = 1.0
+> t = 0.6
+> t = 0.3
+> t = 0.0 t = 0.0
+> t = 0.6
+> t = 0.3
+
+A fat rabbit wearing a purple robe walking through a fantasy landscape, moving toward the camera. The rabbit grows larger in the frame as it approaches, creating a clear sense of forward motion, and the background passes smoothly. 
+
+Re-Noise 
+
+> Stage-Aware Scheduler
+
+High Noise 
+
+Motion Quality Focus 
+
+Reward Evaluation 
+
+High VQ, Low MQ 
+
+Weak in certain dimension, but promising for editing 
+
+Low Noise 
+
+Visual Quality Focus 
+
+> t = 0.0
+> t = 0.3
+
+A cute fat rabbit wearing a purple robe walking through a fantasy landscape, with fantasy plants on the ground. The rabbit is moving toward the camera. The rabbit grows larger in the frame as it approaches, creating a clear sense of forward motion, and the background pasts smoothly. The landscape is bright and magical, filled with colorful flowers, soft green grass, rounded bushes, and distant fantasy towers under a clear blue sky. The scene feels whimsical and vibrant, with soft cinematic lighting. 
+
+Reward Evaluation 
+
+Medium/Low VQ, High MQ, 
+
+Weak in certain dimension, but promising for editing 
+
+Candidate Recycler Candidate Recycler 
+
+MLLM-based Prompt Diagnosis: 
+
+Fantasy elements should be added to enhance the atmosphere, while also improving the consistency of the lighting throughout the image. 
+
+Re-Noise 
+
+Final Candidates Pool 
+
+Best Video 
+
+······ 
+
+Will be removed according to global VQ+MQ+TA score 
+
+Fig. 6. Discarded-to-Improved Trajectory in GEARS. A low-ranked but semantically valid candidate, which would be discarded by conventional generate-and-select TTS, is recycled through the Scheduler and Recycler. GEARS first repairs its motion deficiency at a high-noise checkpoint and later enhances visual details at a low-noise checkpoint. The repaired candidate is then returned to the final candidate pool and selected as the best video. Prompt: A Teddy bear is swimming in the ocean. 
+
+Wan2.1-VACE-1.3B 
+
++ Video-T1 
+
++ DLBS 
+
++ EvoSearch 
+
++ GEARS (ours) 
+
+GEARS candidate 
+
+Fig. 7. Visualized examples on Wan2.1-VACE-1.3B. Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling • 9
+
+Table 6. Ablation of Stage-Aware Scheduler Settings. 𝛼 is the transition index that partitions the checkpoints into high- and low-noise stages. 
+
+Checkpoint Setting Focus Total Score 
+
+{𝑠 0 = 1} No adapt 0.8192 
+
+{𝑠 0 = 1, 𝑠 1 = 0.6} MQ only 0.8221 
+
+{𝑠 0 = 1, 𝑠 1 = 0.3} VQ only 0.8239 
+
+{𝑠 0 = 1, 𝑠 1 = 0.6, 𝑠 2 = 0.3} 𝛼 = 1 0.8375 
+
+{𝑠 0 = 1, 𝑠 1 = 0.6, 𝑠 2 = 0.45 , 𝑠 3 = 0.3} 𝛼 = 1 0.8304 
+
+{𝑠 0 = 1, 𝑠 1 = 0.6, 𝑠 2 = 0.45 , 𝑠 3 = 0.3} 𝛼 = 2 0.8392 
+
+{𝑠 0 = 1, 𝑠 1 = 0.75 , 𝑠 2 = 0.6, 𝑠 3 = 0.3} 𝛼 = 1 0.8379 
+
+{𝑠 0 = 1, 𝑠 1 = 0.75 , 𝑠 2 = 0.6, 𝑠 3 = 0.3} 𝛼 = 2 0.8410 
+
+appearance. The Scheduler routes it to low-noise visual repair, al-lowing the Recycler to introduce neon structures while retaining the coastal composition. Fig. 6 further traces the rabbit candidate through the complete recycling loop. Rather than being removed because of its low MQ and consequently low global rank, the can-didate is repaired, returned to the candidate pool, and ultimately selected as the best video. Fig. 1, Fig. 7, and Fig. 8 provide additional qualitative comparisons with existing TTS methods. 
+
+4.3 Ablation Studies 
+
+Ablation of Stage-Aware Scheduler Settings. Table 6 evaluates stage-aware checkpoint scheduling. Without adaptive recycling, the base model obtains 0 .8192. Adding one editing checkpoint yields limited gains, reaching 0 .8221 for motion-focused editing at 𝑠 1 = 0.6 and 0.8239 for visual-focused editing at 𝑠 1 = 0.3. Furthermore, combining a high-noise motion checkpoint with a low-noise visual checkpoint improves the score to 0 .8375, showing that different failure modes benefit from correction at their corresponding denoising stages. Increasing the number of checkpoints can further improve perfor-mance when their stage assignments follow the denoising hierarchy, but also incurs additional inference cost: for {0.6, 0.45 , 0.3}, treating the first two checkpoints as motion-oriented improves the score from 0 .8304 to 0 .8392, and the setting {0.75 , 0.6, 0.3} with 𝛼 = 2achieves the best score of 0 .8410. These results support the Sched-uler from two aspects: stage-aware scheduling is both necessary and effective, and checkpoint granularity offers a controllable trade-off between test-time computation and generation quality. 
+
+Sensitivity to the Editing Ratio. We vary 𝑞 edit over 0 .25 /0.50 /0.75, which requires 810 /900 /990 NFEs and yields VBench Total scores of 0.8359 /0.8375 /0.8384, respectively. All settings remain within the 1000-NFE baseline budget. The stable scores indicate that GEARS is not sensitive to the editing ratio, while allocating more compute to recycling provides a modest improvement. 
+
+Ablation of Candidate Recycler Components. Table 7 ablates the two main components of the Recycler under the Scheduler with checkpoints {𝑠 0 = 1, 𝑠 1 = 0.6, 𝑠 2 = 0.3} and 𝛼 = 1. Starting from the base score of 0 .8192, adding MLLM diagnosis with the default SDE sampler improves the score to 0 .8281 with Qwen3.5-9B and 0 .8325 with Qwen3.5-Plus, showing that reward- and frame-conditioned diagnosis helps turn weak-but-promising candidates into useful editing targets. Replacing the standard SDE sampler with MA-SDE 
+
+Table 7. Ablation of Candidate Recycler Components. 
+
+MLLM Diagnosis MA-SDE VBench 
+
+Enabled Model Total Sub. Con. Mot. Smo. 
+
+× - × 0.8192 0.9687 0.9674 
+
+✓ Qwen3.5-9B × 0.8281 0.9782 0.9689 
+
+✓ Qwen3.5-Plus × 0.8325 0.9807 0.9692 
+
+✓ Qwen3.5-9B ✓ 0.8357 0.9812 0.9715 
+
+✓ Qwen3.5-Plus ✓ 0.8375 0.9815 0.9727 
+
+further improves the score to 0 .8357 and 0 .8375, which improves subject consistency and motion smoothness, suggesting that more stable re-denoising is essential after the editing condition changes to reduce subject drift and temporal jitter. The combination of MLLM diagnosis and MA-SDE achieves the best performance, demonstrat-ing that both components are necessary for effective recycling. 
+
+5 Conclusion, Limitations and Future Work 
+
+We introduced GEARS (Guided Editing for Adaptive Recycling Search), a test-time scaling framework for video generation that shifts inference-time search from passive noise-space exploration to active candidate recycling. Instead of treating low-scoring samples as failed trials, GEARS identifies semantically plausible candidates with recoverable deficiencies, repairs them at denoising stages where the corresponding attributes are most controllable, and returns them to the search process. By converting otherwise discarded candi-dates into structured refinement paths, this generation-to-editing transition enables more effective use of inference-time compute. Experiments show that GEARS consistently improves generation quality compared to baseline methods. GEARS is most effective when low-scoring candidates remain semantically plausible and preserve recoverable structure. Severe text misalignment or mul-tiple entangled failures can still be difficult to repair reliably. In addition, the current checkpoint schedule and transition boundary are empirically chosen based on the denoising hierarchy, which may not be optimal for every backbone, prompt, or budget. Future work includes developing more efficient latent-space evaluation and diagnosis mechanisms, learning adaptive checkpoint schedules and budget allocation policies, and extending candidate recycling to longer videos and broader generation-editing scenarios. 
+
+Acknowledgments 
+
+This work was supported by National Key Research and Develop-ment Program of China (2025YFA1805700); National Natural Science Foundation of China (82371112); Science Foundation of Peking Uni-versity Cancer Hospital (JC202505). 
+
+References     
+
+> Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei Huang, et al. 2023. Qwen technical report. arXiv preprint arXiv:2309.16609 (2023). Jianhong Bai, Tianyu He, Yuchi Wang, Junliang Guo, Haoji Hu, Zuozhu Liu, and Jiang Bian. 2025. Uniedit: A unified tuning-free framework for video motion and appearance editing. In Proceedings of the 33rd ACM International Conference on Multimedia . 10171–10180. Lorenzo Baraldi, Davide Bucciarelli, Zifan Zeng, Chongzhe Zhang, Qunli Zhang, Mar-cella Cornia, Feng Liu, Hu Zheng, Rita Cucchiara, et al. 2025. Verifier Matters:
+
+10 • He et al. Prompt: A fat rabbit wearing a purple robe walking through a fantasy landscape. 
+
+> Wan2.1-T2V-1.3B
+> + Video-T1
+> + DLBS
+> + EvoSearch
+> + GEARS (ours)
+> GEARS candidate
+
+Prompt: A person is petting animal (not cat). 
+
+> Wan2.1-T2V-1.3B
+> + Video-T1
+> + DLBS
+> + EvoSearch
+> + GEARS (ours)
+> GEARS candidate
+
+Fig. 8. Visualized examples on Wan2.1-T2V-1.3B. Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling • 11 
+
+Enhancing Inference-Time Scaling for Video Diffusion Models. In Proceedings of the 36th British Machine Vision Conference .Wei-Lin Chen, Liqian Peng, Tian Tan, Chao Zhao, Blake JianHang Chen, Ziqian Lin, Alec Go, and Yu Meng. 2026b. Think Deep, Not Just Long: Measuring LLM Reasoning Effort via Deep-Thinking Tokens. arXiv preprint arXiv:2602.13517 (2026). Yiyang Chen, Xuanhua He, Xiujun Ma, and Jack Ma. 2026a. Contextflow: Training-free video object editing via adaptive context enrichment. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 3129–3137. Zhe Chen, Weiyun Wang, Yue Cao, Yangzhou Liu, Zhangwei Gao, Erfei Cui, Jinguo Zhu, Shenglong Ye, Hao Tian, Zhaoyang Liu, et al. 2024. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271 (2024). Hyungjin Chung, Jeongsol Kim, Geon Yeong Park, Hyelin Nam, and Jong Chul Ye. 2025. Cfg++: Manifold-constrained classifier free guidance for diffusion models. In 
+
+International Conference on Learning Representations , Vol. 2025. 30824–30850. Prafulla Dhariwal and Alexander Nichol. 2021. Diffusion models beat gans on image synthesis. Advances in neural information processing systems 34 (2021), 8780–8794. Bingjie Gao, Qianli Ma, Xiaoxue Wu, Shuai Yang, Guanzhou Lan, Haonan Zhao, Jiaxuan Chen, Qingyang Liu, Yu Qiao, Xinyuan Chen, et al. 2025. RAPO++: Cross-Stage Prompt Optimization for Text-to-Video Generation via Data Alignment and Test-Time Scaling. arXiv preprint arXiv:2510.20206 (2025). Google DeepMind. 2025. Veo 3: AI Video Generation Model. https://deepmind.google/ models/veo/. Zekai Gu, Rui Yan, Jiahao Lu, Peng Li, Zhiyang Dou, Chenyang Si, Zhen Dong, Qifeng Liu, Cheng Lin, Ziwei Liu, et al. 2025. Diffusion as shader: 3d-aware video diffusion for versatile video generation control. In Proceedings of the Special Interest Group on Computer Graphics and Interactive Techniques Conference Conference Papers . 1–12. Xiefan Guo, Jinlin Liu, Miaomiao Cui, Jiankai Li, Hongyu Yang, and Di Huang. 2024. Initno: Boosting text-to-image diffusion models via initial noise optimization. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition .9380–9389. Haoran He, Jiajun Liang, Xintao Wang, Pengfei Wan, Di Zhang, Kun Gai, and Ling Pan. 2025b. Scaling image and video generation via test-time evolutionary search. arXiv preprint arXiv:2505.17618 (2025). Jingwen He, Hongbo Liu, Jiajun Li, Ziqi Huang, Qiao Yu, Wanli Ouyang, and Ziwei Liu. 2025c. Cut2next: Generating next shot via in-context tuning. In Proceedings of the SIGGRAPH Asia 2025 Conference Papers . 1–11. Xuan He, Dongfu Jiang, Ping Nie, Minghao Liu, Zhengxuan Jiang, Mingyi Su, Wentao Ma, Junru Lin, Chun Ye, Yi Lu, et al. 2025a. Videoscore2: Think before you score in generative video evaluation. arXiv preprint arXiv:2509.22799 (2025). Xuan He, Dongfu Jiang, Ge Zhang, Max Ku, Achint Soni, Sherman Siu, Haonan Chen, Abhranil Chandra, Ziyan Jiang, Aaran Arulraj, et al. 2024. Videoscore: Building automatic metrics to simulate fine-grained human feedback for video generation. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing . 2105–2123. Wenyi Hong, Ming Ding, Wendi Zheng, Xinghan Liu, and Jie Tang. 2022. Cogvideo: Large-scale pretraining for text-to-video generation via transformers. arXiv preprint arXiv:2205.15868 (2022). Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chanpaisit, et al. 2024. Vbench: Comprehensive benchmark suite for video generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 21807–21818. Zeyinzi Jiang, Zhen Han, Chaojie Mao, Jingfeng Zhang, Yulin Pan, and Yu Liu. 2025. Vace: All-in-one video creation and editing. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision . 17191–17202. Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. 2022. Elucidating the de-sign space of diffusion-based generative models. Advances in neural information processing systems 35 (2022), 26565–26577. Kling. 2024. Kling AI: Next-Generation AI Creative Studio. https://app.klingai.com/. Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. 2024. Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 (2024). Daeun Lee, Jaehong Yoon, Jaemin Cho, and Mohit Bansal. 2024. Videorepair: Improving text-to-video generation via misalignment evaluation and localized refinement. 
+
+arXiv preprint arXiv:2411.15115 (2024). Dacheng Li, Shiyi Cao, Chengkun Cao, Xiuyu Li, Shangyin Tan, Kurt Keutzer, Jiarong Xing, Joseph E Gonzalez, and Ion Stoica. 2025. S*: Test time scaling for code generation. arXiv preprint arXiv:2502.14382 1, 2 (2025). Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. 2023. Flow Matching for Generative Modeling. In The Eleventh International Confer-ence on Learning Representations . https://openreview.net/forum?id=PqvMRDCJT9t Fangfu Liu, Hanyang Wang, Yimo Cai, Kaiyan Zhang, Xiaohang Zhan, and Yueqi Duan. 2025b. Video-t1: Test-time scaling for video generation. In Proceedings of the IEEE/CVF international conference on computer vision . 18671–18681. Jie Liu, Gongye Liu, Jiajun Liang, Ziyang Yuan, Xiaokun Liu, Mingwu Zheng, Xiele Wu, Qiulin Wang, Menghan Xia, Xintao Wang, et al. 2025a. Improving video generation with human feedback. arXiv preprint arXiv:2501.13918 (2025). Xingchao Liu, Chengyue Gong, and Qiang Liu. 2022. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 
+
+(2022). Yixin Liu, Kai Zhang, Yuan Li, Zhiling Yan, Chujie Gao, Ruoxi Chen, Zhengqing Yuan, Yue Huang, Hanchi Sun, Jianfeng Gao, et al. 2024. Sora: A review on background, technology, limitations, and opportunities of large vision models. arXiv preprint arXiv:2402.17177 (2024). Do Xuan Long, Xingchen Wan, Hootan Nakhost, Chen-Yu Lee, Tomas Pfister, and Sercan Ö Arık. 2025. VISTA: A Test-Time Self-Improving Video Generation Agent. 
+
+arXiv preprint arXiv:2510.15831 (2025). Andreas Lugmayr, Martin Danelljan, Andres Romero, Fisher Yu, Radu Timofte, and Luc Van Gool. 2022. Repaint: Inpainting using denoising diffusion probabilistic models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition .11461–11471. Xiangyang Luo, Qingyu Li, Yuming Li, Guanbo Huang, Yongjie Zhu, Wenyu Qin, Meng Wang, Pengfei Wan, and Shao-Lun Huang. 2026. Beyond the Golden Data: Resolving the Motion-Vision Quality Dilemma via Timestep Selective Training. arXiv preprint arXiv:2603.25527 (2026). Nanye Ma, Shangyuan Tong, Haolin Jia, Hexiang Hu, Yu-Chuan Su, Mingda Zhang, Xuan Yang, Yandong Li, Tommi Jaakkola, Xuhui Jia, et al. 2025. Scaling inference time compute for diffusion models. In Proceedings of the Computer Vision and Pattern Recognition Conference . 2523–2534. Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and Stefano Ermon. 2021. Sdedit: Guided image synthesis and editing with stochastic differential equations. arXiv preprint arXiv:2108.01073 (2021). Yuta Oshima, Masahiro Suzuki, Yutaka Matsuo, and Hiroki Furuta. 2025. Inference-time text-to-video alignment with diffusion latent beam search. arXiv preprint arXiv:2501.19252 (2025). William Peebles and Saining Xie. 2023. Scalable diffusion models with transformers. In 
+
+Proceedings of the IEEE/CVF international conference on computer vision . 4195–4205. Xiangyan Qu, Zhenlong Yuan, Jing Tang, Rui Chen, Datao Tang, Meng Yu, Lei Sun, Yancheng Bai, Xiangxiang Chu, Gaopeng Gou, et al. 2026. From scale to speed: Adaptive test-time scaling for image editing. arXiv preprint arXiv:2603.00141 (2026). Qwen Team. 2026. Qwen3.5: Towards Native Multimodal Agents. https://qwen.ai/ blog?id=qwen3.5 Qin Ren, Yufei Wang, Lanqing Guo, Wen Zhang, Zhiwen Fan, and Chenyu You. 2025. Scale Where It Matters: Training-Free Localized Scaling for Diffusion Models. arXiv preprint arXiv:2511.19917 (2025). Dvir Samuel, Matan Levy, Nir Darshan, Gal Chechik, and Rami Ben-Ari. 2025. Omni-matteZero: Fast Training-free Omnimatte with Pre-trained Video Diffusion Models. In Proceedings of the SIGGRAPH Asia 2025 Conference Papers . 1–11. Team Seedance, De Chen, Liyang Chen, Xin Chen, Ying Chen, Zhuo Chen, Zhuowei Chen, Feng Cheng, Tianheng Cheng, Yufeng Cheng, et al. 2026. Seedance 2.0: Advancing Video Generation for World Complexity. arXiv preprint arXiv:2604.14148 
+
+(2026). Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. 2024. Scaling llm test-time compute optimally can be more effective than scaling model parameters. arXiv preprint arXiv:2408.03314 (2024). Yiwen Song, Tomas Pfister, and Yale Song. 2026. VQQA: An Agentic Approach for Video Evaluation and Quality Improvement. arXiv preprint arXiv:2603.12310 (2026). Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Er-mon, and Ben Poole. 2021. Score-Based Generative Modeling through Stochas-tic Differential Equations. In International Conference on Learning Representations .https://openreview.net/forum?id=PxTIG12RRHS Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. 2025. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 (2025). Kaishen Wang, Ruibo Chen, Tong Zheng, and Heng Huang. 2026. ImAgent: A Unified Multimodal Agent Framework for Test-Time Scalable Image Generation. arXiv:2511.11483 [cs.CV] https://arxiv.org/abs/2511.11483 Ruoyu Wang, Huayang Huang, Ye Zhu, Olga Russakovsky, and Yu Wu. 2025. The silent assistant: Noisequery as implicit guidance for goal-driven image generation. In Proceedings of the IEEE/CVF International Conference on Computer Vision . 17618– 17628. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. 2022. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems 35 (2022), 24824–24837. Bing Wu, Chang Zou, Changlin Li, Duojun Huang, Fang Yang, Hao Tan, Jack Peng, Jianbing Wu, Jiangfeng Xiong, Jie Jiang, et al. 2025b. Hunyuanvideo 1.5 technical report. arXiv preprint arXiv:2511.18870 (2025). Jie Wu, Yu Gao, Zilyu Ye, Ming Li, Liang Li, Hanzhong Guo, Jie Liu, Zeyue Xue, Xiaoxia Hou, Wei Liu, et al. 2025a. Rewarddance: Reward scaling in visual generation. arXiv preprint arXiv:2509.08826 (2025). 12 • He et al. 
+
+Meiqi Wu, Jiashu Zhu, Xiaokun Feng, Chubin Chen, Chen Zhu, Bingze Song, Fangyuan Mao, Jiahong Wu, Xiangxiang Chu, and Kaiqi Huang. 2026. Imagerysearch: Adaptive test-time search for video generation beyond semantic dependency constraints. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 10700–10708. Jiazheng Xu, Yu Huang, Jiale Cheng, Yuanming Yang, Jiajun Xu, Yuan Wang, Wenbo Duan, Shen Yang, Qunlin Jin, Shurun Li, et al. 2026. Visionreward: Fine-grained multi-dimensional human preference learning for image and video generation. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 11269–11277. Yilun Xu, Mingyang Deng, Xiang Cheng, Yonglong Tian, Ziming Liu, and Tommi Jaakkola. 2023. Restart sampling for improving generative processes. Advances in Neural Information Processing Systems 36 (2023), 76806–76838. Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuan-ming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. 2024. Cogvideox: Text-to-video diffusion models with an expert transformer. arXiv preprint arXiv:2408.06072 
+
+(2024). Jiwen Yu, Jianhong Bai, Yiran Qin, Quande Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Xihui Liu. 2025. Context as memory: Scene-consistent interactive long video generation with memory retrieval. In Proceedings of the SIGGRAPH Asia 2025 Con-ference Papers . 1–11. Zengqun Zhao, Ziquan Liu, Yu Cao, Shaogang Gong, Zhensong Zhang, Jifei Song, Jiankang Deng, and Ioannis Patras. 2026. LatSearch: Latent Reward-Guided Search for Faster Inference-Time Scaling in Video Diffusion. arXiv preprint arXiv:2603.14526 
+
+(2026). Mingzhe Zheng, Weijie Kong, Yue Wu, Dengyang Jiang, Yue Ma, Xuanhua He, Bin Lin, Kaixiong Gong, Zhao Zhong, Liefeng Bo, et al. 2026. Manifold-Aware Exploration for Reinforcement Learning in Video Generation. arXiv preprint arXiv:2603.21872 
+
+(2026). Zangwei Zheng, Xiangyu Peng, Yuxuan Lou, Chenhui Shen, Tom Young, Xinying Guo, Binluo Wang, Hang Xu, Hongxin Liu, Mingyan Jiang, et al. 2025. Open-sora 2.0: Training a commercial-level video generation model in $200 k. arXiv preprint arXiv:2503.09642 (2025).

@@ -1,0 +1,573 @@
+Title: Off-Manifold Refinement: Guiding Video Generators with a Frozen World Model
+
+URL Source: https://arxiv.org/pdf/2608.29904v1
+
+Published Time: Tue, 01 Sep 2026 01:33:18 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+> arXiv:2608.29904v1 [cs.CV] 30 Aug 2026
+
+NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 1
+
+# Off-Manifold Refinement: Guiding Video Generators with a Frozen World Model 
+
+Hai Nguyen-Truong 1
+
+nguyentruonghai141@gmail.com 
+
+Tuan-Anh Vu 2
+
+tuananh.vu@ucla.edu 
+
+Dang Huynh 1
+
+dang.huynh@fulbright.edu.vn  
+
+> 1
+
+Fulbright University Vietnam  
+
+> 2
+
+University of California, Los Angeles 
+
+Abstract 
+
+Modern video generators routinely fail at physical dynamics — objects float, tra-jectories violate gravity, contacts vanish. Standard denoising and flow-matching objec-tives fit visual data distributions but do not explicitly penalize such physical violations. Existing remedies can improve physical consistency, but typically add substantial infer-ence or training cost. Candidate-selection methods generate and score multiple videos, while gradient-based world-model guidance repeatedly decodes and re-encodes inter-mediate estimates. Generator-internal refinement adds perturbation and re-denoising loops, whereas post-training requires curated data and additional optimization. We pro-pose Off-Manifold Refinement (OMR) , an inference-time method that instead injects world-model feedback directly into a single sampling trajectory. During scheduled mid-dle ODE steps, we augment the generator velocity with the gradient of an adapter-space V-JEPA 2.1 surprise energy. This external correction can move the latent away from the uncorrected sampling trajectory and toward regions ranked as more physically plau-sible by the frozen predictor, after which the generator continues rendering from the corrected state. A small trained latent-to-embedding adapter keeps the gradient tractable at inference, and both the video generator and the world model remain frozen. On our fixed 400-prompt VideoPhy-2 detailed subset, OMR lifts the joint Semantic-Adherence-and-Physical-Commonsense metric from 47 .0% to 52 .0% ( +5.0pp absolute, +10 .6% relative) over the base Wan2.2-T2V-A14B sampler. On a separate fixed 50-prompt ef-ficiency subset, it requires 1 .71 × the base runtime rather than the multiplicative cost of reward/search alternatives. Project Page: https://itruonghai.github.io/ omr .
+
+# 1 Introduction 
+
+State-of-the-art video generators such as Wan2.2 [37] and world-foundation-model platforms such as Cosmos [30] produce videos of remarkable visual quality. Yet recent benchmarks and physics-alignment studies show that generated videos still routinely violate basic phys-ical laws [5, 23, 44]: objects float against gravity, fluid surfaces lose continuity, hands pass through objects they should grasp, and collisions ignore material properties such as deforma-tion, cracking, or rebound. Standard flow-matching [25] and denoising-diffusion objectives 
+
+© 2026. The copyright of this document resides with its authors. It may be distributed unchanged freely in print or electronic forms. 2 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT Temporally inconsistent leg motion causes an abrupt body-pose shift Wan2.2-14B Wan2.2-14B + OMR (ours) 
+
+> Coherent leg-body motion Realistic mat deformation during landing Gravity-consistent T-shirt motion Inertia-driven forward fall
+> A young man in a black T-shirt and dark shorts performs a backflip outdoors, landing on a blue-and-yellow inflatable cushion against a grassy, tree-lined background.
+
+Figure 1: OMR improves physical plausibility. Given the same Wan2.2 generator, the baseline produces temporally inconsistent leg motion and an abrupt body-pose shift during a backflip landing, while OMR yields coherent leg-body motion, mat deformation, gravity-consistent clothing motion, and inertia-driven fall. reconstruct the visual statistics of training videos but do not explicitly penalize these physical violations. Consequently, a generator can learn what the world looks like without reliably learning how the world behaves .Figure 1 makes this gap concrete. The baseline frames are individually plausible, but the landing sequence contains the kind of temporal physics error that is easy to miss from still-image quality alone: body pose changes abruptly, limb motion is inconsistent, and the cushion does not respond coherently to impact. With OMR, the same generator and prompt produce a more physically coherent continuation, with leg-body motion, material deforma-tion, clothing motion, and inertia moving in the same direction. This is the capability we target most directly: improving local physical interactions inside the generated trajectory rather than merely polishing appearance. Recent attempts to improve physical consistency intervene either during training or infer-ence. Post-training methods modify the generator through physics-aware conditioning, dis-tillation, or reward optimization [2, 22, 23, 38, 39, 45], but require additional data and com-pute and bind the improvement to a particular checkpoint. Inference-time methods keep the generator frozen. Candidate-selection approaches score multiple completed videos [43, 44], so their cost grows with the number of generated candidates; in-trajectory approaches in-stead steer an unfinished sample, but existing methods rely on repeated perturbation and re-denoising [20] or repeatedly decode intermediate clean estimates to pixels and re-encode them for world-model evaluation [44]. These limitations motivate an efficient way to apply world-model guidance directly within a single sampling trajectory. Figure 2 summarizes the paper’s central contrast. In the candidate-selection branch, a verifier pipeline asks a world model to judge completed candidate videos, so every additional use of the physical signal costs another full generation. OMR asks a different question: can we spend that same world-model signal before the sample is finished, while the generator trajectory is still movable? A standard ODE step follows the generator’s learned vector field; OMR adds an adapter-space V-JEPA 2.1 [27] surprise force whose gradient need not align with that field. This is the off-manifold refinement: the correction can move the latent away from a physically implausible uncorrected trajectory, after which subsequent generator steps continue rendering from the corrected state. We propose Off-Manifold Refinement (OMR), an inference-time procedure that uses a frozen video world model as a dense differentiable guidance signal inside one sampling tra-jectory rather than as a scalar score over many completed clips. At each ODE sampling step, NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 3External verifier/reward model                
+
+> (Expensive ≈K×Cost)
+> 𝑧 !
+> (noise)
+> 𝑧 "($)
+> 𝑧 "(&)
+> ⋯𝑧 "(')
+> Pixel Decode
+> ⋮ 𝑧 "(()
+> Off -Manifold Refinement (Ours)
+> In-Trajectory Dense Guidance (E ffi cient ≈1.7 ×Cost)
+> World-Model Guidance Direction
+> −𝜂𝛻 )𝐸 *+,-./
+> 𝑧 ˆ01234 5Adapter 𝑨 𝝍
+> (di ff usion -> vjepa)
+> Predictor 𝑷 𝝓
+> (V-JEPA)
+> ❄
+> Operate under same noise level
+> 𝑢 89: 𝑧 5𝑧 (5;$) 𝑢 89: 𝑧 (5;&)
+> Decode each candidate to full videos (slow)
+> Clean latent estimate .
+> V-JEPA scorer
+> Pixel Decode Pixel Decode Pixel Decode
+> Select best video 0.21 0.74 0.35 0.12
+> Physical World Manifold (V-JEPA space)
+> Physics-guided update
+
+Figure 2: OMR spends the world-model signal inside the sampling trajectory rather than after generation. Left: the candidate-selection variants of verifier or reward meth-ods [43, 44] decode K completed candidate videos and use a V-JEPA 2.1 [27] scorer only to choose among finished samples, so cost scales with the number of candidates. Right: OMR stays within a single ODE trajectory: an adapter maps the clean latent estimate into V-JEPA 2.1 space, the frozen predictor defines a dense surprise energy, and its gradient sup-plies a physics-guided update before the final video is decoded. we compute the generator’s velocity as usual; during the scheduled middle steps, we pass the implicit clean prediction ˆ z1 through a small trained adapter Aψ that maps generator latents directly into V-JEPA 2.1 embeddings [27]. This adapter replaces V-JEPA 2.1’s encoder at sampling time — only the predictor Pφ runs — so an adapter-space surprise gradient can be computed without ever decoding to pixels or running the encoder. We subtract that gradi-ent only at the scheduled steps; the remaining steps use the frozen generator velocity alone. Because this guidance path avoids full candidate generations and bypasses both pixel decod-ing and the V-JEPA 2.1 encoder, Table 2 measures a relative runtime of 1 .71 × on a fixed 50-prompt efficiency subset, not the multiplicative cost of best-of-K or rejection sampling. 
+
+Why “off-manifold”? We use “manifold” as operational shorthand for the local sampling geometry preferred by the frozen generator’s ODE field, not as a claim that one velocity vector spans a formal data-manifold tangent space. A generator-only refinement step follows this learned geometry by asking the generator to denoise or self-consistently resample again. OMR instead differentiates an adapter-space predictive loss from a separately trained world model. Because that gradient is not a likelihood score of the generator, it need not align with the uncorrected generator trajectory. The update is therefore off-manifold in this operational sense, while later generator velocities continue rendering from the corrected latent. Three nearby approaches deserve preemption. (i) OMR is not classifier guidance. The structural form utotal = uθ − η∇E mirrors classifier guidance [10], but OMR requires no con-ditioning label, uses a dense per-patch self-supervised signal rather than a single discrimina-tive scalar, and trains only a small embedding adapter rather than a classifier head on noisy diffusion representations. (ii) OMR is not WMReward-style trajectory steering. Recent work uses VJEPA-2 as a scalar reward for best-of-K, rejection, and trajectory steering [43, 44]; OMR instead differentiates an adapter-space predictive objective inside a single trajectory, avoiding both in-loop VAE decoding and the V-JEPA 2.1 encoder. Our direct comparison is therefore near-budget best-of-K and reward-guidance baselines, not only the base generator. (iii) OMR is not self-refining video sampling. Self-Refining Video Sampling [20] obtains a zeroth-order uncertainty signal by perturbing and re-denoising within an outer ODE step, 4 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+then using cross-sample disagreement to decide which regions to refine. OMR has no pertur-bation step, no re-noising, and no mask blend: the adapter-space predictive gradient supplies the correction direction in a single monotone trajectory. 
+
+Contributions. We summarize the main contributions and findings. • Off-Manifold Refinement (OMR) : an inference-time sampler that keeps the genera-tor and world model frozen while adding one adapter-space surprise-gradient correc-tion to each scheduled middle ODE step. • Efficient encoder-free guidance : a 33 .3M convolutional latent-to-embedding adapter maps generator latents directly into world-model embedding space, avoiding in-loop VAE decoding and video-encoder passes while keeping the sampler close to single-trajectory cost. • Evidence across two generators and two benchmarks : on our fixed 400-prompt VideoPhy-2 detailed subset, OMR raises Wan2.2 joint score from 47 .0% to 52 .0%; a separate fixed 50-prompt efficiency study measures 1 .71 × relative runtime. In fixed 50-prompt pilots, it raises CogVideoX-5B VideoPhy-2 from 32 .0% to 42 .0% and Wan2.2-I2V Physics-IQ from 26 .44 to 31 .34. • Broad physical-consistency gains : OMR yields non-decreasing PC and joint scores in every reported category. Joint gains are largest in contact dynamics ( +11 .0pp) and fluid/deformable motion ( +9.8pp). 
+
+# 2 Related Work 
+
+Diffusion and flow-based video generation. Modern text-to-video systems build on dif-fusion and score-modeling methods such as DDPMs, score SDEs, DDIM, and improved diffusion training [10, 16, 29, 34, 35]. High-resolution generation has benefited from latent diffusion, improved noise schedules, transformer backbones, consistency distillation, and flow matching [21, 25, 31, 32, 36]; video models add temporal structure through video diffu-sion objectives, temporal modules, or image-to-video adaptation [7, 8, 12, 17, 18, 33]. These advances improve visual quality, but their likelihood-like objectives do not directly enforce physical consistency. OMR targets this remaining gap at inference time. OneStory [1] in-stead addresses coherent multi-shot generation by fine-tuning an image-to-video model on a curated dataset and carrying selected visual memories across shots. Its narrative-continuity objective is complementary to the within-trajectory physical guidance studied here. 
+
+Physics-aware video generation. Recent work injects physical signal either by chang-ing the generator or by applying an external signal at inference time. WISA adds explicit physical descriptions and categorical controls [38], VideoREPA distills video-foundation-model relations into a T2V model [45], and preference/reward approaches train physics-aware reward or DPO objectives [23, 39]. VGGRPO [2] post-trains a generator with a latent 4D-geometric reward, while Epipolar Geometry [22] uses preference-based post-training to improve camera and geometric consistency through pairwise epipolar constraints. Both modify the generator; their geometry-focused training signals are complementary to, but operationally distinct from, OMR’s frozen-generator inference-time correction. In parallel, VJEPA-style world models have been used as verifiers or rewards for best-of-K, rejection, NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 5
+
+and trajectory steering [43, 44]. These methods show that external physical priors are useful, but they either require generator adaptation or incur a decode-and-encode path when scoring completed candidates or steering an intermediate clean estimate. OMR keeps the generator frozen and spends the world-model signal inside a single trajectory through an encoder-free adapter path. 
+
+Inference-time guidance. Classifier and classifier-free guidance modify sampling with external or conditional gradients [10, 15]; later guidance methods generalize this idea to arbitrary differentiable losses, inverse-problem likelihoods, restarts, or reward functions [4, 9, 40, 42]. OMR follows this broad template but uses a self-supervised video world model rather than a classifier or learned scalar reward. A complementary no-generator-fine-tuning competitor is Self-Refining Video Sampling [20], which obtains a zeroth-order signal by repeatedly perturbing and re-denoising uncertain regions. OMR instead uses one adapter-space predictive-surprise gradient at each scheduled guided step of a monotone trajectory. 
+
+Video world models. World models learn compact predictive dynamics for planning and control [13, 14, 24]. JEPA-family video models [3, 6, 27] bring this predictive idea to large-scale self-supervised representation learning over masked space-time patches. We use V-JEPA 2.1 because it provides dense patch features and a frozen predictor head, which to-gether define the adapter-space surprise energy used by OMR. 
+
+# 3 Method 
+
+3.1 Background 
+
+Flow-matching video generation. Throughout the paper, t denotes clean time : t = 0 is pure noise and t = 1 is a clean video latent. A flow-matching video generator [25] learns a velocity field uθ (zt ,t) that transports latents along this noise-to-video path: 
+
+dz t
+
+dt = uθ (zt ,t), t ∈ [0, 1] (1) The same velocity field also estimates the final clean latent. From any intermediate state zt ,the model predicts where the latent would land at t = 1 under a constant-velocity extrapola-tion: ˆz(θ ) 
+
+> 1
+
+(zt ,t) = zt + ( 1 − t) · uθ (zt ,t). (2) This estimated latent is the object on which OMR evaluates the world model correction. 
+
+V-JEPA 2.1 as a video world model. V-JEPA 2.1 [27] has an encoder Eφ and a predictor 
+
+Pφ that forecasts masked future embeddings from visible context. We score a 48-frame window from each 81-frame video. Let e = Eφ (v), with C the visible context tokens, M the masked future targets, and δM learned mask tokens carrying their spatiotemporal positions. Predictive surprise is 
+
+Evjepa (v) = Pφ (eC, δM ) − eM 22. (3) Low energy means that the masked future is predictable from context in a representation trained on real videos. The energy is dense, differentiable, and depends on embeddings rather than how they were produced. 6 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+3.2 The OMR update rule 
+
+Standard ODE sampling integrates the generator’s learned velocity: 
+
+zt+∆t ← zt + ∆t · uθ (zt ,t). (4) OMR augments this with a world-model correction at the scheduled steps for which 
+
+η(t) > 0. We first compute the implicit clean prediction ˆ z1 via Equation (2). We then map it directly into V-JEPA 2.1’s [27] embedding space using the latent-to-embedding adapter Aψ
+
+(Section 3.4): 
+
+e = Aψ (ˆz1) ∈ RN×D, N = Ttok HpWp. (5) At inference time the adapter replaces V-JEPA 2.1’s [27] encoder Eφ entirely; only the pre-dictor Pφ runs. This is the central efficiency move of the method — it eliminates the VAE decode and the encoder forward from both the forward and backward passes, with the mea-sured wall-clock effect reported in Table 2. The inference-time predictive energy is 
+
+EOMR vjepa (ˆz1) = Pφ
+
+ eC, δM
+
+ − eM 22, (6) where we reshape the adapter tokens to the V-JEPA 2.1 grid and apply the same 48-frame window and mask as the frozen predictor. The gradient with respect to the clean prediction is 
+
+g(zt ,t) = ∇ˆz1 EOMR vjepa (ˆz1), (7) computed by a single autograd pass through Pφ and Aψ . We treat ˆ z1 as the guidance variable and do not backpropagate through the base generator’s velocity network uθ ; equivalently, 
+
+uθ supplies the ODE velocity and ∇ˆz1 EOMR vjepa supplies a local latent correction in the same coordinates. Because the encoder Eφ is not in the path, this backward pass is dominated by the (relatively small) predictor and the (small) adapter; the heavy components — the VAE decoder and the V-JEPA 2.1 [27] encoder — never appear. The OMR update becomes 
+
+zt+∆t ← zt + ∆t · uθ (zt ,t) − η(t) · g(zt ,t), (8) with η(t) a time-dependent guidance strength (Section 3.5). We write the correction as an operator-splitting step after the Euler velocity update, so the step-size dependence of guidance is absorbed into the calibrated scalar η(t); equivalently, an implementation may parameterize η(t) = ∆t λ (t). Many Wan-style implementations expose the reverse noise level σ = 1 − t, where σ = 1 is noise and σ = 0 is clean. Our equations stay in clean time t;an implementation using σ should substitute t = 1 − σ and convert step sizes accordingly. 
+
+3.3 Mechanistic role of the correction 
+
+V-JEPA 2.1’s [27] predictor is trained on real videos to forecast masked future token embed-dings from visible context tokens and their target positions. This objective gives a learned prior over plausible temporal continuations: objects should persist, motion should remain smooth, and contacts should produce consistent downstream effects. When the generator proposes a future segment that does not follow from its context under this prior, Pφ (eC, δM )
+
+diverges from eM and the energy in Equation (6) rises. The gradient g is therefore not a generic visual-quality gradient; it is the local direction, in generator-latent coordinates, that most reduces the world model’s predictive disagreement for the current clean-latent estimate. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 7
+
+This is the sense in which the update is off-manifold . A pure flow-matching step follows the generator’s learned vector field uθ , which defines the local uncorrected trajectory. The adapter-space surprise gradient comes from a separately trained world model and need not align with that instantaneous flow direction. Subtracting η(t)g can move the latent away from a physically implausible uncorrected state; subsequent ODE steps then use uθ to con-tinue rendering from the correction. The method therefore does not replace the generator with V-JEPA 2.1; it adds a small external physical prior to the generator’s own dynamics. 
+
+3.4 The latent-to-embedding adapter 
+
+Computing g(zt ,t) naively requires decoding ˆ z1 to pixels via the generator’s VAE, encoding through V-JEPA 2.1’s encoder, computing the energy, and backpropagating through both. This is prohibitive: even a single backward pass through the VAE on a 16-frame 480 × 832 clip exceeds the memory of a single 96 GB GPU. The adapter Aψ : Zlat → Zvjepa short-circuits both the decode and the encoder by learning, once and offline, to map generator latents directly to the V-JEPA 2.1 [27] embedding space that the encoder would have produced from the decoded pixels. 
+
+Instantiation and training. For Wan2.2 [37], Aψ is a 33 .3M convolutional adapter trained offline on a ∼ 64 ,000-clip OpenVid-1M [28] subset. We cache each clip’s Wan2.2 VAE latent and frozen V-JEPA 2.1 [27] encoder target, then train on the paired tensors. For CogVideoX, we retrain the same 33 .3M architecture on CogVideoX VAE-latent/V-JEPA 2.1 pairs from the same clips; weights are not shared. Architecture and tensor details are supplementary (Section A). 
+
+Real-video training, generated-video use. The primary adapter is trained on latents ob-tained by encoding real OpenVid-1M clips, but OMR uses it during generation on the provi-sional clean prediction ˆ z1 inferred from a noisy synthetic sampling state zt . This is a genuine distribution shift, but it is also the intended use case: Aψ is not asked to classify whether a latent is real or generated; it is asked to express any Wan2.2 latent in the coordinate system of the frozen V-JEPA 2.1 encoder. We reduce the hardest part of the shift in two ways. First, the adapter is applied to ˆ z1, the generator’s current estimate of the clean video latent, rather than to raw high-noise zt . Second, the guidance schedule in Section 3.5 avoids very early steps where ˆ z1 is mostly noise and the adapter output is least reliable. The remaining question is empirical, so Table 3 checks representation and surprise-ranking fidelity, and Tables 1 and 2 show that the frozen Wan2.2 adapter gives downstream gains on generated samples. 
+
+Adapter objective. The adapter is not trained to produce pixels or to judge video quality. It is trained to reproduce the representation that the frozen V-JEPA 2.1 encoder would have produced after decoding the same Wan2.2 latent. Let e ∈ RN×D be the frozen encoder target and ˆ e = Aψ (z) be the adapter prediction, with N space-time tokens of dimension D. We normalize each token as ¯ ei = ei/(∥ei∥2 + ε) and ¯ ˆei = ˆei/(∥ ˆei∥2 + ε). The mean token cosine is cos ( ˆe, e) = 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+¯ˆe⊤ 
+
+> i
+
+¯ei, (9) 8 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+and the token-token relation matrix is Sim (e)i j = ¯e⊤ 
+
+> i
+
+¯e j, Sim ( ˆe)i j = ¯ˆe⊤ 
+
+> i
+
+¯ˆe j. (10) The adapter loss combines mean squared reconstruction, mean per-token directional align-ment, and mean absolute relational-geometry matching: 
+
+Ladapter = 1
+
+ND ∥ ˆe − e∥22 + 0.5 (1 − cos ( ˆe, e)) + 0.1
+
+N2 ∥Sim ( ˆe) − Sim (e)∥1. (11) The first two terms match the coordinates and directions of individual V-JEPA 2.1 tokens. The Sim term is a label-free relational distillation term: it preserves pairwise token neighbor-hoods so the frozen predictor sees a coherent context–future geometry rather than indepen-dently fitted tokens. Its coefficient is small because it is a stabilizer, not a separate physics reward. A longer explanation is provided in the supplementary material (Section A.3); the main text uses the adapter as the mechanism that makes adapter-space guidance tractable. 
+
+Why the adapter is load-bearing. Because OMR follows an adapter-space signal at infer-ence time, Aψ determines what information actually reaches the generator latent. The valida-tion should therefore check both representation fidelity and guidance-order fidelity: the pre-dicted tokens should remain aligned with the reference decode-and-encode V-JEPA 2.1 [27] embeddings, and adapter-space surprise should preserve the plausibility ordering induced by the reference path. We report both checks in Section 4.4: on the same 81-frame 480 ×832 setting used in the main experiments, the adapter reaches strong token-level cosine agree-ment and positive rank correlation with reference V-JEPA 2.1 surprise. We therefore treat 
+
+Aψ as the mechanism that makes dense world-model guidance practical during sampling. 
+
+Frozen at inference. The generator-specific adapter, generator, and V-JEPA 2.1 [27] re-main frozen at inference. We train only the adapter, once per generator/VAE latent space. 
+
+3.5 The guidance schedule 
+
+The guidance strength η(t) is not constant. Under the clean-time convention above, very small t means high noise and very large t means nearly clean. At high noise, the implicit clean prediction ˆ z1 is unreliable; gradient signals computed on it are dominated by noise and VAE artifacts rather than physics. Near t = 1, most spatial and temporal structure is already locked in, and additional correction has diminishing returns. We concentrate guidance in a middle clean-time band: 
+
+η(t) = η0 · 1tlo ≤ t ≤ thi 
+
+, (12) with η0, tlo , and thi chosen by a coarse sweep on a held-out calibration set and then fixed for all reported test prompts. Unlike substep-based methods, the schedule is defined directly over the outer ODE timesteps; there is no interaction with an inner refinement loop because no inner loop exists. 
+
+3.6 Algorithm 
+
+Algorithm 1 summarizes one full OMR sampling pass. Relative to a standard flow-matching ODE solver, OMR adds only an adapter forward pass, predictor-surprise evaluation, gradient computation, and final subtraction. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 9
+
+Algorithm 1 OMR sampling 
+
+Require: frozen generator uθ , frozen predictor Pφ , frozen adapter Aψ , clean-time steps 0 =
+
+t0 < · · · < tN = 1, guidance η(·), visible/target indices C, M, mask tokens δM 
+
+> 1:
+
+sample zt0 ∼ N (0, I) 
+
+> 2:
+
+for i = 0, . . . , N − 1 do  
+
+> 3:
+
+∆t ← ti+1 − ti
+
+Standard flow-matching prediction  
+
+> 4:
+
+v ← uθ (zti ,ti) ▷ generator velocity  
+
+> 5:
+
+ˆz1 ← zti + ( 1 − ti) v ▷ clean-latent estimate; stop grad through uθ 
+
+> 6:
+
+if η(ti) > 0 then  
+
+> 7:
+
+e ← Aψ (ˆz1) ▷ OMR: adapter replaces VAE decode + V-JEPA 2.1 encoder  
+
+> 8:
+
+E ← Pφ (eC, δM ) − eM 22 ▷ masked-future surprise  
+
+> 9:
+
+g ← ∇ˆz1 E ▷ one backward pass through Pφ and Aψ 
+
+> 10:
+
+else  
+
+> 11:
+
+g ← 0 
+
+> 12:
+
+end if Guided Euler step  
+
+> 13:
+
+zti+1 ← zti + ∆t · v − η(ti) g 
+
+> 14:
+
+end for  
+
+> 15:
+
+return ztN
+
+# 4 Experiments 
+
+4.1 Setup 
+
+Generators and operating points. We use Wan2.2-T2V-A14B [37] as the primary text-to-video generator and refer to it as Wan2.2 below. Unless otherwise stated, Wan2.2 runs use 480 × 832 resolution, 81 frames at 16 FPS, 40 ODE sampling steps, and CFG scales 4.0/3.0 for the two experts. To test transfer, we also evaluate CogVideoX-5B at 480 × 720 and Wan2.2-I2V-A14B for image-to-video generation. 
+
+World model. We use V-JEPA 2.1 [27] as the frozen world model. Both encoder and predictor heads are kept frozen throughout. 
+
+Adapter. Wan2.2 uses the frozen 33 .3M adapter in Section 3.4; CogVideoX uses the same architecture retrained on CogVideoX VAE-latent/V-JEPA 2.1 [27] pairs. Both are frozen during generation; Table 3 evaluates the primary Wan2.2 adapter. 
+
+Benchmarks. Our default evaluation uses our fixed 400-prompt VideoPhy-2 [5] detailed subset, one generation per prompt. We fixed these 400 prompt IDs from the released detailed-prompt pool before any generation or scoring, then used the identical list for every method with no output- or score-based filtering. We report SA, PC, and joint success (both scores ≥ 4on the 1–5 scale). Wan2.2 efficiency and CogVideoX transfer use separate fixed 50-prompt VideoPhy-2 subsets; Physics-IQ transfer uses a fixed 50-prompt official I2V subset [26] and evaluator. 
+
+No-generator-fine-tuning comparisons. We compare Wan2.2 [37] with three variants that leave the base generator frozen: CFG-Zero* [11], P&P [20], and OMR. CFG-Zero* 10 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+Table 1: Frozen-generator test-time comparison on our fixed 400-prompt VideoPhy-2 [5] de-tailed subset. Threshold columns report percentages over the same prompt set. We empha-size Physical-Commonsense (PC) because semantic adherence varies less across methods. 
+
+Method SA mean SA ≥ 4 PC mean PC ≥ 4 Joint Wan2.2 [37] 3.740 68.0 3.660 57.0 47.00 + CFG-Zero* [11] 3.770 68.0 3.610 56.0 48.25 + P&P [20] 3.780 70.0 3.650 55.0 48.75 
+
+OMR (ours) 3.750 68.0 3.700 60.0 52.00 
+
+Table 2: Quality–efficiency on fixed 50-prompt VideoPhy-2 [5] subsets. Compare scores only within panels; time is relative to each base and VRAM is peak usage. First-panel Wan2.2/OMR scores are three-seed means; others are point estimates.                                           
+
+> Method Relative time Peak VRAM (GB) Joint (%, ∆)↑
+> Wan2.2-T2V-A14B, 480 ×832 , fixed 50 -prompt efficiency subset
+> Wan2.2 1.00 ×65.4 48.0 + P&P 1.6×72.7 50.6 ( +2.6) + BoN-2 2.00 ×65.4 50.4 ( +2.4) + WMReward-∇+BoN-4 19 .88 ×134 53.6 ( +5.6)
+> + OMR (ours) 1.71 ×74.1 54.0 ( +6.0)
+> CogVideoX-5B, 480 ×720 , fixed 50 -prompt transfer subset
+> CogVideoX-5B 1.00 ×23.4 32.0
+> + OMR (ours) 1.67 ×30.4 42.0 ( +10 .0)
+> + BoN-4 4.00 ×23.4 36.0 ( +4.0) + WMReward-∇4.97 ×83.2 38.0 ( +6.0) + WMReward-∇+BoN-4 19 .88 ×83.2 40.0 ( +8.0) + WMReward-∇+BoN-8 39 .76 ×83.2 40.0 ( +8.0)
+
+modifies classifier-free guidance; P&P uses generator self-consistency through predict-and-perturb refinement; OMR instead uses adapter-space V-JEPA 2.1 [27] surprise inside the sampling trajectory. Table 2 reports the complementary wall-clock/search tradeoff, includ-ing best-of-N and WMReward-style [44] search baselines. 
+
+Best-of-N selector. For the BoN rows in Table 2, we sample N independent candidates from the corresponding base generator for the same prompt and select the candidate with the best scalar WMReward/V-JEPA 2.1-style physical-plausibility proxy. The selector never sees VideoPhy-2 labels; this distinction matters because the proxy can prefer clips that look locally plausible while still failing the benchmark’s physical-commonsense judgment. 
+
+4.2 Main results 
+
+Primary VideoPhy-2 comparison. Table 1 shows that OMR improves the joint metric from 47 .00% to 52 .00% ( +5.00pp absolute; +10 .6% relative) and exceeds the strongest listed frozen-generator baseline, P&P, by 3 .25pp. The gain is physical rather than semantic: PC mean rises from 3 .660 to 3 .700 and PC ≥ 4 rises from 57 .0% to 60 .0%, while SA ≥ 4remains 68 .0%. The per-category results in the supplementary material (Section C) show the largest joint improvements on contact dynamics and fluid/deformable motion. 
+
+Efficiency and cross-generator transfer. On the fixed 50-prompt Wan2.2 efficiency sub-set, OMR achieves the best Joint score, 54 .0% ( +6.0pp), at 1 .71 × runtime and 74 .1 GB peak VRAM. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 11 
+
+WMReward-∇ with BoN-4 reaches 53 .6% (19 .88 ×, 134 GB)—11 .6× slower and 80 .8% more memory—while P&P and BoN-2 trail by 3 .4/3.6pp. These subset results complement the 400-prompt result in Table 1. On CogVideoX, OMR raises Joint from 32 .0% to 42 .0% (1 .67 × runtime, 30.4 GB peak VRAM). WMReward-∇ reaches 38 .0% (4 .97 ×, 83.2 GB); its BoN-4/8 variants reach 40 .0% at 19 .88 × /39 .76 × runtime, respectively. WMReward-∇ differentiates through a V-JEPA encoder and VAE decoder [44]; OMR uses only the predictor and generator-specific adapter, avoiding two additional Jacobians and their compute. OMR’s larger matched CogVideoX gain ( +10 .0pp vs. +6.0pp) is consistent with a useful direct correction, but gradient-norm measurements would be needed to show that its gradients are larger or better preserved. OMR remains complementary to candidate search. 
+
+Cross-benchmark transfer on Physics-IQ. We further extend OMR to image-to-video generation using the Wan2.2-I2V-A14B checkpoint and evaluate it on the Physics-IQ bench-mark. Figure 3 compares our Wan2.2-I2V configurations with the published MAGI-1 (V2V) and vLDM (I2V) WMReward configurations [44]. MAGI-1         
+
+> base 55.22
+> WMReward-∇(N=1) BoN-4 WMReward-∇+ BoN-4
+> −0.20 +5.12 +6.78
+> vLDM
+> base 27.76
+> WMReward-∇(N=1) BoN-4 WMReward-∇+ BoN-4
+> +0.12 +5.14 +5.68
+> Wan2.2-I2V (ours)
+> base 26.44
+> OMR (N=1)
+> BoN-4
+> OMR + BoN-4
+> +4.90 +5.48 +8.27
+> −1 0369
+> Δ Physics-IQ score from corresponding model base
+
+Figure 3: Physics-IQ gain from each base on one shared scale. Gray gives published mixed-modality WMReward context: MAGI-1 is V2V and vLDM is I2V. Blue is our fixed-50-prompt Wan2.2-I2V pilot. Circles, squares, and diamonds denote guidance, BoN-4, and their combination; exact scores are supplementary (Table 6). On Wan2.2-I2V, OMR improves Physics-IQ by +4.90 without an in-loop VAE decode or V-JEPA 2.1 encoder pass and reaches +8.27 with BoN-4. Published single-trajectory WM-Reward changes are −0.20 /+0.12 for MAGI-1 (V2V)/vLDM (I2V). The controlled Wan2.2 comparison supports one-trajectory correction complementary to selection; the gray mixed-modality references remain unmatched context. We treat it as transfer evidence; Section 4.4 evaluates alignment. 12 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT Qualitative visualization: three-way comparison 
+
+A. Baseball-wall contact 
+
+Both baselines show premature wall damage, but P&P has the weakest contact causality. OMR best aligns the ball impact with the wall response. 
+
+Wan2.2 base 
+
+Premature hole, later contact 
+
+P&P 
+
+causal mismatch 
+
+OMR (ours) 
+
+Aligned impact response 
+
+B. Tool-clay deformation 
+
+P&P improves local texture, but the clay response is unstable and only weakly coupled to the tool. OMR produces the most coherent contact-driven deformation. 
+
+Wan2.2 base 
+
+Weak tool-material coupling 
+
+P&P 
+
+Local deformation, unstable coupling 
+
+OMR (ours) 
+
+continuous contact-driven deformation 
+
+C. Ring-swing body dynamics 
+
+Wan2.2 base loses ring support, while P&P gives cleaner but physically inconsistent poses. OMR best preserves a coherent, professional-looking swing motion. 
+
+Wan2.2 base 
+
+Loses ring support 
+
+P&P 
+
+Cleaner but pose-inconsistent 
+
+OMR (ours) 
+
+Coherent athletic motion 
+
+D. Wheelbarrow-concrete interaction 
+
+Wan2.2 base shows weak concrete contact, while P&P has inconsistent material logic. OMR yields the most physically and temporally coherent interaction. 
+
+Wan2.2 base 
+
+Weak concrete contact 
+
+P&P 
+
+Logic inconsistent 
+
+OMR (ours) 
+
+Physical contact and response 
+
+O incorrect O partially correct O correct 
+
+Figure 4: Qualitative visualization. Four frame-strip examples compare Wan2.2 [37], P&P [20], and OMR (ours). The examples emphasize temporal cause and effect: impact should coincide with material response, tools should stay coupled to the object they deform, and body motion should preserve support and momentum across frames. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 13 
+
+4.3 Qualitative and human evaluation 
+
+Figure 4 diagnoses the failures behind the aggregate scores. In A, Wan2.2 shows a hole before clear impact and P&P shows damage without synchronized contact; OMR best aligns impact and response. In B, Wan2.2 weakly couples tool and clay, while P&P’s deformation is intermittent; OMR maintains contact and accumulates deformation. In C, Wan2.2 loses ring support and P&P produces an implausible leg transition; OMR gives the most support-and momentum-consistent swing. In D, OMR better preserves tool–concrete contact and coherent material response. 
+
+Human preference against P&P. We compare OMR against P&P [20] in a blind study on 100 detailed VideoPhy-2 [5] prompts. Thirteen annotators provide 1 ,300 judgments per question; matching, randomization, and raw counts are in the supplementary material (Sec-tion G).                
+
+> Physical plausibility 49.69% 30.08% 20.23% Prompt adherence 25.08% 45.00% 29.92% Pooled judgments 37.38% 37.54% 25.08% 025 50 75 100 Pooled judgment share (%) OMR wins Tie P&P wins
+
+Figure 5: Human preference against P&P [20]. Pooled shares on 100 matched prompts from 13 annotators. OMR wins physical plausibility (49 .69% vs. 20 .23%); ties are the largest prompt-adherence outcome. Protocol and counts are in the supplementary material (Section G). Figure 5 shows a clear physical-plausibility advantage. Ties are the largest prompt-adherence outcome, with a small P&P edge among non-tied judgments; the descriptive pool across both questions favors OMR. 
+
+4.4 Discussion 
+
+We ask whether a frozen world model can control a separately trained generator without joint training, and whether an adapter trained on real-video latents remains reliable during sampling. 
+
+Why can independently trained representations be mapped? The Wan latent and V-JEPA 2.1 target encode the same video under different objectives: one retains content and motion for synthesis, the other structure for future prediction. A task-specific transformation is therefore plausible without requiring identical or globally aligned spaces. The adapter learns this mapping into V-JEPA 2.1 token space while preserving the geometry and surprise ordering used by the predictor. This agrees with the intuition of the Platonic Representa-tion Hypothesis [19], but our evidence supports only this operational correspondence, not universal equivalence. 
+
+Can a real-video-trained adapter remain reliable during noisy sampling? The adapter is trained on real OpenVid-1M [28] Wan latents but receives provisional generated clean predictions ˆ z1, not raw noisy states zt . We compare it with the exact decode–encode path on 500 held-out real clips, four scheduled predictions from each of 50 trajectories (200 states), 14 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+and one matched finished control per trajectory (50 controls). This pairing isolates the extra mid-trajectory shift from the ordinary real-to-generated shift. Table 3: Adapter fidelity against the exact VAE decode-and-encode path using V-JEPA 2.1 [27]. Token cosine measures representation agreement; rank metrics compare surprise ordering. Higher is better.                   
+
+> Evaluation point NToken cosine Spearman ρKendall τ
+> Held-out real-video clips 500 0.7506 0.668 0.477 Mid-trajectory clean predictions 200 0.762 0.617 0.446 Matched finished controls 50 0.769 0.624 0.451
+
+Mid-trajectory cosine/ ρ/τ (0 .762 /0.617 /0.446) remains close to matched finished con-trols (0 .769 /0.624 /0.451), so the adapter preserves an actionable representation and surprise ordering where OMR operates. This does not establish robustness to raw-noise states, exact adapter–encoder equivalence, elimination of the real-to-generated shift, or causal attribution of the downstream gain. Protocol and slice diagnostics are supplementary (Section B). 
+
+# 5 Conclusion 
+
+Contribution and findings. OMR shows that a frozen video world model can guide a sep-arately trained generator within one sampling trajectory. A generator-specific adapter maps provisional clean latents into V-JEPA 2.1 feature space, using masked-future surprise as a dense correction before decoding. The generator and world model remain frozen, with no in-loop VAE decoding or video encoding. OMR improves Wan2.2 from 47 .0% to 52 .0% on our fixed 400-prompt VideoPhy-2 subset, at 1 .71 × runtime in a separate 50-prompt study. CogVideoX, Physics-IQ, and mid-trajectory fidelity results support transfer beyond the pri-mary generator and modality. 
+
+Limitations. OMR inherits the blind spots and data biases of its world model; predictive plausibility does not guarantee physical correctness. Evaluation covers one world-model family, two generators, and the resolution used to train each adapter, while a new VAE la-tent space requires retraining. The 400-prompt result uses one generation per prompt, and the 50-prompt pilots are point estimates without paired prompt-level confidence intervals. Fidelity establishes representation and ranking agreement, but not exact adapter–encoder equivalence, raw-noise robustness, or causal attribution. OMR also adds runtime and mem-ory relative to base sampling. 
+
+Future work. Promising directions include shared multi-resolution adapters, longer videos, complementary physical predictors, and adaptive uncertainty-driven schedules. Larger repeated-seed evaluations, gradient diagnostics, and causal interventions would better characterize failure modes. Combining OMR with a small final selection budget may further improve physical consistency without returning to expensive large-pool search. 
+
+# Acknowledgments 
+
+We gratefully acknowledge support from the NAIRR Pilot, which provided compute re-sources under allocation NAIRR260204 for testing the core idea of this work. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 15 
+
+# References 
+
+[1] Zhaochong An, Menglin Jia, Haonan Qiu, Zijian Zhou, Xiaoke Huang, Zhiheng Liu, Weiming Ren, Kumara Kahatapitiya, Ding Liu, Sen He, Chenyang Zhang, Tao Xiang, Fanny Yang, Serge Belongie, and Tian Xie. OneStory: Coherent multi-shot video generation with adaptive memory. arXiv preprint arXiv:2512.07802 , 2025. [2] Zhaochong An, Orest Kupyn, Théo Uscidda, Andrea Colaco, Karan Ahuja, Serge Be-longie, Mar Gonzalez-Franco, and Marta Tintore Gazulla. VGGRPO: Towards world-consistent video generation with 4D latent reward. arXiv preprint arXiv:2603.26599 ,2026. ECCV 2026. [3] Mido Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, Mojtaba Komeili, Matthew Muckley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem Zho-lus, et al. V-JEPA 2: Self-supervised video models enable understanding, prediction and planning, 2025. [4] Arpit Bansal, Hong-Min Chu, Avi Schwarzschild, Soumyadip Sengupta, Micah Gold-blum, Jonas Geiping, and Tom Goldstein. Universal guidance for diffusion models. In 
+
+ICLR , 2024. [5] Hritik Bansal, Clark Peng, Yonatan Bitton, Roman Goldenberg, Aditya Grover, and Kai-Wei Chang. VideoPhy-2: A challenging action-centric physical commonsense evaluation in video generation. In ICLR , 2026. doi: 10.48550/arXiv.2503.06800. [6] Adrien Bardes, Quentin Garrido, Jean Ponce, Xinlei Chen, Michael Rabbat, Yann Le-Cun, Mahmoud Assran, and Nicolas Ballas. Revisiting feature prediction for learning visual representations from video, 2024. [7] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kil-ian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, Varun Jam-pani, and Robin Rombach. Stable video diffusion: Scaling latent video diffusion mod-els to large datasets, 2023. [8] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In CVPR , 2023. [9] Hyungjin Chung, Jeongsol Kim, Michael T. McCann, Marc L. Klasky, and Jong Chul Ye. Diffusion posterior sampling for general noisy inverse problems. In ICLR , 2023. [10] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat GANs on image syn-thesis. In NeurIPS , 2021. [11] Weichen Fan, Amber Yijia Zheng, Raymond A. Yeh, and Ziwei Liu. CFG-Zero*: Improved classifier-free guidance for flow matching models, 2025. [12] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang, Yaohui Wang, Yu Qiao, Ma-neesh Agrawala, Dahua Lin, and Bo Dai. AnimateDiff: Animate your personalized text-to-image diffusion models without specific tuning. In ICLR , 2024. [13] David Ha and Jürgen Schmidhuber. World models. arXiv preprint arXiv:1803.10122 ,2018. doi: 10.48550/arXiv.1803.10122. 16 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+[14] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In ICLR , 2020. [15] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance, 2022. [16] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In NeurIPS , 2020. [17] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Grit-senko, Diederik P. Kingma, Ben Poole, Mohammad Norouzi, David J. Fleet, and Tim Salimans. Imagen Video: High definition video generation with diffusion models, 2022. [18] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J. Fleet. Video diffusion models. In NeurIPS , 2022. [19] Minyoung Huh, Brian Cheung, Tongzhou Wang, and Phillip Isola. Position: The pla-tonic representation hypothesis. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pages 20617–20642. PMLR, 2024. URL https://proceedings.mlr.press/ v235/huh24a.html .[20] Sangwon Jang, Taekyung Ki, Jaehyeong Jo, Saining Xie, Jaehong Yoon, and Sung Ju Hwang. Self-refining video sampling. arXiv preprint arXiv:2601.18577 , 2026. ICML 2026. [21] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In NeurIPS , 2022. [22] Orest Kupyn, Théo Uscidda, Marta Tintore Gazulla, Fabian Manhardt, Federico Tombari, and Christian Rupprecht. Epipolar geometry improves video generation mod-els. arXiv preprint arXiv:2510.21615 , 2025. [23] Minh-Quan Le, Yuanzhi Zhu, Vicky Kalogeiton, and Dimitris Samaras. What about gravity in video generation? post-training newton’s laws with verifiable rewards, 2025. [24] Yann LeCun. A path towards autonomous machine intelligence, 2022. Position paper. [25] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In ICLR , 2023. [26] Saman Motamed, Laura Culp, Kevin Swersky, Priyank Jaini, and Robert Geirhos. Do generative video models understand physical principles? In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , 2026. [27] Lorenzo Mur-Labadia, Matthew Muckley, Amir Bar, Mido Assran, Koustuv Sinha, Michael Rabbat, Yann LeCun, Nicolas Ballas, and Adrien Bardes. V-JEPA 2.1: Un-locking dense features in video self-supervised learning, 2026. [28] Kepan Nan, Rui Xie, Penghao Zhou, Tiehan Fan, Zhenheng Yang, Zhijie Chen, Xiang Li, Jian Yang, and Ying Tai. OpenVid-1M: A large-scale high-quality dataset for text-to-video generation. In ICLR , 2025. doi: 10.48550/arXiv.2407.02371. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 17 
+
+[29] Alexander Quinn Nichol and Prafulla Dhariwal. Improved denoising diffusion proba-bilistic models. In ICML , 2021. [30] NVIDIA Cosmos Team. Cosmos: A world foundation model platform for physical AI. 
+
+https://github.com/nvidia-cosmos/cosmos-predict1 , 2025. [31] William Peebles and Saining Xie. Scalable diffusion models with transformers. In 
+
+ICCV , 2023. [32] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Om-mer. High-resolution image synthesis with latent diffusion models. In CVPR , 2022. [33] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, Devi Parikh, Sonal Gupta, and Yaniv Taig-man. Make-a-video: Text-to-video generation without text-video data, 2022. [34] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit mod-els. In ICLR , 2021. [35] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Er-mon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In ICLR , 2021. [36] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models, 2023. [37] Wan-AI Team. Wan2.2: Open and advanced large-scale video generative model. 
+
+https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers ,2025. [38] Jing Wang, Ao Ma, Ke Cao, Jun Zheng, Zhanjie Zhang, Jiasong Feng, Shanyuan Liu, Yuhang Ma, Bo Cheng, Dawei Leng, Yuhui Yin, and Xiaodan Liang. WISA: World simulator assistant for physics-aware text-to-video generation, 2025. [39] Peiyao Wang, Weining Wang, and Qi Li. PhysCorr: Dual-reward DPO for physics-constrained text-to-video generation with automated preference selection, 2025. [40] Yilun Xu, Mingyang Deng, Xiang Cheng, Yonglong Tian, Ziming Liu, and Tommi Jaakkola. Restart sampling for improving generative processes. In NeurIPS , 2023. [41] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, Da Yin, Xiaotao Gu, Yuxuan Zhang, Weihan Wang, Yean Cheng, Ting Liu, Bin Xu, Yuxiao Dong, and Jie Tang. CogVideoX: Text-to-video diffusion models with an expert transformer. arXiv preprint arXiv:2408.06072 , 2024. [42] Jiwen Yu, Yinhuai Wang, Chen Zhao, Bernard Ghanem, and Jian Zhang. FreeDoM: Training-free energy-guided conditional diffusion model. In ICCV , 2023. [43] Jianhao Yuan, Xiaofeng Zhang, Felix Friedrich, Nicolas Beltran-Velez, Melissa Hall, Reyhane Askari-Hemmat, Xiaochuang Han, Nicolas Ballas, Michal Drozdzal, and Adriana Romero-Soriano. Improving the physics of video generation with VJEPA-2 reward signal, 2025. Winning entry of the ICCV 2025 Physics IQ Challenge. 18 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+[44] Jianhao Yuan, Xiaofeng Zhang, Felix Friedrich, Nicolas Beltran-Velez, Melissa Hall, Reyhane Askari-Hemmat, Xiaochuang Han, Nicolas Ballas, Michal Drozdzal, and Adriana Romero-Soriano. Inference-time physics alignment of video generative mod-els with latent world models, 2026. [45] Xiangdong Zhang, Jiaqi Liao, Shaofeng Zhang, Fanqing Meng, Xiangpeng Wan, Junchi Yan, and Yu Cheng. VideoREPA: Learning physics for video generation through relational alignment with foundation models, 2025. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 19 
+
+# Supplementary Material 
+
+Off-Manifold Refinement: Guiding Video Generators with a Frozen World Model 
+
+Hai Nguyen-Truong, Tuan-Anh Vu, and Dang Huynh 
+
+# A Adapter architecture details 
+
+A.1 Block diagram and tensor shapes 
+
+The latent-to-embedding adapter Aψ is a 33 .3M-parameter convolutional network, not a transformer. It trilinearly interpolates Wan2.2 [37] VAE latents to the V-JEPA 2.1 [27] token grid, applies a local 3D convolutional stack, and then uses a shared per-token MLP head to predict hierarchical V-JEPA 2.1 embeddings. The trained Wan2.2 adapter uses 512 convo-lution channels, an MLP hidden width of 2048, three convolution layers, grid interpolation, and an output dimension of 6656. The main paper describes the training data and objective; this appendix provides the architecture and parameter breakdown. 
+
+z ∈ RB×16 ×21 ×60 ×104 
+
+Wan2.2 latent for 81 ×480 ×832 video Trilinear interpolation to the V-JEPA 2.1 grid 
+
+(21 , 60 , 104 ) → (24 , 24 , 24 )
+
+output: RB×16 ×24 ×24 ×24 
+
+3D convolutional stack Conv3d 16 → 512, Conv3d 512 → 512, Conv3d 512 → 512 kernel 3 3, padding 1, SiLU after each conv output: RB×512 ×24 ×24 ×24 
+
+Flatten space-time grid to tokens 
+
+RB×13824 ×512 , where 13824 = 24 · 24 · 24 Shared per-token MLP head Linear 512 → 2048, Linear 2048 → 2048, Linear 2048 → 6656 output: ˆy ∈ RB×13824 ×6656 
+
+Figure 6: Wan2.2 latent-to-V-JEPA 2.1 adapter. The adapter combines convolutional lay-ers with a shared per-token MLP head. It contains no self-attention layers; the V-JEPA 2.1 encoder already defines the target token grid. The adapter maps the 81-frame Wan2.2 latent to the space–time grid of its precomputed V-JEPA 2.1 target. V-JEPA 2.1 evaluates a 48-frame window from the generated video; within that window, visible context tokens condition predictions at masked future positions, and surprise is measured only on those masked targets. Dividing the 48 input frames by tubelet size 2 gives 24 temporal tokens, while dividing image size 384 by patch size 16 gives 20 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+a 24 × 24 spatial grid. The same windowing and masking rule is used when computing exact encoder targets and adapter-space surprise. The output dimension D = 6656 is the hierar-chical target used by the trained Wan2.2 adapter: four distillation layers, each of dimension 1664. A single-layer target with D = 1664 is supported by the code, but is not the variant used for the main experiments. 
+
+CogVideoX adapter. The cross-generator experiment does not reuse the Wan2.2 adapter weights. We retrain the same 33 .3M architecture on cached CogVideoX VAE latents paired with frozen V-JEPA 2.1 encoder targets from the same OpenVid-1M [28] clip pool, using the objective in the main paper, and freeze it before evaluation. This isolates transfer of the OMR procedure rather than assuming that two generators share a VAE latent coordinate system. 
+
+A.2 Parameter count 
+
+Table 4: Parameter count for the trained Wan2.2 adapter Aψ .                            
+
+> Block Layer / shape Params Conv stack Conv3d 16 →512, 3 3+ bias 221,696 Conv3d 512 →512, 3 3+ bias 7,078,400 Conv3d 512 →512, 3 3+ bias 7,078,400 Subtotal 14,378,496 MLP head Linear 512 →2048 + bias 1,050,624 Linear 2048 →2048 + bias 4,196,352 Linear 2048 →6656 + bias 13,638,144 Subtotal 18,885,120 Total 33,263,616
+
+The MLP head accounts for 18 .89M parameters, or roughly 57% of the adapter. This is mostly a consequence of the hierarchical output dimension D = 6656, not a deliberate in-crease in model capacity. If the last projection predicts a single V-JEPA 2.1 layer instead (D = 1664), the total parameter count drops to roughly 23 .0M. The convolutional architec-ture exploits the target’s regular token grid and remains lightweight enough for evaluation inside the sampling loop. The reported fidelity establishes that this configuration preserves an actionable signal; it does not establish that convolution is optimal or that attention would provide no benefit. 
+
+Reproducing the count. Enumerating trainable parameters for the configuration above gives the total in Table 4. A forward-shape check with z ∈ R1×16 ×21 ×60 ×104 returns ˆ y ∈
+
+R1×13824 ×6656 .
+
+A.3 Adapter objective details 
+
+The relational term in the main paper’s adapter loss is not an additional physics reward and does not use labels. It is a representation-distillation regularizer. The matrix Sim (e) records the internal geometry of the frozen V-JEPA 2.1 representation: which space-time patches are NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 21 
+
+close to one another, which are far apart, and how context and future tokens are arranged relative to each other. Matching Sim ( ˆe) to Sim (e) therefore asks the adapter to preserve the pairwise neighborhood structure among tokens, not merely fit each token independently. This matters because OMR feeds the adapter output into the frozen V-JEPA 2.1 predictor. If the true encoder places a moving-object token close to its future continuation and far from static background, the adapter should preserve that relation; otherwise the predictor may see an artificial context–future mismatch and produce a misleading surprise gradient. The coef-ficient on the relational term is kept small so that it stabilizes geometry while the dominant supervision remains direct embedding reconstruction and token-wise cosine alignment. 
+
+# B Mid-trajectory adapter-fidelity protocol 
+
+Held-out real-video clips. The separate held-out evaluation in the main paper uses 500 real-video clips at 81 frames and 480 ×832. The adapter reaches a mean per-token cosine of 0 .7506 against the exact decode-and-encode V-JEPA 2.1 [27] targets. The four hierar-chical distillation slices obtain cosine scores of 0 .750, 0 .807, 0 .837, and 0 .665, so no slice collapses. Adapter-space and exact-path predictive surprise have Spearman ρ = 0.668 and Kendall τ = 0.477. Positive rank correlations mean that clips assigned higher surprise by the exact path tend also to receive higher adapter-space surprise; values near zero would make the ordering uninformative, while negative values would invert the intended guidance signal. 
+
+Deployment-time protocol. The adapter is trained on VAE latents of real videos but is used on predicted clean latents during generation. To measure that deployment-time shift directly, we retain four guided mid-trajectory predicted clean latents ˆ z1 across the symbolic guidance band from each of 50 sampling trajectories, giving 200 state-level evaluations, plus one corresponding finished latent per trajectory, giving 50 finished-latent evaluations. For every retained latent z, we construct the exact reference embedding by decoding z through the frozen generator VAE and encoding the resulting pixels with the frozen V-JEPA 2.1 encoder. Token cosine measures direct agreement between this target and Aψ (z). Spearman 
+
+ρ and Kendall τ measure whether predictive-surprise rankings from the adapter path agree with rankings from the exact decode-and-encode path within each evaluation set. The mid-trajectory predicted clean latents obtain cosine/ ρ/τ of 0 .762 /0.617 /0.446, com-pared with 0 .769 /0.624 /0.451 for the corresponding finished latents. The proximity of the two rows supports the adapter’s use on OMR’s operating distribution. This is a stability diag-nostic, not evidence that the real-to-generated distribution shift disappears or that the adapter exactly reproduces the encoder. 22 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+# C Per-category VideoPhy-2 breakdown 
+
+Table 5: Per-category VideoPhy-2 [5] detailed-prompt breakdown for our fixed 400-prompt subset. Entries are percentages computed from integer counts over the category size.                                                       
+
+> Category # prompts Wan2.2 OMR SA ≥4PC ≥4Joint SA ≥4PC ≥4Joint Contact dynamics 128 68.0 57.0 44.5 70.3 60.2 55.5
+> Fluid / deformable motion 41 65.9 56.1 43.9 68.3 63.4 53.7
+> Gravity / free fall 40 70.0 60.0 60.0 65.0 62.5 60.0 Object permanence 250.0 50.0 50.0 50.0 50.0 50.0 Other physics principles 189 68.3 56.6 46.6 67.2 58.7 47.6
+> Total 400 68.0 57.0 47.0 68.0 60.0 52.0
+
+Table 5 shows broad physical-consistency gains, with the strongest joint-score improvements in local interaction categories. Contact dynamics improves from 44 .5% to 55 .5% joint score (+11 .0pp), and fluid/deformable motion improves from 43 .9% to 53 .7% ( +9.8pp). On PC ≥
+
+4, the largest gain is in fluid/deformable motion, where OMR rises from 56 .1% to 63 .4% (+7.3pp) over Wan2.2. The trend is not limited to those categories: the mixed-phenomena “Other physics prin-ciples” row improves from 46 .6% to 47 .6% joint score, with PC ≥ 4 rising from 56 .6% to 58 .7%. Because this row mixes several physical phenomena, we use it to check that the aggregate does not collapse outside contact/deformation prompts rather than to isolate one mechanism. Gravity/free-fall also improves on PC ≥ 4 (60 .0% to 62 .5%) while tying on joint score, and the two-prompt object-permanence slice is unchanged and too small to interpret. 
+
+# D Cross-benchmark and cross-generator pilot protocols 
+
+Physics-IQ. The Physics-IQ [26] experiment uses a fixed 50-prompt subset of the offi-cial image-to-video benchmark. Base, OMR, Wan2.2+BoN-4, and OMR+BoN-4 share the Wan2.2-I2V-A14B checkpoint, conditioning images, prompt subset, and official evaluator. The exact prompt list will be included with the release. The published WMReward [44] references use different modalities: MAGI-1 is V2V, whereas vLDM is I2V. They provide unmatched mixed-modality context only and are not OMR evaluations. Because our pilot covers only 50 prompts, we report point estimates and do not present it as a full-benchmark result. NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 23 
+
+Table 6: Exact values for the Physics-IQ comparison in the main paper. Published rows provide mixed-modality context; our matched pilot is I2V. N is the number of generated candidates and ∆ is relative to the corresponding base. Published WMReward-∇ repeatedly uses the VAE decode-and-encode path; OMR uses the adapter and frozen predictor without an in-loop decode or encoder pass.                                                                      
+
+> Model and method NWorld-model use Score ↑∆
+> Published WMReward mixed-modality context
+> MAGI-1 (V2V) 1–55.22 –+ WMReward-∇1Decode →encoder ( ∇)55.02 −0.20 + BoN-4 4Completed-video selection 60.34 +5.12 + WMReward-∇+ BoN-4 4Decode →encoder ( ∇) + selection 62.00 +6.78
+> vLDM (I2V) 1–27.76 –+ WMReward-∇1Decode →encoder ( ∇)27.88 +0.12 + BoN-4 4Completed-video selection 32.90 +5.14 + WMReward-∇+ BoN-4 4Decode →encoder ( ∇) + selection 33.44 +5.68
+> Our matched Wan2.2-I2V pilot (fixed 50 prompts)
+> Wan2.2-I2V 1–26.44 –
+> + OMR (ours) 1Adapter →predictor ( ∇)31.34 +4.90 + BoN-4 4Completed-video selection 31.92 +5.48
+> + OMR + BoN-4 (ours) 4Adapter →predictor ( ∇) + selection 34.71 +8.27
+
+CogVideoX-5B. The cross-generator pilot uses CogVideoX-5B [41] at 480 ×720 on a fixed 50-prompt VideoPhy-2 [5] subset. Its separately trained CogVideoX adapter is frozen for all OMR runs. Base, OMR, BoN-4, WMReward-∇, WMReward-∇+BoN-4, and WMReward-
+
+∇+BoN-8 use the same prompts, checkpoint, resolution, VideoPhy-2 evaluator, and hard-ware. Relative time is measured against the CogVideoX base row, and VRAM is peak allo-cated memory. These controls isolate the guidance/search path within the table, but the finite prompt subset remains subject to sampling variance. 
+
+Interpreting BoN. Physics-IQ scores spatiotemporal overlap with reference motion, so sample-and-select can benefit from choosing among multiple completed trajectories. Con-versely, the VideoPhy-2 selector optimizes a world-model proxy rather than the final semantic-and-physical joint metric. This explains why a larger BoN pool need not monotonically improve the reported joint score. The complete prompt lists and all generated clips will be released so that both pilot evaluations can be audited. 
+
+# E Relation to alternative inference-time refinement 
+
+OMR is deliberately simpler than predict-and-perturb refinement. It has no inner stochastic loop, mask blending, re-noising, or explicit re-projection step; sampling advances once from 
+
+t = 0 to t = 1 under a modified velocity field. P&P-style methods infer uncertainty by re-peatedly querying the generator and measuring cross-sample disagreement, whereas OMR obtains a first-order correction direction from one adapter-space world-model loss evalua-tion at each guided step. OMR also differs from candidate-selection methods, which score completed clips, and WMReward-style gradient steering, which repeatedly decodes and re-encodes an intermediate clean estimate. Here, the world-model signal is applied before the 24 NGUYEN-TRUONG ET AL.: OFF-MANIFOLD REFINEMENT 
+
+sample is finished through the shorter adapter-space path. 
+
+# F Seed stability check 
+
+Table 7: Seed-stability check on the fixed 50-prompt Wan2.2 efficiency subset used in Table 2. Entries are mean ± standard deviation over three random seeds, with the same prompt list for every seed. This subset does not define the 400-prompt aggregate in Table 1 of the main paper.                        
+
+> Method SA ≥4PC ≥4Joint % Wan2.2 [37] 68 .0±2.056 .7±1.248 .0±2.0
+> OMR (ours) 68 .0±2.060.7 ±1.254.0 ±2.0
+
+Table 7 checks whether the conclusion is dominated by seed choice on a smaller repeated-seed subset. A full 400-prompt × 3-seed evaluation would require 1 ,200 high-resolution video generations per method, so we use this fixed 50-prompt subset as a practical seed-sensitivity check. OMR matches Wan2.2 on SA, improves PC by +4.0pp, and improves joint score by +6.0pp, with the same seed-to-seed standard deviation as Wan2.2 on all three threshold metrics. We therefore report the one-generation-per-prompt aggregate in Table 1 of the main paper as the main point estimate, with Table 7 serving as a sanity check rather than a formal confidence-interval study. 
+
+# G Human preference protocol and raw counts 
+
+We compare OMR against P&P [20] in a blind pairwise study on 100 detailed VideoPhy-2 [5] prompts. Each pair uses a matched prompt, seed, resolution, frame count, and sampler budget, and presentation order is randomized. Thirteen annotators judge every pair sepa-rately for physical plausibility and prompt adherence, yielding 1 ,300 judgments per question and 2 ,600 judgments overall. Table 8: Raw human-preference counts. Columns give judgments favoring OMR, ties, and judgments favoring P&P. The pooled row combines both questions and is reported descrip-tively.
