@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-01</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-01 22:23:21 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 22:02:13 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共读21篇论文，精读10篇、速读11篇，聚焦具身智能与VLA模型前沿。</p>
-<p>最值得关注的是《Hydra》与《AdaVLA》（均9.0分），前者用离散潜在规划+流匹配执行导航动作，后者实现免训练加速VLA推理。</p>
-<p>建议优先精读这两篇高分工作，并顺带浏览BaryCache等8分速读，把握训练加速与跨具身泛化趋势。</p>
+<p>今日聚焦机器人世界模型：精读2篇高分论文，速读3篇，共处理17篇推荐论文。</p>
+<p>最值得关注的是模块化潜空间动作堆栈与可扩展视频预训练两种World Action方案，均获9.0分，另有一篇Flow-JEPA动态模型和VLA推理监控值得扫读。</p>
+<p>建议优先精读上述高分论文，速读部分可关注Flow-JEPA的鲁棒动态建模方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Hydra: A Navigation World Action Model with Discrete Latent Planning and Continuous Flow-Matching Execution">Hydra: A Navigation World Action Model with Discrete Latent Planning and Continuous Flow-Matching Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="AdaVLA: Adaptive Step Flow Matching for Training-free Acceleration of Vision-Language-Action Models">AdaVLA: Adaptive Step Flow Matching for Training-free Acceleration of Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling">Test-Time Scaling for Video Diffusion Models via Diagnosis-Guided Candidate Recycling</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AcrossWAM1.0:A Modular Latent World-Action Stack for Compact Robot Policies">AcrossWAM1.0:A Modular Latent World-Action Stack for Compact Robot Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="ZimaBlue: Evolving Generalizable World Action Models through Scalable Video Pre-training">ZimaBlue: Evolving Generalizable World Action Models through Scalable Video Pre-training</span></li><li><span class="dpr-home-dashboard-paper-title" title="MeRoPE: Metric Rotary Position Embedding for Camera-Controlled Video Generation">MeRoPE: Metric Rotary Position Embedding for Camera-Controlled Video Generation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Memory-Efficient Training-Free Acceleration of Diffusion Transformers with BaryCache">Memory-Efficient Training-Free Acceleration of Diffusion Transformers with BaryCache</span></li><li><span class="dpr-home-dashboard-paper-title" title="DREAM: Deployment-Time Demonstration Generation via Real-to-Sim for Scalable Policy Adaptation">DREAM: Deployment-Time Demonstration Generation via Real-to-Sim for Scalable Policy Adaptation</span></li><li><span class="dpr-home-dashboard-paper-title" title="AnyWorld: Factorized Egocentric World Models for Cross-Embodiment Generalization">AnyWorld: Factorized Egocentric World Models for Cross-Embodiment Generalization</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Flow-JEPA: Flow Matching for Robust Latent Dynamics in JEPA World Models">Flow-JEPA: Flow Matching for Robust Latent Dynamics in JEPA World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dancing Stick Figures: An Introductory Dataset for Training Video Generation Models">Dancing Stick Figures: An Introductory Dataset for Training Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Drive the Thoughts: Runtime Monitoring of VLA Reasoning-Trajectory Consistency">Drive the Thoughts: Runtime Monitoring of VLA Reasoning-Trajectory Consistency</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
