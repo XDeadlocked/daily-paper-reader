@@ -1,0 +1,545 @@
+Title: Stabilizing Camera-Controlled Novel View Synthesis at Inference Time
+
+URL Source: https://arxiv.org/pdf/2609.03639v1
+
+Published Time: Fri, 04 Sep 2026 00:51:32 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Stabilizing Camera-Controlled Novel View Synthesis at Inference Time 
+
+## Prajwal Singh Arjun Badola Seema Kumari Hajime Nagahara † Shanmuganathan Raman CVIG Lab and ISLab, D3 Center †
+
+## IIT Gandhinagar and Osaka University †
+
+## Abstract 
+
+Training-free, camera-controlled novel view synthesis from a single image using pre-trained video diffusion mod-els often becomes unstable under large camera motion and long generation horizons. Existing approaches com-monly combine several inference-time components, making it unclear which design choices are most important for sta-bility. We show that the main source of stability is sim-ple. Decomposing camera motion into small autoregressive steps limits per-step geometric distortion and reduces er-ror accumulation. A controlled camera-step study shows that performance remains stable for small motions and de-grades more strongly as the per-step motion approaches 
+
+18 -20 ◦. We further evaluate geometry-constrained spatial at-tention and low-frequency appearance anchoring as support-ing refinements, together with an efficient registration-free warping pipeline. Across RealEstate10K and MegaScene, CamTrol++ improves temporal and geometric consistency, downstream 3D reconstruction quality, and generation ef-ficiency over training-free baselines. The method remains effective for 56-frame generation and under substantial con-trolled depth corruption. These results show that careful control of camera motion at inference time can substantially improve the stability of camera-controlled novel view synthe-sis without retraining or modifying the diffusion backbone. 
+
+## 1. Introduction 
+
+The availability of pre-trained diffusion models for im-ages and videos has enabled applications ranging from virtual reality to content creation [7, 31, 38, 39]. Recent advances have made it possible to generate compositional and photorealistic images and videos in a training-free set-ting [1, 9, 16, 21, 26, 27, 53]. An important direction is cam-era and view control for diffusion-based image and video generation, where the goal is to synthesize multiple views of a scene from a single input image [11, 19, 48, 64], useful for 3D content creation and scene exploration. Existing approaches to novel view synthesis can be 
+
+Figure 1. Large Camera Motion. We compare CamTrol++ with representative training-free baselines (CamTrol [23], WAVE [37]) on a challenging ±60 ◦ rotation. Baselines fail to maintain coher-ence, resulting in significant distortion and high temporal flicker (LPIPS-next 0.17 − 0.29 ). Our method, CamTrol++, splits the large motion into small auto-regressive steps, generating a stable, geometrically coherent sequence with 2-3x lower flicker (LPIPS-next 0.079 − 0.086 ). 
+
+broadly divided into two categories. Per-scene optimization methods, such as Neural Radiance Fields (NeRF) [35] and 3D Gaussian Splatting [25], achieve high-quality reconstruc-tion but require multi-view data and scene-specific optimiza-tion. Zero-shot methods, such as Zero-1-to-3 [31], synthe-size new viewpoints from a single image but often struggle with scene consistency and long-range stability. More re-cently, training-free methods have combined depth-based warping with diffusion refinement. CamTrol [23] uses a warp-and-inpaint framework with Stable Video Diffusion (SVD) [5], while WAVE [37] generates frames indepen-dently in an image-centric manner. Although effective for short sequences, these methods degrade under large camera motions and longer trajectories. The main challenge is error accumulation during autore-gressive generation. Each generated frame is used to gen-erate the next, so small geometric and appearance errors can accumulate over time. Large camera motions make this problem more severe by introducing larger reprojection er-rors and disoccluded regions within each generation step. This leads to geometric distortion, perspective drift, tempo-1arXiv:2609.03639v1 [cs.CV] 3 Sep 2026 Figure 2. Overview of the CamTrol++ Framework. Given an input image It and its depth, the Camera Motion Modeling block generates a warped multi-view sequence along a small camera sub-path. The sequence is processed by Stable Latent Video Diffusion with Epipolar Attention for geometric consistency and Color LAB Matching for appearance consistency. The corrected frame is reused as input for the next autoregressive pass, enabling efficient long-horizon generation without point cloud registration. 
+
+ral flicker, and appearance drift, as shown in Figure 1. We address these issues with CamTrol++ , a training-free frame-work that stabilizes camera-controlled novel view synthesis at inference time without modifying the diffusion backbone. Our key idea is to divide a complete camera trajectory into small sub-paths and generate them autoregressively. This limits the geometric change handled in each step and reduces error accumulation. We further introduce geometry-constrained spatial attention and low-frequency appearance anchoring to improve geometric and appearance consistency. Finally, we remove the costly point cloud registration used in CamTrol [23] with an efficient registration-free warping pipeline. Our experiments show that small camera steps are important for stable generation, with larger per-step mo-tions leading to increasing geometric and perceptual errors. Across RealEstate10K [63] and MegaScene [51], CamTrol++ extends stable generation from 14 to 56 frames, improves temporal and geometric consistency, and improves down-stream 3D reconstruction quality while achieving a ∼ 5×
+
+per-frame speedup. Our contributions are as follows: • We introduce CamTrol++, a training-free framework for stabilizing camera-controlled novel view synthesis at in-ference time without retraining or modifying the diffusion backbone. • We show that small-step camera decomposition is the pri-mary source of stability in long-horizon autoregressive generation and examine how performance varies with per-step camera motion. • We incorporate geometry-constrained spatial attention and low-frequency appearance anchoring as supporting refine-ments and evaluate their effect within the framework. • We develop an efficient registration-free warping pipeline that eliminates per-frame point cloud registration and achieves a ∼ 5× speedup over CamTrol [23]. • We demonstrate improved temporal and geometric consis-tency, downstream 3D reconstruction quality, and robust-ness to depth errors on RealEstate10K and MegaScene. 
+
+## 2. Related Works 
+
+Per-Scene Optimization. Early methods for novel view syn-thesis, such as Neural Radiance Fields (NeRF) [35], learn volumetric radiance fields per scene through gradient-based optimization. Extensions like Mip-NeRF [2] and Instant-NGP [36] improve speed and fidelity but remain scene-specific. Similarly, 3D Gaussian Splatting (3DGS) [25] and dynamic variants [33] represent scenes with explicit Gaussian primitives, achieving photorealistic results through per-scene fitting. EgoGaussian [58] extends this idea to dy-namic and egocentric setups by jointly reconstructing back-grounds and moving objects. While these approaches pro-duce geometrically consistent reconstructions, they require multi-view supervision and known camera poses, which is not the goal here, generating multi-view scenes from a sin-gle image. Recent works such as LucidDreamer [10] and SpatialCrafter [60] move toward sparse- or single-view 3D scene generation but rely on additional scene optimization or trained geometric components, in contrast to our inference-time approach. 
+
+Zero-Shot Novel View Synthesis (NVS). Zero-shot NVS methods generate novel viewpoints from a single image with-out per-scene training. Zero-1-to-3 [31] and Zero123++ [46] use diffusion models for 3D-aware image generation, while ViewCrafter [57], ViewDiff [22], and Consistent-1-to-3 [55] improve geometric consistency through multi-view attention and geometry-aware diffusion. Novel View Diffusion [14] operates directly in pixel space. WonderJourney [56] uses language-guided scene expansion for perpetual 3D scene generation, while FantasyWorld [12] and WorldForge [47] extend video diffusion toward unified 3D/4D world mod-2eling. Stable Virtual Camera [62] focuses on camera-controlled diffusion, while WAVE [37] uses warp-guided attention and pose-aware noise initialization to improve con-sistency across independently generated novel views. Con-current with this work, NeoMap [28] optimizes the initial noise of pre-trained video backbones, while WorldForge [47] uses recursive refinement within a single generation window. These methods primarily improve trajectory control within the native generation horizon of a pre-trained video back-bone, whereas we focus on maintaining consistency across 
+
+multiple autoregressive windows. This setting remains im-portant for long or complex camera trajectories, where a single generation window may not be sufficient. Our focus is therefore on multi-window stabilization and on understand-ing the role of its individual components. 
+
+Training-Free Long Video Generation. This line of work aims to generate temporally coherent videos from a single im-age or short video without additional training. CamTrol [23] uses a warp-and-inpaint pipeline [17] with Stable Video Dif-fusion (SVD), enabling camera control without retraining. However, large camera motions can lead to accumulated geometric and perceptual errors. FreeLong [32] addresses long-video degradation through spectral feature blending in a training-free setting, while Rolling Forcing [30] reduces long-horizon error accumulation through joint denoising and context anchoring with additional training. Eliminating Oversaturation [43] improves diffusion sampling stability by modifying classifier-free guidance without model retraining. These methods improve long-horizon or sampling stability but do not specifically address geometric error accumula-tion in training-free camera-controlled novel view synthesis. CamCo [52] and CAMI2V [61] explore camera-controllable image-to-video generation through fine-tuned or training-based camera pose conditioning. Existing training-free approaches show that camera trajec-tory decomposition and additional geometric or appearance constraints can improve the stability of autoregressive novel view synthesis. However, large camera motions and long trajectories remain challenging as errors accumulate across generation steps. Our work focuses on stabilizing genera-tion across multiple autoregressive windows and examines the role of small-step camera decomposition together with supporting geometric and appearance components. We fur-ther evaluate camera step size, generation length, and depth errors to characterize the practical behavior of the proposed framework. 
+
+## 3. Method 
+
+We present an inference-time stabilization framework for camera-controlled novel view synthesis. Our method oper-ates on a pre-trained Stable Video Diffusion (SVD) back-bone [5] and requires no retraining or weight modification.   
+
+> Figure 3. Qualitative Comparison. CamTrol++ produces sharp and consistent multi-view sequences, maintaining both visual qual-ity and temporal stability. In contrast, the baseline CamTrol [23] generates distorted frames, while WAVE [37] introduces geometric distortions and artifacts. This comparison highlights the improved stability and overall quality of our framework.
+
+Given a single input image and a predefined camera trajec-tory, our framework generates multi-view video sequences in an auto-regressive manner. Figure 2 illustrates the over-all pipeline. The framework has one central mechanism, distortion-limited reprojection through small-step camera decomposition, together with three supporting components, which are efficient registration-free warping, low-frequency appearance anchoring, and geometry-constrained spatial at-tention. 
+
+Camera-Consistent Distortion-Limited Reprojection. Aprimary source of instability in prior training-free methods, such as CamTrol [23] and WAVE [37], is large single-step camera motion. When wide rotations (e.g., 60 ◦) or long translations are generated within a single 14 -frame chunk, severe geometric distortion can occur. The diffusion model must inpaint large disoccluded regions, often leading to struc-tural artifacts and drift (Figures 1, 3, 5). To reduce per-step geometric error, we decompose large camera motion into smaller segments. We first generate a continuous M -frame trajectory ( M = 28 or 56 ), 
+
+Pworld = {[R0|C0], ..., [RM |CM ]},
+
+using a smooth procedural motion function. Instead of syn-thesizing all frames in a single pass, we divide the trajectory into N -frame chunks (e.g., N = 14 ) and process them au-toregressively. For each chunk Pchunk i , the input frame 
+
+Iinput , which is the final frame from the previous chunk or 
+
+I0 initially, is unprojected into a 3D point cloud using depth estimated from a pre-trained monocular model [4]. The first 3Next First Method LPIPS ↓ CLIPSIM ↑ LPIPS ↓ CLIPSIM ↑                                                                                                      
+
+> Frob. Norm (Rotation) ↓
+> Rot. Angle Diff. ↓
+> Angular Cons. ↓FPA ↑ZMR ↓
+> RealEstate10K
+> WAVE 0.3214 0.9565 0.5515 0.9086 1.4870 1.1006 32.9670 0.456 0.240 CamTrol 0.2653 0.9607 0.5437 0.8460 2.1322 1.6381 28.5376 0.749 0.151 CamTrol++ 0.2644 0.9729 0.5218 0.9193 1.1438 0.8812 15.7735 0.771 0.149
+> MegaScene
+> WAVE 0.3460 0.9359 0.5399 0.8590 1.5849 1.2128 22.0563 0.490 0.265 CamTrol 0.2197 0.9648 0.4382 0.8972 1.8477 1.3999 22.7652 0.764 0.265 14 Frames CamTrol++ 0.2219 0.9688 0.4487 0.9095 1.7564 1.4120 25.4760 0.757 0.236
+> RealEstate10K
+> WAVE 0.2189 0.9692 0.5430 0.9068 1.5594 1.1729 6.9601 0.331 0.342 CamTrol++ 0.0888 0.9895 0.5069 0.9174 1.2796 1.0085 4.9173 0.890 0.315
+> MegaScene
+> WAVE 0.2408 0.9539 0.5335 0.8600 1.7198 1.3525 7.3332 0.425 0.336
+> 56 Frames CamTrol++ 0.0794 0.9881 0.4340 0.9074 1.7682 1.5059 4.2494 0.893 0.401
+> Table 1. Quantitative Comparison. We compare CamTrol++ with training-free baselines on RealEstate10K [63] and MegaScene [51] using 14 -frame and 56 -frame sequences. CamTrol++ provides the strongest overall temporal and perceptual consistency in the 56-frame setting, with substantial improvements in LPIPS, CLIPSIM, FPA, and Angular Consistency over WAVE. Results on the 14 -frame setting are comparable to the baselines.
+
+pose in the chunk serves as a reference. This point cloud is then projected to the remaining N − 1 poses [20] to obtain warped frames. The warped frames are first inpainted us-ing a fast, non-neural method [50], followed by large-hole filling and outpainting with a pre-trained Stable Diffusion model [42]. The resulting multi-view sequence serves as conditioning for the diffusion backbone. By regenerating the point cloud at each chunk boundary, we limit geometric distortion within each autoregressive pass and reduce error accumulation while maintaining continuous motion along the global trajectory. We use a 15 ◦ camera arc per chunk in our default setting. Section 4 evaluates this choice across a range of camera step sizes. 
+
+Efficient Registration-Free Warping. In the original CamTrol pipeline [23], each frame requires an iterative point cloud registration step to refine camera alignment. Although accurate, this optimization loop is computationally expen-sive and dominates runtime, taking approximately 27 .4s per frame at 704 × 904 resolution. Our framework removes this per-frame optimization entirely. To maintain warp quality without registration, we design a two-stage warping strategy. First, we apply forward splatting [65], projecting source pix-els to the target view using a 3 × 3 kernel. This reduces small holes that arise in backward interpolation. Second, remain-ing gaps are filled using a nearest-neighbor strategy based on a fast Euclidean distance transform [13]. This registration-free design produces clean, near hole-free warped frames and reduces generation time to approximately 5.1s per frame, achieving a ∼ 5× speedup compared to CamTrol [23]. A quantitative comparison with linear interpolation is provided in the supplementary material. 
+
+Perceptual Anchoring (Low-Frequency Appearance Con-trol). Autoregressive generation can introduce perceptual drift over time, particularly in color distribution (Figure 5). As diffusion errors accumulate, frames can gradually deviate from the source image’s appearance. To reduce this drift, we introduce a lightweight perceptual anchoring mechanism applied at chunk boundaries. Before passing the final frame of a chunk ˆIt−1 as input to the next chunk, we match its color statistics to the original image I0.Following [41], both images are converted to the CIELAB color space, which separates lightness (L*) from chromi-nance (a*, b*). We preserve the L* channel of ˆIt−1 and perform histogram matching [8] on the a* and b* channels with respect to I0. The corrected frame is reconstructed by merging the preserved L* with the aligned chrominance channels and converting back to RGB. This step provides an additional constraint on low-frequency chromatic drift while preserving the geometric structure of the generated frame. 
+
+Geometry-Constrained Spatial Attention. To improve geometric consistency during generation, we incorporate epipolar-guided spatial attention [54] into the SVD decoder. Standard self-attention aggregates features globally, which can introduce inconsistent feature correspondences under viewpoint changes. We instead restrict attention to epipolar lines defined by the camera motion. For a query feature 
+
+qi in frame ti, we compute its epipolar line in the refer-ence frame t0 using the Fundamental Matrix F derived from camera extrinsics [R|t]. Rather than attending to all spa-4Figure 4. Analysis of Static Frames. This figure illustrates a com-mon failure mode of image-centric baselines such as WAVE [37] in a 56 -frame sequence. We show frames from t = 30 to t = 42 
+
+with a 4-frame interval. In the WAVE results (red boxes), both background and foreground remain static, indicating a failure to generate realistic motion. In contrast, CamTrol++ (blue boxes) captures the correct change in viewpoint, demonstrating its ability to maintain temporal consistency. 
+
+tial positions, qi attends only to sampled key-value pairs 
+
+(kj , v j ) lying along this line. We uniformly sample k = w/ 2
+
+points along the epipolar line, where w is the latent width, and compute scaled dot-product attention over these points. The geometry-constrained output is combined with standard spatial attention: 
+
+vout = αv epi + (1 − α)vorig , (1) where vepi denotes the epipolar-constrained output, vorig the standard attention output, and α = 0 .9 balances geometric consistency and generative flexibility. We apply this constraint at the final spatial attention layer of the SVD decoder. Layer-wise analysis (Table S9) shows that late-layer injection provides a better trade-off between perceptual quality and geometric alignment than early-layer injection. Although the constraint is applied within each chunk, it provides an additional geometric constraint during autoregressive generation. 
+
+## 4. Experiments 
+
+This section evaluates CamTrol++ on camera-controlled novel view synthesis. We first compare against existing training-free methods on perceptual, temporal, motion, and camera consistency. We then evaluate geometric consistency and downstream 3D reconstruction quality. Finally, we study the effect of the main design choices and evaluate the method under different camera step sizes, longer trajectories, and depth errors. All methods are evaluated using the same pre-defined camera trajectory as in CamTrol++, ensuring motion CamTrol  CamTrol w/ Auto Reg.  CamTrol w/ Auto Reg. + LAB   
+
+> Color Shift Error
+> CamTrol CamTrol w/ Auto Reg. CamTrol w/ Auto Reg. + Epi. Attn.
+> Geometry Error
+
+Figure 5. Visual Ablation Study. We visualize the effects of LAB Correction and Epipolar Attention. (Top Row) Color Shift Error: 
+
+The CamTrol baseline [23] (left) shows noticeable color distortion, while the auto-regressive setup (+ Auto Reg.) reduces this effect but still shows some drift. Adding LAB correction (right) further stabilizes the color appearance. (Bottom Row) Geometry Error: 
+
+The auto-regressive setup (center) shows perspective deviations, visible from the diverging red lines. With Epipolar Attention (right), the lines remain consistent with the expected geometry, with the parallel lines (green) converging toward a stable vanishing point. 
+
+consistency across comparisons. 
+
+Datasets and Baselines. We evaluate our method on two large-scale in-the-wild datasets, RealEstate10K [63] and MegaScene [51]. For quantitative evaluation without ground truth supervision (Table 1), we randomly sample 308 im-ages from RealEstate10K and 98 from MegaScene. For 3D reconstruction experiments (Table 3), we additionally use MipNeRF360 [3], from which two random views are sam-pled for each of the seven scene categories. We compare CamTrol++ with two state-of-the-art training-free baselines. (1) CamTrol [23], which provides training-free camera con-trol through an SVD-based warp-and-inpaint pipeline and is evaluated here in its native short-window setting, and (2) 
+
+WAVE [37], an image-centric novel view synthesis method. All methods are evaluated frame-by-frame along a fixed global camera trajectory. 
+
+Metrics. Following WAVE [37], we evaluate several as-pects of the generated sequences. (1) Temporal Consistency. 
+
+We use LPIPS-next [37, 59] and CLIPSIM-next [37, 40] to measure perceptual and semantic similarity between con-secutive frames ( t and t − 1). (2) Drift from Source. We measure LPIPS-first and CLIPSIM-first by comparing each generated frame It with the initial warped input I0. (3) 
+
+Camera Accuracy (SfM). We estimate camera parameters using COLMAP [44, 45] and report Frobenius Norm, Rota-tion Angle Difference, and Angular Consistency following the WAVE evaluation protocol [37]. (4) Geometric Consis-tency. We compute Epipolar Alignment Error (EAE) and Sampson Distance [20]. (5) Motion Fidelity. We evalu-ate Flow-to-Pose Agreement (FPA) and Zero-Motion Ratio (ZMR) [15, 49]. These metrics are computed from dense optical flow and do not require ground-truth camera poses. 5Stage N LPIPS-next ↓ LPIPS-first ↓ EAE (×10 −3) ↓ Sampson (×10 −4) ↓ FPA ↑                                                
+
+> + AutoReg (small-step) 20 0.0981 ±0.0076 0.4556 ±0.0211 0.836 ±0.106 5706 ±1031 0.836 ±0.024
+> + AutoReg + Epi. ( + geom. attn. ) 20 0.0981 ±0.0077 0.4564 ±0.0217 0.836 ±0.107 5734 ±1068 0.839 ±0.024
+> CamTrol++ ( + LAB anchoring ) 20 0.1007 ±0.0082 0.4622 ±0.0221 0.834 ±0.100 5271 ±772 0.841 ±0.023
+
+Table 2. Ablation Study. Mean ± SEM across N = 20 scenes from MegaScene. We progressively add the small-step autoregressive trajectory, epipolar-guided spatial attention, and LAB-based appearance anchoring. The small-step trajectory produces the largest change in temporal consistency, while the additional components lead to smaller changes across the evaluated metrics. Method Sampson Distance (1e-4) ↓                           
+
+> Epipolar Alignment Error (1e-3) ↓
+> RealEstate10K
+> WAVE 3.03 1.09 CamTrol++ 2.97 1.07
+> MegaScene
+> WAVE 3.21 1.13 CamTrol++ 2.75 1.03
+> Method PSNR ↑SSIM ↑LPIPS ↓
+> MegaScene
+> WAVE 21.65 0.719 0.212 CamTrol++ 28.08 0.912 0.078
+> MipNeRF360
+> WAVE 21.14 0.601 0.289 CamTrol++ 28.06 0.885 0.087
+
+Table 3. Geometric Consistency and 3D Reconstruction Quality. (Left) Quantitative comparison of geometric consistency against WAVE [37], reporting mean Sampson Distance and Epipolar Alignment Error (EAE). CamTrol++ achieves lower geometric errors across RealEstate10K [63] and MegaScene [51], indicating stronger adherence to epipolar geometry. (Right) 3D Gaussian Splatting [25] reconstruction quality from generated 56-frame videos. CamTrol++ achieves superior PSNR, SSIM, and LPIPS on MegaScene [51] and MipNerf360 [3], demonstrating improved multi-view consistency for downstream 3D rendering. 
+
+Higher FPA and lower ZMR indicate smoother and more consistent motion. 
+
+Implementation Details. All outputs are resized to 
+
+(192 , 256) following WAVE [37]. Our pipeline removes the costly per-frame point cloud registration in CamTrol [23], reducing generation time by approximately 5×.
+
+Quantitative Comparison. We first compare CamTrol++ with existing training-free methods under the same camera trajectories. Table 1 summarizes results on RealEstate10K and MegaScene for both 14 -frame and 56 -frame sequences. For the 14 -frame setting, CamTrol generates 14 frames di-rectly, while WAVE and CamTrol++ generate 56 frames and are uniformly subsampled to 14 frames for evalu-ation. The main gains appear in the 56 -frame setting. On RealEstate10K, CamTrol++ reduces LPIPS-next from 
+
+0.2189 for WAVE to 0.0888 and increases CLIPSIM-next 
+
+from 0.9692 to 0.9895 . On MegaScene, LPIPS-next de-creases from 0.2408 to 0.0794 , while CLIPSIM-next in-creases from 0.9539 to 0.9881 . Motion fidelity also improves, with FPA increasing from 0.425 to 0.893 on MegaScene. Angular Consistency improves from 6.96 ◦ to 
+
+4.92 ◦ on RealEstate10K, indicating reduced long-term cam-era drift. These results show that the benefit of the proposed stabilization becomes more pronounced as the generation horizon increases. While CamTrol performs competitively in the short-window setting, our extended 28 -frame evaluation in the supplementary material shows that applying it to segmented trajectories is less stable and substantially slower than CamTrol++. 
+
+Geometric Consistency and 3D Reconstruction. Table 3 (left) reports geometric metrics. CamTrol++ achieves lower Sampson Distance and Epipolar Alignment Error across RealEstate10K and MegaScene, showing improved agree-ment with the expected multi-view geometry. We further evaluate structural consistency through downstream 3D reconstruction. We train 3D Gaussian Splatting models on generated 56-frame sequences. As shown in Table 3 (right), CamTrol++ achieves higher PSNR and SSIM and lower LPIPS on both MegaScene and MipNeRF360. On MegaScene, for example, PSNR improves from 21 .65 for WAVE to 28 .08 for CamTrol++. Improvements are also observed on MipNeRF360, showing that the improved con-sistency of the generated views also benefits downstream 3D reconstruction. 
+
+Qualitative Analysis. Figure 1 illustrates challenging 60 ◦
+
+rotations. CamTrol++ maintains sharp structure and coher-ent motion, while CamTrol exhibits blur and color drift, and WAVE produces geometric distortions and flicker. Fig-ure 3 further shows 56 -frame sequences on MegaScene and RealEstate10K. CamTrol++ preserves a consistent perspec-tive and appearance across frames. WAVE often produces static or sliding backgrounds (Figure 4), where the scene motion does not follow the camera trajectory. CamTrol++ avoids this issue and maintains motion consistent with the camera pose. 
+
+Ablation Study. We progressively add the main stabiliza-tion components while using the registration-free warping pipeline. We consider the small-step autoregressive trajec-tory, Epipolar Attention, and LAB perceptual anchoring. As shown in Table 2, the small-step trajectory produces the largest change in temporal consistency. Adding epipolar attention provides additional geometric constraints, while LAB anchoring provides additional control over appearance drift. The full configuration combines the evaluated compo-610 20 30 40            
+
+> Arc size (deg)
+> 0.10 0.15 0.20 0.25
+> LPIPS-next
+> 10 20 30 40
+> Arc size (deg)
+> 0.5 1.0 1.5 2.0
+> EAE (×10 3)
+> 10 20 30 40
+> Arc size (deg)
+> 010000 20000 30000
+> Sampson (×10 4)
+> 10 20 30 40
+> Arc size (deg)
+> 0.86 0.88 0.90
+> FPA
+
+Figure 6. Effect of Camera Step Size. Mean perceptual and geometric metrics vs. per-chunk camera arc size, with epipolar attention held OFF to isolate the reprojection mechanism itself (n = 20 scenes per arc size, MegaScene).                               
+
+> Method LPIPS ↓CLIPSIM ↑Forb. Norm. (Rot.) ↓Rot. Angle Diff. ↓Angular Cons. ↓
+> ZoeDepth [4] 0.0794 0.9881 1.7682 1.5059 4.2494
+> DepthPro [6] 0.1036 0.9847 1.7338 1.4255 6.8475 DA3 0.1387 0.9805 1.9491 1.4628 4.5052 Marigold 0.2084 0.9619 2.4851 2.0219 6.2351
+
+Table 4. Depth Estimation Ablation. Comparison of different monocular depth predictors on MegaScene. The proposed small-step reprojection remains effective across different depth models, although depth quality affects the overall generation quality. 
+
+nents used in the final system. Figure 5 shows qualitative examples. Without LAB correction, the color tone gradually shifts across the sequence, while removing epipolar attention can lead to less consistent perspective structure. 
+
+Camera Step Size. The small-step camera trajectory is the main design choice in CamTrol++. To study its effect, we vary the camera arc handled by each chunk from 10 ◦ to 
+
+40 ◦ while keeping the other components fixed. Results are shown in Figure 6. Smaller camera steps generally provide more stable generation. LPIPS-next is lowest near 15 ◦ and increases as the arc becomes larger, while geometric errors increase more strongly beyond approximately 18 -20 ◦. We therefore use a 15 ◦ arc per chunk, which provides a good balance between stability and the amount of camera mo-tion handled in each pass. FPA does not follow the same trend and can improve with larger arcs, showing that motion smoothness alone does not fully capture geometric stability. 
+
+Long-Horizon Generation. We further evaluate CamTrol++ beyond the standard 56 -frame setting by generating se-quences of up to 84 frames. Figure 7 shows the change in perceptual consistency, motion, and image detail as the sequence becomes longer. The generated views remain tem-porally consistent through the initial generation range before gradual degradation appears. Beyond this range, loss of 0.05 0.10 0.15 0.20        
+
+> LPIPS-next
+> 0.0 0.2 0.4
+> Zero-Motion Ratio
+> 10 20 30 40 50 60 70 80
+> Frame index
+> 0200 400 600 800
+> Edge Density
+
+Figure 7. Long-Horizon Generation. Mean ± std of three degrada-tion signals across an 84-frame single-direction extension, n = 20 
+
+scenes from MegaScene using the full configuration. Temporal consistency and motion remain stable within the initial generation range, while image detail and other signals gradually degrade as the sequence lengthens. 
+
+texture and fine details becomes the most common failure mode, followed by appearance drift and motion freezing. These results show that the loss of image details becomes an important limitation as generation extends beyond the standard horizon. 
+
+Depth Robustness. Since reprojection depends on esti-mated depth, we evaluate the sensitivity of CamTrol++ to different depth predictors and controlled depth errors. As shown in the Table 4, we first compare ZoeDepth [4], Depth-Pro [6], DA3 [29], and Marigold [24]. Performance varies across depth predictors, but the small-step reprojection main-tains stable generation even when using relative depth from Marigold. We further introduce controlled-depth corruption by adding relative Gaussian noise and missing pixels to the ZoeDepth output prior to warping. As shown in Figure 8, we vary the noise severity from 0 to 0.5 and the hole fraction from 0% to 10% across 20 scenes. Even under the strongest corruption tested, LPIPS-next reaches 0.1148 , remaining 
+
+52 .3% below WAVE’s uncorrupted 56-frame MegaScene baseline of 0.2408 . Depth accuracy has a larger effect on performance than the fraction of missing pixels, with hole corruption changing LPIPS-next by less than 0.003 at a fixed noise severity. These results show that the proposed small-step reprojection remains effective under substantial depth 70.0 0.1 0.2 0.3 0.4 0.5           
+
+> Depth corruption severity
+> 0.100 0.125 0.150 0.175 0.200 0.225 0.250
+> LPIPS-next
+> 52.3% below baseline at worst severity
+> WAVE baseline (0.2408) Ours (this work) Figure 8. Depth Robustness vs. Training-Free Baseline. LPIPS-
+> next under synthetic depth corruption applied to ZoeDepth’s output, with corruption severity ranging from 0to 0.5, compared against WAVE’s 56-frame MegaScene baseline ( 0.2408 , dashed). Perfor-mance degrades gradually as the depth of corruption increases. Even at the strongest corruption tested, CamTrol++ achieves an LPIPS-next of 0.1148 , which is 52 .3% below the WAVE baseline.
+
+corruption within the tested range. 
+
+## 5. Discussion 
+
+CamTrol++ demonstrates that camera-controlled novel view synthesis can be stabilized at inference time without retrain-ing or modifying the diffusion backbone. The main source of this stability is the decomposition of large camera trajectories into small autoregressive steps. By limiting the camera mo-tion handled in each pass, the method reduces reprojection distortion and error accumulation. Our camera step analysis supports this design, showing stable performance for small camera steps and stronger degradation as the per-step motion increases, particularly beyond approximately 18 -20 ◦.Unlike image-centric approaches such as WAVE [37], which synthesize frames independently and may pro-duce static or inconsistent motion under long trajectories, CamTrol++ maintains explicit geometric structure through-out the generation process. Epipolar Attention and Percep-tual Anchoring provide additional geometric and appearance constraints, although their effects are smaller and vary across the evaluated metrics. This suggests that the small-step tra-jectory design plays the central role in stabilizing the autore-gressive process, while the additional components provide complementary refinements. The registration-free warping further makes the framework substantially more efficient than CamTrol [23]. The long-horizon and depth robustness experiments show that the framework remains effective beyond the standard set-ting. CamTrol++ maintains temporal and geometric consis-tency over 56-frame sequences and remains effective under substantial controlled depth corruption. At longer horizons, loss of texture and fine details becomes the dominant source of degradation. Extending generation further will therefore require improvements in the underlying diffusion model and depth estimation in addition to inference-time stabilization. Recent long-video stabilization methods such as Free-Long [32] and Rolling Forcing [30] address temporal drift through spectral or recurrent processing but require model changes or retraining. In contrast, CamTrol++ improves camera-controlled multi-view generation entirely at infer-ence time while preserving the original diffusion backbone. This makes the framework modular and applicable without additional model training. From an application perspective, CamTrol++ enables longer camera-controlled visualizations from a single im-age using existing pretrained video diffusion models. This is useful for applications such as interactive scene explo-ration, virtual walkthroughs, and 3D content creation, where consistent viewpoint changes are required without per-scene training. Its registration-free implementation and inference-time operation make it practical to integrate into existing image-to-video pipelines. 
+
+Limitations. Very long trajectories can still exhibit texture drift, loss of fine details, or depth inconsistencies. Perfor-mance also depends on the quality of monocular depth esti-mation and may degrade under severe occlusion or reflective surfaces. While the depth robustness experiments show that the method remains effective under substantial controlled er-rors, more severe depth failures remain challenging. Future work could improve depth estimation, incorporate depth re-finement, or use explicit 3D representations to further extend the generation horizon. 
+
+## 6. Conclusion 
+
+We introduced CamTrol++, a training-free framework for sta-bilizing camera-controlled novel view synthesis at inference time. The key idea is to decompose large camera trajectories into small autoregressive steps, thereby limiting per-step ge-ometric distortion and reducing error accumulation without retraining or modifying the diffusion backbone. Geometry-constrained attention and lightweight perceptual anchoring provide additional consistency, while registration-free warp-ing substantially reduces the cost of generation. Experiments on RealEstate10K and MegaScene show improved temporal and geometric consistency, better downstream 3D recon-struction, and stable generation over 56-frame trajectories. The camera step analysis further supports the small-step design, while the long-horizon and depth robustness experi-ments show that the framework remains effective under more challenging settings. These results demonstrate that careful control of camera motion at inference time can substantially improve the stability and efficiency of camera-controlled novel view synthesis while keeping the underlying diffusion model frozen. 87. Acknowledgment 
+
+This work was supported by the Prime Minister Research Fellowship (PMRF 2122-2557) awarded to Prajwal Singh, the Visvesvaraya Fellowship awarded to Arjun Badola, and the Dr. Vilas Mujumdar Chair held by Shanmuganathan Raman. 
+
+## References 
+
+[1] Aishwarya Agarwal, Srikrishna Karanam, KJ Joseph, Apoorv Saxena, Koustava Goswami, and Balaji Vasan Srinivasan. A-star: Test-time attention segregation and retention for text-to-image synthesis. In Proceedings of the IEEE/CVF Inter-national Conference on Computer Vision , pages 2283–2293, 2023. 1 [2] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In Proceedings of the IEEE/CVF international conference on computer vision , pages 5855–5864, 2021. 2 [3] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In 2022 IEEE/CVF Con-ference on Computer Vision and Pattern Recognition (CVPR) ,pages 5460–5469. IEEE, 2022. 5, 6 [4] Shariq Farooq Bhat, Reiner Birkl, Diana Wofk, Peter Wonka, and Matthias M¨ uller. Zoedepth: Zero-shot trans-fer by combining relative and metric depth. arXiv preprint arXiv:2302.12288 , 2023. 3, 7 [5] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. arXiv preprint arXiv:2311.15127 , 2023. 1, 3 [6] A. Bochkovskii, A. Delaunoy, H. Germain, M. Santos, Y. Zhou, S. R Richter, and V. Koltun. Depth pro: Sharp monoc-ular metric depth in less than a second. arXiv preprint arXiv:2410.02073 , 2024. 7 [7] Tim Brooks, Aleksander Holynski, and Alexei A Efros. In-structpix2pix: Learning to follow image editing instructions. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18392–18402, 2023. 1 [8] Shi-Kuo Chang and Yin-Wah Wong. Optimal histogram matching by monotone gray level transformation. Communi-cations of the ACM , 21(10):835–840, 1978. 4 [9] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and Daniel Cohen-Or. Attend-and-excite: Attention-based semantic guid-ance for text-to-image diffusion models. ACM transactions on Graphics (TOG) , 42(4):1–10, 2023. 1 [10] Jaeyoung Chung, Suyoung Lee, Hyeongjin Nam, Jaerin Lee, and Kyoung Mu Lee. Luciddreamer: Domain-free generation of 3d gaussian splatting scenes. arXiv preprint arXiv:2311.13384 , 2023. 2 [11] Haowang Cui, Rui Chen, Tao Luo, Rui Li, and Jiaze Wang. Uniview: Enhancing novel view synthesis from a single image by unifying reference features. arXiv preprint arXiv:2509.04932 , 2025. 1 [12] Yixiang Dai, Fan Jiang, Chiyu Wang, Mu Xu, and Yong-gang Qi. Fantasyworld: Geometry-consistent world mod-eling via unified video and 3d prediction. arXiv preprint arXiv:2509.21657 , 2025. 2 [13] Per-Erik Danielsson. Euclidean distance mapping. Computer Graphics and Image Processing , 14(3):227–248, 1980. 4 [14] Noam Elata, Bahjat Kawar, Yaron Ostrovsky-Berman, Miriam Farber, and Ron Sokolovsky. Novel view synthe-sis with pixel-space diffusion models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 26756–26766, 2025. 2 [15] Gunnar Farneb¨ ack. Two-frame motion estimation based on polynomial expansion. In Scandinavian conference on Image analysis , pages 363–370. Springer, 2003. 5 [16] Weixi Feng, Xuehai He, Tsu-Jui Fu, Varun Jampani, Arjun Akula, Pradyumna Narayana, Sugato Basu, Xin Eric Wang, and William Yang Wang. Training-free structured diffusion guidance for compositional text-to-image synthesis. arXiv preprint arXiv:2212.05032 , 2022. 1 [17] Rafail Fridman, Amit Abecasis, Yoni Kasten, and Tali Dekel. Scenescape: Text-driven consistent scene generation. Ad-vances in Neural Information Processing Systems , 36:39897– 39914, 2023. 3 [18] Haruo Fujiwara, Yusuke Mukuta, and Tatsuya Harada. Style-nerf2nerf: 3d style transfer from style-aligned multi-view images. In SIGGRAPH Asia 2024 Conference Papers , pages 1–10, 2024. 19 [19] Eyal Gomel and Lior Wolf. Diffusion-based attention warping for consistent 3d scene editing. arXiv preprint arXiv:2412.07984 , 2024. 1 [20] Richard Hartley, Andrew Zisserman, et al. Multiple view geometry in computer vision . Cambridge university press Cambridge, 2003. 4, 5, 14, 15 [21] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt im-age editing with cross attention control. arXiv preprint arXiv:2208.01626 , 2022. 1 [22] Lukas H¨ ollein, Aljaˇ z Boˇ ziˇ c, Norman M¨ uller, David Novotny, Hung-Yu Tseng, Christian Richardt, Michael Zollh¨ ofer, and Matthias Nießner. Viewdiff: 3d-consistent image generation with text-to-image models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 5043–5052, 2024. 2 [23] Chen Hou and Zhibo Chen. Training-free camera control for video generation. arXiv preprint arXiv:2406.10126 , 2024. 1, 2, 3, 4, 5, 6, 8, 12, 14, 15, 19 [24] B. Ke, K. Qu, T. Wang, N. Metzger, S. Huang, B. Li, A. Obukhov, and K. Schindler. Marigold: Affordable adaptation of diffusion-based image generators for image analysis. arXiv preprint arXiv:2505.09358 , 2025. 7 [25] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨ uhler, and George Drettakis. 3d gaussian splatting for real-time radiance field rendering. ACM Trans. Graph. , 42(4):139–1, 2023. 1, 2, 6[26] Jihwan Kim, Junoh Kang, Jinyoung Choi, and Bohyung Han. Fifo-diffusion: Generating infinite videos from text without training. Advances in Neural Information Processing Systems ,37:89834–89868, 2024. 1 
+
+9[27] Gihyun Kwon and Jong Chul Ye. Tweediemix: Improving multi-concept fusion for diffusion-based image/video genera-tion. arXiv preprint arXiv:2410.05591 , 2024. 1 [28] Jinxi Li, Tianyi Zhang, Yafei Yang, Zihui Zhang, Peng Huang, Koon Wing Macgyver Lin, and Bo Yang. Neomap: Training-free novel-view synthesis from single images and videos. 
+
+arXiv preprint arXiv:2607.01962 , 2026. 3 [29] H. Lin, S. Chen, J. Liew, D. Y Chen, Z. Li, G. Shi, J. Feng, and B. Kang. Depth anything 3: Recovering the visual space from any views. arXiv preprint arXiv:2511.10647 , 2025. 7 [30] Kunhao Liu, Wenbo Hu, Jiale Xu, Ying Shan, and Shijian Lu. Rolling forcing: Autoregressive long video diffusion in real time. arXiv preprint arXiv:2509.25161 , 2025. 3, 8 [31] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3: Zero-shot one image to 3d object, 2023. 1, 2 [32] Yu Lu, Yuanzhi Liang, Linchao Zhu, and Yi Yang. Freelong: Training-free long video generation with spectralblend tem-poral attention. Advances in Neural Information Processing Systems , 37:131434–131455, 2024. 3, 8 [33] Zhicheng Lu, Xiang Guo, Le Hui, Tianrui Chen, Min Yang, Xiao Tang, Feng Zhu, and Yuchao Dai. 3d geometry-aware deformable gaussian splatting for dynamic view synthesis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 8900–8910, 2024. 2 [34] Ben Mildenhall, Pratul P Srinivasan, Rodrigo Ortiz-Cayon, Nima Khademi Kalantari, Ravi Ramamoorthi, Ren Ng, and Abhishek Kar. Local light field fusion: Practical view synthe-sis with prescriptive sampling guidelines. ACM Transactions on Graphics (ToG) , 38(4):1–14, 2019. 19 [35] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view syn-thesis. Communications of the ACM , 65(1):99–106, 2021. 1, 2[36] Thomas M¨ uller, Alex Evans, Christoph Schied, and Alexan-der Keller. Instant neural graphics primitives with a multires-olution hash encoding. ACM transactions on graphics (TOG) ,41(4):1–15, 2022. 2 [37] Jiwoo Park, Tae Eun Choi, Youngjun Jun, and Seong Jae Hwang. Wave: Warp-based view guidance for consistent novel view synthesis using a single image. arXiv preprint arXiv:2506.23518 , 2025. 1, 3, 5, 6, 8, 13, 18, 19 [38] Jangho Park, Taesung Kwon, and Jong Chul Ye. Zero4d: Training-free 4d video generation from single video using off-the-shelf video diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 4045–4054, 2026. 1 [39] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. arXiv preprint arXiv:2209.14988 , 2022. 1 [40] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervi-sion. In International conference on machine learning , pages 8748–8763. PmLR, 2021. 5, 13 [41] Erik Reinhard, Michael Adhikhmin, Bruce Gooch, and Peter Shirley. Color transfer between images. IEEE Computer graphics and applications , 21(5):34–41, 2002. 4 [42] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj¨ orn Ommer. High-resolution image synthesis with latent diffusion models. arxiv 2022. arXiv preprint arXiv:2112.10752 , 2021. 4 [43] Seyedmorteza Sadat, Otmar Hilliges, and Romann M We-ber. Eliminating oversaturation and artifacts of high guidance scales in diffusion models. In The Thirteenth International Conference on Learning Representations , 2024. 3 [44] Johannes Lutz Sch¨ onberger and Jan-Michael Frahm. Structure-from-motion revisited. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2016. 5, 16, 18 [45] Johannes Lutz Sch¨ onberger, Enliang Zheng, Marc Pollefeys, and Jan-Michael Frahm. Pixelwise view selection for un-structured multi-view stereo. In European Conference on Computer Vision (ECCV) , 2016. 5, 16, 18 [46] Ruoxi Shi, Hansheng Chen, Zhuoyang Zhang, Minghua Liu, Chao Xu, Xinyue Wei, Linghao Chen, Chong Zeng, and Hao Su. Zero123++: a single image to consistent multi-view diffusion base model, 2023. 2 [47] Chenxi Song, Yanming Yang, Tong Zhao, Ruibo Li, and Chi Zhang. Worldforge: Unlocking emergent 3d/4d generation in video diffusion model via training-free guidance. arXiv preprint arXiv:2509.15130 , 2025. 2, 3 [48] Wenqiang Sun, Shuo Chen, Fangfu Liu, Zilong Chen, Yueqi Duan, Jun Zhang, and Yikai Wang. Dimensionx: Create any 3d and 4d scenes from a single image with controllable video diffusion. arXiv preprint arXiv:2411.04928 , 2024. 1 [49] Zachary Teed and Jia Deng. Raft: Recurrent all-pairs field transforms for optical flow. In European conference on com-puter vision , pages 402–419. Springer, 2020. 5, 15 [50] Alexandru Telea. An image inpainting technique based on the fast marching method. In Journal of Graphics Tools , pages 23–34. Taylor & Francis, 2004. 4 [51] Joseph Tung, Gene Chou, Ruojin Cai, Guandao Yang, Kai Zhang, Gordon Wetzstein, Bharath Hariharan, and Noah Snavely. Megascenes: Scene-level view synthesis at scale. In European conference on computer vision , pages 197–214. Springer, 2024. 2, 4, 5, 6, 12, 14, 16, 17 [52] Dejia Xu, Weili Nie, Chao Liu, Sifei Liu, Jan Kautz, Zhangyang Wang, and Arash Vahdat. Camco: Camera-controllable 3d-consistent image-to-video generation. arXiv preprint arXiv:2406.02509 , 2024. 3 [53] Xingyi Yang and Xinchao Wang. Compositional video gener-ation as flow equalization. arXiv preprint arXiv:2407.06182 ,2024. 1 [54] Botao Ye, Sifei Liu, Xueting Li, Marc Pollefeys, and Ming-Hsuan Yang. Synthesizing consistent novel views via 3d epipolar attention without re-training. In International Con-ference on 3D Vision 2025 , 2025. 4 [55] Jianglong Ye, Peng Wang, Kejie Li, Yichun Shi, and Heng Wang. Consistent-1-to-3: Consistent image to 3d view syn-thesis via geometry-aware diffusion models. arXiv preprint arXiv:2310.03020 , 2023. 2 
+
+10 [56] Hong-Xing Yu, Haoyi Duan, Junhwa Hur, Kyle Sargent, Michael Rubinstein, William T Freeman, Forrester Cole, De-qing Sun, Noah Snavely, Jiajun Wu, et al. Wonderjourney: Going from anywhere to everywhere. In 2024 IEEE/CVF Con-ference on Computer Vision and Pattern Recognition (CVPR) ,pages 6658–6667. IEEE, 2024. 2 [57] Wangbo Yu, Jinbo Xing, Li Yuan, Wenbo Hu, Xiaoyu Li, Zhipeng Huang, Xiangjun Gao, Tien-Tsin Wong, Ying Shan, and Yonghong Tian. Viewcrafter: Taming video diffusion models for high-fidelity novel view synthesis, 2024. 2 [58] Daiwei Zhang, Gengyan Li, Jiajie Li, Micka¨ el Bressieux, Ot-mar Hilliges, Marc Pollefeys, Luc Van Gool, and Xi Wang. Egogaussian: Dynamic scene understanding from egocentric video with 3d gaussian splatting. In 2025 International Con-ference on 3D Vision (3DV) , pages 1091–1102. IEEE, 2025. 2[59] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 586–595, 2018. 5, 13 [60] Songchun Zhang, Huiyao Xu, Sitong Guo, Zhongwei Xie, Hujun Bao, Weiwei Xu, and Changqing Zou. Spatialcrafter: Unleashing the imagination of video diffusion models for scene reconstruction from limited observations. In Proceed-ings of the IEEE/CVF International Conference on Computer Vision , pages 27794–27805, 2025. 2 [61] Guangcong Zheng, Teng Li, Rui Jiang, Yehao Lu, Tao Wu, and Xi Li. Cami2v: Camera-controlled image-to-video diffu-sion model. arXiv preprint arXiv:2410.15957 , 2024. 3 [62] Jensen Zhou, Hang Gao, Vikram Voleti, Aaryaman Vasishta, Chun-Han Yao, Mark Boss, Philip Torr, Christian Rup-precht, and Varun Jampani. Stable virtual camera: Gen-erative view synthesis with diffusion models. arXiv preprint arXiv:2503.14489 , 2025. 3 [63] Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe, and Noah Snavely. Stereo magnification: Learning view synthesis using multiplane images. In ACM Transactions on Graphics (TOG) , pages 1–11. ACM, 2018. 2, 4, 5, 6, 12, 14, 18 [64] Hanshen Zhu, Zhen Zhu, Kaile Zhang, Yiming Gong, Yuliang Liu, and Xiang Bai. Training-free geometric image editing on diffusion models. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pages 19130–19140, 2025. 1 [65] Matthias Zwicker, Hanspeter Pfister, Jeroen Van Baar, and Markus Gross. Surface splatting. In Proceedings of the 29th Annual Conference on Computer Graphics and Interactive Techniques (SIGGRAPH) , pages 371–378, 2002. 4 
+
+11 8. Implementation Details 
+
+CamTrol++ Framework. Algorithm 1 outlines the com-plete inference pipeline used in CamTrol++. Given an input image I0 and a predefined camera trajectory {Ct}Mt=1 , the method generates a sequence of camera-consistent frames 
+
+{It}Mt=1 without any training or finetuning. Each chunk of 
+
+N frames is synthesized independently using the following steps: • Depth Estimation. We estimate per-pixel depth Dk using the pretrained ZoeDepth model. • Unprojection and Warping. The pair (Ik, D k) is unpro-jected into a 3D point cloud and reprojected to target views 
+
+{Ct} through differentiable splatting (kernel size 3 × 3). • Hole Filling. Missing regions caused by disocclusions are filled using a distance-transform–based inpainting strat-egy, which provides smooth depth-aware completion while maintaining edge sharpness. • Latent Encoding. The warped frames are encoded into the latent space of Stable Video Diffusion (SVD). • Epipolar-Guided Attention. We apply the proposed Epipolar Attention module at the 23 rd decoder layer of SVD with weight α = 0 .9, using k = w/ 2 epipolar key samples per query. • Decoding and Color Anchoring. The decoded RGB frames are matched to the LAB histogram of the reference frame I0 to prevent perceptual drift across chunks. • Autoregressive Step. The last generated frame from each chunk serves as the next input, enabling long-horizon syn-thesis without retraining. This design maintains spatial consistency through depth-based warping and epipolar priors while enforcing temporal coherence across chunks using autoregressive color anchor-ing. 
+
+Framework Parameters. Table 5 summarizes the key pa-rameters used in all experiments. We use N = 14 frames per chunk and generate sequences of M = 28 or 56 frames depending on the dataset setting. Epipolar attention employs 
+
+α = 0 .9 and k = w/ 2 key samples. Depth is predicted using ZoeDepth (N model), and all experiments are performed on a single NVIDIA L40S GPU (48 GB). These parameters are fixed for all datasets to ensure consistent evaluation across different camera trajectories and scenes. 
+
+## 9. Additional Analysis 
+
+This section provides additional results supporting the exper-iments in the main paper. We include extended CamTrol [23] comparisons, component analysis, camera arc-size results, 
+
+α-sensitivity, and the full depth-corruption grid. 
+
+Extended CamTrol Comparison. The original CamTrol [23] is designed for short 14-frame sequences. To compare the methods over a longer trajectory, we 
+
+Input: Input image I0, camera trajectory {Ct}Mt=1 
+
+Output: Camera-consistent sequence {It}Mt=1 
+
+for each chunk k = 1 , . . . , M/N do 
+
+1. Estimate depth Dk using ZoeDepth; 2. Unproject (Ik, D k) to 3D point cloud; 3. Warp to target views {Ct}et=s via splatting (3 ×3); 4. Fill small gaps using nearest-neighbor assignment with a distance transform; 5. Fill large missing regions and outpaint using Stable Diffusion; 6. Encode warped frames into SVD latent; 7. Apply epipolar-guided spatial attention (α = 0 .9); 8. Decode to RGB and match the LAB histogram to I0;9. Use last frame as next chunk input; 
+
+end Algorithm 1: CamTrol++ Algorithm for multi-view syn-thesis.             
+
+> Symbol Description Value
+> NFrames per chunk 14
+> MTotal frames 28 / 56
+> αEpipolar attention weight 0.9
+> kEpipolar key samples w/ 2
+> Depth model ZoeDepth GPU L40S (48 GB)
+> Table 5. Parameters of CamTrol++ Framework
+
+divide the full camera path into two independent 14-frame segments and run CamTrol on each segment separately. We then concatenate the two outputs to form a 28-frame sequence, giving CamTrol the same segmented trajectory structure used by CamTrol++. Table 10 reports results on RealEstate10K [63] and MegaScene [51]. CamTrol++ achieves better temporal, geometric, and perceptual consistency while reducing runtime from approximately 
+
+15 .4 minutes per scene with CamTrol to 4.5 minutes. These results show the benefit of combining small-step generation with the registration-free warping pipeline. 
+
+Extended Component Analysis. (a) Epipolar Attention Layer Placement. We evaluate epipolar attention at different SVD decoder layers in Table 9. Early-layer insertion, such as layer 2, can over-constrain low-level features and suppress motion. Deeper layers provide a better balance between per-ceptual quality and geometric alignment. The 23 rd decoder layer provides the best trade-off among the tested layers and is therefore used in all experiments. (b) Color Matching and Interpolation Analysis. Table 11 (left) compares RGB, HSV, and LAB color spaces for appearance correction. LAB 12 Arc (deg) LPIPS-next EAE (×10 −3) Sampson (×10 −4) FPA 
+
+10 0.1158 0.563 2844.7 0.856 
+
+15 (default) 0.1000 0.744 4714.0 0.856 18 0.1040 0.874 6388.2 0.875 20 0.1114 1.056 10052.0 0.877 22 0.1243 1.100 10273.0 0.880 25 0.1404 1.151 10504.2 0.894 30 0.1680 1.425 16066.9 0.897 40 0.2414 2.090 34802.5 0.889 
+
+Table 6. Arc-Size Validation, Exact Values. Epipolar attention held OFF throughout to isolate the reprojection mechanism. n =20 scenes per arc size, MegaScene.                                                                               
+
+> αLPIPS-next EAE (×10 −3)Sampson (×10 −4)FPA
+> 0.0 0.0945 ±0.0052 0.723 ±0.040 4908 .7±763 .50.854 ±0.015
+> 0.3 0.0948 ±0.0053 0.724 ±0.043 4998 .8±886 .70.856 ±0.014
+> 0.5 0.0947 ±0.0053 0.723 ±0.042 4945 .8±840 .70.856 ±0.014
+> 0.7 0.0945 ±0.0052 0.724 ±0.043 5026 .8±847 .90.858 ±0.014
+> 0.9 (default) 0.0946 ±0.0052 0.721 ±0.041 4913 .4±772 .30.856 ±0.014
+> 1.0 0.0941 ±0.0052 0.716 ±0.040 4863 .1±757 .50.855 ±0.014
+
+Table 7. Alpha Sensitivity, Exact Values. Mean ± SEM, n = 20 
+
+scenes, MegaScene. 
+
+achieves the lowest LPIPS and highest CLIPSIM for both Next and First comparisons and is therefore used for ap-pearance anchoring. Table 11 (right) compares the linear interpolation used in CamTrol with our splatting-based warp-ing. The two methods provide comparable perceptual quality, while splatting reduces the runtime from 5.71 s/frame to 1.36 
+
+s/frame, giving a 4.2× speedup. 
+
+Arc-Size Validation. Table 6 reports the exact results under-lying the camera step-size analysis in the main paper. We vary the camera arc from 10 ◦ to 40 ◦ while keeping the other components fixed, and use n = 20 scenes for each setting. The results show that small camera steps yield more stable generation, whereas larger steps increase perceptual and geo-metric errors. The 15 ◦ setting used by CamTrol++ provides a good balance between stability and the amount of camera motion handled in each chunk. 
+
+Epipolar Attention α-Sensitivity. Table 7 shows the sys-tematic study on α value. We vary the blending weight across α ∈ [0 , 1] using n = 20 scenes. The results remain relatively stable across the tested values, showing that the overall generation quality is not strongly affected by the attention blend weight. 
+
+Depth Corruption Sensitivity. Table 8 and Fig. 9 provide the complete depth-corruption results underlying the robust-ness experiment in the main paper experiment section. We vary both the severity of depth inaccuracy and the fraction of missing pixels. Increasing depth error has a larger effect on performance than missing pixels across the tested range, consistent with the trend observed in the main paper depth robustness experiment. 
+
+Severity Hole-frac LPIPS-next LPIPS-first FPA 
+
+0.00 0.00 0.0988 0.4629 0.811 0.00 0.02 0.0994 0.4650 0.809 0.00 0.05 0.0990 0.4618 0.812 0.00 0.10 0.0989 0.4635 0.808 0.10 0.00 0.1026 0.4742 0.793 0.10 0.02 0.1023 0.4729 0.793 0.10 0.05 0.1029 0.4727 0.793 0.10 0.10 0.1029 0.4701 0.791 0.20 0.00 0.1076 0.4771 0.766 0.20 0.02 0.1079 0.4801 0.765 0.20 0.05 0.1095 0.4812 0.759 0.20 0.10 0.1079 0.4777 0.761 0.30 0.00 0.1093 0.4698 0.715 0.30 0.02 0.1093 0.4714 0.713 0.30 0.05 0.1113 0.4777 0.726 0.30 0.10 0.1119 0.4765 0.715 0.50 0.00 0.1148 0.4612 0.693 0.50 0.02 0.1146 0.4621 0.687 0.50 0.05 0.1167 0.4633 0.689 0.50 0.10 0.1164 0.4604 0.680 
+
+Table 8. Depth Corruption Sensitivity, Exact Values. n = 20 
+
+scenes per cell, MegaScene, full configuration. WAVE’s 56-frame MegaScene baseline LPIPS-next is 0.2408 , and all tested settings remain well below this value. Corresponds to Fig. 9.                                                           
+
+> Injection Layer(s) LPIPS-next ↓CLIPSIM-first ↑Sam Dist. (1 e−4) ↓FPA ↑ZMR ↓
+> MegaScene
+> 20.0045 0.9885 0.14 0.376 0.999 50.0762 0.8925 2.64 0.867 0.430 80.0791 0.9137 2.74 0.894 0.409 17 0.0753 0.9118 2.84 0.901 0.423 20 0.0728 0.8859 2.77 0.835 0.481 23 0.0797 0.9060 2.74 0.893 0.400 [5, 8] 0.0755 0.8890 2.68 0.866 0.445 [8, 23] 0.0785 0.9125 2.73 0.896 0.406 [17, 20, 23] 0.0675 0.8782 2.90 0.849 0.508
+
+Table 9. Layer-wise Analysis of Epipolar Attention. We evaluate epipolar attention at different SVD decoder layers. Early-layer injection can strongly suppress motion, as shown by the high ZMR and low FPA at layer 2. Later layers provide a better balance between perceptual quality, geometric consistency, and motion. We use the 23rd decoder layer in the final configuration. 
+
+## 10. Geometric and Motion Metrics 
+
+Perceptual and Camera Metrics. We follow the evaluation protocol of WAVE [37] for perceptual and camera-based metrics, including LPIPS [59] and CLIPSIM [40] for tem-poral (Next) and reference (First) frame consistency, and Frobenius Norm, Rotation Angle Difference, and Angular Consistency for pose stability. Lower LPIPS, Frobenius Norm, Rotation Angle Difference, and Angular Consistency indicate better consistency, while higher CLIPSIM indicates 13 0.00 0.02 0.05 0.10                
+
+> hole_frac
+> 0.0 0.1 0.2 0.3 0.5
+> severity
+> 0.099 0.099 0.099 0.099 0.103 0.102 0.103 0.103 0.108 0.108 0.109 0.108 0.109 0.109 0.111 0.112 0.115 0.115 0.117 0.116
+
+LPIPS-next                   
+
+> 0.00 0.02 0.05 0.10
+> hole_frac
+> 0.0 0.1 0.2 0.3 0.5
+> severity
+> 0.811 0.809 0.812 0.808 0.793 0.793 0.793 0.791 0.766 0.765 0.759 0.761 0.715 0.713 0.726 0.715 0.693 0.687 0.689 0.680
+
+FPA                   
+
+> 0.00 0.02 0.05 0.10
+> hole_frac
+> 0.0 0.1 0.2 0.3 0.5
+> severity
+> 0.157 0.157 0.161 0.161 0.162 0.160 0.155 0.156 0.153 0.155 0.145 0.150 0.190 0.196 0.174 0.183 0.228 0.227 0.219 0.228
+
+ZMR 
+
+> 0.1000 0.1025 0.1050 0.1075 0.1100 0.1125 0.1150
+> 0.68 0.70 0.72 0.74 0.76 0.78 0.80
+> 0.16 0.18 0.20 0.22
+
+Figure 9. Depth Corruption Sensitivity Grid. Full severity × hole-fraction sweep with n = 20 scenes per cell on MegaScene. Increasing depth-inaccuracy severity has a larger effect on LPIPS-next than varying the missing-pixel fraction, which changes LPIPS-next by less than 
+
+0.003 at fixed severity. 
+
+Next First Method LPIPS ↓ CLIPSIM ↑ LPIPS ↓ CLIPSIM ↑
+
+Frob. Norm (Rotation) ↓
+
+Rot. Angle Diff. ↓
+
+Angular Cons. ↓ FPA ↑ ZMR ↓
+
+RealEstate10K 
+
+WAVE 0.2602 0.9642 0.5457 0.9062 1.5917 1.1739 17.326 0.412 0.288 CamTrol 0.1896 0.9748 0.5194 0.9042 1.9505 1.5693 12.7253 0.804 0.190 
+
+CamTrol++ 0.1627 0.9828 0.5124 0.9190 1.2717 1.0188 8.6499 0.844 0.200 
+
+MegaScene 
+
+WAVE 0.2872 0.9464 0.5367 0.8592 1.6963 1.3086 17.4329 0.502 0.297 CamTrol 0.1480 0.9793 0.4615 0.9130 1.7500 1.4910 15.2466 0.842 0.293 28 Frames CamTrol++ 0.1408 0.9802 0.4403 0.9101 1.6517 1.3679 8.6465 0.847 0.288 
+
+Table 10. Extended CamTrol Comparison. We evaluate CamTrol using a split-trajectory strategy with two 14-frame segments to generate 28-frame sequences on RealEstate10K [63] and MegaScene [51]. CamTrol++ provides stronger temporal and camera trajectory consistency while substantially reducing runtime. Color Model Next First LPIPS ↓ CLIPSIM ↑ LPIPS ↓ CLIPSIM ↑
+
+MegaScene 
+
+RGB 0.4382 0.9001 0.0800 0.9875 HSV 0.4456 0.8972 0.0817 0.9872 LAB 0.4340 0.9060 0.0796 0.9880                     
+
+> Interpolation Next First Time (sec./frame) LPIPS ↓CLIPSIM ↑LPIPS ↓CLIPSIM ↑
+> MegaScene
+> CamTrol 0.4340 0.9067 0.0800 0.9879 5.714 CamTrol++ 0.4340 0.9060 0.0796 0.9880 1.357
+
+Table 11. Color Matching and Interpolation Analysis. (Left) Effect of different color spaces for appearance correction. LAB provides the best overall perceptual consistency among the tested choices. (Right) Comparison between the linear interpolation used in CamTrol [23] and our splatting-based warping. Perceptual quality remains comparable, while the splatting-based implementation reduces warping time from 
+
+5.71 s/frame to 1.36 s/frame, giving a 4.2× speedup for this stage. 
+
+better perceptual similarity. 
+
+Geometric Background. Given a point X in 3D, its projec-tion on the image formed by multiple cameras can be given as: 
+
+x1 = P1X x2 = P2X, ... xM = PM X (2) where P1, P2, ..., P M are 3 × 4 projection matrices. If we pick two images side by side, say I1 captured from camera 
+
+C1 using projection matrix P1 and I2 captured from camera 
+
+C2 using projection matrix P2, the epipolar constraint is defined as: 
+
+xT 
+
+> 2
+
+F x 1 = 0  (3) Here, F (Fundamental matrix) encodes the relative pose, i.e., rotation, translation, and camera intrinsics up to a scale. Every point x1 in the first view defines an epipolar line 
+
+l2 = F x 1 in the second view, and the corresponding point 
+
+x2 must lie exactly on that line if the geometry is perfect [20]. 14 Figure 10. Warping Effect. The figure shows the effect of using the linear interpolation-based warping method used by CamTrol [23] and our proposed forward splatting-based warping. 
+
+Figure 11. Geometric Consistency Visualization. We visualize feature tracks between frames to assess geometric stability. (Left) WAVE: 
+
+The feature tracks (cyan) are geometrically inconsistent, as shown by the chaotic lines, low alignment score ( 70 − 73% ), and high error. 
+
+(Right) CamTrol++: Our method produces highly consistent and parallel feature tracks (purple) that respect the scene’s perspective. This is consistent with the measured alignment scores of 96 − 99% and low error ( μ = 0 .001 ). 
+
+Epipolar Alignment Error (EAE). The Epipolar Align-ment Error measures how well the correspondences between two views follow the epipolar geometry. For each pair of matched points (x1, x 2), we compute the average perpendic-ular distance to their epipolar lines: 
+
+dEAE (x1, x 2; F ) = 12
+
+|xT 
+
+> 2
+
+F x 1|
+
+p(F x 1)21 + ( F x 1)22
+
++ |xT 
+
+> 2
+
+F x 1|
+
+p(F T x2)21 + ( F T x2)22
+
+! (4) Lower values indicate that the corresponding points lie closer to their epipolar lines, implying stronger geometric alignment between views. All values are normalized by the image diagonal for scale invariance. 
+
+Sampson Distance. The Sampson Distance provides a first-order approximation of the true reprojection error [20]. It refines the basic epipolar constraint by accounting for how sensitive the constraint is to small coordinate changes: 
+
+dSampson (x1, x 2; F ) = ( xT 
+
+> 2
+
+F x 1)2
+
+
+
+(F x 1)21 + ( F x 1)22+(F T x2)21 + ( F T x2)22
+
+−1
+
+(5) It measures the minimum perturbation required to sat-isfy the epipolar constraint. Lower values correspond to better pose consistency between the two views. Both EAE and Sampson Distance are computed on held-out correspon-dences not used to estimate F and are averaged across frame pairs. 
+
+Flow-to-Pose Agreement (FPA). We additionally define Flow Consistency and Zero-Motion Ratio (ZMR) from dense optical flow estimated using RAFT [49]. It measures the temporal smoothness of motion using optical flow between consecutive frames. Let Ft denote the flow between frames 
+
+It and It+1 . We compute two consistency measures: 
+
+15 WAVE CamTrol++ 
+
+> WAVE CamTrol++
+> WAVE CamTrol++
+> WAVE CamTrol++
+
+Figure 12. Camera Trajectory. Comparison between the ground-truth (GT) camera trajectory and the predicted camera poses estimated from generated videos using COLMAP [44, 45]. Each curve shows the normalized translation parameters ( x, z) for a scene from MegaScene [51]. For clarity, height variation is omitted as all poses are normalized to a common scale. CamTrol++ produces trajectories that align more closely with the ground truth, showing stable and consistent camera motion. 
+
+FPA dir = 1
+
+N − 2 
+
+> N−2
+
+X
+
+> t=1
+
+1
+
+|Ω|
+
+X
+
+> p∈Ω
+
+Ft(p) · Ft+1 (p)
+
+|Ft(p)|2|Ft+1 (p)|2+ϵ ,
+
+(6) FPA mag = 1 − 1
+
+N − 2 
+
+> N−2
+
+X
+
+> t=1
+
+1
+
+|Ω|
+
+X
+
+> p∈Ω
+
+|| Ft|2−| Ft+1 |2||Ft|2+|Ft+1 |2+ϵ .
+
+(7) Here, Ω denotes the set of all pixel coordinates (the image domain), and |Ω| is the total number of pixels used to nor-malize the average across the frame. Directional consistency (FPA dir ) checks whether motion directions stay consistent, and magnitude consistency (FPA mag ) ensures the overall mo-tion strength is smooth. The final score is the mean of both terms: 
+
+16 Figure 13. Qualitative Result. Figure illustrates more qualitative results on the MegaScene dataset [51]. 
+
+FPA = 12 (FPA dir + FPA mag ). (8) A higher FPA (close to 1) indicates stable and coherent motion, while a lower value suggests flicker or inconsistent movement across time. 
+
+Zero Motion Ratio (ZMR). It measures how much of the image remains nearly static between frames. Given the optical flow Ft between It and It+1 :
+
+ZMR = 1
+
+|Ω|
+
+X
+
+> p∈Ω
+
+1(|Ft(p)|< τ ), (9) where τ is a small threshold (typically 0.5–1 pixel). A high ZMR means large regions have little to no motion (frozen frames), while a low ZMR indicates healthy camera movement. ZMR is averaged across all frame pairs, and together with FPA, provides a camera-agnostic measure of motion realism. 
+
+Summary. EAE and Sampson Distance evaluate geometric consistency using estimated camera relations, while FPA and ZMR assess temporal motion directly from the video. Together, these metrics capture both spatial and temporal stability of generated sequences without requiring ground-truth 3D geometry. 17 Figure 14. Qualitative Result. Figure illustrates more qualitative results on the RealEstate10k [63]. 
+
+## 11. Camera Parameter Visualization 
+
+We visualize the recovered camera trajectories used in the camera accuracy evaluation described in the main paper. For each generated sequence, we estimate camera poses using COLMAP [44, 45] and compare them with the correspond-ing ground-truth orbital camera trajectory. Figure 12 shows the normalized camera translations in the x–z plane for rep-resentative scenes from MegaScene [37]. Since the poses are scale-normalized, vertical variation is minimal and therefore excluded for clarity following WAVE [37]. CamTrol++ closely follows the ground-truth trajectory, indicating that the generated views maintain consistent mo-tion across frames. In contrast, trajectories obtained from WAVE [37] methods exhibit greater deviation and irregular curvature, reflecting instability in the estimated camera poses. These results qualitatively support the quantitative metrics (Frobenius Norm, Rotation Angle Difference, and Angular Consistency) reported in the main paper, confirming that camera-accurate synthesis correlates with view-consistent generation. 
+
+## 12. Additional Results and Details 
+
+The multi-view generated by our method is coherent and consistent. Further, we have shown additional results in the Figure [13,14,15] on complex camera motion, includ-ing dolly zoom-in, zoom-out, wavy, and it also shows 18 Figure 15. Qualitative Result. Additional results on the NeRF-LLFF dataset [34] with complex camera motion and scene stylization. Across different scenes, CamTrol++ maintains sharper structure and more stable motion than CamTrol [23] and WAVE [37]. We have also shown a failure case in which depth ambiguity may cause noticeable distortion across all training-free methods. 
+
+some failed cases . Figure 15 also provides application-oriented qualitative results on stylized scenes. We use Style-NeRF2NeRF [18] to generate the stylized inputs and then apply the same camera-controlled generation pipeline. 19

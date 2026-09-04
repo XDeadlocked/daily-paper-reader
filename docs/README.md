@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-03</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-04</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-03 22:02:13 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-04 22:43:06 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日聚焦机器人世界模型：精读2篇高分论文，速读3篇，共处理17篇推荐论文。</p>
-<p>最值得关注的是模块化潜空间动作堆栈与可扩展视频预训练两种World Action方案，均获9.0分，另有一篇Flow-JEPA动态模型和VLA推理监控值得扫读。</p>
-<p>建议优先精读上述高分论文，速读部分可关注Flow-JEPA的鲁棒动态建模方法。</p>
+<p>今日扫读19篇、精读10篇，核心围绕长程VLA执行与在线人形控制展开。</p>
+<p>最值得看：SMILE以平滑动作提升长时程VLA执行表现，ADAPT用敏捷扩散先验实现可操控的文本驱动人形控制，双双获9.0高分。</p>
+<p>建议普通读者从这两篇高分精读入手，再延伸到速读中的语言控制与世界交互感知模型，把握具身智能新趋势。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AcrossWAM1.0:A Modular Latent World-Action Stack for Compact Robot Policies">AcrossWAM1.0:A Modular Latent World-Action Stack for Compact Robot Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="ZimaBlue: Evolving Generalizable World Action Models through Scalable Video Pre-training">ZimaBlue: Evolving Generalizable World Action Models through Scalable Video Pre-training</span></li><li><span class="dpr-home-dashboard-paper-title" title="MeRoPE: Metric Rotary Position Embedding for Camera-Controlled Video Generation">MeRoPE: Metric Rotary Position Embedding for Camera-Controlled Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SMILE: Smooth Motion for Improved Long-Horizon VLA Execution">SMILE: Smooth Motion for Improved Long-Horizon VLA Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="ADAPT: Agile Diffusion Action Priors for Robust and Steerable Online Text-Driven Humanoid Control">ADAPT: Agile Diffusion Action Priors for Robust and Steerable Online Text-Driven Humanoid Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation">World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Flow-JEPA: Flow Matching for Robust Latent Dynamics in JEPA World Models">Flow-JEPA: Flow Matching for Robust Latent Dynamics in JEPA World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dancing Stick Figures: An Introductory Dataset for Training Video Generation Models">Dancing Stick Figures: An Introductory Dataset for Training Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Drive the Thoughts: Runtime Monitoring of VLA Reasoning-Trajectory Consistency">Drive the Thoughts: Runtime Monitoring of VLA Reasoning-Trajectory Consistency</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="IMPACT: Attention Is the Interaction Map for Scalable Interaction-Aware World Model Training">IMPACT: Attention Is the Interaction Map for Scalable Interaction-Aware World Model Training</span></li><li><span class="dpr-home-dashboard-paper-title" title="H3-World: Turning Language Understanding into World Control">H3-World: Turning Language Understanding into World Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlashRender: Few-Step Generative Rendering via Camera-Controlled Video MeanFlow">FlashRender: Few-Step Generative Rendering via Camera-Controlled Video MeanFlow</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 </div>
 
