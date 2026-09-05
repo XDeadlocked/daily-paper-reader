@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-04</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-05</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 10 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-04 22:43:06 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-05 22:16:56 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日扫读19篇、精读10篇，核心围绕长程VLA执行与在线人形控制展开。</p>
-<p>最值得看：SMILE以平滑动作提升长时程VLA执行表现，ADAPT用敏捷扩散先验实现可操控的文本驱动人形控制，双双获9.0高分。</p>
-<p>建议普通读者从这两篇高分精读入手，再延伸到速读中的语言控制与世界交互感知模型，把握具身智能新趋势。</p>
+<p>今日精读聚焦具身操控两大突破：自进化世界模型Motus2与VLA动作分块自适应停止机制，双获9.0高分。最值得关注Motus2如何通过自我进化提升灵巧操作泛化，以及“知道何时停止”的动作分块策略对任务效率的显著影响。建议读者优先精读这两篇，可结合速读中相机控制编辑与摩擦条件下扩散模型，拓展对世界模型与控制鲁棒性的理解。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SMILE: Smooth Motion for Improved Long-Horizon VLA Execution">SMILE: Smooth Motion for Improved Long-Horizon VLA Execution</span></li><li><span class="dpr-home-dashboard-paper-title" title="ADAPT: Agile Diffusion Action Priors for Robust and Steerable Online Text-Driven Humanoid Control">ADAPT: Agile Diffusion Action Priors for Robust and Steerable Online Text-Driven Humanoid Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation">World Model-Guided Reinforcement Learning via Counterfactual User Engagement Simulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Motus2: A Self-Evolving General World Model for Dexterous Manipulation">Motus2: A Self-Evolving General World Model for Dexterous Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Knowing When to Stop: Adaptive Action Chunking via Internal Cross-Attention Dynamics in VLAs">Knowing When to Stop: Adaptive Action Chunking via Internal Cross-Attention Dynamics in VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="IMPACT: Attention Is the Interaction Map for Scalable Interaction-Aware World Model Training">IMPACT: Attention Is the Interaction Map for Scalable Interaction-Aware World Model Training</span></li><li><span class="dpr-home-dashboard-paper-title" title="H3-World: Turning Language Understanding into World Control">H3-World: Turning Language Understanding into World Control</span></li><li><span class="dpr-home-dashboard-paper-title" title="FlashRender: Few-Step Generative Rendering via Camera-Controlled Video MeanFlow">FlashRender: Few-Step Generative Rendering via Camera-Controlled Video MeanFlow</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CameraEditor: Camera-Controlled Image Editing via Video-Prior Sequential Modeling">CameraEditor: Camera-Controlled Image Editing via Video-Prior Sequential Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Study of Conditional Diffusion Models for Open-Loop Control under Dry Friction and Stiction">A Study of Conditional Diffusion Models for Open-Loop Control under Dry Friction and Stiction</span></li><li><span class="dpr-home-dashboard-paper-title" title="Bridging Semantics and Physics with Constrained LLMs for Safe and Trustworthy Robotic Manipulation">Bridging Semantics and Physics with Constrained LLMs for Safe and Trustworthy Robotic Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 </div>
 
