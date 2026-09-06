@@ -1,0 +1,533 @@
+Title: NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation
+
+URL Source: https://arxiv.org/pdf/2608.30194v1
+
+Published Time: Tue, 01 Sep 2026 02:25:18 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 
+
+Yujiang Pu 1 and Yu Kong 1
+
+Michigan State University, East Lansing, MI 48824, USA 
+
+{puyujian,yukong}@msu.edu https://yujiangpu20.github.io/noiseasier/ 
+
+Abstract. Diffusion models have recently advanced text-to-video (T2V) generation, yet they still struggle with fine-grained compositional align-ment, such as attribute binding, spatial relations, and object interactions. While reward-based fine-tuning improves alignment, it is susceptible to reward hacking and adapts poorly to new prompt distributions. In this work, we propose NoisEasier , a test-time scaling framework that im-proves T2V generation through differentiable reward-guided noise opti-mization without modifying the underlying model. By combining effi-cient short-step generators with a multi-objective reward formulation, NoisEasier enables stable and practical test-time optimization under re-alistic inference budgets. Our key insight is that jointly optimizing the entire stochastic trajectory accelerates reward convergence and improves compositional alignment over optimizing only the initial latent, with neg-ligible additional computational and time cost. Experiments on VBench and T2V-CompBench demonstrate consistent improvements across mul-tiple backbones, achieving over 10% average gains on challenging dimen-sions such as attribute binding, object interaction, and numeracy. Over-all, NoisEasier serves as both a flexible alternative and a complementary enhancement to reward-based fine-tuning, establishing test-time scaling as an effective paradigm for controllable text-to-video generation. 
+
+Keywords: Video generation · Test-time scaling · Noise optimization 
+
+1 Introduction 
+
+Text-to-video (T2V) diffusion models [3, 5, 16, 18, 41, 52, 55, 69] have recently achieved remarkable progress, producing videos with increasingly realistic ap-pearance, diverse content, and coherent motion. Despite these advances, today’s systems still struggle with fine-grained compositional control that faithfully re-flects user intent [45, 48]. Subtle details such as attribute bindings, object in-teractions, and motion dynamics often become unreliable when prompts require precise coordination among multiple semantic concepts. These limitations re-veal a broader challenge: how can we align video generation more closely with user-specified semantics while preserving visual fidelity? arXiv:2608.30194v1 [cs.CV] 31 Aug 2026 2 Y. Pu and Y. Kong Dog firefighter rescues kittens from a tree. Purple balloon floating near a yellow car. Six robots dance rhythmically in the lab. A football rolling from the right to the left on the grass. 
+
+> T2V-Turbo + NoisEasier T2V-Turbo + NoisEasier
+
+Fig. 1: NoisEasier significantly boosts semantic alignment while maintaining the visual fidelity of generated videos. The results are obtained with 25-step noise optimization. 
+
+Most existing works draw inspiration from Reinforcement Learning from Human Feedback (RLHF) [9, 36] and adapt similar paradigms to T2V gener-ation. Early methods [39, 65] optimize diffusion models using differentiable re-wards [23, 58, 61], while subsequent works rely on human-preference datasets for direct preference optimization [8, 11, 33] or reward-based fine-tuning [32, 59]. While effective in improving global alignment, these methods inherit two intrinsic limitations. First, the learned preferences are baked into the model parameters, making continual adaptation to new reward functions or prompt distributions expensive. Second, these methods remain susceptible to reward hacking, where optimizing imperfect reward functions can degrade visual quality or motion real-ism. This motivates a natural question: can we improve compositional alignment at test time without modifying the underlying video generator? 
+
+Recent advances in test-time scaling have shown that increasing inference-time computation can substantially improve model capability without retrain-ing. For diffusion models, latent noise has emerged as an effective optimization variable [13, 30, 40, 62, 70], leading to successful applications in image [6, 17], mo-tion [22], and music generation [34]. However, extending noise optimization to T2V remains largely unexplored due to two fundamental challenges. First, mod-ern T2V models [24,52] require long denoising chains and high memory consump-tion, making iterative gradient-based refinement prohibitively expensive. Second, video reward signals are considerably more fragile than image rewards [39, 65], making optimization prone to instability and reward hacking. In this work, we propose NoisEasier , a practical test-time scaling frame-work for T2V generation. To overcome the prohibitive cost of iterative opti-mization, we build upon recent Video Consistency Models (VCMs) [27, 28, 53], NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 3
+
+which distill long diffusion sampling into only a few denoising steps, making end-to-end gradient-based refinement practical. While VCMs address the com-putational bottleneck, stable optimization still requires reliable reward super-vision. We therefore formulate test-time refinement as a robust multi-objective optimization problem that combines complementary semantic, aesthetic, and motion-aware rewards to mitigate reward hacking. To further strengthen com-positional supervision, we introduce a lightweight negative-aware reward cali-bration strategy that calibrates absolute reward scores using semantically hard negative prompts, yielding more discriminative feedback. Interestingly, the intermediate stochastic perturbations exposed by VCMs provide additional optimization variables beyond the initial latent noise. Rather than optimizing only the initialization [13,17,46,62], we find that jointly refining all available stochastic variables consistently yields faster reward convergence and stronger compositional alignment, while introducing negligible additional runtime or memory overhead. This observation suggests that optimizing the entire denoising process provides finer control over video generation than op-timizing only its initialization, offering a simple yet effective test-time scaling strategy for modern T2V models. Extensive experiments on VBench [21] and T2V-CompBench [44] demon-strate that NoisEasier significantly improves the performance of VCM base-lines [27, 53] with only modest additional inference overhead. Compared with optimizing the initial latent alone, jointly optimizing the intermediate perturba-tions yields more consistent improvements on compositional dimensions, includ-ing attribute binding, spatial relations, and object interactions. Furthermore, NoisEasier continues to improve reward-finetuned models, suggesting that of-fline fine-tuning does not fully amortize reward signals into the model parame-ters. Consequently, NoisEasier serves not only as a flexible alternative to reward fine-tuning, but also as a complementary test-time scaling mechanism that un-locks additional gains beyond offline alignment. In summary, our main contributions are as follows: 
+
+– We propose NoisEasier , a test-time scaling framework for text-to-video gen-eration that enables efficient and robust reward-guided optimization without model fine-tuning. 
+
+– We develop an efficient optimization pipeline based on short-step Video Con-sistency Models together with a robust reward formulation for stable com-positional optimization. 
+
+– We show that jointly optimizing the intermediate perturbations consistently accelerates reward convergence and improves compositional alignment over initial-noise optimization with negligible additional computational cost. 
+
+2 Related Work 
+
+Video Generation with Human Feedback. Reinforcement Learning from Human Feedback (RLHF) [9, 36] has shown great success in aligning large lan-guage models (LLMs) with human intent, motivating its extension to image 4 Y. Pu and Y. Kong 
+
+and video generation. Existing work typically follows two paradigms. One is 
+
+preference-driven optimization , where models are trained directly on large-scale human preference datasets. This includes policy gradient methods like DDPO [2] and DPOK [15], as well as direct preference optimization methods [31,33,50,63] that bypass explicit reward models. While effective, these approaches require large-scale preference annotations and cannot easily incorporate structured hu-man knowledge. The other is reward-driven optimization , where pretrained re-ward models provide differentiable feedback for fine-tuning generative mod-els [39,65] or guide distillation for faster inference [26–28]. Although these meth-ods reduce training cost and improve stability, they are generally one-shot sys-tems that lack mechanisms for iterative refinement. In contrast, we directly op-timize latent noise via differentiable rewards, enabling preference-controllable text-to-video generation with efficient test-time refinement. 
+
+Test-time Noise Optimization. Recent studies show that the initial latent noise strongly influences diffusion generation quality, with certain golden noise 
+
+consistently yielding outputs that are more faithful and aesthetically pleas-ing. Building on this observation, test-time methods that operate on noise can be broadly categorized into two directions: selection-based noise search and 
+
+optimization-based noise refinement . Selection-based methods [30, 62, 70] treat sampling as a search problem over initial noises or trajectories and select the best sample under a fixed backbone. In contrast, optimization-based methods directly refine the noisy latent via gradient-based updates during sampling. DOODL [51] pioneered end-to-end differentiable latent optimization, and subsequent work extended this paradigm to images [6, 17, 46, 70] and other modalities, including music [35] and motion [22]. While effective, optimization-based approaches can be prohibitively slow at inference time; for example, DOODL [51] and D-Flow [1] may take tens of minutes per sample. ReNO [13] partially mitigates this bot-tleneck by applying optimization to one-step diffusion models, reducing runtime to tens of seconds. In this work, we revisit noise optimization for text-to-video generation, which remains underexplored due to the high cost of video sampling and the scarcity of suitable spatiotemporal reward signals. 
+
+3 Method 
+
+3.1 Problem Formulation 
+
+Let Gθ denote a pretrained text-to-video (T2V) diffusion model. Given a text prompt c, the generation process starts from an initial latent noise zT ∼ N (0 , I)
+
+and progressively denoises it into a video sequence. Existing test-time optimiza-tion methods formulate noise refinement by directly optimizing the initial latent: 
+
+z∗ 
+
+> T
+
+= arg max 
+
+> zT
+
+R(Gθ (zT , c )) , (1) where R(·) denotes a differentiable reward measuring semantic alignment or perceptual quality. While conceptually simple, directly optimizing zT for T2V generation is computationally expensive, as gradients must propagate through NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 5
+
+dozens of denoising steps. Previous works [10, 38, 39] alleviate this cost through gradient truncation or partial backpropagation, sacrificing end-to-end optimiza-tion while remaining computationally demanding. In contrast, we build upon recent Video Consistency Models (VCMs) [27, 53], which distill long diffusion sampling into only a few denoising steps. Specifically, a consistency model learns a mapping that directly predicts the clean sample along the probability-flow ODE trajectory: f : ( zt, t, c ) 7 → zκ, t ∈
+
+[κ, T ], where κ is a small positive constant. The model is trained with a self-consistency objective that enforces identical predictions for different noisy states originating from the same trajectory: 
+
+f (zt, t, c ) = f (zt′ , t ′, c ), ∀ t, t ′ ∈ [κ, T ], (2) allowing the original diffusion trajectory to be approximated using only a small number of denoising steps. This substantially reduces the cost of gradient prop-agation and enables practical end-to-end optimization for video generation. Dur-ing inference, VCM alternates between predicting the clean sample ˆz0 = f (zt, t, c )
+
+and injecting Gaussian perturbations εt ∼ N (0 , I) to obtain the next latent 
+
+zt−1 = √¯αt−1 ˆz0 + p1 − ¯αt−1 εt. (3) Unlike conventional diffusion sampling, the stochastic formulation of VCM naturally exposes the injected perturbations as additional optimization variables. Rather than optimizing only the initial latent as in Eq. 1, we jointly optimize all available stochastic variables throughout the denoising process: 
+
+(z∗ 
+
+> T
+
+, {ε∗ 
+
+> t
+
+}) = arg max   
+
+> zT,{εt}
+
+R(Gθ (zT , c ; {εt})) . (4) This formulation provides finer control over the denoising trajectory and consistently accelerates reward convergence compared with optimizing only the initial latent, while introducing negligible additional computational overhead. 
+
+3.2 Reward Models for Video Generation 
+
+While human-preference reward models are well studied for image generation [23, 57, 61], reward modeling for video remains underexplored. Recent works such as VideoRM [59], VideoScore [20], and VisionReward [60] leverage multimodal large language models (MLLMs) to assess generated videos. However, directly using large MLLM-based reward models inside gradient-based noise refinement can be computationally prohibitive, since the reward must be evaluated repeatedly during optimization. Therefore, we focus on lightweight, differentiable rewards built on pretrained vision-language models (VLMs), which provide strong se-mantic alignment signals while remaining efficient for test-time optimization. Specifically, we consider three types of reward objectives: 
+
+Image-Text Alignment Reward. We employ HPSv2 [57] and ImageReward [61], both trained to model human preferences for image-text relevance. HPSv2 uses a 6 Y. Pu and Y. Kong 𝓩 !     
+
+> 𝓩 !∗
+> ℰ𝒟
+> T2V Model
+> ℰ𝒟
+> …
+> “Boy with a cap playing soccer with a girl wearing a red shirt”
+> Latent Noise Optimized Noise Prompt:
+> 0.24 0.25 Reward Models 0.31 1.70
+
+!ℛ     
+
+> 𝒳 #∗
+> 𝒳 #
+> (+7%) (+145%)
+> Image Reward ViCLIP
+> …
+> Image Reward ViCLIP
+> Reward Models
+> ∇ " ℛ
+> {𝜺 $}$%& '
+> ×𝑇 ×𝑇
+> ×𝐾 steps
+> ×𝐾 steps
+> LLM
+> Negative Prompts
+> “Girl with a cap playing soccer with a boy wearing a red shirt”
+
+Fig. 2: Overview of the proposed NoisEasier framework. Given a text prompt, both the initial latent noise and intermediate perturbations are iteratively optimized using gradients from multiple reward models. Negative prompts generated by an LLM further calibrate the reward signal for fine-grained compositional feedback. 
+
+CLIP-based [42] architecture with a fine-tuned reward head, while ImageReward adopts BLIP [29] as its backbone, fine-tuned with supervised human feedback to improve perceptual alignment. Both models produce scalar scores that reflect the semantic alignment between the generated image and the text prompt. In practice, we compute the reward by evaluating each frame-text pair and take the mean score across all frames as the final image-text alignment reward. 
+
+Video-Text Alignment Reward. Image-level reward models provide strong semantic cues but lack temporal perception, making them ineffective at captur-ing motion consistency in video generation. To address this, we incorporate Vi-CLIP [56], a video-language model trained on the large-scale InternVid dataset. ViCLIP jointly encodes short video clips and text descriptions to assess temporal and semantic consistency. In practice, we sample two temporally offset clips from the generated video, each consisting of 8 frames, and compute their similarity to the text prompt. The final reward is the average of the two clip-text similarity scores, which provides video-level alignment feedback. 
+
+Motion-aware Reward. Although VLM-based rewards help improve semantic alignment with the prompt, they often push the model to favor static content to maximize alignment scores. As a result, the generated videos may lack mean-ingful motion or introduce temporal artifacts. To mitigate this, we introduce a motion-aware reward that explicitly encourages localized dynamics while regu-larizing temporal coherence. Specifically, we use RAFT [47] to estimate optical flow {Ft}T −1 
+
+> t=1
+
+, where Ft ∈ R2×H×W captures motion from frame t to t + 1 . We define the spatial mean flow vector ¯ft = 1
+
+> HW
+
+P 
+
+> h,w
+
+Ft[: , h, w ] and subtract it to NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 7
+
+suppress global camera motion. The motion reward is computed as: 
+
+Rmo = tanh 
+
+ 1  
+
+> T−1
+> T−1
+
+X
+
+> t=1
+
+∥Ft − ¯ft∥1
+
+
+
++ λ
+
+
+
+1 − tanh 
+
+ 1  
+
+> T−2
+> T−2
+
+X
+
+> t=1
+
+∥Ft+1 − Ft∥1
+
+ 
+
+, (5) where the first term encourages localized motion beyond global translation, and the second term penalizes abrupt changes in flow magnitude to promote tempo-rally coherent dynamics. In practice, this objective effectively mitigates the static bias induced by image-based rewards, leading to more expressive and dynamic video generation. 
+
+3.3 Negative-Aware Reward Calibration 
+
+Most existing reward models [23, 57, 58, 61] are trained on human preferences using pairwise ranking, providing only weak supervision for fine-grained compo-sitional reasoning. Prior studies [12, 49, 66] further show that VLM-based evalu-ators often behave like bag-of-words classifiers. Consequently, reward signals can be overly coarse and insensitive to subtle semantic errors. To address this limita-tion, we introduce negative-aware reward calibration, which contrasts the target prompt against semantically perturbed distractors rather than relying solely on absolute reward scores. Given a prompt c+, we utilize a large language model (LLM) to construct a set of hard negative prompts {c− 
+
+> j
+
+}Nj=1 that are syntactically similar but semanti-cally incorrect, as illustrated in Figure 2. These negatives encourage the reward to capture fine-grained semantic distinctions rather than superficial lexical simi-larity. Given a generated video x and a reward model R(·) for a video–text pair, the calibrated reward is defined as 
+
+˜R = R(x, c +) − τ log 
+
+> N
+
+X
+
+> j=1
+
+exp R(x, c − 
+
+> j
+
+) − R (x, c +) + mτ
+
+!
+
+, (6) where  m is a margin enforcing separation between the target prompt and its negatives, and  τ is a temperature parameter controlling the sharpness of the contrastive penalty. Intuitively, the calibrated reward encourages the generated video to achieve a high score for the target prompt while suppressing seman-tically similar distractors, making the optimization process more sensitive to compositional errors such as attribute binding, spatial relations, and numeracy. Finally, we optimize both the initial latent noise zT and the stochastic per-turbations {εt}Tt=1 through gradient ascent on a weighted combination of the calibrated rewards. For brevity, we denote all optimization variables by ϵ =
+
+{zT , ε1, . . . , εT }, leading to the update rule 
+
+ϵk+1 = ϵk + η · ∇ ϵk
+
+"X
+
+> i
+
+αi ˜Ri(Gθ (ϵk, c ), c )
+
+#
+
+, (7) where η denotes the learning rate and αi are the weights of individual reward components. Together, the proposed reward formulation and joint stochastic optimization enable stable and effective test-time refinement. 8 Y. Pu and Y. Kong 
+
+Table 1: Quantitative evaluation on VBench (%). The best results among open-source models are in bold and the second best is underlined. * denotes our reproduction. Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree 
+
+(Closed-source) 
+
+Gen-3 [43] 26.69 53.64 80.90 65.09 99.23 60.14 Sora [3] 26.26 70.85 80.11 74.29 98.74 79.91 Veo 3 [16] 27.88 82.20 82.48 84.26 99.16 72.43 
+
+(Open-source) 
+
+ModelScope [54] 25.67 38.98 81.72 33.68 95.79 66.39 VideoCrafter2 [5] 28.23 40.66 92.92 35.86 97.73 42.50 CogVideoX-2B [64] 27.33 66.59 83.01 74.27 97.51 64.79 Vchitect-2.0 [14] 27.57 68.84 87.04 57.55 98.98 63.89 AnimateLCM* [53] 25.74 30.78 81.84 39.94 98.19 29.17 
+
++ NoisEasier (Ours) 28.79 ↑3.05 44.04 ↑13.26 88.22 ↑6.38 46.70 ↑6.76 98.57 ↑0.38 30.56 ↑1.39 
+
+T2V-Turbo (MS) [27] 27.51 58.63 89.67 45.74 95.64 66.39 T2V-Turbo (MS)* 27.40 54.50 89.90 46.62 95.51 70.83 
+
++ NoisEasier (Ours) 32.05 ↑4.65 76.62 ↑22.12 94.38 ↑4.48 48.93 ↑2.31 95.29 ↓0.22 71.39 ↑0.56 
+
+T2V-Turbo (VC2) [27] 28.16 54.65 89.90 38.67 97.34 49.17 T2V-Turbo (VC2)* 28.12 54.33 90.59 39.95 96.29 51.67 
+
++ NoisEasier (Ours) 31.95 ↑3.83 79.18 ↑24.85 93.63 ↑3.04 52.61 ↑12.66 96.10 ↓0.19 59.17 ↑7.50 
+
+4 Experiment 
+
+Experimental Setup. We evaluate NoisEasier on two VCM backbones: Ani-mateLCM [53] and T2V-Turbo [27]. For T2V-Turbo, we consider two distilled variants: T2V-Turbo (MS) and T2V-Turbo (VC2), which are distilled from Mod-elScope [54] and VideoCrafter2 [5], respectively. T2V-Turbo (MS) generates videos at 256 × 256 resolution, while T2V-Turbo (VC2) produces 512 × 320 
+
+videos. AnimateLCM generates videos at 512 × 512 resolution. All three back-bones support fast sampling with 4–8 denoising steps. To balance generation quality and efficiency, we adopt a 4-step sampler for fast inference. For noise refinement, we optimize the latent variables for 25 iterations using AdamW with gradient clipping and a learning rate of 0.01. Unless otherwise specified, all ex-periments use the same optimization configuration across backbones. To make noise optimization feasible, we employ gradient checkpointing [7] together with mixed-precision inference to reduce memory overhead. All the experiments are conducted on two RTX 6000 Ada GPUs. More implementation details can be found in the supplementary material. 
+
+Benchmarks and Metrics. We evaluate NoisEasier on two widely used bench-marks: VBench [21] and T2V-CompBench [45]. VBench provides a comprehen-sive evaluation across 16 dimensions covering visual quality and semantic align-ment. Following common practice, we report results on four semantic dimen-sions ( overall consistency , multiple objects , color , and spatial relations ) and two motion-related dimensions, i.e., motion smoothness and dynamic degree . T2V-NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 9
+
+Table 2: Quantitative evaluation on T2V-CompBench. The best results among open-source models are in bold , and the second best are underlined. * denotes reproduction. Models Consist Attr. Dynamic Attr. Spatial Motion Action Interaction Numeracy                                                                                                                                      
+
+> (Closed-source)
+> Gen-3 [43] 0.5980 0.0687 0.5194 0.2754 0.5233 0.5906 0.2306 Dreamina [4] 0.6913 0.0051 0.5773 0.2361 0.5924 0.6824 0.4380 PixVerse [37] 0.7060 0.0624 0.5979 0.2867 0.8722 0.8309 0.6066 Kling [25] 0.6931 0.0098 0.5690 0.2562 0.5787 0.7128 0.4413
+> (Open-source)
+> ModelScope [54] 0.5148 0.0161 0.4118 0.2408 0.3639 0.4613 0.1986 Show-1 [67] 0.5670 0.0115 0.4544 0.2291 0.3881 0.6244 0.3086 VideoTetris [48] 0.6211 0.0104 0.4832 0.2249 0.4939 0.6578 0.3467 VideoCrafter2 [5] 0.6182 0.0103 0.4838 0.2259 0.5030 0.6365 0.3330 Open-Sora 1.2 [68] 0.5639 0.0189 0.5063 0.2468 0.4833 0.5039 0.3719 CogVideoX-5B [64] 0.6164 0.0219 0.5172 0.2658 0.5333 0.6069 0.3706 AnimateLCM* [53] 0.6746 0.0096 0.4651 0.2208 0.3425 0.4504 0.2494
+> + NoisEasier (Ours) 0.7807 ↑0.1061 0.0183 ↑0.0087 0.5113 ↑0.0462 0.2281 ↑0.0073 0.4362 ↑0.0937 0.5365 ↑0.0861 0.2567 ↑0.0073
+> T2V-Turbo (MS)* [27] 0.7313 0.0124 0.4620 0.2306 0.4923 0.5822 0.3030
+> + NoisEasier (Ours) 0.8375 ↑0.1062 0.0147 ↑0.0023 0.5259 ↑0.0639 0.2502 ↑0.0196 0.6477 ↑0.1554 0.6743 ↑0.0921 0.3983 ↑0.0953
+> T2V-Turbo (VC2)* [27] 0.7852 0.0113 0.5079 0.2222 0.6241 0.7017 0.2900
+> + NoisEasier (Ours) 0.8737 ↑0.0885 0.0097 ↓0.0016 0.5660 ↑0.0581 0.2343 ↑0.0121 0.7524 ↑0.1283 0.7915 ↑0.0898 0.3753 ↑0.0853
+
+CompBench focuses on compositional reasoning in video generation and eval-uates seven categories, including consistent/dynamic attribute binding , spatial relationships , action/motion binding object interactions , and numeracy .
+
+4.1 Main Results 
+
+We first report quantitative results on VBench, comparing against both closed-source models and open-source baselines. As shown in Table 1, NoisEasier con-sistently improves VCM-based generators across different backbones. On An-imateLCM, NoisEasier increases Overall Consistency from 25.74% to 28.79%, with notable gains in compositional dimensions such as Multiple Objects and 
+
+Spatial Relation . Similar trends are observed on T2V-Turbo, where the improve-ments are even more pronounced. For example, Multiple Objects increases from 54.50% to 76.62% on T2V-Turbo (MS) and from 54.33% to 79.18% on T2V-Turbo (VC2), while Spatial Relation improves by 12.66% on the VC2 variant. Although Motion Smoothness decreases slightly for the T2V-Turbo variants, the consistent increase in Dynamic Degree suggests that NoisEasier produces richer motion dynamics while largely preserving temporal coherence. NoisEasier also yields consistent gains on T2V-CompBench across diverse compositional dimensions, as shown in Table 2. On AnimateLCM, it substan-tially improves Attribute/Action Binding while also boosting Spatial relationship 
+
+and Interaction . Similar trends hold for T2V-Turbo, where Consist. Attribute Binding increases to 0.8375 (MS) and 0.8737 (VC2), and Action binding im-proves notably on both variants. Importantly, Numeracy also sees sizable gains (e.g., 0.0953 on MS), indicating improved robustness in reasoning about discrete 10 Y. Pu and Y. Kong 
+
+Fig. 3: Reward curve during noise optimization. The red solid line represents full noise optimization, while the blue dotted line denotes initial noise optimization. All scores are scale-normalized. 
+
+object counts. These results further support the effectiveness of our negative-aware reward calibration in providing more precise compositional feedback. 
+
+4.2 Ablation Study 
+
+Table 3: The effect of reward models for NoisEasier on VBench. The best score among individual reward models is marked in green , while the second-best is in yellow . Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree T2V-Turbo (MS)* 27.40 54.50 89.90 46.62 95.51 70.83 + HPSv2 27.85 64.66 90.20 46.21 95.19 54.72 + ImageReward 28.24 73.78 90.27 47.16 95.36 61.11 + ViCLIP 36.21 68.05 91.19 41.92 94.98 63.89 + Motion 26.05 47.68 87.32 42.07 95.59 85.56 All w/o negatives 31.74 75.82 93.29 47.95 95.38 73.33 All (NoisEasier) 32.05 76.62 94.38 48.93 95.29 71.39 
+
+Contribution of each reward model. As shown in Table 3, dif-ferent reward models emphasize different aspects of generation. Im-ageReward and ViCLIP contribute most to semantic alignment, but optimizing semantic rewards alone tends to yield overly static videos, reflected by reduced Dynamic De-gree . In contrast, the motion re-ward alone increases temporal dy-namics and motion coherence, yet degrades semantic metrics, highlighting the need to balance complementary objectives rather than relying on a single signal. Figure 4a further explains the dynamic term in our motion reward: by subtract-ing global motion in Eq. 5, the resulting localized motion suppresses camera shifts while emphasizing subject movement. Combining all rewards yields complemen-tary gains across semantic and motion dimensions, and negative-aware calibra-tion further strengthens compositional alignment, with only a slight decrease in motion-related scores since it primarily reshapes VLM-based objectives. 
+
+Table 4: Initial vs . full noise optimization. Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree AnimateLCM+Init. 26.76 43.28 85.61 44.52 98.36 30.83 AnimateLCM+Full. 28.79 44.04 88.22 46.70 98.57 30.56 T2V-Turbo (MS)+Init. 29.67 72.58 90.03 44.10 95.58 66.94 T2V-Turbo (MS)+Full. 32.05 76.62 94.38 48.93 95.29 71.39 T2V-Turbo (VC2)+Init. 29.97 75.41 92.98 45.15 96.16 60.83 T2V-Turbo (VC2)+Full. 31.95 79.18 93.63 52.61 96.10 59.17 
+
+Initial noise vs. Full trajec-tory optimization. To quantify the benefit of full noise optimiza-tion, we compare against a variant that updates only the initial latent noise. As shown in Table 4, full-trajectory optimization provides additional control beyond initial-noise-only re-finement, with the largest gains on compositional metrics such as color and spatial relations. Interestingly, motion-related dimensions show smaller gains or NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 11 Black swan gliding past a green lily pad 
+
+> T2V-Turbo (MS)
+> NoisEasier (global motion) NoisEasier (localized motion)
+
+(a) Global vs. localized motion. A yellow teddy bear has breakfast from a blue bowl, sitting on the dining table  
+
+> T2V-Turbo (VC2) NoisEasier (initial noise) NoisEasier (full noise)
+
+(b) Initial noise optimization vs. Full noise optimization. 
+
+Fig. 4: The effect of (a) motion reward; and (b) noise optimization formulation. 
+
+occasional advantages for initial noise optimization, suggesting lower sensitiv-ity to intermediate-noise refinement. More results on T2V-CompBench can be found in Table 11. Figure 3 further demonstrates that jointly optimizing the full noise trajectory accelerates reward convergence. We also provide a qualita-tive example in Figure 4b: the initial noise mainly controls global appearance and coarse layout, whereas intermediate perturbations refine finer structures and stylistic details, resulting in sharper contrast and more visually pleasing outputs. Overall, these results validate the effectiveness of full trajectory optimization for improving both quantitative performance and visual quality. 
+
+Table 5: Effect of different negative prompt construction. Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree NoisEaiser w/o neg. 31.74 75.82 93.29 47.95 95.38 73.33 Random sample 31.83 75.41 93.14 46.39 95.46 71.11 Gemini-2.5 Flash 32.00 76.55 93.81 48.72 95.53 74.44 GPT-4o (Ours) 32.05 76.62 94.38 48.93 95.29 71.39 
+
+Comparison of different nega-tive prompts. We compare LLM-generated negatives against ran-domly sampled negatives based on part-of-speech (POS) perturba-tions. Specifically, we use spaCy 1
+
+to identify key primitives ( verbs ,
+
+nouns , adjectives , adpositions , and numerals ) and randomly replace them with alternatives drawn from the test prompt suite. As shown in Table 5, incor-porating negative prompts consistently improves performance over optimizing with the positive prompt alone. Overall Consistency increases slightly across all strategies, with the strongest gains achieved by LLM-constructed negatives. Specifically, GPT-4o negatives yield the best Color and Spatial Relation scores, suggesting that semantically targeted negatives provide more informative con-trast than random perturbations. By contrast, POS-based random negatives offer little improvement and even reduce Spatial Relation , indicating that arbi-trary replacements are insufficient for effective calibration. Motion Smoothness remains essentially unchanged across variants, while Dynamic Degree changes only modestly, consistent with our design that negative-aware calibration pri-marily sharpens semantic and attribute alignment without degrading motion.  
+
+> 1
+
+https://spacy.io/ 12 Y. Pu and Y. Kong 
+
+Table 6: Performance of different test-time scaling methods. Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree T2V-Turbo (MS) 27.40 54.50 89.90 46.62 95.51 70.83 + NoisEasier 32.05 76.62 94.38 48.93 95.29 71.39 + Best-of-n sampling 29.39 80.06 91.43 48.54 95.52 79.44 + PE (GPT-4o) 28.70 71.95 87.47 47.58 95.89 70.56 + PE (Gemini-2.5 Flash) 28.54 72.13 86.54 51.13 95.80 70.83 
+
+Comparison of test-time scal-ing methods. We further com-pare NoisEasier with two canoni-cal test-time scaling (TTS) meth-ods: Best-of-n sampling (BoS) and prompt enhancement (PE). Under the same wall-clock time budget, BoS samples multiple seeds and selects the highest-reward video, while PE uses an LLM to iteratively rewrite the prompt (with fixed noise) and chooses the best result. As shown in Table 6, NoisEasier achieves the highest Overall Consistency 
+
+and Color scores, indicating that gradient-based noise optimization is effective for semantic alignment and attribute binding. In contrast, BoS attains the best 
+
+Dynamic Degree and Multiple Objects , suggesting that strong motion patterns and complex multi-object layouts are largely driven by the global structure in-duced by the initial noise. PE slightly improves Motion Smoothness but substan-tially reduces Color binding, implying that enriched prompts may distract the model from precise attribute alignment while stabilizing cross-frame predictions. Interestingly, Gemini-based PE achieves the best Spatial Relation score, suggest-ing that some LLMs rewrite prompts with clearer spatial expressions. Overall, different TTS strategies favor different aspects of quality, and NoisEasier offers a complementary path for improving semantic and attribute-level alignment. 
+
+Table 7: Comparison with reward fine-tuning. Models Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree T2V-Turbo (MS) 27.40 54.50 89.90 46.62 95.51 70.83 + reward fine-tuning (RFT) 28.58 73.49 90.95 51.16 98.65 74.72 + NoisEasier 32.05 76.62 94.38 48.93 95.29 71.39 + RFT + NoisEasier 31.91 84.56 94.72 54.71 98.65 77.50 
+
+Comparison with reward fine-tuning. Since NoisEasier opti-mizes rewards at inference time, we also examine whether incorpo-rating the same rewards directly into the model parameters yields comparable benefits. To this end, we perform reward fine-tuning (RFT) using LoRA on the T2V-Turbo backbone under the same mixed reward objectives. We follow the default LoRA configuration of T2V-Turbo and fine-tune on the full VBench prompt suite ( ∼1k prompts) for 10k steps, after which further training begins to exhibit overfitting. As shown in Table 7, both approaches improve over the baseline but with different strengths. RFT mainly improves motion-related metrics such as Motion Smoothness and 
+
+Dynamic Degree , whereas NoisEasier yields larger gains on compositional di-mensions including Multiple Objects and Color . Notably, applying NoisEasier on top of the RFT model further improves most metrics, indicating that reward signals are not fully amortized into the model parameters during offline tun-ing. This suggests that noise optimization provides a complementary test-time scaling mechanism even when the backbone has already been reward-tuned. 
+
+4.3 Efficiency Analysis Inference Efficiency. Table 8 reports the peak memory and runtime of 25-step optimization under identical settings on a single RTX 6000 Ada GPU. Com-pared with optimizing only the initial latent, full trajectory optimization incurs 
+
+negligible additional overhead, increasing runtime by less than 1% while leaving NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 13                                  
+
+> Table 8: Inference Efficiency of 25-step test-time noise optimization. Model Peak VRAM Time Model Peak VRAM Time Model Peak VRAM Time MS 8.23 GB 1.04s VC2 8.76 GB 1.41s Ani-LCM 8.78 GB 2.46s +Init. 22.93 GB 44.63s +Init. 33.24 GB 115.19s +Init. 40.53 GB 176.71s +Full. 22.95 GB 45.28s +Full. 33.27 GB 115.63s +Full. 40.53 GB 177.86s
+
+peak memory virtually unchanged. This is because both methods backpropagate through the same denoising computation graph; our method only introduces ad-ditional optimized noise variables without requiring extra forward or backward passes. The dominant computational cost instead comes from multi-step back-propagation through the generator and differentiable reward models. On a single H100 GPU, the runtime can be further reduced to 31.25 s (MS), 72.92 s (VC2), and 105.37 s (AnimateLCM).  
+
+> Fig. 5: Quality-Cost Pareto on VBench.
+
+Quality–Cost Trade-off. Figure 5 compares the quality–cost trade-off between initial-noise and full-trajectory optimization on the T2V-Turbo (MS) backbone using an RTX 6000 Ada GPU, with the Overall Con-sistency dimension of VBench as the evaluation metric. As the optimiza-tion budget increases, both methods improve semantic alignment, but full-trajectory optimization consistently traces a superior Pareto frontier. No-tably, the advantage becomes more pronounced with additional optimization steps, indicating that jointly refining all intermediate perturbations utilizes the additional computation more effectively than optimizing only the initial latent. We adopt 25 optimization steps as the default setting, providing a favorable balance between quality and inference cost. 
+
+4.4 Human Evaluation.  
+
+> Fig. 6: User study on T2V-CompBench.
+
+We conduct a user study to fur-ther assess the practical benefits of NoisEasier. We uniformly sam-ple 10 prompts from each of the seven T2V-CompBench dimensions, resulting in 70 test prompts in to-tal. We compare NoisEasier against three baselines: T2V-Turbo (VC2), CogVideoX-2B [64], and Wan2.1-1.3B [52]. For each prompt, we use the same random seed across models. Each comparison is judged by five Amazon Mechan-ical Turk workers, who select the candidate with better semantic alignment and 14 Y. Pu and Y. Kong Green taxi drives past a yellow building 
+
+𝜖 !
+
+𝜖 "
+
+𝜖 #! 
+
+𝜖 #" 
+
+𝜖 $! 
+
+𝜖 $"   
+
+> NoisEasier Reward Calibration
+> Fig. 7: Effect of negative-aware reward calibration at different noise optimization steps.
+
+visual quality. As shown in Figure 6, NoisEasier achieves a 61.4% win rate over its backbone, indicating that test-time noise optimization improves semantic faith-fulness. Moreover, NoisEasier remains competitive against stronger T2V base-lines, receiving around 61% preference on alignment and 52% on visual quality compared to CogVideoX-2B and Wan2.1-1.3B, despite operating as a lightweight add-on rather than retraining a larger T2V model. 
+
+4.5 Qualitative Analysis 
+
+We present qualitative comparisons in Figure 7 to illustrate the effect of our op-timization framework. The baseline captures the rough semantics of the prompt but exhibits compositional errors such as incorrect color binding and inconsis-tent object motion. Noise optimization progressively improves both spatial and temporal coherence: the taxi becomes a coherent object with stable right-to-left motion, and attribute separation becomes clearer, although minor artifacts remain. With negative-aware reward calibration, semantic disentanglement is further enhanced, i.e., the facade becomes consistently yellow while the green taxi is preserved with minimal leakage. Additional examples are provided in Figure 1 and the supplementary material. While effective, we also observe two common failure modes, as shown in Figure 8. First, although NoisEasier improves visual fidelity and semantic align-ment, it still struggles with temporal state transitions . In the melting-ice example, the generated video preserves the appearance of the ice cube but fails to cap-ture its gradual transition into water. We attribute this limitation to existing reward models, which primarily assess frame-level semantics and provide only weak supervision for long-term temporal evolution. Second, NoisEasier remains NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 15 “Clear ice cube melts into shapeless water” “Three apples hang heavy on the tree branch, and three birds perch nearby.” 
+
+> VC2 AnimateLCM +NoisEasier +NoisEasier
+
+Fig. 8: Two failure cases of NoisEasier: temporal state transition (left) and object counting (right). 
+
+challenged by fine-grained object counting . In the example on the right, the model fails to satisfy the exact numeracy constraint despite improving overall seman-tic consistency. This suggests that current VLM-based rewards are insufficiently sensitive to precise object counting and complex compositional reasoning. These observations indicate that the performance of test-time optimization is fundamentally bounded by the quality of the underlying reward models. Future work may benefit from incorporating structured reward signals, such as object detection, visual grounding, or temporal-state verification models, to provide more reliable supervision for compositional video generation. 
+
+5 Conclusion 
+
+In this work, we propose NoisEasier, a test-time scaling framework that im-proves text-to-video generation through differentiable reward-guided noise op-timization without model fine-tuning. By combining efficient optimization with robust reward supervision, NoisEasier consistently enhances compositional align-ment while preserving visual fidelity. We further show that jointly optimizing intermediate noises provides more effective control over the denoising trajec-tory than optimizing only the initial latent, yielding faster reward convergence and stronger compositional alignment with negligible additional computational cost. Moreover, NoisEasier complements offline reward fine-tuning, demonstrat-ing that test-time optimization remains effective even after model alignment. Overall, our findings establish noise optimization as a practical test-time scaling paradigm for improving alignment in video generative models. 
+
+Acknowledgements 
+
+This work was partially supported by the Office of Naval Research (ONR) grant (N00014-23-1-2417), and the Army Research Office (ARO) grant (W911NF-24-1-0385). Any opinions, findings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of ONR or ARO. 16 Y. Pu and Y. Kong 
+
+References 
+
+1. Ben-Hamu, H., Puny, O., Gat, I., Karrer, B., Singer, U., Lipman, Y.: D-flow: Differ-entiating through flows for controlled generation. arXiv preprint arXiv:2402.14017 (2024) 2. Black, K., Janner, M., Du, Y., Kostrikov, I., Levine, S.: Training diffusion models with reinforcement learning. arXiv preprint arXiv:2305.13301 (2023) 3. Brooks, T., Peebles, B., Holmes, C., DePue, W., Guo, Y., Jing, L., Schnurr, D., Taylor, J., Luhman, T., Luhman, E., Ng, C., Wang, R., Ramesh, A.: Video gen-eration models as world simulators. Tech. rep., OpenAI (2024), https://openai. com/research/video-generation-models-as-world-simulators , technical Re-port, OpenAI 4. Capcut: Dreamina. https://dreamina.capcut.com/ai-tool/home (2024) 5. Chen, H., Zhang, Y., Cun, X., Xia, M., Wang, X., Weng, C., Shan, Y.: Videocrafter2: Overcoming data limitations for high-quality video diffusion mod-els. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 7310–7320 (2024) 6. Chen, S.X., Vaxman, Y., Ben Baruch, E., Asulin, D., Moreshet, A., Lien, K.C., Sra, M., Sen, P.: Tino-edit: Timestep and noise optimization for robust diffusion-based image editing. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 6337–6346 (2024) 7. Chen, T., Xu, B., Zhang, C., Guestrin, C.: Training deep nets with sublinear mem-ory cost. arXiv preprint arXiv:1604.06174 (2016) 8. Cheng, H., Dong, Q., Peng, L., Sha, Z., Feng, W., Xie, J., Song, Z., Wen, S., He, X., Wu, B.: Discriminator-free direct preference optimization for video diffusion. arXiv preprint arXiv:2504.08542 (2025) 9. Christiano, P.F., Leike, J., Brown, T., Martic, M., Legg, S., Amodei, D.: Deep reinforcement learning from human preferences. Advances in neural information processing systems 30 (2017) 10. Clark, K., Vicol, P., Swersky, K., Fleet, D.J.: Directly fine-tuning diffusion models on differentiable rewards. arXiv preprint arXiv:2309.17400 (2023) 11. Ding, X., Zhang, K., Han, J., Hong, L., Xu, H., Li, X.: Pami-vdpo: Mitigating video hallucinations by prompt-aware multi-instance video preference learning. arXiv preprint arXiv:2504.05810 (2025) 12. Doveh, S., Arbelle, A., Harary, S., Herzig, R., Kim, D., Cascante-Bonilla, P., Al-fassy, A., Panda, R., Giryes, R., Feris, R., et al.: Dense and aligned captions (dac) promote compositional reasoning in vl models. Advances in Neural Information Processing Systems 36 , 76137–76150 (2023) 13. Eyring, L., Karthik, S., Roth, K., Dosovitskiy, A., Akata, Z.: Reno: Enhancing one-step text-to-image models through reward-based noise optimization. Advances in Neural Information Processing Systems 37 , 125487–125519 (2024) 14. Fan, W., Si, C., Song, J., Yang, Z., He, Y., Zhuo, L., Huang, Z., Dong, Z., He, J., Pan, D., et al.: Vchitect-2.0: Parallel transformer for scaling up video diffusion models. arXiv preprint arXiv:2501.08453 (2025) 15. Fan, Y., Watkins, O., Du, Y., Liu, H., Ryu, M., Boutilier, C., Abbeel, P., Ghavamzadeh, M., Lee, K., Lee, K.: Dpok: Reinforcement learning for fine-tuning text-to-image diffusion models. Advances in Neural Information Processing Sys-tems 36 , 79858–79885 (2023) 16. Google: Veo-3 technical report. Tech. rep., Google DeepMind (May 2025) NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 17 17. Guo, X., Liu, J., Cui, M., Li, J., Yang, H., Huang, D.: Initno: Boosting text-to-image diffusion models via initial noise optimization. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 9380– 9389 (2024) 18. Guo, Y., Yang, C., Rao, A., Liang, Z., Wang, Y., Qiao, Y., Agrawala, M., Lin, D., Dai, B.: Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. arXiv preprint arXiv:2307.04725 (2023) 19. HaCohen, Y., Chiprut, N., Brazowski, B., Shalem, D., Moshe, D., Richardson, E., Levin, E., Shiran, G., Zabari, N., Gordon, O., et al.: Ltx-video: Realtime video latent diffusion. arXiv preprint arXiv:2501.00103 (2024) 20. He, X., Jiang, D., Zhang, G., Ku, M., Soni, A., Siu, S., Chen, H., Chandra, A., Jiang, Z., Arulraj, A., et al.: Videoscore: Building automatic metrics to simulate fine-grained human feedback for video generation. arXiv preprint arXiv:2406.15252 (2024) 21. Huang, Z., He, Y., Yu, J., Zhang, F., Si, C., Jiang, Y., Zhang, Y., Wu, T., Jin, Q., Chanpaisit, N., et al.: Vbench: Comprehensive benchmark suite for video gener-ative models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 21807–21818 (2024) 22. Karunratanakul, K., Preechakul, K., Aksan, E., Beeler, T., Suwajanakorn, S., Tang, S.: Optimizing diffusion noise can serve as universal motion priors. In: Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion. pp. 1334–1345 (2024) 23. Kirstain, Y., Polyak, A., Singer, U., Matiana, S., Penna, J., Levy, O.: Pick-a-pic: An open dataset of user preferences for text-to-image generation. Advances in Neural Information Processing Systems 36 , 36652–36663 (2023) 24. Kong, W., Tian, Q., Zhang, Z., Min, R., Dai, Z., Zhou, J., Xiong, J., Li, X., Wu, B., Zhang, J., et al.: Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 (2024) 25. Kuaishou: Kling. https://kling.kuaishou.com/ (2024) 26. Li, J., Feng, W., Chen, W., Wang, W.Y.: Reward guided latent consistency distil-lation. arXiv preprint arXiv:2403.11027 (2024) 27. Li, J., Feng, W., Fu, T.J., Wang, X., Basu, S., Chen, W., Wang, W.Y.: T2v-turbo: Breaking the quality bottleneck of video consistency model with mixed reward feedback. arXiv preprint arXiv:2405.18750 (2024) 28. Li, J., Long, Q., Zheng, J., Gao, X., Piramuthu, R., Chen, W., Wang, W.Y.: T2v-turbo-v2: Enhancing video generation model post-training through data, reward, and conditional guidance design. arXiv preprint arXiv:2410.05677 (2024) 29. Li, J., Li, D., Xiong, C., Hoi, S.: Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation. In: International confer-ence on machine learning. pp. 12888–12900. PMLR (2022) 30. Li, S., Le, H., Xu, J., Salzmann, M.: Enhancing compositional text-to-image gen-eration with reliable random seeds. In: The Thirteenth International Conference on Learning Representations (2024) 31. Liang, Y., He, J., Li, G., Li, P., Klimovskiy, A., Carolan, N., Sun, J., Pont-Tuset, J., Young, S., Yang, F., et al.: Rich human feedback for text-to-image generation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 19401–19411 (2024) 32. Liu, J., Liu, G., Liang, J., Yuan, Z., Liu, X., Zheng, M., Wu, X., Wang, Q., Qin, W., Xia, M., et al.: Improving video generation with human feedback. arXiv preprint arXiv:2501.13918 (2025) 18 Y. Pu and Y. Kong 33. Liu, R., Wu, H., Ziqiang, Z., Wei, C., He, Y., Pi, R., Chen, Q.: Videodpo: Omni-preference alignment for video diffusion generation. arXiv preprint arXiv:2412.14167 (2024) 34. Novack, Z., McAuley, J., Berg-Kirkpatrick, T., Bryan, N.: Ditto-2: Distilled diffusion inference-time t-optimization for music generation. arXiv preprint arXiv:2405.20289 (2024) 35. Novack, Z., McAuley, J., Berg-Kirkpatrick, T., Bryan, N.J.: Ditto: Dif-fusion inference-time t-optimization for music generation. arXiv preprint arXiv:2401.12179 (2024) 36. Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al.: Training language models to follow instructions with human feedback. Advances in neural information processing sys-tems 35 , 27730–27744 (2022) 37. PixVerse: Pixverse. https://app.pixverse.ai (2024) 38. Prabhudesai, M., Goyal, A., Pathak, D., Fragkiadaki, K.: Aligning text-to-image diffusion models with reward backpropagation (2023) 39. Prabhudesai, M., Mendonca, R., Qin, Z., Fragkiadaki, K., Pathak, D.: Video dif-fusion alignment via reward gradients. arXiv preprint arXiv:2407.08737 (2024) 40. Qi, Z., Bai, L., Xiong, H., Xie, Z.: Not all noises are created equally: Diffusion noise selection and optimization. arXiv preprint arXiv:2407.14041 (2024) 41. Qing, Z., Zhang, S., Wang, J., Wang, X., Wei, Y., Zhang, Y., Gao, C., Sang, N.: Hierarchical spatio-temporal decoupling for text-to-video generation. In: Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 6635–6645 (2024) 42. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 43. Runway: Introducing gen-3 alpha: A new frontier for video generation. https: //runwayml.com/blog/introducing-gen-3-alpha/ (2024) 44. Sun, K., Huang, K., Liu, X., Wu, Y., Xu, Z., Li, Z., Liu, X.: T2v-compbench: A com-prehensive benchmark for compositional text-to-video generation. arXiv preprint arXiv:2407.14505 (2024) 45. Sun, K., Huang, K., Liu, X., Wu, Y., Xu, Z., Li, Z., Liu, X.: T2v-compbench: A comprehensive benchmark for compositional text-to-video generation. In: Proceed-ings of the Computer Vision and Pattern Recognition Conference. pp. 8406–8416 (2025) 46. Tang, Z., Peng, J., Tang, J., Hong, M., Wang, F., Chang, T.H.: Inference-time alignment of diffusion models with direct noise optimization. arXiv preprint arXiv:2405.18881 (2024) 47. Teed, Z., Deng, J.: Raft: Recurrent all-pairs field transforms for optical flow. In: Computer Vision–ECCV 2020: 16th European Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part II 16. pp. 402–419. Springer (2020) 48. Tian, Y., Yang, L., Yang, H., Gao, Y., Deng, Y., Wang, X., Yu, Z., Tao, X., Wan, P., ZHANG, D., et al.: Videotetris: Towards compositional text-to-video generation. Advances in Neural Information Processing Systems 37 , 29489–29513 (2024) 49. Trager, M., Perera, P., Zancato, L., Achille, A., Bhatia, P., Soatto, S.: Linear spaces of meanings: compositional structures in vision-language models. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 15395–15404 (2023) NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 19 50. Wallace, B., Dang, M., Rafailov, R., Zhou, L., Lou, A., Purushwalkam, S., Ermon, S., Xiong, C., Joty, S., Naik, N.: Diffusion model alignment using direct preference optimization. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 8228–8238 (2024) 51. Wallace, B., Gokul, A., Ermon, S., Naik, N.: End-to-end diffusion latent optimiza-tion improves classifier guidance. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 7280–7290 (2023) 52. Wan, T., Wang, A., Ai, B., Wen, B., Mao, C., Xie, C.W., Chen, D., Yu, F., Zhao, H., Yang, J., et al.: Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 (2025) 53. Wang, F.Y., Huang, Z., Bian, W., Shi, X., Sun, K., Song, G., Liu, Y., Li, H.: Animatelcm: Computation-efficient personalized style video generation without personalized video data. In: SIGGRAPH Asia 2024 Technical Communications, pp. 1–5 (2024) 54. Wang, J., Yuan, H., Chen, D., Zhang, Y., Wang, X., Zhang, S.: Modelscope text-to-video technical report. arXiv preprint arXiv:2308.06571 (2023) 55. Wang, Y., Chen, X., Ma, X., Zhou, S., Huang, Z., Wang, Y., Yang, C., He, Y., Yu, J., Yang, P., et al.: Lavie: High-quality video generation with cascaded latent diffu-sion models. International Journal of Computer Vision 133 (5), 3059–3078 (2025) 56. Wang, Y., He, Y., Li, Y., Li, K., Yu, J., Ma, X., Li, X., Chen, G., Chen, X., Wang, Y., et al.: Internvid: A large-scale video-text dataset for multimodal understanding and generation. arXiv preprint arXiv:2307.06942 (2023) 57. Wu, X., Hao, Y., Sun, K., Chen, Y., Zhu, F., Zhao, R., Li, H.: Human preference score v2: A solid benchmark for evaluating human preferences of text-to-image synthesis. arXiv preprint arXiv:2306.09341 (2023) 58. Wu, X., Sun, K., Zhu, F., Zhao, R., Li, H.: Human preference score: Better aligning text-to-image models with human preference. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 2096–2105 (2023) 59. Wu, X., Huang, S., Wang, G., Xiong, J., Wei, F.: Boosting text-to-video generative model with mllms feedback. In: The Thirty-eighth Annual Conference on Neural Information Processing Systems (2024) 60. Xu, J., Huang, Y., Cheng, J., Yang, Y., Xu, J., Wang, Y., Duan, W., Yang, S., Jin, Q., Li, S., et al.: Visionreward: Fine-grained multi-dimensional human preference learning for image and video generation. arXiv preprint arXiv:2412.21059 (2024) 61. Xu, J., Liu, X., Wu, Y., Tong, Y., Li, Q., Ding, M., Tang, J., Dong, Y.: Imagere-ward: Learning and evaluating human preferences for text-to-image generation. Advances in Neural Information Processing Systems 36 , 15903–15935 (2023) 62. Xu, K., Zhang, L., Shi, J.: Good seed makes a good crop: Discovering secret seeds in text-to-image diffusion models. In: 2025 IEEE/CVF Winter Conference on Ap-plications of Computer Vision (WACV). pp. 3024–3034. IEEE (2025) 63. Yang, K., Tao, J., Lyu, J., Ge, C., Chen, J., Shen, W., Zhu, X., Li, X.: Using human feedback to fine-tune diffusion models without any reward model. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 8941–8951 (2024) 64. Yang, Z., Teng, J., Zheng, W., Ding, M., Huang, S., Xu, J., Yang, Y., Hong, W., Zhang, X., Feng, G., et al.: Cogvideox: Text-to-video diffusion models with an expert transformer. arXiv preprint arXiv:2408.06072 (2024) 65. Yuan, H., Zhang, S., Wang, X., Wei, Y., Feng, T., Pan, Y., Zhang, Y., Liu, Z., Albanie, S., Ni, D.: Instructvideo: Instructing video diffusion models with human feedback. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 6463–6474 (2024) 20 Y. Pu and Y. Kong 66. Yuksekgonul, M., Bianchi, F., Kalluri, P., Jurafsky, D., Zou, J.: When and why vision-language models behave like bags-of-words, and what to do about it? arXiv preprint arXiv:2210.01936 (2022) 67. Zhang, D.J., Wu, J.Z., Liu, J.W., Zhao, R., Ran, L., Gu, Y., Gao, D., Shou, M.Z.: Show-1: Marrying pixel and latent diffusion models for text-to-video generation. International Journal of Computer Vision pp. 1–15 (2024) 68. Zheng, Z., Peng, X., Yang, T., Shen, C., Li, S., Liu, H., Zhou, Y., Li, T., You, Y.: Open-sora: Democratizing efficient video production for all. arXiv preprint arXiv:2412.20404 (2024) 69. Zhou, D., Wang, W., Yan, H., Lv, W., Zhu, Y., Feng, J.: Magicvideo: Efficient video generation with latent diffusion models. arXiv preprint arXiv:2211.11018 (2022) 70. Zhou, Z., Shao, S., Bai, L., Zhang, S., Xu, Z., Han, B., Xie, Z.: Golden noise for diffusion models: A learning framework. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 17688–17697 (2025) NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 1
+
+# NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 
+
+# Supplementary Material 
+
+A More Implementation Details 
+
+Considering that different reward models produce outputs on different scales, we assign them separate weights α in Eq. 7. Specifically, HPSv2 and ViCLIP measure cosine similarity between text and video, with most values falling in the range of [0 .2, 0.4] , so their weights are set to 2. The raw scores of ImageReward lie within [−2, +2] ; we normalize them to [0 , 1] using min-max scaling to ensure non-negative rewards, and assign a weight of 1. For the motion reward, both the dynamic and smoothness terms are in [0 , 1] , with λ = 0 .5 and an overall weight of 1. We use GPT-4o to generate 8 negative samples per prompt. For negative-aware reward calibration, we set m = 0 .02 and τ = 0 .01 for HPSv2, and m = τ = 0 .05 for ViCLIP. We keep the original ImageReward since it is not based on video-text contrastive pretraining, and this also helps save memory and maintain inference speed. On both benchmarks, we empirically apply the above default settings for the two baseline models, which already demonstrate strong performance. Our code will be open-source upon acceptance. To construct hard negatives for reward calibration, we designed an auto-mated pipeline using the OpenAI API. Figure 9 illustrates the prompt template along with several generated examples. Given an input prompt from a specific dimension, the pipeline iterates through each prompt and queries GPT-4o with explicit instructions to generate syntactically similar but semantically different variants. Negatives are produced by modifying only one category at a time ( e.g ., subject, object, or action), ensuring that changes reflect clear semantic shifts rather than trivial rephrasings or synonyms. For each prompt, the model returns a fixed number of negatives (eight by default) in strict JSON format, which are automatically parsed, validated, and saved into a consolidated JSON file. This process yields a large pool of structured negatives that are consistent in format and directly usable for contrastive learning and evaluation. 
+
+B More Ablation Studies 
+
+Different Combination of Reward Models. In this section, we present all the combinations of the reward models in Table 9. Among single-reward set-tings, ViCLIP delivers the strongest gains in overall consistency and color fi-delity, highlighting its strength in semantic alignment and global appearance, whereas ImageReward performs best on multiple objects and spatial relations, reflecting its training on fine-grained visual-text cues. The motion reward is 2 Y. Pu and Y. Kong 
+
+Table 9: All Combinations of reward models applied to NoisEasier (MS) on VBench. The best score for each number of reward models is highlighted in green , and the second-best in yellow . * indicates integrating negative-aware reward calibration.                                                                                                                                                                
+
+> HPSv2 ImgReward ViCLIP Motion Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree
+> ✗✗✗✗27.40 54.50 89.90 46.62 95.51 70.83
+> ✓✗✗✗27.85 64.66 90.20 46.21 95.19 54.72
+> ✗✓✗✗28.24 73.78 90.27 47.16 95.36 61.11
+> ✗✗✓✗36.21 68.05 91.19 41.92 94.98 63.89
+> ✗✗✗✓26.05 47.68 87.32 42.07 95.59 85.56
+> ✓✓✗✗28.40 74.02 89.35 47.18 95.53 55.28
+> ✓✗✓✗34.57 70.78 92.63 43.87 94.77 58.89
+> ✓✗✗✓27.28 58.28 89.31 44.09 95.52 76.67
+> ✗✓✓✗32.31 71.75 90.69 46.89 95.31 62.78
+> ✗✓✗✓28.03 73.26 89.34 44.43 95.43 74.72
+> ✗✗✓✓34.61 64.04 89.28 43.53 94.95 80.28
+> ✓✓✓✗31.95 74.09 92.01 46.78 95.30 59.44
+> ✓✓✗✓28.20 73.16 91.50 46.36 95.38 75.28
+> ✓✗✓✓33.46 71.39 91.54 47.26 95.19 76.11
+> ✗✓✓✓31.96 74.82 92.22 47.49 95.35 75.56
+> ✓✓✓✓31.74 75.82 93.29 47.95 95.38 73.33
+> ✓*✓✓*✓32.05 76.62 94.38 48.93 95.29 71.39
+
+more distinctive: although it trails others on appearance-related metrics, it sub-stantially boosts dynamic degree and smoothness, underscoring its importance in preventing static generations. When combining rewards, synergies are clear: pairing the motion reward with ViCLIP or ImageReward strikes a strong bal-ance between temporal dynamics and spatial fidelity, while conflicts also appear; for instance, HPSv2 with other rewards can suppress motion expressiveness even as it improves color quality. Notably, the best three-reward combinations ( e.g ., ImageReward + ViCLIP + Motion) nearly match the four-reward setting. Over-all, the results show that different reward models specialize in complementary dimensions, and that careful combinations are crucial to balancing fidelity, com-positionality, and temporal quality. 
+
+Weight Sensitivity of Reward Models. As discussed in Sec.,A, different re-ward models operate on different numerical scales, so we assign separate weights 
+
+α to HPSv2, ImageReward, ViCLIP, and the motion reward. Among the evalu-ated dimensions, Overall Consistency mainly reflects video–text semantic align-ment, whereas the remaining dimensions capture object- and motion-level prop-erties. We observe that semantic alignment varies only moderately across set-tings, and most metrics remain within a narrow range. One exception is Dynamic Degree, which shows higher variance because VBench uses a RAFT-based binary test (above or below a motion threshold), so small motion changes can flip the score. In contrast, Motion Smoothness exhibits very low variance, since it is computed from interpolation error and most samples already have reasonably smooth motion. As a result, changing the reward weights has limited effect on this metric. In terms of trade-offs, placing greater weight on HPSv2 and Vi-CLIP slightly reduces Dynamic Degree, whereas emphasizing ImageReward and motion improves Dynamic Degree at some cost to Spatial Relation. Our final NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 3
+
+Table 10: Performance of NoisEasier (MS) on VBench under different reward weight combinations. The best performance across all combinations is shown in bold, while the worst performance is shaded in gray.                                                                                        
+
+> HPSv2 ImgReward ViCLIP Motion Overall Consist. Multiple Objects Color Spatial Relation. Motion Smooth. Dynamic Degree 0.0 0.0 0.0 0.0 27.40 54.50 89.90 46.62 95.51 70.83 1.0 1.0 1.0 1.0 31.16 75.08 91.16 46.27 95.55 70.56 1.0 2.0 1.0 2.0 30.10 73.11 91.53 48.95 95.43 70.83 5.0 1.0 5.0 1.0 32.76 75.43 92.88 47.64 95.35 65.00 2.0 2.0 1.0 1.0 29.91 75.06 93.01 49.95 95.48 70.00 2.0 1.0 1.0 2.0 30.55 71.07 93.56 47.44 95.45 74.72 1.0 2.0 2.0 1.0 31.45 76.25 93.06 46.01 95.25 70.28 1.0 1.0 2.0 2.0 31.90 72.01 93.15 44.86 95.33 77.50
+> 2.0 1.0 2.0 1.0 32.05 76.62 94.38 48.93 95.29 71.39
+
+configuration strikes a balanced compromise, achieving competitive semantic alignment and strong object- and motion-related scores, while overall variation across settings remains modest. 
+
+Table 11: Initial noise vs. Full trajectory optimization on T2V-CompBench. Models Consist Attr. Dynamic Attr. Spatial Motion Action Interaction Numeracy AnimateLCM+Init. 0.7326 0.0121 0.4899 0.2291 0.4027 0.4469 0.2503 AnimateLCM+Full. 0.7807 0.0183 0.5113 0.2281 0.4362 0.5365 0.2567 T2V-Turbo (MS)+Init. 0.8343 0.0094 0.5262 0.2370 0.5989 0.6243 0.3641 T2V-Turbo (MS)+Full. 0.8375 0.0147 0.5259 0.2502 0.6477 0.6743 0.3983 T2V-Turbo (VC2)+Init. 0.8524 0.0092 0.5434 0.2207 0.6961 0.7765 0.3781 T2V-Turbo (VC2)+Full. 0.8737 0.0097 0.5660 0.2343 0.7524 0.7915 0.3753 
+
+C Additional Results on Modern Video Generators 
+
+Since NoisEasier performs iterative gradient-based optimization, directly apply-ing it to large diffusion backbones with long denoising chains, e.g., Wan2.1-14B [52] or HunyuanVideo [24], remains computationally prohibitive. For exam-ple, generating a single 5-second video with Wan2.1-14B requires approximately 56 minutes and 69 GB peak VRAM on a single A100 GPU, making repeated forward/backward optimization impractical. To further evaluate the generality of NoisEasier, we additionally apply our framework to two recent distilled video generators, FastWan 2.1-1.3B 2 (81 frames, 3-step sampling) and LTX-Video-2B-distilled [19] (121 frames, 10-step sampling).  
+
+> 2
+
+https://github.com/hao-ai-lab/fastvideo 4 Y. Pu and Y. Kong 
+
+Table 12: VBench Evaluation. Model Consist. Object Color FastWan 2.1-1.3B 21.49 58.43 87.77 + NoisEasier 23.71 68.09 90.01 
+
+Table 13: T2V-CompBench. Model Consist. Action Interaction LTXV-2B-distilled 0.7702 0.3631 0.4135 + NoisEasier 0.8081 0.4230 0.4931 “A cute fluffy panda eating Chinese food in a restaurant.” “A blue car drives past a white picket fence on a sunny day” 
+
+> FastWan LTXV-2B +NoisEasier +NoisEasier
+
+Fig. 10: Qualitative results on two modern fast generators. 
+
+Tables 12 and 13 show that NoisEasier consistently improves both FastWan and LTX-Video-2B-distilled under the default optimization setting. On Fast-Wan, NoisEasier improves Overall Consistency by 2.22% while also yielding substantial gains in object recognition and color consistency. Similarly, on LTX-Video-2B-distilled, NoisEasier consistently improves overall consistency, action understanding, and object interaction. Figure 10 further presents representative qualitative examples, demonstrating improved semantic alignment across diverse prompts. These preliminary results suggest that NoisEasier generalizes beyond the VCM backbones studied in the main paper and remains effective on modern distilled video generators. 
+
+D More Visualization Results 
+
+We provide more qualitative examples from Figure 11 to Figure 14 to illustrate the effectiveness of our method. 
+
+E Limitations and Future Work 
+
+As a test-time optimization framework, NoisEasier inevitably introduces addi-tional inference overhead compared with vanilla sampling, making it less suit-able for latency-sensitive applications. Moreover, it primarily improves semantic alignment rather than the intrinsic visual quality of the backbone, which remains bounded by the underlying generator and imperfect reward proxies. Our study also focuses on short, single-scene video generation; extending noise refinement to longer videos, more complex narratives, or higher resolutions remains chal-lenging due to weaker reward signals and increased optimization cost. Future work will explore stronger video-level rewards and more efficient optimization strategies for long-horizon video generation. NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 5System-Msg : “You are an assistant for generating hard negative prompts for text-to-video generation. Given an original text prompt and a set of compositional categories, your task is to generate a specified number of hard negative prompts. Negatives should be generated by applying operations such as replacement, swapping, or modification across specified categories like subject, object, color, shape, spatial relationship, numeracy, action, and scenario. First, identify which of the provided categories are explicitly present in the original prompt. Only modify categories that are present. ” For each negative prompt: 
+
+• Modify exactly ONE present category per sample; all other elements must remain unchanged. 
+
+• Keep the syntax and structure consistent with the original prompt. 
+
+• Ensure the modification is semantically contrastive. Do not use synonyms, near-synonyms, or trivial rephrasing. 
+
+• The output must strictly follow this JSON format: "{\n" "original_prompt: \"<original_prompt>\", "negative_prompt": [\"negative1\", \"negative2\", ..., \"negativeN\"]\n"}" 
+
+Input: 
+
+Original Prompt: "A blue car drives past a white picket fence on a sunny day" Category to modify: ["color"] Number of negative prompts: 8 
+
+Output: 
+
+{"original_prompt": "A blue car drives past a white picket fence on a sunny day", "negative_prompt": ["A red car drives past a white picket fence on a sunny day", "A green car drives past a white picket fence on a sunny day", "A black car drives past a white picket fence on a sunny day”, "A yellow car drives past a white picket fence on a sunny day", "A blue car drives past a black picket fence on a sunny day”, "A blue car drives past a brown picket fence on a sunny day", "A blue car drives past a red picket fence on a sunny day", "A blue car drives past a green picket fence on a sunny day"]} 
+
+Input: 
+
+Original Prompt: "A dog running on the left of a bicycle" Category to modify: ["spatial relationship", "object"] Number of negative prompts: 8 
+
+Output: 
+
+{"original_prompt": "A dog running on the left of a bicycle", "negative_prompt": ["A dog running on the right of a bicycle", "A dog running in front of a bicycle", "A dog running behind a bicycle", "A dog running under a bicycle", "A cat running on the left of a bicycle", "A bird running on the left of a bicycle", "A dog running on the left of a car", "A dog running on the left of a rock"]} 
+
+Input: 
+
+Original Prompt: "One tree stands tall, swaying gently in the breeze." Category to modify: ["numeracy"] Number of negative prompts: 8 
+
+Output: 
+
+{”original_prompt": "One tree stands tall, swaying gently in the breeze.", "negative_prompt": ["Two trees stand tall, swaying gently in the breeze.", "Three trees stand tall, swaying gently in the breeze.", "Four trees stand tall, swaying gently in the breeze.", "Five trees stand tall, swaying gently in the breeze.", "Six trees stand tall, swaying gently in the breeze.", "Seven trees stand tall, swaying gently in the breeze.", "Eight trees stand tall, swaying gently in the breeze.", "Nine trees stand tall, swaying gently in the breeze."]} 
+
+Fig. 9: Prompt template and generated negative samples of GPT-4o. 6 Y. Pu and Y. Kong Origami dancers in white paper, 3D render, on white background, studio shot, dancing modern dance. 
+
+> AnimateLCM NoisEasier
+
+an orange vase. a bottle on the left of a wine glass, front view 
+
+a car and a motorcycle 
+
+> AnimateLCM NoisEasier AnimateLCM NoisEasier AnimateLCM NoisEasier
+
+Fig. 11: Qualitative comparison between AnimateLCM and NoisEasier on VBench. NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 7Velvet ribbon tied on an iron fence 
+
+> AnimateLCM NoisEasier
+
+A blue car drives past a white picket fence on a sunny day An elephant standing on the left of a rowboat in a small pond Five cups sit on a table, steaming with fresh coffee. 
+
+> AnimateLCM NoisEasier AnimateLCM NoisEasier AnimateLCM NoisEasier
+
+Fig. 12: Qualitative comparison between AnimateLCM and NoisEasier on T2V-CompBench. 8 Y. Pu and Y. Kong A corgi's head depicted as an explosion of a nebula A panda standing on a surfboard in the ocean in sunset A pink bird A yellow cat 
+
+> T2V-Turbo NoisEasier T2V-Turbo NoisEasier
+
+A teddy bear and a frisbee A zebra and a giraffe An astronaut flying in space a person playing guitar 
+
+broccoli on the top of a banana, front view a bicycle on the left of a car, front view 
+
+> T2V-Turbo NoisEasier T2V-Turbo NoisEasier T2V-Turbo NoisEasier
+
+Fig. 13: Qualitative comparison between baseline results and NoisEasier on VBench. 
+
+Left : T2V-Turbo (VC2). Right : T2V-Turbo (MS). NoisEasier: Test-Time Noise Optimization for Text-to-Video Generation 9Orange cat sleeping on a purple cushion A black dog sits beside a red vase on a table A timelapse of a leaf transitioning from green to bright red as autumn progresses A timelapse of a flower bud blooming into a full flower 
+
+> T2V-Turbo NoisEasier T2V-Turbo NoisEasier
+
+A dog running on the left of a bicycle A cat sitting behind a cake A musician is strumming a guitar on stage, while a dancer is twirling gracefully under the spotlight. A person rides a bicycle, a rabbit hops alongside the path Five elephants splash water from a river Five oranges roll across the table 
+
+> T2V-Turbo NoisEasier T2V-Turbo NoisEasier T2V-Turbo NoisEasier
+
+Fig. 14: Qualitative comparison between baseline results and NoisEasier on T2V-CompBench. Left : T2V-Turbo (VC2). Right : T2V-Turbo (MS).
