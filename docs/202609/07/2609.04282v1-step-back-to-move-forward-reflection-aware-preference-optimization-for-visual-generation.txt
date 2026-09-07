@@ -1,0 +1,567 @@
+Title: Step Back to Move Forward: Reflection-Aware Preference Optimization for Visual Generation
+
+URL Source: https://arxiv.org/pdf/2609.04282v1
+
+Published Time: Mon, 07 Sep 2026 00:06:21 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Step Back to Move Forward: Reflection-Aware Preference Optimization for Visual Generation 
+
+## Junlong Wu ∗
+
+wu-jl24@mails.tsinghua.edu.cn Tsinghua University Beijing, China 
+
+## Jiuzhou Lin ∗
+
+lin-jz24@mails.tsinghua.edu.cn Tsinghua University Beijing, China 
+
+## Jia Sun ✉†
+
+sunjia05@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Boheng Zhang 
+
+yangxiao16@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Huaiqing Wang 
+
+wanghuaiqing@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Dewen Fan 
+
+fandewen@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Houde Liu ✉†
+
+liu.hd@sz.tsinghua.edu.cn Tsinghua University Beijing, China 
+
+## Qianqian Gan 
+
+ganqianqian@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Fan Yang 
+
+yangfan@kuaishou.com Kuaishou Technology Beijing, China 
+
+## Tingting Gao 
+
+gtt0511@163.com Kuaishou Technology Beijing, China 
+
+## Abstract 
+
+Diffusion models have become the mainstream paradigm for mod-ern visual generation and have substantially advanced multimedia content synthesis, especially in text-to-image and text-to-video tasks. To further align such generative models with human pref-erences, reinforcement learning (RL) has recently shown strong potential as a post-training strategy. Nevertheless, existing policy gradient-based methods often explore inefficiently, making them vulnerable to local optima that may degrade semantic faithful-ness and visual realism. To address these challenges, we present Reflection-Aware GRPO (RA-GRPO), a new RL-based preference alignment framework for diffusion generative models. The core idea is to improve ‘forward’ generation by incorporating ‘backward’ reflection during optimization. We first introduce Diffusion Reflec-tion, which rectifies intermediate sampling trajectories by inverting the diffusion process with a weak estimator, guiding latent states toward higher-probability regions of the true data manifold. Fur-thermore, we introduce Counterfactual Path Synthesis to implicitly distill these rectified trajectories into the policy, enabling the model to internalize the benefits of search-based exploration without in-curring inference-time overhead. Extensive experiments on T2I and T2V models demonstrate that RA-GRPO significantly outperforms existing methods, particularly in mitigating reward hacking and im-proving generalization. The method remains architecture-agnostic and integrates seamlessly with standard pipelines, suggesting a promising direction for stable preference alignment. 
+
+> ∗Both authors contributed equally to this research.
+> †Corresponding author.
+
+## CCS Concepts 
+
+• Computing methodologies → Artificial intelligence .
+
+## Keywords 
+
+Diffusion Models; Reinforcement Learning; Human Preference Align-ment 
+
+## 1 Introduction 
+
+Recent advances in diffusion models [5, 13, 23, 32, 37, 38, 42] have significantly advanced visual generation and enabled high fidelity image synthesis from textual descriptions. As diffusion models become a mainstream paradigm for multimedia content creation, aligning their outputs with complex human preferences, such as aes-thetic quality, semantic consistency, and structural faithfulness, has become increasingly important. In this context, reinforcement learn-ing has emerged as a promising post training strategy for preference alignment. Standard reinforcement learning objectives [30, 34] for-mulate alignment as the maximization of expected reward, where policy updates are driven by gradient estimates computed from trajectories sampled from the model’s current policy. However, this dependency exposes an important limitation. The optimization process of RL is largely restricted to the current gen-erative manifold of the model [6, 33]. In practice, the model mainly improves by reweighting already accessible generation paths, rather than exploring potentially better inference trajectories or knowl-edge regions that remain outside its current capability. This limita-tion is especially problematic for Group Relative Policy Optimiza-tion (GRPO) [35], which relies on relative advantage estimation, particularly during the early cold start stage. At this stage, the model is still poorly aligned, and the generated samples for a given arXiv:2609.04282v1 [cs.CV] 3 Sep 2026 prompt are often uniformly low in quality. Under such circum-stances, DanceGRPO [48] uses the group average as the baseline and treats samples that are only relatively better within the group as positive signals. For visual generation tasks with sparse rewards, this strategy is often ineffective, since the selected samples may still be far from truly desirable outputs in terms of semantic fidelity and visual quality. Without genuinely high reward samples to provide reliable guidance, the resulting gradient estimates become noisy, exploration remains inefficient, and the optimization process is prone to poor local optima. To address these limitations, we incorporate a novel exploration mechanism, termed Diffusion Reflection, into the trajectory sam-pling process. Rather than restricting exploration to the forward trajectories induced by the current policy, our method introduces an inverse diffusion process to refine sampled paths during train-ing. By alternating denoising and inversion operations, Diffusion Reflection redirects latent variables away from suboptimal trajec-tories and toward regions that are better aligned with the true data distribution and associated with higher rewards. In this way, the proposed mechanism improves sample quality, alleviates the exploration bias of the current policy, and expands the range of trajectories available for effective preference optimization. Although Diffusion Reflection produces improved trajectories, directly exploiting these trajectories for policy optimization is non-trivial. The main challenge is not sample validity, but the mismatch between reflection refined trajectories and the training signals used in standard policy gradient methods. In conventional optimization, learning is driven by the log probabilities of transitions sampled from the current policy. As a result, improvements introduced by reflection are difficult to absorb effectively, since the refined states are not explicitly represented as natural transition outcomes under the original sampling path. Consequently, the policy may benefit from better samples at the reward level, yet still fail to learn the transition behavior that reproduces these improvements during generation. To address this issue, we propose Counterfactual Path Synthesis, a mechanism that converts reflection refined trajectories into consistent supervision for policy learning. Instead of treating the refined trajectory as an isolated search result, we construct a counterfactual transition that associates the refined state with the original generation context and forms a coherent training path for optimization. This design enables the policy to internalize the use-ful structure revealed by reflection and gradually reproduce similar improvements through standard generation. In this way, the benefit of reflection based search is distilled into the model during training, without introducing additional cost during inference. In summary, our contributions are as follows: 
+
+• We introduce Diffusion Reflection, a new exploration mech-anism for RL based optimization of diffusion models. By exploiting the invertibility of diffusion dynamics, it guides trajectory sampling toward more promising high reward regions. 
+
+• We propose Counterfactual Path Synthesis, a training strat-egy that bridges the gap between reflection refined trajecto-ries and standard policy optimization. This design enables the model to absorb the benefits of reflection based search through implicit distillation. 
+
+• We conduct extensive experiments to validate the proposed method. The results show that Reflection Aware GRPO con-sistently outperforms strong baselines in both alignment efficiency and generation quality. 
+
+## 2 Related Work 2.1 RL-based Alignment for Generative Models 
+
+Aligning generative models with human preferences has evolved from supervised fine-tuning to sophisticated Reinforcement Learn-ing (RL) paradigms, following their widespread and successful adop-tion in Large Language Models (LLMs) [3, 15, 25, 30, 40]. Notable works [4, 7, 47] treat the denoising process as a multi-step decision-making problem, optimizing the score function to maximize aes-thetic scores or groundability. Methods [39, 41] introduced an offline approach adapted from DPO [8], allowing models to learn directly from paired preference data. Recent advancements [24, 48] have successfully transplanted GRPO [35] to continuous-time genera-tive models. These methods typically transform the deterministic Ordinary Differential Equation (ODE) sampling into a Stochastic Differential Equation (SDE) formulation at each timestep. To further refine the efficacy of GRPO, recent variants [10, 11, 16, 18, 26, 44] have focused on structural optimizations regarding sampling ef-ficiency and update granularity. By employing hybrid ODE-SDE sampling strategies, decomposing long-horizon trajectories into manageable segments, or refining the scope of supervision, these methods effectively mitigate the computational overhead and tem-poral credit assignment ambiguity inherent in full-step SDE sam-pling. Beyond visual generation, diffusion models and reinforce-ment learning have been widely applied to diverse perception and control problems [9, 19–22, 45, 49], underscoring the generality of reward-driven optimization as a paradigm. 
+
+## 2.2 Self-Reflection in Generative Models 
+
+Drawing inspiration from the success of reflective mechanisms in Large Language Models, where models iteratively critique and refine their own outputs to enhance reasoning capabilities [29, 31, 36], recent research has adapted similar self-corrective paradigms to diffusion-based visual generation. Existing approaches largely branch into two paradigms: (i) Inference-Time Refinement, where methods [1, 2, 17] enhance generation fidelity by iteratively re-fining latent representations or utilizing non-monotonic forward-backward sampling strategies to dynamically adjust the generative path; (ii) Optimization via Feedback [27, 50], which uses reflec-tive signals as supervision to distill teacher-level capabilities into weaker models or to fine-tune responses to complex prompts. De-spite their effectiveness, these approaches typically treat reflection as a temporary inference-time procedure and lack a mechanism to convert this additional computation into a persistent training-time signal that shapes the model’s generative behavior. 
+
+## 3 Method 
+
+In this section, we present our proposed framework, Reflection-
+
+Aware Group Relative Policy Optimization ( RA-GRPO ). We first formulate reinforcement learning for diffusion models. Next, we introduce Diffusion Reflection, an exploration mechanism that im-proves trajectory sampling by refining latent trajectories toward  
+
+> 2Expanded Solution Space High-Reward Regions( �푑푎 푎 )
+> � 
+> Randomized Single Step Reflection Suboptimal Region( ��)Low-Reward Difference Vector
+> �  = �푙� � 푑푎 푎  − �푙� � �
+> Weak Estimator( ��)Strong Estimator( ��)Standard GRPO Diffusion Reflection Difference Vector �( )
+> ��(Initial Noise)
+> Probabilistic Sampling Trajectory
+
+. . . . . . 
+
+> Step A :Forward Strong Denoise
+> Step B :Backward Weak Inversion
+> Step C :Forward Strong Denoise
+> ��(Initial Noise)
+> Probabilistic Sampling Trajectory
+
+. . . . . .  
+
+> ��
+
+. . . 
+
+> Diffusion Reflection
+> Low Computational Overhead
+> Single-step computation
+> Standard Output High -Quality Output
+> Counterfactual History
+
+�풔풚�   
+
+Caption: Cristiano Ronaldo holding a chicken in an oil painting from the 1980s. 
+
+> Distillation
+
+. . . . . .   
+
+> Diffusion Reflection
+> Implicit Distillation via Counterfactual Path Synthesis
+> Reflection-Driven Active Exploration
+> ��−1
+> ����−1
+> �1�0
+> ��−1
+> ��
+
+     
+
+> ��
+> ��−1 �1�0
+> �1�0
+> ��
+> ��−1
+
+. . . � � − 1 . . .  Figure 1: Visualization of the proposed RA-GRPO framework. The figure illustrates the key components of the RA-GRPO pipeline, including Diffusion Reflection, Implicit Distillation via Counterfactual Path Synthesis, and Active Exploration. The process involves a probabilistic sampling trajectory, with steps of forward denoising, backward reflection, and counterfactual path synthesis. The system aims to generate high-quality outputs while exploring expanded solution spaces with low computa-tional overhead. Example output: A synthetic oil painting of Cristiano Ronaldo holding a chicken from the 1980s. 
+
+more promising regions. We then present Counterfactual Path Syn-thesis, which converts reflection-refined trajectories into effective supervision for policy optimization. Finally, we discuss how the proposed framework helps reduce reward hacking during training. An overview of RA-GRPO is illustrated in Figure 1. 
+
+## 3.1 Preliminaries: RL for Diffusion Models 
+
+Flow Matching [23] learns a continuous-time vector field that trans-ports samples between a simple prior distribution and the data distribution 𝑝 data . Let 𝑥 0 ∼ 𝑝 data denote a real data sample and 
+
+𝑥 1 ∼ N ( 0, 𝐼 ) denote a noise sample. Following the conditional op-timal transport formulation, we define a linear probability path as: 
+
+𝑥 𝑡 = (1 − 𝑡 )𝑥 0 + 𝑡𝑥 1, 𝑡 ∈ [ 0, 1]. (1) The corresponding conditional target velocity along this path is 
+
+𝑢 𝑡 (𝑥 𝑡 | 𝑥 0, 𝑥 1) = 𝑑𝑥 𝑡 
+
+𝑑𝑡 = 𝑥 1 − 𝑥 0, (2) and the model is trained to learn a time-dependent velocity field 
+
+𝑣 𝜃 (𝑥 𝑡 , 𝑡 ) that matches this transport behavior. At inference time, Flow Matching typically performs determin-istic sampling by solving the ordinary differential equation 𝑑𝑥 𝑡  
+
+> 𝑑𝑡
+
+=
+
+𝑣 𝜃 (𝑥 𝑡 , 𝑡 ). While this deterministic formulation is effective for gen-eration, it provides limited exploration for reinforcement learning, since the transition from a given state is fully determined by the current vector field. In contrast, GRPO requires multiple diverse rollouts under the same conditioning input in order to estimate group-wise relative advantages. To introduce stochasticity into the sampling process, we follow recent works [24, 48] and adopt an equivalent stochastic differential equation formulation: 
+
+𝑑𝑥 𝑡 =
+
+
+
+𝑣 𝜃 (𝑥 𝑡 , 𝑡 ) + 𝜎 2
+
+> 𝑡
+
+2𝑡 
+
+
+
+𝑥 𝑡 + ( 1 − 𝑡 )𝑣 𝜃 (𝑥 𝑡 , 𝑡 )
+
+
+
+𝑑𝑡 + 𝜎 𝑡 𝑑𝑤 𝑡 , (3) where 𝑤 𝑡 denotes a Wiener process and 𝜎 𝑡 is a predefined noise schedule controlling the level of stochasticity. In practice, we solve the SDE over 𝑡 ∈ [ 𝜖, 1] with a small 𝜖 > 0 to avoid the singularity at 𝑡 = 0. Under this construction, the correction term compensates for the injected noise and preserves the marginal distributions of the underlying deterministic flow. Given a prompt 𝑐 , the model generates a group of 𝐺 trajectories 
+
+{𝜏 (𝑖 ) }𝐺 𝑖 =1 using the stochastic sampler described above, where 𝜏 (𝑖 ) =
+
+{𝑥 (𝑖 ) 
+
+> 𝑡
+
+}𝑇 𝑡 =0 and 𝑥 (𝑖 ) 
+
+> 0
+
+denotes the final generated sample. We compute a trajectory-level reward 𝑟 (𝑥 (𝑖 ) 
+
+> 0
+
+, 𝑐 ) for each sample and normalize it within the group to obtain the relative advantage: 
+
+𝐴 𝑖 = 𝑟 (𝑥 (𝑖 ) 
+
+> 0
+
+, 𝑐 ) − 1
+
+> 𝐺
+
+Í𝐺 𝑗 =1 𝑟 (𝑥 ( 𝑗 ) 
+
+> 0
+
+, 𝑐 )
+
+std  {𝑟 (𝑥 ( 𝑗 ) 
+
+> 0
+
+, 𝑐 )} 𝐺 𝑗 =1
+
+ + 𝛿 , (4) where 𝛿 is a small constant for numerical stability. Since the reward is defined on the final generated sample, the resulting advantage 
+
+𝐴 𝑖 is shared across all timesteps of the 𝑖 -th trajectory. The policy parameters 𝜃 are then optimized with the GRPO objective: 
+
+JGRPO (𝜃 ) = E𝑐, {𝜏 (𝑖 ) }𝐺 𝑖 =1∼𝜋 old 
+
+"
+
+1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+1
+
+𝑇 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+
+
+min  𝜌 (𝑖 ) 
+
+> 𝑡
+
+𝐴 𝑖 ,
+
+clip (𝜌 (𝑖 ) 
+
+> 𝑡
+
+, 1 − 𝜀, 1 + 𝜀 )𝐴 𝑖 
+
+ − 𝛽 DKL 
+
+ 𝜋 𝜃 ∥ 𝜋 ref 
+
+#
+
+,
+
+(5) 
+
+> 3
+
+where 𝜌 (𝑖 ) 
+
+> 𝑡
+
+= 𝜋 𝜃 (𝑥 (𝑖 )                
+
+> 𝑡 −1|𝑥 (𝑖 )
+> 𝑡 ,𝑐,𝑡 )
+> 𝜋 old (𝑥 (𝑖 )
+> 𝑡 −1|𝑥 (𝑖 )
+> 𝑡 ,𝑐,𝑡 )
+
+. Here, 𝜀 is the PPO clipping parameter, and 𝛽 controls the strength of KL regularization with respect to the reference policy 𝜋 ref , which helps stabilize policy updates and prevent excessive drift from the pretrained model. 
+
+## 3.2 Active Exploration via Diffusion Reflection 
+
+A fundamental limitation of GRPO is that exploration is restricted to the effective support of the current policy 𝜋 𝜃 . In the cold-start stage, 𝜋 𝜃 typically assigns most probability mass to suboptimal regions, so high-reward modes under the target distribution re-main difficult to access through standard on-policy sampling. As a result, policy improvement is often driven by selecting relatively better samples from an overall low-quality group, rather than by discovering genuinely superior trajectories. To mitigate this issue, we introduce Randomized Single-Step Re-flection as an active exploration mechanism during sampling, moti-vated by diffusion reflection [1, 2]. Prior work has demonstrated that diffusion reflection serves as an effective training-free tech-nique that improves sampling quality, partly by reducing the gap between the model-induced estimator and the true data distribution. In our setting, the weak–strong construction is instantiated directly through text-guidance level : for the same latent state 𝑥 𝑡 , timestep 𝑡 ,and condition 𝑐 , we evaluate the same velocity model 𝑣 𝜃 under two guidance scales 𝑤 w < 𝑤 s, and define 𝑣 w 
+
+> 𝜃
+
+(𝑥 𝑡 , 𝑡, 𝑐 ) := 𝑣 𝜃 (𝑥 𝑡 , 𝑡, 𝑐 ; 𝑤 w),
+
+𝑣 s 
+
+> 𝜃
+
+(𝑥 𝑡 , 𝑡, 𝑐 ) := 𝑣 𝜃 (𝑥 𝑡 , 𝑡, 𝑐 ; 𝑤 s). Here, the weak and strong estima-tors correspond to the implicit conditional distributions induced by weaker and stronger text guidance, respectively. Under the as-sumption that stronger guidance produces samples that are better aligned with the prompt and thus closer to the target conditional data distribution 𝑝 data (· | 𝑐 ), the discrepancy between the two esti-mators, Δws (𝑥 𝑡 , 𝑡, 𝑐 ) := 𝑣 s 
+
+> 𝜃
+
+(𝑥 𝑡 , 𝑡, 𝑐 ) − 𝑣 w 
+
+> 𝜃
+
+(𝑥 𝑡 , 𝑡, 𝑐 ), can be interpreted as a first-order correction direction. Following the weak-to-strong perspective can be interpreted as an empirical approximation to the missing score correction up to approximation error: 
+
+Δws (𝑥 𝑡 , 𝑡, 𝑐 ) ∝ ∇ 𝑥 𝑡 log 𝑝 data (𝑥 𝑡 | 𝑐 ) − ∇ 𝑥 𝑡 log 𝑝 𝜃 (𝑥 𝑡 | 𝑐 ). (6) Injecting this correction during sampling therefore perturbs trajec-tories away from regions overly favored by the current policy and steers them toward higher-reward regions under 𝑝 data .A direct application of such reflection at every denoising step is computationally expensive. We therefore adopt a lightweight strategy termed Randomized Single-Step Reflection . For a reflected trajectory, we first sample a timestep 𝑡 𝑟 ∼ U [ 0.2𝑇 ,𝑇 ], and per-form the reflection operation only once at 𝑡 𝑟 . Concretely, given the current latent state 𝑥 𝑡 𝑟 , we execute a forward–backward–forward 
+
+update: 
+
+• Step A: We first project the latent state 𝑥 𝑡 𝑟 forward using the strong velocity field 𝑣 s 
+
+> 𝜃
+
+. This estimates a cleaner state 𝑥 𝑡 𝑟 −1:
+
+𝑥 𝑡 𝑟 −1 = 𝑥 𝑡 𝑟 + 𝑣 s 
+
+> 𝜃
+
+(𝑥 𝑡 𝑟 , 𝑡 𝑟 , 𝑐 ) Δ𝑡 .
+
+• Step B: We then invert the state back to the current timestep using a weak velocity field 𝑣 w 
+
+> 𝜃
+
+. This inversion pulls the state back along an alternative direction, providing a corrective adjustment: ˜ 𝑥 𝑡 𝑟 = 𝑥 𝑡 𝑟 −1 − 𝑣 w 
+
+> 𝜃
+
+(𝑥 𝑡 𝑟 −1, 𝑡 𝑟 − 1, 𝑐 ) Δ𝑡 . 
+
+• Step C: Finally, we resume the standard sampling process from this rectified state ˜ 𝑥 𝑡 𝑟 , applying the strong velocity field again to proceed to 𝑡 𝑟 − 1: ˜ 𝑥 𝑡 𝑟 −1 = ˜𝑥 𝑡 𝑟 + 𝑣 s 
+
+> 𝜃
+
+( ˜𝑥 𝑡 𝑟 , 𝑡 𝑟 , 𝑐 ) Δ𝑡 . 
+
+Importantly, Diffusion Reflection is not applied to every trajec-tory within a group. Given a group of 𝐺 sampled trajectories, we randomly select only a fraction 𝑟 ∈ ( 0, 1] to perform the reflection operation. This partial-reflection design naturally induces active exploration : rather than passively ranking samples confined to the current policy support, the reflection injects a correction into se-lected trajectories, perturbing them toward regions of higher proba-bility density under 𝑝 data and thereby encouraging the discovery of higher-quality modes that are otherwise difficult to reach. As illus-trated in Figure 1, the “Diffusion Reflection” and “Reflection-Driven Active Exploration” components depict the latent-space reflection process and show how the corrected trajectories are redirected to-ward more desirable regions beyond the original policy’s effective support. At the same time, applying reflection to only a subset of trajectories introduces only a small additional computational over-head, whose impact will be analyzed in the experimental section. Overall, Randomized Single-Step Reflection provides an efficient and targeted mechanism for active exploration, enabling the policy to escape poor local regions and discover better trajectories while remaining fully compatible with group-based policy optimization. 
+
+## 3.3 Implicit Distillation via Counterfactual Path Synthesis 
+
+While reflected samples ˜ 𝑥 0 serve as high-quality outputs, they are generated via a complex, non-monotonic inference process. As detailed in Section 3.2, a reflection trajectory 𝜏 𝑟𝑒 𝑓 involves a Single-Step Reflection at a randomly selected timestep 𝑡 𝑟 :
+
+𝜏 𝑟𝑒 𝑓 = (𝑥 𝑇 , . . . , 𝑥 𝑡 𝑟 , 𝑥 𝑡 𝑟 −1invert 
+
+−−−−→ ˜𝑥 𝑡 𝑟 , ˜𝑥 𝑡 𝑟 −1, . . . , ˜𝑥 0) (7) The presence of this reflection step makes the reflected trajectory non-standard and therefore not directly compatible with the mono-tonic one-pass ODE trajectory used during efficient inference. To bridge this gap, we propose Counterfactual Path Synthesis. The key intuition is that, if the policy were sufficiently optimal, it should be able to reach the same high-reward sample from the state 𝑥 𝑡 𝑟 
+
+through a standard forward denoising path, without requiring the additional corrective reflection step. 
+
+Construction of the Synthesized Trajectory We construct a hybrid training trajectory 𝜏 𝑠𝑦𝑛𝑡ℎ by stitching the trajectory be-fore the reflection step with the trajectory after the reflection step. Formally: 𝜏 𝑠𝑦𝑛𝑡ℎ =  𝑥 𝑇 , . . . , 𝑥 𝑡 𝑟 +1, ˜𝑥 𝑡 𝑟 , . . . , ˜𝑥 0
+
+, where the segment 
+
+(𝑥 𝑇 , . . . , 𝑥 𝑡 𝑟 +1) preserves the original stochastic path sampled from Gaussian noise, and the segment ( ˜𝑥 𝑡 𝑟 , . . . , ˜𝑥 0) represents the high-fidelity path derived from the reflection operation. This construc-tion creates a counterfactual history: it represents the trajectory the model should have taken at the critical branching point 𝑡 𝑟 to reach the optimal outcome. 
+
+Optimization as Implicit Distillation. We retain the GRPO backbone and introduce a targeted intervention only at the reflec-tion timestep 𝑡 𝑟 . At this step the model is encouraged to steer toward the synthesized state ˜ 𝑥 𝑡 𝑟 , weighted by the advantage of the resulting outcome ˜ 𝑥 0. Because ˜ 𝑥 𝑡 𝑟 is produced by an external weak-to-strong guidance procedure rather than the current policy, the objective takes the form of advantage-weighted maximum likelihood: 
+
+Jrefl (𝜃 ) = E𝑐, 𝑥 𝑡𝑟 +1, 𝑡 𝑟 , ˜𝑥 𝑡𝑟 
+
+h
+
+𝐴 ( ˜𝑥 0) log 𝑞 𝜃 
+
+  ˜𝑥 𝑡 𝑟 | 𝑥 𝑡 𝑟 +1, 𝑐 i
+
+. (8) 
+
+> 4
+
+We instantiate 𝑞 𝜃 via the velocity field 𝑣 𝜃 . Under an Euler dis-cretization of the probability flow ODE, the one-step transition is an isotropic Gaussian: 𝑞 𝜃 
+
+  ˜𝑥 𝑡 𝑟 | 𝑥 𝑡 𝑟 +1, 𝑐  = N
+
+
+
+˜𝑥 𝑡 𝑟 ; 𝑥 𝑡 𝑟 +1+𝑣 𝜃 (𝑥 𝑡 𝑟 +1, 𝑐, 𝑡 𝑟 +1)
+
+Δ𝑡, 𝜎 2𝐼 
+
+
+
+, where Δ𝑡 is the step size from 𝑡 𝑟 +1 to 𝑡 𝑟 . Differentiating 
+
+Jrefl under this parameterization shows that the gradient is pro-portional to the negative gradient of the following squared-error loss: 
+
+Lrefl (𝜃 ) = E
+
+"
+
+𝐴 ( ˜𝑥 0) · 12 𝑣 𝜃 (𝑥 𝑡 𝑟 +1, 𝑐, 𝑡 𝑟 +1) − ˜𝑥 𝑡 𝑟 − 𝑥 𝑡 𝑟 +1
+
+Δ𝑡 
+
+> 22
+
+#
+
+, (9) where the constants 𝜎 2 and (Δ𝑡 )2 are absorbed into the learning rate. In practice we replace 𝐴 ( ˜𝑥 0) with max  𝐴 ( ˜𝑥 0), 0: negative advantages would otherwise maximize the squared error, causing gradient instability. The total training objective combines the standard GRPO loss with the reflection loss: 
+
+L( 𝜃 ) = LGRPO (𝜃 ) + 𝜆 Lrefl (𝜃 ). (10) Intuitively, Lrefl locally adjusts the model’s predicted velocity at 𝑡 𝑟 
+
+so that the resulting update better matches the reflection-guided corrective transition. As training proceeds, the external search effort is progressively absorbed into the policy parameters, enabling the model to reproduce high-quality trajectories at inference time without explicit reflection. 
+
+## 3.4 Why Reflection Can Mitigate Reward Hacking 
+
+Reward hacking in generative RL arises when optimizing a mis-specified reward drives the policy toward samples that score highly under the target reward model but do not correspond to genuine quality improvements. In standard RL fine-tuning, such shortcut behaviors can become self-reinforcing, since trajectories are repeat-edly reinforced as long as they increase the target reward, even if they exploit reward-specific artifacts. RA-GRPO mitigates this issue through reflection-based local correction. Instead of directly reinforcing an entire high-reward trajectory, we construct a reflected target ˜ 𝑥 𝑡 𝑟 at a selected timestep 
+
+𝑡 𝑟 , derived from a higher-quality synthesized outcome ˜ 𝑥 0, and train the model to match the local transition 𝑥 𝑡 𝑟 +1 → ˜𝑥 𝑡 𝑟 . Because ˜ 𝑥 𝑡 
+
+is obtained by editing the current trajectory rather than replacing it with an arbitrary reward-maximizing sample, the resulting up-date remains local in trajectory space and is anchored by a better endpoint. This can be viewed as a form of trajectory-level reg-ularization. Conceptually, let 𝑑 rew denote the reward-improving direction favored by standard RL, and let 𝑑 ref denote the reflected corrective direction induced by ˜ 𝑥 𝑡 𝑟 . Then the effective update can be interpreted as 
+
+𝑑 update ≈ 𝑑 rew + 𝜆𝑑 ref , (11) where 𝜆 is an implicit coefficient representing the effective strength of the reflection-based correction and 𝑑 ref suppresses reward im-proving directions that require unstable or off-manifold deviations, while preserving directions that admit locally consistent correc-tions under the denoising dynamics. As a result, RA-GRPO tends to improve reward in a way that better aligns with actual sample quality, which explains its stronger robustness and cross-reward generalization in Table 1. 
+
+## 4 Experiment 4.1 Experiments Setup 
+
+We evaluate RA-GRPO on the HPS v2.1 benchmark [46], utilizing prompts designed to rigorously assess human preference alignment. The backbone model is FLUX.1-Dev, a state-of-the-art rectified flow transformer. We compare our method against the base model and two competitive reinforcement learning baselines: DanceGRPO [48], which introduces stochasticity into deterministic sampling, and MixGRPO [16], employing mixed sampling strategies. To pro-vide a comprehensive evaluation of alignment quality and general-ization, we report results across a diverse set of metrics including HPSv2.1 [46], PickScore [14], CLIPScore [12], ImageReward [47], and HPSv3 [28]. 
+
+## 4.2 Implementation Details 
+
+The reflection mechanism is implemented using a guidance-based weak-to-strong pair: since FLUX controls generation through guid-ance levels rather than standard classifier-free guidance, we set the guidance level of the strong estimator to 3.5 and that of the weak estimator to 1.0. Reflection is applied at a randomized timestep sampled from 𝑡 ∼ U [ 0.2𝑇 ,𝑇 ] to construct counterfactual train-ing trajectories. To ensure a fair comparison given the additional computational overhead of our method, our model is trained for 300 steps, while all other methods are trained for 5% more steps. Training uses AdamW with a learning rate of 1 × 10 −5 and weight decay of 1 × 10 −4 on 8 × NVIDIA H800 GPUs. 
+
+## 4.3 Main Results 
+
+Quantitative Evaluation. Table 1 summarizes alignment per-formance under different reward optimization objectives, evalu-ated using multiple automatic metrics. Overall, RA-GRPO demon-strates the strongest balance between optimizing the designated reward and maintaining generalization across heterogeneous evalu-ators. Under HPSv2.1 optimization, RA-GRPO achieves the highest HPSv2.1 score, while simultaneously obtaining the best results on other evaluation metrics. Under PickScore optimization, RA-GRPO again achieves the strongest overall performance. In the multi-objective setting, RA-GRPO consistently ranks first across all evaluated metrics, further indicating its robustness under joint re-ward optimization. Taken together, these results suggest a potential reward-hacking phenomenon in generative reinforcement learning: improvements on the optimized reward do not necessarily trans-late into broad gains under independent evaluation metrics. This limitation is most evident for DanceGRPO, whose improvements on the target reward are not consistently accompanied by stronger performance on other evaluators. By contrast, RA-GRPO exhibits more stable gains across diverse metrics, indicating that it more reliably improves overall sample quality rather than overfitting to reward-specific artifacts. 
+
+Qualitative Comparison. As illustrated in Figure 2, our method demonstrates a stronger ability to move beyond the intrinsic gener-ation manifold associated with standard diffusion sampling, thereby yielding improvements in both semantic fidelity and visual diversity. 
+
+> 5
+
+Table 1: Comparison of different training methods under various reward models evaluated on multiple automatic metrics.                                                               
+
+> Reward Model Method HPSv2.1 ↑PickScore ↑CLIPScore ↑ImageReward ↑HPSv3 ↑
+> /Flux.1-dev 0.305 0.230 0.388 1.127 13.683 HPSv2.1 DanceGRPO 0.359 0.227 0.362 1.273 14.400 MixGRPO 0.370 0.227 0.363 1.377 14.717
+> Ours 0.378 0.230 0.369 1.417 15.324
+> PickScore DanceGRPO 0.323 0.239 0.376 1.162 12.626 MixGRPO 0.323 0.238 0.378 1.193 12.980
+> Ours 0.332 0.241 0.389 1.322 14.251
+> HPSv2.1 & CLIPScore DanceGRPO 0.347 0.228 0.386 1.263 14.120 MixGRPO 0.353 0.229 0.394 1.363 14.272
+> Ours 0.359 0.231 0.402 1.445 14.496
+
+FLUX DanceGRPO MixGRPO Ours 
+
+A brick with tentacles for legs. A traffic sign providing two route directions in a city. An egg with Saitama's face. A taillight is in a rear view mirror 
+
+and some cars. ID Prompt 
+
+ABCD
+
+Figure 2: Qualitative comparison of image generation across different methods: Flux.1-dev, DanceGRPO, MixGRPO, and our method. For each prompt (A–D), the generated images highlight the varying degrees of semantic accuracy, creativity, and fidelity, with our method consistently producing better results in terms of visual quality and alignment with the text. 
+
+In contrast, baseline methods largely remain concentrated around dominant visual modes acquired during pretraining, which con-strains their capacity to faithfully render unconventional concepts. For prompts involving atypical object compositions or attribute bindings (e.g., A and C), baseline methods frequently revert to famil-iar shapes or stylistic patterns, resulting in incomplete or distorted generations. By comparison, our method produces samples that are more structurally coherent and semantically consistent with the input prompts. Furthermore, for prompts that require precise spatial reasoning (e.g., B and D), our approach exhibits stronger fine-grained alignment, as reflected in more accurate symbol ar-rangements and more consistent reflective relationships. Taken together, these qualitative results suggest that explicitly promoting exploration beyond the model’s default generation trajectory can improve the flexibility and accuracy of text–image alignment across both imaginative and realistic scenarios. 
+
+> 6
+
+Table 2: Ablation study of RA-GRPO. The table compares per-formance across different configurations: Baseline, with and without Counterfactual Synthesis (CF Synth.), and without Reflection. Higher values indicate better performance for all metrics.                         
+
+> Metric Baseline w/o CF Synth. w/o Reflection Ours HPSv2.1 ↑0.359 0.366 0.357 0.378
+> PickScore ↑0.227 0.226 0.229 0.230
+> CLIPScore ↑0.362 0.355 0.356 0.369
+> ImageReward ↑1.273 1.230 1.253 1.417
+> HPSv3 ↑14.400 15.245 14.697 15.324
+
+## 4.4 Ablation Study 
+
+To assess the contribution of each core component, we conduct an ablation study on the FLUX backbone under the HPSv2.1 op-timization setting. We examine two variants: w/o Counterfactual Synthesis, which removes the synthesized counterfactual transition and directly supervises the model using reflected samples, and w/o Reflection, which replaces the weak-to-strong difference vector with random Gaussian perturbations. The results in Table 2 show that both components are important. Removing Reflection leads to a clear drop in performance and brings the model close to the baseline, indicating that simple random perturbations are insuffi-cient for effective exploration and that the weak-to-strong guidance plays a key role in steering optimization toward high-reward re-gions. Removing Counterfactual Synthesis slightly improves the target reward over the baseline, but degrades several generalization metrics, suggesting that directly optimizing discontinuous reflected states can introduce a mismatch between explored samples and the model’s native generation trajectory. Overall, the full RA-GRPO model achieves the best performance across all metrics, demon-strating that both directed reflection and counterfactual synthesis are necessary for robust reward optimization and generalized align-ment. 
+
+## 4.5 Human Preference Evaluation 
+
+Qualitative evidence of reward hacking. Fig. 3 shows that Dance-GRPO overfits reward-specific visual cues. When optimized with HPSv2.1, it introduces abnormal lighting, exaggerated highlights, and excessive local contrast; with PickScore, it favors darker tones and high-frequency textures with blurry boundaries and ambiguous structures. These artifacts increase reward-preferred saliency with-out improving semantic fidelity or perceptual realism. In contrast, Ours produces more natural lighting, clearer contours, and more coherent structures, despite slightly lower reward scores, indicat-ing a better balance between reward optimization and perceptual quality. 
+
+User study. We further compare DanceGRPO and Ours on 360 samples using randomized pairwise evaluation of text alignment, image quality, and aesthetic preference. Ours achieves win rates of 73.12%, 69.35%, and 67.91%, respectively, demonstrating better alignment with human judgments despite possible discrepancies between proxy rewards and human preference. 
+
+Table 3: Effect of the reflection ratio 𝑟 in Randomized Single-Step Reflection. Here, 𝑟 denotes the fraction of sampled tra-jectories selected for reflection.                          
+
+> Metric Reflection Ratio 𝑟
+> 0.25 0.5 0.75 1.0 HPSv2.1 0.369 0.378 0.377 0.374 PickScore 0.229 0.230 0.232 0.230 CLIPScore 0.363 0.369 0.367 0.364 ImageReward 1.392 1.417 1.406 1.399 HPSv3 15.203 15.324 15.203 15.194
+
+Table 4: Results on Wan2.1 under video-level and image-level reward optimization. Higher is better for all metrics. Metric Wan 2.1-1.3B DanceGRPO Ours (A) Video-level setting (trained with VideoAlign-VQ)                                 
+
+> VQ ↑2.478 2.721 2.978
+> MQ ↑0.177 0.239 0.303
+> TA ↑0.153 0.235 0.297 (B) Image-level setting (first-frame only, trained with HPSv2)
+> HPSv2.1 ↑0.249 0.296 0.304
+> PickScore ↑0.210 0.216 0.219
+> CLIPScore ↑0.374 0.380 0.386
+> ImageReward ↑0.471 0.817 0.932
+> HPSv3 ↑5.031 10.253 11.085
+
+## 4.6 Optimal Configurations 
+
+We study the reflection ratio 𝑟 , i.e., the fraction of sampled tra-jectories selected for Diffusion Reflection. As shown in Table 3, 
+
+𝑟 = 0.5 achieves the best overall performance, whereas reflecting all trajectories ( 𝑟 = 1.0) slightly degrades quality. Partial reflection promotes guided exploration while retaining unmodified trajec-tories for diverse and stable groupwise comparisons in GRPO. In contrast, reflecting every trajectory may reduce within-group con-trast and weaken the relative learning signal. These results support 
+
+𝑟 = 0.5 as the best trade-off between exploration and optimization stability. 
+
+## 4.7 Extension to T2V Model 
+
+All experiments in Table 4 are conducted using the same data sources as the corresponding baselines to ensure a fair compar-ison. For the video-level setting , prompts are curated from the VidProM [43] dataset. Wan2.1 is trained as a full video generator with VideoAlign-VQ as the reward function, and performance is evaluated using the VideoAlign metrics, including visual quality (VQ), motion quality (MQ), and text alignment (TA). Since video re-ward modeling is inherently more challenging due to the additional complexity of temporal dynamics and the relatively noisy super-vision provided by learned video-level reward signals, we further introduce an image-level setting to verify that the effectiveness of our method does not depend on a particular video reward for-mulation or model architecture. Specifically, we use Wan2.1 as the backbone while treating it as an image generator, by considering 
+
+> 7
+
+DanceGRPO Ours FLUX 
+
+DanceGRPO FLUX Ours         
+
+> score:0.1457 score:0.1665 score:0.1616
+> score:0.1490 score:0.1674 score:0.1515
+> score:0.2112 score:0.2286 score:0.2152
+> score:0.1964 score:0.2145 score:0.2100
+
+DanceGRPO FLUX Ours         
+
+> score:0.3983 score:0.4249 score:0.4224
+> score:0.3257 score:0.3720 score:0.3508
+> score:0.3083 score:0.3532 score:0.3374
+> score:0.2935 score:0.3701 score:0.3544
+> A portrait of a French bakery with a deep view, featuring muted colors and intricate details, as a group of people stare on.
+
+Caption 
+
+> Realistic detailed image of a person in an old Soviet psychiatric padded cell, with rich deep colors and gothic influences. An anime wizard illustration by Cushart Krenz. A father and his young daughter are depicted in a colorful digital illustration. A digital painting of Cristiano Ronaldo featuring intricate details and elegant design by Artgerm, Greg Rutkowski, and Alphonse Mucha. A hamster dressed in a space suit, ready for space exploration. A bearish man receives an IV drip while being examined by a snake doctor and Audrey Hepburn-inspired nurse using syringes to extract build-up from his neck in a colorful digital painting. Dogs playing poker in Las Vegas.
+
+Caption Figure 3: Qualitative comparison: The left panel shows results obtained with HPSv2.1-based optimization, while the right panel shows results obtained with PickScore-based optimization. Under HPSv2.1 training, DanceGRPO tends to introduce abnormal lighting and highlight artifacts, as illustrated in the red-boxed regions. Under PickScore training, DanceGRPO exhibits a tendency toward overly dark global tones; moreover, the zoomed-in red-boxed regions show that, despite dense high-frequency textures, object boundaries and structural contours remain blurry and poorly defined. 
+
+only the first frame during both training and evaluation. In this setting, training prompts are drawn from the HPD dataset. The results show that our method consistently outperforms both the vanilla Wan2.1-1.3B model and DanceGRPO under both eval-uation protocols. In the video-level setting, our method achieves the best performance across all metrics. These improvements in-dicate that our method enhances not only static visual fidelity but also temporal coherence and semantic consistency in generated videos. In the image-level setting, our method again achieves the best results on all metrics, including HPSv2.1, PickScore, CLIP-Score, ImageReward, and HPSv3. Notably, this setting removes the difficulty of video-level temporal reward modeling and evaluates only first-frame generation quality, thereby serving as a controlled test of whether our method generalizes beyond the original video reward setup. The consistent gains in both settings suggest that the proposed approach is not restricted to a specific reward model or task formulation; instead, it provides a more general and ro-bust optimization benefit across both video and image generation regimes. 
+
+## 5 Conclusion 
+
+We introduced RA-GRPO, a framework that enhances reinforce-ment learning by integrating diffusion reflection mechanisms. By exploiting the discrepancy between weak and strong estimators to guide exploration and synthesizing counterfactual paths for training, RA-GRPO effectively rectifies sampling trajectories to nav-igate the optimization landscape more efficiently. This approach structurally addresses the cold-start dilemma by discovering high-probability modes in the data distribution early in training, while simultaneously mitigating reward hacking. Experiments across im-age and video generation demonstrate consistent improvements in visual quality, semantic alignment, and temporal coherence over existing reinforcement learning baselines. These findings establish reflection-driven exploration as a scalable paradigm for alignment, and future work may investigate diverse weak-to-strong estimator pairs to broaden the applicability of this framework. 
+
+> 8
+
+## Acknowledgment 
+
+This work was supported in part by the Shenzhen Science and Technology Program (Grant No. RCJC20210706091946001), and in part by the Shenzhen Science and Technology Program (Grant No. ZDCY20250901104207008). 
+
+## References 
+
+[1] Lichen Bai, Shitong Shao, Zikai Zhou, Zipeng Qi, Zhiqiang Xu, Haoyi Xiong, and Zeke Xie. 2024. Zigzag diffusion sampling: Diffusion models can self-improve via self-reflection. arXiv preprint arXiv:2412.10891 (2024). [2] Lichen Bai, Masashi Sugiyama, and Zeke Xie. 2025. Weak-to-Strong Diffusion with Reflection. arXiv preprint arXiv:2502.00473 (2025). [3] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, et al. 2022. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 (2022). [4] Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. 2023. Training diffusion models with reinforcement learning. arXiv preprint arXiv:2305.13301 (2023). [5] Black Forest Labs. 2024. FLUX. https://github.com/black-forest-labs/flux. GitHub repository. [6] Stephen Casper, Xander Davies, Claudia Shi, Thomas Krendl Gilbert, Jérémy Scheurer, Javier Rando, Rachel Freedman, Tomasz Korbak, David Lindner, Pedro Freire, et al. 2023. Open problems and fundamental limitations of reinforcement learning from human feedback. arXiv preprint arXiv:2307.15217 (2023). [7] Ying Fan, Olivia Watkins, Yuqing Du, Hao Liu, Moonkyung Ryu, Craig Boutilier, Pieter Abbeel, Mohammad Ghavamzadeh, Kangwook Lee, and Kimin Lee. 2023. Dpok: Reinforcement learning for fine-tuning text-to-image diffusion models. 
+
+Advances in Neural Information Processing Systems 36 (2023), 79858–79885. [8] Ying Fan, Olivia Watkins, Yuqing Du, Hao Liu, Moonkyung Ryu, Craig Boutilier, Pieter Abbeel, Mohammad Ghavamzadeh, Kangwook Lee, and Kimin Lee. 2023. Reinforcement learning for fine-tuning text-to-image diffusion models. In Thirty-seventh Conference on Neural Information Processing Systems (NeurIPS) 2023 . Neu-ral Information Processing Systems Foundation. [9] Nanxu Gong, Zijun Li, Sixun Dong, Haoyue Bai, Wangyang Ying, Xinyuan Wang, and Yanjie Fu. 2026. Sculpting features from noise: Reward-guided hierarchical diffusion for task-optimal feature transformation. Advances in Neural Information Processing Systems 38 (2026), 23452–23474. [10] Yongxin Guo, Wenbo Deng, Zhenglin Cheng, and Xiaoying Tang. 2025. G2RPO-A: Guided Group Relative Policy Optimization with Adaptive Guidance. arXiv preprint arXiv:2508.13023 (2025). [11] Xiaoxuan He, Siming Fu, Yuke Zhao, Wanli Li, Jian Yang, Dacheng Yin, Fengyun Rao, and Bo Zhang. 2025. Tempflow-grpo: When timing matters for grpo in flow models. arXiv preprint arXiv:2508.04324 (2025). [12] Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan Le Bras, and Yejin Choi. 2021. CLIPScore: A Reference-free Evaluation Metric for Image Captioning. In 
+
+Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing (EMNLP) . Association for Computational Linguistics, 7514–7528. https: //aclanthology.org/2021.emnlp-main.595/ [13] Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising diffusion probabilistic models. Advances in neural information processing systems 33 (2020), 6840–6851. [14] Yuval Kirstain, Adam Polyak, Uriel Singer, Shahbuland Matiana, Joe Penna, and Omer Levy. 2023. Pick-a-Pic: An Open Dataset of User Preferences for Text-to-Image Generation. In Advances in Neural Information Processing Systems (NeurIPS) 2023 . PickScore scoring function trained on the Pick-a-Pic dataset. https://arxiv.org/abs/2305.01569 [15] Harrison Lee, Samrat Phatale, Hassan Mansoor, Kellie Ren Lu, Thomas Mesnard, Johan Ferret, Colton Bishop, Ethan Hall, Victor Carbune, and Abhinav Rastogi. 2023. Rlaif: Scaling reinforcement learning from human feedback with ai feedback. (2023). [16] Junzhe Li, Yutao Cui, Tao Huang, Yinping Ma, Chun Fan, Miles Yang, and Zhao Zhong. 2025. Mixgrpo: Unlocking flow-based grpo efficiency with mixed ode-sde. 
+
+arXiv preprint arXiv:2507.21802 (2025). [17] Shufan Li, Konstantinos Kallidromitis, Akash Gokul, Arsh Koneru, Yusuke Kato, Kazuki Kozuka, and Aditya Grover. 2025. Reflect-DiT: Inference-Time Scaling for Text-to-Image Diffusion Transformers via In-Context Reflection. arXiv preprint arXiv:2503.12271 (2025). [18] Yuming Li, Yikai Wang, Yuying Zhu, Zhongyu Zhao, Ming Lu, Qi She, and Shanghang Zhang. 2025. Branchgrpo: Stable and efficient grpo with structured branching in diffusion models. arXiv preprint arXiv:2509.06040 (2025). [19] Yizhe Li, Linrui Zhang, Jiuzhou Lin, Junlong Wu, Qi Yang, Han Zheng, Xueqian Wang, and Houde Liu. 2025. SafeSim: An Open-Source Platform for Safety-Critical Driving Scenario Simulation and Curriculum-based Adversarial Training. In 2025 IEEE International Conference on Systems, Man, and Cybernetics (SMC) .IEEE, 5406–5411. [20] Zijun Li, Hongyu Yan, Shijie Li, Kunming Luo, Li Lu, Xulei Yang, and Weisi Lin. 2025. DiffPCN: Latent Diffusion Model Based on Multi-view Depth Images for Point Cloud Completion. arXiv preprint arXiv:2509.23723 (2025). [21] Zijun Li, Yimin Zhou, Jia Sun, Honglie Wang, Pengcheng Wei, Junlong Wu, Yongrui Heng, Jiyuan Wang, Huan Ouyang, Boheng Zhang, et al. 2026. De-tailAnywhere: Fashion Detail Generation via Cross-Modal Feature Alignment Distillation. arXiv preprint arXiv:2607.02220 (2026). [22] Jiuzhou Lin, Qi Yang, Yizhe Li, Kangkang Dong, and Houde Liu. 2025. Keypoint-Aware RAG for Robotic Manipulation: In-Context Constraint Learning via Large-Scale Retrieval. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 17688–17695. [23] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. 2022. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 
+
+(2022). [24] Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Wanli Ouyang. 2025. Flow-grpo: Training flow matching models via online rl. arXiv preprint arXiv:2505.05470 (2025). [25] Haotian Luo, Li Shen, Haiying He, Yibo Wang, Shiwei Liu, Wei Li, Naiqiang Tan, Xiaochun Cao, and Dacheng Tao. 2025. O1-pruner: Length-harmonizing fine-tuning for o1-like reasoning pruning. arXiv preprint arXiv:2501.12570 (2025). [26] Yifu Luo, Penghui Du, Bo Li, Sinan Du, Tiantian Zhang, Yongzhe Chang, Kai Wu, Kun Gai, and Xueqian Wang. 2025. Sample By Step, Optimize By Chunk: Chunk-Level GRPO For Text-to-Image Generation. arXiv preprint arXiv:2510.21583 
+
+(2025). [27] Yuanhuiyi Lyu, Xu Zheng, Lutao Jiang, Yibo Yan, Xin Zou, Huiyu Zhou, Linfeng Zhang, and Xuming Hu. 2025. Realrag: Retrieval-augmented realistic image generation via self-reflective contrastive learning. arXiv preprint arXiv:2502.00848 
+
+(2025). [28] Y. Ma et al. 2025. HPSv3: Towards Wide-Spectrum Human Preference Score. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) . https://openaccess.thecvf.com/content/ICCV2025/papers/Ma_HPSv3_ Towards_Wide-Spectrum_Human_Preference_Score_ICCV_2025_paper.pdf [29] Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, et al. 2023. Self-refine: Iterative refinement with self-feedback, 2023. URL https://arxiv. org/abs/2303.17651 (2023). [30] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. 2022. Training language models to follow instructions with human feedback. Advances in neural information processing systems 35 (2022), 27730–27744. [31] Liangming Pan, Michael Saxon, Wenda Xu, Deepak Nathani, Xinyi Wang, and William Yang Wang. 2023. Automatically correcting large language models: Surveying the landscape of diverse self-correction strategies. arXiv preprint arXiv:2308.03188 (2023). [32] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Müller, Joe Penna, and Robin Rombach. 2023. Sdxl: Improving latent diffusion models for high-resolution image synthesis. arXiv preprint arXiv:2307.01952 
+
+(2023). [33] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. 2023. Direct preference optimization: Your language model is secretly a reward model. Advances in neural information processing systems 36 (2023), 53728–53741. [34] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 
+
+(2017). [35] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 (2024). [36] Noah Shinn, Federico Cassano, Beck Labash, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. 2023. Reflexion: Language agents with verbal reinforcement learning, 2023. URL https://arxiv. org/abs/2303.11366 1 (2023). [37] Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 (2020). [38] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. 2020. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 (2020). [39] Haoyuan Sun, Bo Xia, Yongzhe Chang, and Xueqian Wang. 2025. Generalizing alignment paradigm of text-to-image generation with preferences through f-divergence minimization. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 27644–27652. [40] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yas-mine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhos-ale, et al. 2023. Llama 2: Open foundation and fine-tuned chat models. arXiv preprint arXiv:2307.09288 (2023). [41] Bram Wallace, Meihua Dang, Rafael Rafailov, Linqi Zhou, Aaron Lou, Senthil Purushwalkam, Stefano Ermon, Caiming Xiong, Shafiq Joty, and Nikhil Naik. 2024. Diffusion model alignment using direct preference optimization. In Proceedings of 
+
+> 9
+
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 8228–8238. [42] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. 2025. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 (2025). [43] Wenhao Wang and Yi Yang. 2024. VidProM: A Million-scale Real Prompt-Gallery Dataset for Text-to-Video Diffusion Models. arXiv:2403.06098 [cs.CV] https: //arxiv.org/abs/2403.06098 [44] Yibin Wang, Zhimin Li, Yuhang Zang, Yujie Zhou, Jiazi Bu, Chunyu Wang, Qinglin Lu, Cheng Jin, and Jiaqi Wang. 2025. Pref-grpo: Pairwise preference reward-based grpo for stable text-to-image reinforcement learning. arXiv preprint arXiv:2508.20751 (2025). [45] Junlong Wu, Yi Cheng, Hang Liu, and Houde Liu. 2025. ARC: Robots Adaptive Risk-aware Robust Control via Distributional Reinforcement Learning. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 10656–10663. [46] Xiaoshi Wu, Yiming Hao, Keqiang Sun, Yixiong Chen, Feng Zhu, Rui Zhao, and Hongsheng Li. 2023. Human preference score v2: A solid benchmark for evaluat-ing human preferences of text-to-image synthesis. arXiv preprint arXiv:2306.09341 
+
+(2023). [47] Jiazheng Xu, Xiao Liu, Yuchen Wu, Yuxuan Tong, Qinkai Li, Ming Ding, Jie Tang, and Yuxiao Dong. 2023. Imagereward: Learning and evaluating human prefer-ences for text-to-image generation. Advances in Neural Information Processing Systems 36 (2023), 15903–15935. [48] Zeyue Xue, Jie Wu, Yu Gao, Fangyuan Kong, Lingting Zhu, Mengzhao Chen, Zhiheng Liu, Wei Liu, Qiushan Guo, Weilin Huang, et al. 2025. DanceGRPO: Unleashing GRPO on Visual Generation. arXiv preprint arXiv:2505.07818 (2025). [49] Hongyu Yan, Zijun Li, Kunming Luo, Li Lu, and Ping Tan. 2025. SymmComple-tion: High-fidelity and high-consistency point cloud completion with symmetry guidance. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 9094–9102. [50] Le Zhuo, Liangbing Zhao, Sayak Paul, Yue Liao, Renrui Zhang, Yi Xin, Peng Gao, Mohamed Elhoseiny, and Hongsheng Li. 2025. From reflection to perfection: Scaling inference-time optimization for text-to-image diffusion models via reflec-tion tuning. In Proceedings of the IEEE/CVF International Conference on Computer Vision . 15329–15339.
