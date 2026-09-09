@@ -1,0 +1,725 @@
+Title: Towards a Belief-Based World Model for LLM Agents
+
+URL Source: https://arxiv.org/pdf/2609.00455v1
+
+Published Time: Wed, 02 Sep 2026 00:24:56 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Towards a Belief-Based World Model for LLM Agents 
+
+Shubham Kumar 
+
+UIUC 
+
+Harshit Kumar 
+
+IBM 
+
+Narendra Ahuja 
+
+UIUC 
+
+Saurabh Jha 
+
+IBM 
+
+## Abstract 
+
+Large language models (LLMs) are being used as policies for autonomous decision-making and planning in many domains. Despite their strong reasoning capabilities, LLMs struggle with long-horizon tasks, especially under partial observability. World models are a promising way to enhance policy performance, both during training and inference. During inference, agents currently use world models to simulate the consequences of candidate actions before committing to an action, which can improve decision-making. However, we argue that simulation alone is an incomplete interface for decision-making under partial observability: simulation doesn’t adequately capture uncertainty about the current state, which agents may need for accurate decision-making. We address this limitation with Belief-Based World Models (BB-WMs), which model and maintain a belief that LLMs can query to access information on what is known and uncertain about the current state. Before developing methods to learn accurate BB-WMs, we first ask a more fundamental question: does exposing a world model’s belief directly to an LLM policy improve decision-making? Our results show that giving LLM agents access to world model beliefs improves task performance under partial observability, while remaining complementary to existing simulation-based world models. Code is released: https://github.com/skumar-ml/belief-world-models. 
+
+## 1 Introduction 
+
+“I told you so”. It’s a phrase we say when an earlier prediction comes to pass. But how are we capable of predicting the future? It’s hypothesized [27, 36] that humans use an internal model of the world (or 
+
+world model ) to anticipate the outcomes of possible actions, which may have been an evolutionary advantage (anticipating locations of prey is beneficial for hunting) and is likely important for modern planning and exploration [23, 36]. Given the benefits to humans, methods have explored integrating world models with autonomous policies , which determine what actions the agent should take given the available information. Instead of needing costly real-world interactions, a policy can be trained on the imagined future trajectories from a world model [7, 9]. World modeling training objectives can also be used alongside RL to improve the policy itself [32, 37, 45]. At test time, simulated futures from the world model can help the policy evaluate candidate actions, thereby improving long-horizon planning and generalization to novel situations [11, 17, 26, 31, 47]. This work examines the use of world models at test time. In many recent methods, the policy interacts with the world model through a simulation interface: given a representation of the current state and a candidate action (or action sequence), what future trajectory follows? We raise a broader question: 
+
+is simulation the only interface that a world model should expose to a policy? We argue no; different types of actions require different information from a world model. Consider pragmatic 
+
+actions, which primarily advance the agent toward its goal (e.g., picking up a mug in order to drink coffee). Simulation is well suited to these actions because it helps evaluate the consequences of acting. 
+
+> Preprint. arXiv:2609.00455v1 [cs.AI] 31 Aug 2026
+
+Setting Simulation Interface Belief GOAL: CHANGE TO LEFT LANE 
+
+# ?BLIND SPOT 
+
+> Blind spot is UNKNOWN. World model does not know what’s there. GOAL: CHANGE TO LEFT LANE
+> WORLD MODEL SIMULATION
+
+✓SAFE! 
+
+> World model predicts path is clear GOAL: CHANGE TO LEFT LANE
+> SAFE!
+> Car present in blind spot! Reality differs from simulation. GOAL: CHANGE TO LEFT LANE
+> BELIEF-BASED WORLD MODEL
+
+# ?BLIND SPOT 
+
+> Query: What is in blind spot?
+> 90% clear, 10% car present
+
+Figure 1: Simulation vs. belief for epistemic actions. Consider a car attempting the pragmatic action of changing to the left lane, but the blind spot is unknown. Before changing lanes, a simulation-based world model may sample futures where the lane change is safe (i.e., there is no car in the blind spot). The policy may then policy execute the action, only to encounter a car in its blind spot. With Belief-Based World Models, the policy can query for the current belief over the blind spot, and if there is uncertainty, it can take an appropriate epistemic action (e.g., checking the blind spot) before choosing the appropriate pragmatic action. In contrast, epistemic actions are information-gathering actions that primarily reduce uncertainty about the current state of the environment [19, 22]. In this setting, the policy additionally benefits from a belief —what is known and what is uncertain—about the current state to reason about whether epistemic actions are needed. A simulation interface may communicate current-state uncertainty only indirectly through variation across predicted futures. Such variation may conflate uncertainty about the current state with stochasticity in future transitions, leaving the policy to infer which aspects of the present remain uncertain. Moreover, recovering this uncertainty via predicted futures becomes increasingly sample-inefficient as the number of plausible futures grows with the planning horizon. Thus, we argue that current-state belief should be exposed directly rather than reconstructed indirectly from future simulations (exemplified in Fig. 1). Recently, large language model (LLM) agents have emerged as general-purpose policies in open-ended environments, spanning software engineering and enterprise automation [4, 42] as well as embodied AI and robotics [14, 15]. This motivates a modular setting in which a pretrained LLM provides general reasoning and action selection, while environment-specific knowledge are delegated to a decoupled world model used by the LLM at test time. Such a decomposition preserves the capabilities of the pretrained LLM agent and allows the world model to be improved (say, with continual learning) or replaced without needing to retrain the agent. However, despite their strong reasoning capabilities, LLMs are known to struggle with maintaining and updating beliefs in complex, long-horizon partially observable tasks [18, 29, 48]. Recent world models for LLM agents predominantly expose action-conditioned foresight while leaving belief tracking to the agent. The agent must therefore implicitly maintain uncertainty about the current state while simultaneously 
+
+reasoning about action selection, which is likely a suboptimal division of responsibilities. Separating these responsibilities has a long precedent in decision-making under partial observability [19] and was subsequently explored in deep reinforcement learning (RL), with substantial evidence that dedicated belief estimation can improve decision-making [3, 9, 16, 34, 38]. However, such approaches generally pair the belief representation with a downstream policy that is specifically designed or trained to consume it. This differs from the modular setting considered here: an arbitrary learned latent belief is not natively compatible with the natural-language interface of a pretrained LLM. Instead, LLMs offer us a different possibility. If the world model can expose its belief through natural-language, the LLM agent can access information about the current state without being retrained around a particular belief representation. We argue that the simulation interface of current world models for LLM agents should be augmented to explicitly expose beliefs over the current state. To achieve this, we introduce Belief-Based World Models (BB-WMs), which should maintain a belief over the current state, update it as new observations arrive, and propagate it forward during action-conditioned simulation. This affords an LLM agent two completementary interface: natural language queries ask about the world model’s 2current belief when reasoning about epistemic actions, while simulation evaluates the consequences of pragmatic actions. Before asking how to learn scalable Belief-Based World Models, we first ask a more fundamental question: if a world model represents a belief over the state, does exposing this belief to the LLM agent improve decision-making? Motivated by prior results in partially observable RL, we hypothesize that offloading belief modeling to the world modeling and exposing beliefs to the agent allows it to focus on reasoning and action selection, resulting in improved decision-making. 
+
+## 2 Related Works 
+
+World Models for LLMs: There have been efforts to equip LLM agents with decoupled, or separate, world models that provide foresight into the consequences of candidate actions. WMA [2] finds that out-of-the-box LLMs cannot accurately simulate the outcome of actions in web interaction tasks, so they learn a separate, decoupled world model to evaluate the consequences of an LLM agent’s actions before it acts. WALL-E [47] replaces generative world models with a neurosymbolic world model, where an LLM planner queries the world model about the validity of an action in the environment before acting; if the action is predicted to be invalid, the LLM is asked to replan with feedback from the world model. DreamPhase [10] learns a latent world model that generates imagined futures by decoding future state latents into future observations, scores them via a learned value function, and distills feedback into natural language to condition a frozen LLM policy. These methods predominantly expose an action-conditioned simulation or foresight interface to the policy. Interestingly, recent work by Qian et al. [28] shows that providing an LLM agent with a ground-truth simulator alone does not translate into improved decision-making at test-time; agents often fail to invoke simulation when useful, misuse its outputs, or even degrade when simulation is enforced. Their analysis suggests that a key challenge is in when an agent decides to query a world model and how it integrates the resulting information into its reasoning. These findings motivate examining the world-model-to-agent interface, instead of focusing on improving simulation fidelity. 
+
+Belief Representation in LLM Agents: Some works have sought to improve LLM agents by maintaining estimates of the current environment state rather than relying solely on an agent’s ability to reason over the interaction history. Approaches such as Statler, QuBE, StateAct, and ABBEL [21, 25, 30, 44] maintain compact textual or structured representations of task-relevant state that are updated as new observations become available. These representations emphasize a single estimate or summary of the current state rather than explicitly preserving uncertainty over many possible states. Some recent work has begun to model this uncertainty directly. BeliefMem [24] retains multiple candidate conclusions together with probabilities, allowing competing interpretations of past evidence to coexist and updating them as additional evidence is observed. Agent-BRACE [35] more directly adopts the POMDP notion of belief for LLM agents, representing the current state with levels of certainty and conditioning the policy on this structured belief. These works demonstrate growing interest in explicitly representing uncertainty about the current state and making this information available to the agent during decision making. However, these approaches are not world models. They focus on estimating and maintaining the environment’s current state but do not provide an action-conditioned simulation interface for reasoning about the future. BB-WMs seek to bridge simulation with belief tracking: the policy can directly access the world model’s belief when reasoning about what is currently known or uncertain, while continuing to simulate the consequences of candidate actions when reasoning about the future. 
+
+## 3 Belief-Based World Models 
+
+Preliminaries: An agent, at any timestep t, receives an observation ot, takes action at in the environment, and receives the subsequent observations ot+1 . A world model maintains some internal representation xt of the environment’s true latent state st based on the agent’s interaction history. While details differ markedly across existing approaches, most world models expose a similar interface to the policy. Specifically, the policy queries the world model with K candidate actions 
+
+{a(i) 
+
+> t
+
+}Ki=1 (in practice, the policy may query with a sequence of actions). The world model predicts (or samples) the representation of the future state after taking the action: ˆx(i) 
+
+> t+1
+
+= P redict (xt, a (i) 
+
+> t
+
+). The 3RSSM World Models     
+
+> (PlaNet, Dreamer)
+> (latent)
+> Predict
+> Policy reward JEPA World Models
+> (DINO-WM, LeWorldModel)
+> (latent)
+> Predict
+> Policy (future latent) Generative World Models
+> (Genie, GAIA)
+> (latent)
+> Predict
+> Policy Natural Language World Models
+> (RAP, WebDreamer, WALL-E)
+> Predict
+> Policy natural language description Belief-Based World Models
+> Update Predict
+> Answer
+> Query
+> Policy
+
+Figure 2: BB-WMs vs. prior world models . Prior world models use simulation to give the policy foresight into the future. Recurrent state-space model (RSSM) world models [8, 9] represent the state as a learned latent and respond to the policy with the predicted (cumulative) reward after simulating an action sequence. JEPA world models [26, 46] respond to the policy directly with the predicted latent state. Generative world models [1, 12] instead decode the predicted latent into a predicted observation. Natural-language world models [6, 11, 47], regardless of their internal state representation, respond to the policy in natural language (either free-form or symbolic). In contrast, BB-WMs also allow the policy to query about the current belief. 
+
+predicted internal state need not itself be exposed to the policy. We denote by R(ˆ x(i)
+
+> t+1
+
+) the readout of the predicted future, which may take many different forms, including a latent representation, natural-language description, symbolic state, or generated observation. Readouts from candidate actions are used by the policy to determine which action to execute in the real environment. Prior methods may differ in terms of their internal representation xt and the response given R(ˆ xt+1 ) to the policy, but this simulation interface underlies many world model families, which we show in Fig. 2. 
+
+Belief-Based World Models: In a BB-WM (see bottom right of Fig. 2), the internal representation 
+
+xt = ( bt, ξ t) includes an explicit belief bt over the environment’s current latent state st, with ξt
+
+denoting any additional information. The BB-WM specifies an interface that allows the belief to be directly exposed to the policy. Specifically, given all past observations and actions ht = ( o1: t, a 1: t−1),the belief is bt ≡ P (st|ht). After executing at, the prior representation of the next timestep is 
+
+x− 
+
+> t+1
+
+= ( b−
+
+> t+1
+
+, ξ −
+
+> t+1
+
+) = P redict (xt, a t), and after seeing the observation, the posterior representation is xt+1 = ( bt+1 , ξ t+1 ) = U pdate (x−
+
+> t+1
+
+, o t+1 ). Then, the policy has access to two interfaces. 
+
+Simulation interface: For a candidate action a(i) 
+
+> t
+
+, the world model predicts the resulting internal state ˆx(i)
+
+> t+1
+
+. The policy receives a policy-facing readout: y(i) 
+
+> sim
+
+= Rsim (ˆ x(i)
+
+> t+1
+
+).
+
+Belief-query interface: Unlike in many current world modeling methods, with a BB-WM the policy can directly query the current posterior belief without supplying a hypothetical action. Specifically, the policy can ask some query q over belief bt through the interface: ybel = Rbel (bt, q ).Before taking an action, the policy may issue multiple queries across both interfaces, and the responses can be used as conditioning for the policy to decide the next action. 
+
+## 4 Method 
+
+Recall our research question: “if a world model represents a belief over the state, does exposing this belief to the LLM agent improve decision-making?" To isolate the effect of exposing the belief to the agent, we deliberately abstract away the separate challenge of learning an accurate BB-WM by studying simple text-based environments where we can hand-specify the task-relevant state space, the prior belief prediction P redict (.), and the posterior belief update U pdate (.). Because the hand-4designed state space is semantic and interpretable, we can define a natural-language belief readout 
+
+Rbel (bt, q ), allowing a pretrained LLM policy to query the BB-WM without finetuning. Our goal is not to propose hand-crafted world models as a scalable solution, but to establish whether explicit belief access is useful in the first place. We describe our benchmark-specific instantiations next. 
+
+4.1 ALFWorld ALFWorld [33] is a text-based game where an agent completes household instructions in a simulated home. The agent must locate one or more target objects among a set of receptacles (cabinets, drawers, fridge, etc.), manipulate the objects (take, clean, heat, cool, etc), and place them at a specified receptacle. The environment is partially observed: objects are randomly initialized to specific receptacles, and receptacle contents are hidden until the agent navigates to them. 
+
+Prompt: An LLM agent is used as the policy. In the initial prompt, we provide environment-specific details, the agentic framework instructions, available actions, the WM query interface, and an in-context learning (ICL) example. The ICL example show the agent an end-to-end example of completing a task from the task-type and involves a WM belief query. Then, the goal task and initial observation are provided. Details and examples are in Appendix A.1. 
+
+State Space: The state space contains deterministic components and probabilistic components. Deterministic components include things like agent location and inventory. The only probabilistic component is a belief over object locations. It is represented as a categorical distribution over all receptacles in the environment. More details on the state space construction are in Appendix A.4. 
+
+Belief Update: Deterministic components are updated using rule-based logic, parsed from ALFWorld environment observations. The probabilistic component is seeded from a uniform prior over possible receptacles for each object, which are specified by ALFWorld’s game engine (see Appendix A.4.2 for more). Our belief update follows simple presence/absence renormalization: finding an object in a receptacle collapses the belief to a point mass; if not found, we zero that receptacle’s belief and renormalize the belief over the remaining unsearched receptacles. 
+
+Simulation interface: We use WALL-E [47], which implements a rule-based mechanism to check if the contemplated action is valid (given the current static state) and responds to the agent in natural language (either valid or invalid with feedback). If WALL-E returns the action is valid, the agent executes it. Else, the agent re-plans the action conditioned on the feedback. Note that WALL-E is an incomplete next-state predictor. It does not actually predict the complete next state, and it does not represent a belief. Regardless, we intentionally adopt it because it is simple and allows us to test the benefits of the belief-query interface in the BB-WM. 
+
+Belief-query interface: The world model’s belief is exposed to the agent through a query action. To access the probabilistic state, the agent can ask where is <object> , and the WM responds with a list of receptacles with non-zero probabilities (ranked by their belief). The agent can also access the static state through other queries. See Appendix A.5 for more details on the interface. 
+
+4.2 ScienceWorld ScienceWorld [39] is a text-based game in which an agent performs elementary-science experiments in a fixed ten-room house. We evaluate on 24 test task types (e.g., change state of matter, growing a plant, chemistry mixing). Relative to ALFWorld, ScienceWorld involves more common-sense reasoning from the agent. Similar to ALFWorld, uncertainty is limited to the location of task-relevant objects, which are randomly initialized into a subset of rooms. However, we observe that the possible locations of task-relevant objects is generally less varied when compared to ALFWorld. 
+
+Prompt: We follow ALFWorld’s prompt structure; details and examples are in Appendix B.1. 
+
+State Space: The deterministic components are detailed in Appendix A.4.1. The probabilistic component operates similarly to what was done for ALFWorld (see Appendix A.4.2). 
+
+Belief Update: Observations from the ScienceWorld environment are parsed to update the static components of the state space. Similar to ALFWorld, belief over object locations is updated using prescence/absence renormalization. 5Simulation Interface: Since there is no publicly available implementation of WALL-E for Science-World, we opt for an Oracle version of WALL-E. We use the environment to check if the action is valid or invalid. If valid, the action is executed, and if invalid, the agent is given generic feedback and asked to retry (up to the same retry budget used in WALL-E). We refer to this as an Oracle because we are guaranteed to always get the valid/invalid action prediction correct, but our Oracle does not give failure-specific feedback to the agent, as in the case of WALL-E. 
+
+Belief-query interface: To access the probabilistic state, the agent can ask where is <object> , and the WM responds with a list of rooms ranked by their belief, and the container of the object if known. The agent can also query the deterministic state. See Appendix B.5 for more specifics. 
+
+## 5 Experiments 
+
+For each benchmark, we evaluate each LLM (Llama-3.1-8B-Instruct [5], Qwen3-14B [41], and Sonnet 4.6) on two agentic frameworks (ReAct [43] and ReflAct [20]). 
+
+5.1 ALFWorld Methods Evaluated: For each agent, we evaluate several different world models. In Belief , we allow the agent to only ask queries about the current belief state (no simulation). In WALL-E , we pair the agent with WALL-E’s action-conditioned next-state predictor (no belief state, and just a valid/invalid action prediction). In BB-WM , we compose the belief modeling with WALL-E, allowing the agent to both do simulation and ask questions on the current belief state. 
+
+Evaluation Budget: Following [40], we allow the agent to take at most 30 actions in the environment to solve the task. We terminate execution early if the agent seems to be derailed; specifically if it issues 10 consecutive invalid actions or 10 consecutive WM queries. 
+
+Metrics: Success Rate on the first attempt (SR@1) measures how many tasks the agent successfully completed. We measure efficiency as the average steps needed to accomplish the goal. Critically, we only measure efficiency on solved tasks. An effective world model should help an agent successfully complete the task efficiently. 
+
+5.2 ScienceWorld Methods Evaluated: We evaluate on the same LLM+Agent combinations as in ALFWorld, and we retain the same Belief variant. Since there was no publicly available implementation of WALL-E Table 1: ALFWorld results. SR@1 denotes success rate on the first attempt, and steps denotes the average steps needed to solve the task (reported on successfully solved tasks). Each LLM is run on two agentic frameworks (ReAct and ReflAct). We add a Belief variant, where the agent can query about the current belief state (no simulation). In WALL-E , the agent is paired with an action-conditioned next-state predictor (no belief state). In BB-WM , we compose WALL-E and belief-states together, allowing for both simulation and queries on the current belief state. Mean and standard deviation over three runs are reported (for Sonnet, we perform a single run). Takeaway: 
+
+BB-WM improves over the base agent in terms of efficiency and performance.                                                                                                                             
+
+> Llama-3.1-8B-Instruct Qwen3-14B Sonnet 4.6 Method SR@1 Steps SR@1 Steps SR@1 Steps
+> (solved) (solved) (solved) ReAct 29 .9±0.012 .0±0.576 .1±0.012 .4±0.091.0 11.7 ReAct + Belief 43 .3±0.010 .9±0.090 .3±0.011 .4±0.094 .010 .6
+> ReAct + WALL-E 43 .8±1.411 .9±0.079 .9±0.012 .3±0.091.0 11.0 ReAct + BB-WM 62 .9±0.711 .7±0.191 .0±0.011 .4±0.194 .010.6
+> ReflAct 55 .7±0.412 .6±0.076 .1±0.011 .9±0.091.8 11.5 ReflAct + Belief 63 .4±0.011 .1±0.088 .1±0.011 .4±0.095 .510 .0
+> ReflAct + WALL-E 49 .3±1.611 .9±0.372 .4±0.010 .7±0.092.5 11.7 ReflAct + BB-WM 65 .2±0.411 .1±0.090 .3±0.011 .2±0.093.3 10.3
+
+6Table 2: ScienceWorld results. AR denotes average reward and AR/step denotes average reward gained per step. We evaluate similarly to Table 1. Takeaway: BB-WM improves over the base agent in terms of efficiency and performance for Llama and Qwen. On Sonnet, there is no significant change in performance observed but modest gains in efficiency.                                                                                                                                                           
+
+> Llama-3.1-8B Qwen3-14B Sonnet 4.6 Method AR AR/step AR AR/step AR AR/step
+> ReAct 53 .0±1.04.6±0.071 .0±0.68.5±0.092 .2±0.310 .4±0.1
+> ReAct + Belief 59 .3±1.05.2±0.476 .9±0.78.3±0.091 .6±0.411 .0±0.1
+> ReAct + Oracle 57 .5±1.74.9±0.372 .5±0.38.7±0.091 .7±0.510 .6±0.1
+> ReAct + BB-WM 66 .0±0.06.2±0.080 .7±0.19.5±0.192 .3±0.411 .4±0.1
+> ReflAct 48 .7±0.75.1±0.169 .0±0.88.1±0.091 .8±0.410 .5±0.1
+> ReflAct + Belief 64 .0±1.75.7±0.377 .2±0.18.3±0.191 .0±0.211 .0±0.1
+> ReflAct + Oracle 55 .3±0.94.4±0.170 .5±1.27.9±0.191 .5±0.410 .4±0.1
+> ReflAct + BB-WM 67 .6±1.36.2±0.481 .9±0.09.5±0.091 .3±0.311 .1±0.0
+
+on ScienceWorld, we use the oracle implementation described in Section 4.2, which we refer to as 
+
+WALL-E Oracle . Finally, we compose the belief and oracle variants into our BB-WM .
+
+Evaluation Budget: ScienceWorld varies the step budget per task family, which we use during our evaluation. We follow the same early termination logic used in ALFWorld. 
+
+Metrics: The performance metric is Average Reward (AR). ScienceWorld gives the agent a reward from [0,100], allowing partial rewards for reaching certain milestones. We measure efficiency by calculating the average reward earned per step across all tasks (AR/step). 
+
+5.3 Results 
+
+We report results on the unseen split of ALFWorld and ScienceWorld in Table 1 and 2, respectively. 
+
+Adding BB-WM helps the base agent in nearly all cases , both in performance and efficiency. Furthermore, enabling belief queries (represented by Belief ) and simulation queries (represented by 
+
+WALL-E and WALL-E Oracle ) have a complementary effect: they address different shortcomings in the base agent. For example, on ALFWorld the Llama+ReAct agent enjoys significant performance gains under each method individually, which compound when they are combined in the BB-WM . In other cases, WALL-E actually hurts the base agent performance (observe, Qwen3-14B+ReflAct on ALFWorld), but when integrated into the BB-WM , the agent outperforms the Belief case. Sonnet saturates both benchmarks. On ALFWorld, Sonnet enjoys minor performance gains with the world modeling methods, and on ScienceWorld, there is no meaningful change in performance, but there are modest efficiency gains. We believe that for easier tasks, an LLM of sufficient scale can implicitly track state (even with uncertainty) and rarely performs invalid actions, which constrains the benefits of any world modeling efforts. 
+
+5.4 Memory vs. Belief 
+
+Our world model’s state space is composed of deterministic and probabilistic components. The deterministic components can also be referred to as memory , retaining information acquired from prior observations. Existing work has shown that explicitly maintaining memory can lead to performance gains in LLM agents [13, 44]. Thus, one may argue that the our BB-WMs benefit the agent because of memory tracking, rather than representing uncertainty through the probabilistic component. To evaluate if the performance gains primarily result from the deterministic memory or the belief, we perform an ablation on ALFWorld for the Llama and Qwen models. Specifically, we create a 
+
+Memory -only variant of the Belief world model from Sec. 5.1, which tracks only the deterministic components of the state. This means we drop the belief over unobserved object locations but still maintain a memory of observed object locations. The query interface is mostly unchanged: when the agent issues a where is <object> query for an unobserved object, the world model replaces the belief-based response with a generic response that the object has not yet been observed. 7Results are presented in Table 3. Without beliefs, performance and efficiency drop, and in certain cases the Memory variant has very similar performance to the base agent. Based on the results from Tables 1, 2, and 3, we conclude that maintaining a belief is a critical component of a world model, with demonstrated benefits when beliefs are exposed to a decoupled LLM agent. 
+
+5.5 Qualitative Analysis 
+
+Table 3: Memory vs. belief ablation. We distinguish only deterministic state components (Memory ) from the Belief variant evaluated in Sec. 5.1. Including beliefs results in meaningful performance and efficiency gains.                             
+
+> Llama-3.1-8B Qwen3-14B Method SR@1 Steps SR@1 Steps
+> ReAct 29.9 12.6 76.1 12.4 ReAct + Memory 38.8 11.4 76.1 12.2 ReAct + Belief 43.3 10 .990.3 11 .4
+> ReflAct 56.0 12.6 76.1 11.9 ReflAct + Memory 57.5 12.0 79.1 11.8 ReflAct + Belief 63.4 11 .188.1 11 .4
+
+ALFWorld: BB-WMs help the agent generalize to challenging test-time situations. We see this with a task that the Sonnet ReAct agent failed with WALL-E but completed with BB-WM. The task is to heat some egg and put in garbagecan , and the main difficulty is that the egg gets randomly initialized to the garbagecan , which likely represents a novel setting for Sonnet (in the real world, eggs are not commonly found in the garbagecan , especially those that need to be heated). In the WALL-E tra-jectory (see Appendix C), the agent exhausts the action budget by checking many receptacles (fridge, countertops, shelfs, cabinets, drawers, stoveburn-ers). Critically, the ALFWorld game engine will 
+
+never initialize an egg into the violet-colored re-ceptacles, but WALL-E cannot expose this world knowledge to the LLM agent. When coupled with the BB-WM (see Appendix C), the agent starts by querying for possible egg locations, and the BB-WM, due to its prior, only responds with valid initial locations. The agent checks the more sensible receptacles first (fridge, countertop, microwave), then re-queries the BB-WM for an updated receptacle list, and finally checks the garbagecan to find the egg, heat it, and complete the task. 
+
+ScienceWorld: BB-WMs can improve action selection by exposing beliefs. We see this on a task that a Qwen3-14B ReflAct agent failed with WALL-E but completed with BB-WM. The task is: grow a orange plant from seed . Both agents find the orange seeds in the bathroom. However, without the BB-WM (trajectory in Appendix D), the agent gets derailed after trying to grow an orange plant in the bathroom’s bathtub, instead of in the greenhouse’s flower pot. With the BB-WM (trajectory in Appendix D), the agent queries for possible locations for a flowerpot to grow the seed and successfully completes the task. 
+
+## 6 Conclusion 
+
+We show that LLM agents acting as policies benefit from having access to an accurate belief over the current state. Our finding motivates using Belief-Based World Models to model, maintain, and expose this belief to LLM agents through a natural language interface. While this paper built benchmark-specific instantiations of BB-WMs, we are excited to pursue scalable, domain-agnostic methods for learning accurate BB-WMs in future work. We believe that there is a natural connection between BB-WMs and continual world models , or world models that continually evolve their model of the world as new observations or experiences are encountered. We see belief updating and continual learning as addressing complementary forms of adaptation: new observations can reduce uncertainty about the current state, while observations that are unexpected under the predicted belief—i.e., high surprise—can signal that the world model itself may need to be revised. BB-WMs can therefore support both active sensing, by revealing when more information is needed, and continual learning, by revealing when existing world model predictions fail to explain new observations. These capabilities may be particularly important for autonomous decision-making in partially observable and open-ended environments such as robotics, financial markets, and information technology. 
+
+## References 
+
+[1] Jake Bruce, Michael Dennis, Ashley Edwards, Jack Parker-Holder, Yuge (Jimmy) Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar, Richie Steigerwald, Chris Apps, Yusuf Aytar, Sarah Bechtle, Feryal Behbahani, Stephanie Chan, Nicolas Heess, Lucy Gonzalez, Simon Osindero, Sherjil Ozair, Scott Reed, Jingwei Zhang, Konrad Zolna, Jeff Clune, Nando De Freitas, Satinder 8Singh, and Tim Rocktäschel. Genie: generative interactive environments. In Proceedings of the 41st International Conference on Machine Learning , ICML’24. JMLR.org, 2024. [2] Hyungjoo Chae, Namyoung Kim, Kai Tzu iunn Ong, Minju Gwak, Gwanwoo Song, Jihoon Kim, Sunghwan Kim, Dongha Lee, and Jinyoung Yeo. Web agents with world models: Learning and leveraging environment dynamics in web navigation. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum? id=moWiYJuSGF .[3] Xiaoyu Chen, Yao Mark Mu, Ping Luo, Shengbo Li, and Jianyu Chen. Flow-based recurrent belief state learning for POMDPs. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato, editors, Proceedings of the 39th International Con-ference on Machine Learning , volume 162 of Proceedings of Machine Learning Research ,pages 3444–3468. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/v162/ chen22q.html .[4] Alexandre Drouin, Maxime Gasse, Massimo Caccia, Issam H. Laradji, Manuel Del Verme, Tom Marty, Léo Boisvert, Megh Thakkar, Quentin Cappart, David Vazquez, Nicolas Chapados, and Alexandre Lacoste. Workarena: How capable are web agents at solving common knowledge work tasks?, 2024. [5] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, Amy Yang, Angela Fan, Anirudh Goyal, Anthony Hartshorn, Aobo Yang, Archi Mitra, Archie Sravanku-mar, Artem Korenev, Arthur Hinsvark, Arun Rao, Aston Zhang, Aurelien Rodriguez, Austen Gregerson, Ava Spataru, Baptiste Roziere, Bethany Biron, et al. The llama 3 herd of models, 2024. URL https://arxiv.org/abs/2407.21783 .[6] Yu Gu, Kai Zhang, Yuting Ning, Boyuan Zheng, Boyu Gou, Tianci Xue, Cheng Chang, Sanjari Srivastava, Yanan Xie, Peng Qi, Huan Sun, and Yu Su. Is your llm secretly a world model of the internet? model-based planning for web agents. Transactions on Machine Learning Research ,2025. [7] David Ha and Jürgen Schmidhuber. Recurrent world models facilitate policy evolution. In Advances in Neural Information Processing Systems 31 , pages 2451–2463. Curran Associates, Inc., 2018. URL https://papers.nips.cc/ paper/7512-recurrent-world-models-facilitate-policy-evolution . https:// worldmodels.github.io .[8] Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. arXiv preprint arXiv:1811.04551 , 2018. [9] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representa-tions , 2020. URL https://openreview.net/forum?id=S1lOTC4tDS .[10] Shayan Mohajer Hamidi, Linfeng Ye, and Konstantinos N. Plataniotis. Dreamphase: Of-fline imagination and uncertainty-guided planning for large-language-model agents. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=81PJ2KPnmK .[11] Shibo Hao, Yi Gu, Haodi Ma, Joshua Hong, Zhen Wang, Daisy Wang, and Zhiting Hu. Reasoning with language model is planning with world model. In Houda Bouamor, Juan Pino, and Kalika Bali, editors, Proceedings of the 2023 Conference on Empirical Meth-ods in Natural Language Processing , pages 8154–8173, Singapore, December 2023. As-sociation for Computational Linguistics. doi: 10.18653/v1/2023.emnlp-main.507. URL 
+
+https://aclanthology.org/2023.emnlp-main.507/ .[12] Anthony Hu, Lloyd Russell, Hudson Yeo, Zak Murez, George Fedoseev, Alex Kendall, Jamie Shotton, and Gianluca Corrado. Gaia-1: A generative world model for autonomous driv-ing. ArXiv , abs/2309.17080, 2023. URL https://api.semanticscholar.org/CorpusID: 263310665 .9[13] Mengkang Hu, Tianxing Chen, Qiguang Chen, Yao Mu, Wenqi Shao, and Ping Luo. HiAgent: Hierarchical working memory management for solving long-horizon agent tasks with large lan-guage model. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pile-hvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 32779–32798, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1575. URL https://aclanthology.org/2025.acl-long.1575/ .[14] Wenlong Huang, Pieter Abbeel, Deepak Pathak, and Igor Mordatch. Language models as zero-shot planners: Extracting actionable knowledge for embodied agents. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato, editors, Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 9118–9147. PMLR, 17–23 Jul 2022. URL https:// proceedings.mlr.press/v162/huang22a.html .[15] brian ichter, Anthony Brohan, Yevgen Chebotar, Chelsea Finn, Karol Hausman, Alexander Herzog, Daniel Ho, Julian Ibarz, Alex Irpan, Eric Jang, Ryan Julian, Dmitry Kalashnikov, Sergey Levine, Yao Lu, Carolina Parada, Kanishka Rao, Pierre Sermanet, Alexander T Toshev, Vincent Vanhoucke, Fei Xia, Ted Xiao, Peng Xu, Mengyuan Yan, Noah Brown, Michael Ahn, Omar Cortes, Nicolas Sievers, Clayton Tan, Sichun Xu, Diego Reyes, Jarek Rettinghouse, Jornell Quiambao, Peter Pastor, Linda Luu, Kuang-Huei Lee, Yuheng Kuang, Sally Jesmonth, Nikhil J. Joshi, Kyle Jeffrey, Rosario Jauregui Ruano, Jasmine Hsu, Keerthana Gopalakrishnan, Byron David, Andy Zeng, and Chuyuan Kelly Fu. Do as i can, not as i say: Grounding language in robotic affordances. In Karen Liu, Dana Kulic, and Jeff Ichnowski, editors, Proceedings of The 6th Conference on Robot Learning , volume 205 of Proceedings of Machine Learning Research ,pages 287–318. PMLR, 14–18 Dec 2023. URL https://proceedings.mlr.press/v205/ ichter23a.html .[16] Maximilian Igl, Luisa Zintgraf, Tuan Anh Le, Frank Wood, and Shimon Whiteson. Deep variational reinforcement learning for POMDPs. In Jennifer Dy and Andreas Krause, editors, 
+
+Proceedings of the 35th International Conference on Machine Learning , volume 80 of Pro-ceedings of Machine Learning Research , pages 2117–2126. PMLR, 10–15 Jul 2018. URL 
+
+https://proceedings.mlr.press/v80/igl18a.html .[17] Michael Janner, Yilun Du, Joshua Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. In International Conference on Machine Learning , 2022. [18] Saurabh Jha, Rohan R. Arora, Bhavya, Noah Zheutlin, Paulina Toro Isaza, Laura Shwartz, Yu Deng, Daby M. Sow, Ruchi Mahindru, and Ruchir Puri. Think locally, explain globally: Graph-guided llm investigations via local reasoning and belief propagation. 
+
+ArXiv , abs/2601.17915, 2026. URL https://api.semanticscholar.org/CorpusID: 285050242 .[19] Leslie Pack Kaelbling, Michael L Littman, and Anthony R Cassandra. Planning and acting in partially observable stochastic domains. Artificial Intelligence , 101(1-2):99–134, 1998. [20] Jeonghye Kim, Sojeong Rhee, Minbeom Kim, Dohyung Kim, Sangmook Lee, Youngchul Sung, and Kyomin Jung. ReflAct: World-grounded decision making in LLM agents via goal-state reflection. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 33433–33465, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main. 1697. URL https://aclanthology.org/2025.emnlp-main.1697/ .[21] Minsoo Kim, Jongyoon Kim, Jihyuk Kim, and Seung-won Hwang. QuBE: Question-based belief enhancement for agentic LLM reasoning. In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen, editors, Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 21403–21423, Miami, Florida, USA, November 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.emnlp-main.1193. URL https:// aclanthology.org/2024.emnlp-main.1193/ .10 [22] David Kirsh and Paul Maglio. On distinguishing epistemic from pragmatic action. Cognitive Science , 18(4):513–549, 1994. doi: 10.1207/s15516709cog1804_1. [23] Yann LeCun. A path towards autonomous machine intelligence, June 2022. [24] Junfeng Liao, Qizhou Wang, Jianing Zhu, Bo Du, Rui Yan, and Xiuying Chen. Belief memory: Agent memory under partial observability. ArXiv , abs/2605.05583, 2026. URL https://api. semanticscholar.org/CorpusID:288013493 .[25] Aly Lidayan, Jakob B Bjorner, Satvik Golechha, Kartik Goyal, and Alane Suhr. Abbel: Learning natural-language belief states for memory-efficient interaction. 2025. URL https: //api.semanticscholar.org/CorpusID:284132511 .[26] Lucas Maes, Quentin Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero. Leworldmodel: Stable end-to-end joint-embedding predictive architecture from pixels. 
+
+ArXiv , abs/2603.19312, 2026. URL https://api.semanticscholar.org/CorpusID: 286751061 .[27] Ugurcan Mugan and Malcolm A. MacIver. Spatial planning with long visual range benefits escape from visual predators in complex naturalistic environments. Nature Communications , 11 (1):3057, 2020. doi: 10.1038/s41467-020-16102-1. [28] Cheng Qian, Emre Can Acikgoz, Bingxuan Li, Xiusi Chen, Yuji Zhang, Bingxiang He, Qinyu Luo, Gokhan Tur, Dilek Hakkani-Tür, Yunzhu Li, and Heng Ji. Current agents fail to leverage world model as tool for foresight. In Maria Liakata, Viviane P. Moreira, Jiajun Zhang, and David Jurgens, editors, Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 13686–13723, San Diego, California, United States, July 2026. Association for Computational Linguistics. ISBN 979-8-89176-390-6. doi: 10. 18653/v1/2026.acl-long.623. URL https://aclanthology.org/2026.acl-long.623/ .[29] Babak Rahmani. Debugging code world models. ArXiv , abs/2602.07672, 2026. URL https: //api.semanticscholar.org/CorpusID:285451997 .[30] Nikolai Rozanov and Marek Rei. Stateact: State tracking and reasoning for acting and planning with large language models. 2024. URL https://arxiv.org/abs/2410.02810 .[31] Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. Mastering atari, go, chess and shogi by planning with a learned model. Nature , 588(7839):604–609, 2020. [32] Max Schwarzer, Ankesh Anand, Rishab Goel, R. Devon Hjelm, Aaron C. Courville, and Philip Bachman. Data-efficient reinforcement learning with self-predictive representations. In ICLR ,2021. URL https://openreview.net/forum?id=uCQfPZwRaUu .[33] Mohit Shridhar, Xingdi Yuan, Marc-Alexandre Côté, Yonatan Bisk, Adam Trischler, and Matthew Hausknecht. ALFWorld: Aligning Text and Embodied Environments for Interactive Learning. In Proceedings of the International Conference on Learning Representations (ICLR) ,2021. URL https://arxiv.org/abs/2010.03768 .[34] Gautam Singh, Skand Peri, Junghyun Kim, Hyunseok Kim, and Sungjin Ahn. Structured world belief for reinforcement learning in pomdp. In Marina Meila and Tong Zhang, editors, 
+
+Proceedings of the 38th International Conference on Machine Learning , volume 139 of Pro-ceedings of Machine Learning Research , pages 9744–9755. PMLR, 18–24 Jul 2021. URL 
+
+https://proceedings.mlr.press/v139/singh21a.html .[35] Joykirat Singh, Zaid Khan, Archiki Prasad, Justin Chih-Yao Chen, Akshay Nambi, Hyunji Lee, Elias Stengel-Eskin, and Mohit Bansal. Agent-brace: Decoupling beliefs from actions in long-horizon tasks via verbalized state uncertainty, 2026. URL https://arxiv.org/abs/ 2605.11436 .[36] Thomas Suddendorf and Michael C. Corballis. The evolution of foresight: What is mental time travel, and is it unique to humans? Behavioral and Brain Sciences , 30(3):299–313, June 2007. doi: 10.1017/S0140525X07001975. 11 [37] Fair CodeGen team. Jade Copet, Quentin Carbonneaux, Gal Cohen, Jonas Gehring, Jacob Kahn, Jannik Kossen, Felix Kreuk, Emily McMilin, Michel Meyer, Yuxiang Wei, David Zhang, Kunhao Zheng, Jordi Armengol-Estap’e, Pedram Bashiri, Maximilian Beck, Pierre Chambon, Abhishek Charnalia, Chris Cummins, Juliette Decugis, Zacharias V. Fisches, Franc¸ois Fleuret, Fabian Gloeckle, Alex Gu, Michael Hassid, Daniel Haziza, Badr Youbi Idrissi, Christian Keller, Rahul K. Kindi, Hugh Leather, Gallil Maimon, A.A. Markosyan, Francisco Massa, Pierre-Emmanuel Mazaré, Vegard Mella, Naila Murray, Keyur Muzumdar, Peter O’Hearn, Matteo Pagliardini, Dmitrii Pedchenko, Tal Remez, Volker Seeker, Marco Selvi, Oren Sultan, Sida Wang, Luca Wehrstedt, Ori Yoran, Lingming Zhang, Taco Cohen, Yossi Adi, and Gabriel Synnaeve. Cwm: An open-weights llm for research on code generation with world mod-els. ArXiv , abs/2510.02387, 2025. URL https://api.semanticscholar.org/CorpusID: 281830152 .[38] Andrew Wang, Andrew C Li, Toryn Q. Klassen, Rodrigo Toro Icarte, and Sheila A. Mcilraith. Learning belief representations for partially observable deep RL. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, editors, 
+
+Proceedings of the 40th International Conference on Machine Learning , volume 202 of Pro-ceedings of Machine Learning Research , pages 35970–35988. PMLR, 23–29 Jul 2023. URL 
+
+https://proceedings.mlr.press/v202/wang23p.html .[39] Ruoyao Wang, Peter Jansen, Marc-Alexandre Côté, and Prithviraj Ammanabrolu. Science-World: Is your agent smarter than a 5th grader? In Yoav Goldberg, Zornitsa Kozareva, and Yue Zhang, editors, Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 11279–11298, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.emnlp-main.775. URL 
+
+https://aclanthology.org/2022.emnlp-main.775/ .[40] Weimin Xiong, Yifan Song, Qingxiu Dong, Bingchan Zhao, Feifan Song, XWang, and Sujian Li. MPO: Boosting LLM agents with meta plan optimization. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 3914–3935, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-335-7. doi: 10.18653/v1/2025. findings-emnlp.210. URL https://aclanthology.org/2025.findings-emnlp.210/ .[41] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, et al. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .[42] John Yang, Carlos E Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik R Narasimhan, and Ofir Press. SWE-agent: Agent-computer interfaces enable automated soft-ware engineering. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. URL https://openreview.net/forum?id=mXpq6ut8J3 .[43] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR) , 2023. [44] Takuma Yoneda, Jiading Fang, Peng Li, Huanyu Zhang, Tianchong Jiang, Shengjie Lin, Ben Picker, David Yunis, Hongyuan Mei, and Matthew R. Walter. Statler: State-maintaining language models for embodied reasoning. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) , 2024. [45] Xiao Yu, Baolin Peng, Ruize Xu, Yelong Shen, Pengcheng He, Suman Nath, Nikhil Singh, Jian Gao, and Zhou Yu. Reinforcement world model learning for llm-based agents. 
+
+ArXiv , abs/2602.05842, 2026. URL https://api.semanticscholar.org/CorpusID: 285303980 .[46] Gaoyue Zhou, Hengkai Pan, Yann LeCun, and Lerrel Pinto. Dino-wm: World models on pre-trained visual features enable zero-shot planning, 2024. URL https://arxiv.org/abs/ 2411.04983 .12 [47] Siyu Zhou, Tianyi Zhou, Yijun Yang, Guodong Long, Deheng Ye, Jing Jiang, and Chengqi Zhang. Wall-e 2.0: World alignment by neurosymbolic learning improves world model-based llm agents. arXiv preprint arXiv:2504.15785 , 2025. [48] Deyu Zou, Yongqiang Chen, Jianxiang Wang, Garry YANG, Mufei Li, Qing Da, James Cheng, Pan Li, and Yu Gong. Reducing belief deviation in reinforcement learning for active reasoning of LLM agents. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=r8hzDA3pUY .
+
+## A BB-WM Instantiation for ALFWorld 
+
+A.1 General Agent Prompt 
+
+We provide the agent prompt used for ALFWorld below. We separate the prompt into benchmark instructions, agent instructions, the available action space, the in-context example, and the task-specific instruction. For brevity, we truncate the in-context example, and add color styling to help the reader navigate the text. 
+
+Benchmark Instructions 
+
+Interact with a household to solve a task. Imagine you are an intelligent agent in a household environment and your target is to perform actions to complete the task goal. At the beginning of your interactions, you will be given the detailed description of the current environment and your goal to accomplish. After your each turn, the environment will give you immediate feedback based on which you plan your next few steps. if the envrionment output "Nothing happened", that means the previous action is invalid and you should try more options. 
+
+Agent Instructions 
+
+We specifically show ReflAct’s agent instructions here. 
+
+For each of your turn, you will be given the observation of the last turn. You should first reflect in one sentence on the agent’s state in relation to the task goal, and then output the action for this turn. Your output must strictly follow this format: "Reflection: your reflection. Action: your next action". Reminder: 1. The action must be chosen from the given available actions. Any actions except provided available actions will be regarded as illegal. 2. You should reflect on the current state in relation to the task goal every turn before acting. 
+
+Actions 
+
+The available actions are: 1. go to {recep} 2. take {obj} from {recep} 3. put {obj} in/on {recep} 4. open {recep} 5. close {recep} 6. use {obj} 7. clean {obj} with {recep} 8. heat {obj} with {recep} 9. cool {obj} with {recep} where {obj} and {recep} correspond to objects and receptacles. 
+
+In-Context Example 
+
+13 –-Here is an example. You are in the middle of a room. Looking quickly around you, you see a cabinet 13, a cabinet 12, [... receptacles omitted ...] , a stoveburner 3, a stoveburner 2, a stoveburner 1, and a toaster 1. Your task is to: put a clean lettuce in diningtable. Reflection: To solve the task, I need to find and take a lettuce, then clean it with sinkbasin, then put it in diningtable. First I need to find a lettuce. A lettuce is more likely to appear in fridge 1, diningtable 1, sinkbasin 1, stoveburner 1-3, cabinet 1-13. I can check one by one, starting by going to fridge 1. Action: go to fridge 1 Observation: The fridge 1 is closed. Reflection: Currently, I am at fridge 1, not holding anything, but the closed fridge hinders me from finding the lettuce needed to clean and place. Action: open fridge 1 Observation: You open the fridge 1. The fridge 1 is open. In it, you see a cup 3, a egg 2, a potato 3, and a potato 2. 
+
+[... intermediate interaction turns omitted ...] 
+
+Reflection: Currently, I am at diningtable 1, still holding the clean lettuce 1, and the task is nearly complete, with only the placement remaining. Action: put lettuce 1 in/on diningtable 1 Observation: You put the lettuce 1 in/on the diningtable 1. 
+
+Task Instruction 
+
+–-Now, it’s your turn and here is the task. You are in the middle of a room. Looking quickly around you, you see a cabinet 6, a cabinet 5, a cabinet 4, a cabinet 3, a cabinet 2, a cabinet 1, a coffeemachine 1, a countertop 3, a countertop 2, a countertop 1, a drawer 3, a drawer 2, a drawer 1, a fridge 1, a garbagecan 1, a microwave 1, a shelf 3, a shelf 2, a shelf 1, a sinkbasin 1, a stoveburner 4, a stoveburner 3, a stoveburner 2, a stoveburner 1, and a toaster 1. Your task is to: put a clean mug in coffeemachine. 
+
+A.2 World Model Prompt Instructions 
+
+WALL-E World Model Instructions 
+
+A world model checks each action you propose before it is executed. If the action is infeasible in the current state, the world model will not execute it; instead it returns an observation beginning with "[World model]" that explains why the action would fail and suggests how to fix it. This check does not change the environment and does not consume a step. When you receive a "[World model]" observation, do not repeat the same action – read the reason, address it (for example by first moving to the right location or freeing your hand), and propose a different action. 
+
+Belief-Based World Model Instructions 
+
+Below are the instructions used for the Belief variant. For BB-WM, we compose both the WALL-E and these instructions. 
+
+You are assisted by a world model that tracks the environment state and where objects are likely to be. You can consult it for free (a query does not change the environment) using the query action below. 
+
+14 The available queries are: 1. query where is {obj}: returns the receptacles where {obj} is most likely to be, ranked by probability (already-searched receptacles are excluded). 2. query what is in {recep}: returns the objects observed in {recep}, or tells you it has not been searched yet. 3. query searched {recep}: tells you whether you have already looked inside {recep}. 4. query state: returns a summary of the current state: where you are, what you are holding, the objects you have seen, and which receptacles you have searched. The world model only provides information; it does not tell you what to do. When searching for an object, you may "query where is {obj}" to see which receptacles are more likely to contain it (already-searched receptacles are excluded), then decide your own action using that information together with the task. Whenever you feel stuck or uncertain about what to do next – for example, you cannot find an object, you keep getting "Nothing happened", or you are unsure of the current state – query the world model before acting. A query is free and never changes the environment, so use it to reorient yourself instead of guessing. 
+
+A.3 In-Context Examples 
+
+We use per-task in-context examples, following [40]. They are publicly available in this repo: https://github.com/WeiminXiong/MPO For the Belief and BB-WM variants, we alter the in-context example to show the agent using the world model to query for the location of the task’s target object. Nothing else in the example is changed (following action selection or agentic reasoning thoughts). 
+
+A.4 State Space A.4.1 Deterministic State Space 
+
+The deterministic component of the world-model state maintains the task goal, receptacle and object attributes observed so far, and the agent’s current location and inventory. We represent the state at timestep t as 
+
+xdet  
+
+> t
+
+= ( g, Rt, Ot, ℓ t, I t) ,
+
+with the following components. 
+
+Goal. The task goal g is fixed for an episode and consists of 
+
+g = ( act , target_type , transform , dest_recep_type , count ),
+
+where act is one of { pick_and_place , clean , heat , cool , look , picktwo }. The transform 
+
+and destination fields are optional depending on the task type. 
+
+Receptacles. Rt contains one state entry for each receptacle r, with all receptacle identifiers known at the beginning of the episode: 
+
+r = ( id , open , searched , contents ).
+
+Here, open ∈ { true , false , unknown } records the receptacle’s open/closed state, searched indi-cates whether its contents have been observed, and contents is the set of observed object identifiers contained in it. 
+
+Objects. Ot contains entries for object instances that have been observed in the environment: 
+
+o = ( id , type , location , clean , heated , cooled ).
+
+An object’s location is a receptacle identifier, inventory , or unknown . The remaining Boolean attributes record whether the object has been cleaned, heated, or cooled. 
+
+Agent. The agent state consists of its current location ℓt and inventory It, where ℓt is the current receptacle/location and It is the set of object identifiers currently held by the agent. 15 A.4.2 Probabilistic State Space 
+
+The probabilistic component represents uncertainty over the locations of task-relevant objects. It contains only categorical distributions over receptacle locations Let 
+
+R = {r1, . . . , r n}
+
+denote the set of receptacle instances in the scene, all of which are known at the beginning of the episode. We represent the belief over the target object’s location as 
+
+bt ∈ ∆|R|− 1,
+
+where 
+
+bt(r) = P (st = r)
+
+is the probability that the target object is located at receptacle r. There is no additional “unknown” or undiscovered-location category; probability mass is distributed only over receptacles in R.
+
+Target Belief. The belief maintains a categorical distribution over receptacle identifiers, together with an optional concrete object identifier and observed location: 
+
+bt = ( dist , instance_id , located_at ) .
+
+Before the target object is observed, instance_id and located_at are undefined. Once observed, they identify the concrete object instance and its known location, and the distribution becomes degenerate at that receptacle. Only the task-relevant target object type receives a persistent probabilistic belief. For tasks requiring multiple objects of the same type, this representation is extended with a separate target belief for each required instance. 
+
+Prior. The initial belief is derived from ALFWorld’s object–receptacle placement constraints. Let 
+
+Rallow (o) = {r ∈ R : type( r) is a valid receptacle type for o} .
+
+The prior is uniform over compatible receptacle instances present in the scene: 
+
+b0(r) = 
+
+
+
+1
+
+|R allow (o)| , r ∈ R allow (o),
+
+0, otherwise .
+
+If no placement information is available for the object type, or no compatible receptacle type appears in the scene, we instead initialize a uniform distribution over all r ∈ R .
+
+A.5 Belief-Query Interface 
+
+The policy accesses the world-model state through an explicit query interface. Queries use the same action channel as environment actions: instead of issuing an environment action, the agent outputs 
+
+Action: query <q> .
+
+The world model answers the query from its current state and returns the result as the next 
+
+Observation: . Queries do not modify the environment or consume an environment step. The interface exposes four query types. 
+
+query where is {obj} . This query exposes the location belief described in Appendix A.4.2. For the task-relevant target object, the world model ranks unsearched receptacles with positive belief mass under bt and returns the most likely locations and their probabilities, e.g.,  
+
+> spraybottle is most likely at: cabinet 1 (0.14), cabinet 2 (0.14), ...
+
+Locations are returned in decreasing probability order until their cumulative probability reaches at least 0.9; any remaining probability mass is summarized as and other receptacles (X%) .For non-target object types, which do not have a persistent belief in the probabilistic state, the world model instead constructs the corresponding placement prior over currently unsearched receptacles at query time. If a specific observed object instance is requested, the response is obtained directly from the deterministic object state, reporting whether the object is held, located at a particular receptacle, or has not yet been located. 16 query what is in {recep} . This query accesses the deterministic receptacle state. If the receptacle has been searched, the world model returns its observed contents; otherwise, it reports that the receptacle has not yet been searched. For example, 
+
+cabinet 1 contains: cloth 1, soapbar 1. 
+
+query searched {recep} . This query returns whether the specified receptacle has already been searched, using the searched field of the deterministic state: 
+
+cabinet 1: searched 
+
+or 
+
+cabinet 1: not searched yet. 
+
+query state . This query returns a compact summary of the deterministic state described in Appendix A.4.1, including the agent’s current location and inventory, observed objects, and searched receptacles: 
+
+You are at loc, holding inv. Known objects: ... Searched receptacles: ... 
+
+## B BB-WM Instantiation for ScienceWorld 
+
+B.1 General Agent Prompt 
+
+We provide the agent prompt used for ScienceWorld below. We separate the prompt into benchmark instructions, agent instructions, the available action space, the in-context example, and the task-specific instruction. We truncate the in-context example for brevity and add color styling to help the reader navigate the text. 
+
+Benchmark Instructions 
+
+You are a helpful assistant to do some scientific experiment in an environment. In the environment, there are several rooms: kitchen, foundry, workshop, bathroom, outside, living room, bedroom, greenhouse, art studio, hallway. You should explore the environment and find the items you need to complete the experiment. You can teleport to any room in one step. All containers in the environment have already been opened, so you can directly take items from them. For each of your turn, you will be given the observation of the last turn. 
+
+Agent Instructions 
+
+You should first reflect on the agent’s state, including the location, inventory, and focused object, in relation to the task goal. Then, output the action for this turn. Your output must strictly follow this format: "Reflection: your reflection. Action: your next action". 
+
+Actions 
+
+17 The available actions are: open OBJ: open a container close OBJ: close a container activate OBJ: activate a device deactivate OBJ: deactivate a device connect OBJ to OBJ: connect electrical components disconnect OBJ: disconnect electrical components use OBJ [on OBJ]: use a device/item look around: describe the current room examine OBJ: describe an object in detail look at OBJ: describe a container’s contents read OBJ: read a note or book move OBJ to OBJ: move an object to a container pick up OBJ: move an object to the inventory pour OBJ into OBJ: pour a liquid into a container mix OBJ: chemically mix a container teleport to LOC: teleport to a specific room focus on OBJ: signal intent on a task object wait: take no action for 10 steps wait1: take no action for a step 
+
+In-Context Example 
+
+–-Here is an example. Task Description: Your task is to: boil orange juice. For compounds without a boiling point, combusting the substance is also acceptable. First, focus on the substance. Then, take actions that will cause it to change its state of matter. Reflection: The task is to boil the orange juice, which means heating it until it changes state. I will need a container, a heat source, and a thermometer. The kitchen has these, so I teleport there. Action: teleport to kitchen Observation: You teleport to the kitchen. Reflection: I look around the kitchen to find the thermometer, a pot, and the orange juice. Action: look around Observation: This room is called the kitchen. In it, you see: the agent a substance called air a chair. On the chair is: nothing. a counter. On the counter is: a bowl (containing a red apple, a banana, an orange, a potato), a drawer. a cupboard. The cupboard door is open. In the cupboard is: a ceramic cup (containing nothing), a drawer, a metal pot (containing nothing), a tin cup (containing nothing). a freezer. The freezer door is open. In the freezer is: nothing. a fridge. The fridge door is open. In the fridge is: a wood cup (containing orange juice). a glass jar (containing a substance called sodium chloride) a lighter an oven, which is turned off. The oven door is open. In the oven is: nothing. a painting a sink, which is turned off. In the sink is: nothing. a substance called soap a stopwatch, which is deactivated. a stove, which is turned off. On the stove is: nothing. a table. On the table is: a glass cup (containing nothing). a thermometer, currently reading a temperature of 10 degrees celsius You also see: A door to the bathroom (that is open) A door to the hallway (that is open) A door to the outside (that is open) 
+
+18 Reflection: I pick up the thermometer so I can monitor the temperature as I heat the juice. Action: pick up thermometer Observation: You move the thermometer to the inventory. 
+
+[... intermediate interaction turns omitted ...] 
+
+Reflection: I turn the blast furnace on to heat the juice toward boiling. Action: activate blast furnace Observation: The blast furnace is now activated. Reflection: I use the thermometer on the orange juice to check its temperature as it heats. Action: use thermometer in inventory on orange juice Observation: the thermometer measures a temperature of 24 degrees celsius Reflection: The juice has boiled into gas; I measure the gaseous juice to confirm it changed state. Action: use thermometer in inventory on gaseous orange juice Observation: No known action matches that input. Reflection: I wait to let the blast furnace finish boiling it off. Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+Task Instruction 
+
+–-Now, it’s your turn and here is the task. Task Description: Your task is to: boil lead. For compounds without a boiling point, combusting the substance is also acceptable. First, focus on the substance. Then, take actions that will cause it to change its state of matter. 
+
+B.2 World Model Prompt Instructions 
+
+WALL-E Oracle World Model Instructions 
+
+A world model checks each action before it runs. If you propose an action that is not possible in the current state, it will not be executed; instead you will receive an observation beginning with "[World model]" explaining that the action is unavailable. When you see such a message, do not repeat the same action – choose a different, valid action. 
+
+Belief-Based World Model Instructions 
+
+You are assisted by a world model that tracks where objects are likely to be. You may consult it at any time with a query action instead of an environment action; a query does not consume an environment step. You may also consult the world model (these do not consume an environment step): query where is OBJ: ask the world model which room(s) an object is most likely in query what is in ROOM: ask what the world model has seen in a room you have visited query searched ROOM: ask whether you have already looked around a room query state: ask for your current location, inventory, focused object, and searched rooms Reminder: 1. The world model only provides information; it does not tell you what to do. For example, when searching for an object, you may "query where is {obj}" to see which rooms are more likely to contain it (already-searched rooms are excluded), then decide your own action using that information together with the task. 
+
+19 2. Whenever you feel stuck or uncertain about what to do next – for example, you cannot find an object, you keep getting "No known action matches that input", or you are unsure of the current state – query the world model before acting. A query is free and never changes the environment, so use it to reorient yourself instead of guessing. 
+
+B.3 In-Context Examples 
+
+Following our process for ALFWorld, we create per-task in-context examples. We generate in-context examples by using the environments gold path generator . We distill the gold path action sequence by dropping redundant actions, and we verify on a fresh run that the distilled action sequence succeeds in solving the task. Reasoning thoughts (for use in ReAct and ReflAct) frameworks are written by an agent. 
+
+B.4 State Space B.4.1 Deterministic State Space 
+
+The deterministic component of the ScienceWorld state maintains the task goal, room contents, object nesting, and the agent’s current location, inventory, and focused object. All quantities in this component represent observed or task-specified facts. We represent the deterministic state at timestep 
+
+t as 
+
+xdet  
+
+> t
+
+= ( g, Rt, Ct, Lt, ℓ t, I t, f t) ,
+
+with the following components. 
+
+Goal. The task goal g is fixed for an episode and contains 
+
+g = ( target_type , named_location ) ,
+
+where target_type identifies the task-relevant object (e.g., orange juice or aluminum foil ), and named_location optionally specifies a room in which the task description explicitly states that the target is located. The state also records any object locations explicitly specified in the task description, 
+
+S = {o 7 → r} ,
+
+including stated locations for non-target objects. These mappings are treated as deterministic task information. 
+
+Rooms. ScienceWorld uses a fixed set of ten rooms, 
+
+R =
+
+kitchen , bathroom , living room , bedroom , workshop ,
+
+greenhouse , art studio , foundry , outside , hallway 
+
+
+
+.
+
+For each room r, the deterministic state maintains 
+
+r = ( name , searched , contents ) ,
+
+where searched indicates whether the room has been observed via the look around action, and 
+
+contents is the set of object referents observed in that room. Unlike ALFWorld, ScienceWorld objects are represented directly by potentially multi-word referents such as orange juice , red apple , or metal pot , rather than numbered object identifiers. 
+
+Object Nesting. We record observed containment relationships through 
+
+Ct : c 7 → { o1, . . . , o m},
+
+where Ct(c) is the set of objects observed inside or on container c. An inverse object-location map 
+
+Lt : o 7 → (r, c )
+
+records the room and, when applicable, container associated with an observed object. For held containers, the state additionally maintains their known contents: 
+
+Ht : c 7 →
+
+
+
+{o1, . . . , o m}, known contents ,
+
+∅, known to be empty ,
+
+unknown , contents not known .
+
+20 Agent. The agent state consists of its current room ℓt, inventory It, and focused object ft:
+
+astate  
+
+> t
+
+= ( ℓt, I t, f t) .
+
+Here, ℓt is the agent’s current room, It is the set of object referents currently held, and ft is the object most recently selected by a focus on action. 
+
+B.4.2 Probabilistic State Space 
+
+The probabilistic component of the ScienceWorld world model represents uncertainty over the room containing an object. Let R denote the fixed set of ten ScienceWorld rooms. For a tracked object type o, we maintain a categorical belief 
+
+bot ∈ ∆|R|− 1,
+
+where 
+
+bot (r) = P (sot = r), r ∈ R ,
+
+is the probability that an instance of object type o is located in room r.Each object belief additionally records a resolved location, 
+
+bot = ( dist , located_at ) ,
+
+where dist is the categorical distribution over rooms and located_at is initially undefined. Once the object is observed, located_at records its room; if the object is held by the agent, it takes the value inventory . The target object specified by the task is tracked from the beginning of the episode. Additional object types may be instantiated as needed and subsequently follow the same belief representation and update rules. 
+
+Prior. The initial belief is derived from object–room placement constraints. Let 
+
+Rallow (o) ⊆ R 
+
+denote the set of rooms in which object type o may occur. In the absence of additional task information, the prior is uniform over these candidate rooms: 
+
+bo
+
+> 0
+
+(r) = 
+
+
+
+1
+
+|R allow (o)| , r ∈ R allow (o),
+
+0, otherwise .
+
+If no placement information is available for an object type, the prior is uniform over all rooms in R.Task descriptions may provide additional location information. If the task explicitly specifies the target object’s room r⋆, the target belief is initialized deterministically: 
+
+bo
+
+> 0
+
+(r) = 1[r = r⋆].
+
+For other objects whose locations are stated in the task description, we place 0.9 probability on the stated room and distribute the remaining 0.1 uniformly over the object’s other candidate rooms. 
+
+B.5 Belief-Query Interface 
+
+The policy accesses the ScienceWorld world-model state through an explicit query interface. Queries use the same action channel as environment actions: instead of issuing an environment action, the agent outputs 
+
+Action: query <q> .
+
+The world model answers from its current state and returns the result as the next Observation: .Queries do not modify the ScienceWorld environment or consume an environment step. The interface exposes four query types. 
+
+query where is OBJ . This query exposes the room-level location belief described in Ap-pendix B.4.2. For an unresolved object with a maintained belief bot , the world model ranks rooms with positive belief mass that have not yet been searched and returns the most likely locations and their probabilities, e.g., 21 orange juice is most likely in: kitchen (1.00). 
+
+Rooms are returned in decreasing probability order until their cumulative probability reaches at least 
+
+0.9; any remaining mass is summarized as and other rooms (X%) .Once an object has been observed, the query may instead resolve its location from the deterministic state described in Appendix B.4.1. In particular, if the object has been observed inside a container, the response includes both the room and container: 
+
+> orange juice is in the kitchen, in the fridge.
+
+If the object is held by the agent, its location is reported as inventory with probability 1. If all candidate rooms have been searched without finding the object, the world model reports that no candidate rooms remain. 
+
+query what is in X . This query accesses the deterministic room and container contents main-tained by the world model. If X is a searched room, the query returns the objects observed in that room. If X is an observed container, it instead returns the objects recorded inside that container. For example,  
+
+> fridge contains: orange juice.
+
+If the requested room or container has not yet been observed, the world model reports that it has not been searched. 
+
+query searched ROOM . This query reports whether a look around observation has been ob-tained for the specified room, corresponding to the searched field in the deterministic room state:  
+
+> kitchen: searched
+
+or  
+
+> kitchen: not searched yet.
+
+query state . This query returns a compact summary of the deterministic agent state described in Appendix B.4.1, including the current room, inventory, focused object, and searched rooms:   
+
+> You are in the loc, holding inv, focused on focus. Rooms searched: ...
+
+When the agent holds a container, its known contents are included in the inventory summary, e.g., 
+
+metal pot (containing orange juice) .
+
+## C Example ALFWorld Trajectories 
+
+We provide an example ALFWorld trajectory (task #10 from the unseen split) from Sonnet+ReAct using WALL-E and BB-WM. For readability, we color-code agent thoughts, actions, and environment observations, and we highlight in yellow critical parts of the trajectory. 
+
+> WALL-E
+
+We provide an example ALFWorld trajectory (task #10 from the unseen split) from Sonnet+ReAct using WALL-E. For readability, we color-code agent thoughts, actions, and environment observations, and we highlight in yellow critical parts of the trajectory, which show why the agent misses searching the garbagecan for the egg. 22 You are in the middle of a room. Looking quickly around you, you see a cabinet 6, a cabinet 5, a cabinet 4, a cabinet 3, a cabinet 2, a cabinet 1, a coffeemachine 1, a countertop 3, a countertop 2, a countertop 1, a drawer 3, a drawer 2, a drawer 1, a fridge 1, a garbagecan 1, a microwave 1, a shelf 3, a shelf 2, a shelf 1, a sinkbasin 1, a stoveburner 4, a stoveburner 3, a stoveburner 2, a stoveburner 1, and a toaster 1. Your task is to: heat some egg and put it in garbagecan. Thought: I need to find an egg, heat it with the microwave, then put it in the garbagecan. Let me start by looking for an egg in likely locations. Action: go to fridge 1 Observation: The fridge 1 is closed. Action: open fridge 1 Observation: You open the fridge 1. The fridge 1 is open. In it, you see a apple 1, a cup 2, a cup 1, a lettuce 2, a potato 2, and a potato 1. Thought: No egg in the fridge. Let me check other locations like countertops, shelves, and cabinets. Action: go to countertop 1 Observation: On the countertop 1, you see a cellphone 3, a pan 1, and a peppershaker 2. 
+
+[... checking other countertop locations ...] 
+
+Thought: No egg on countertops. Let me check shelves and cabinets. Action: go to shelf 1 Observation: On the shelf 1, you see a saltshaker 2. 
+
+[... checking other shelf and cabinet locations ...] 
+
+Thought: No egg found in cabinets. Let me check drawers. Action: go to drawer 1 Observation: The drawer 1 is closed. 
+
+[... checking other drawer locations ...] 
+
+Thought: No egg found in drawers either. Let me check the stoveburners and other locations I might have missed. Action: go to stoveburner 1 Observation: On the stoveburner 1, you see a pan 1. 
+
+[... checking other stoveburner locations ...] 
+
+Action: go to stoveburner 4 Observation: On the stoveburner 4, you see a pot 1. Outcome: Failed Environment steps: 30 WALL-E rejections: 0
+
+The trajectory terminates because the agent hits the task’s action budget. 
+
+BB-WM 
+
+You are in the middle of a room. Looking quickly around you, you see a cabinet 6, a cabinet 5, a cabinet 4, a cabinet 3, a cabinet 2, a cabinet 1, a coffeemachine 1, a countertop 3, a countertop 2, a countertop 1, a drawer 3, a drawer 2, a drawer 1, a fridge 1, a garbagecan 1, a microwave 1, a shelf 3, a shelf 2, a shelf 1, a sinkbasin 1, a stoveburner 4, a stoveburner 3, a stoveburner 2, a stoveburner 1, and a toaster 1. Your task is to: heat some egg and put it in garbagecan. Thought: I need to find an egg, heat it with the microwave, then put it in the garbagecan. Let me first find the egg. Action: query where is egg Observation: egg is most likely at: countertop 1 (0.14), countertop 2 (0.14), countertop 3 (0.14), fridge 1 (0.14), garbagecan 1 (0.14), microwave 1 (0.14), sinkbasin 1 (0.14). Action: go to fridge 1 Observation: The fridge 1 is closed. 
+
+23 Action: open fridge 1 Observation: You open the fridge 1. The fridge 1 is open. In it, you see a apple 1, a cup 2, a cup 1, a lettuce 2, a potato 2, and a potato 1. Action: go to countertop 1 Observation: On the countertop 1, you see a cellphone 3, a pan 1, and a peppershaker 2. 
+
+[... checking other countertop locations ...] 
+
+Thought: No egg on the countertops. Let me check microwave and other locations. Action: go to microwave 1 Observation: The microwave 1 is closed. Action: open microwave 1 Observation: You open the microwave 1. The microwave 1 is open. In it, you see nothing. Action: query where is egg Observation: egg is most likely at: garbagecan 1 (0.50), sinkbasin 1 (0.50). Action: go to sinkbasin 1 Observation: On the sinkbasin 1, you see a fork 2, a spatula 2, and a spoon 3. Action: go to garbagecan 1 Observation: On the garbagecan 1, you see a apple 2, a egg 2, and a egg 1. Action: take egg 1 from garbagecan 1 Observation: You pick up the egg 1 from the garbagecan 1. Action: heat egg 1 with microwave 1 Observation: [World model] Failed to heat egg 1. It must be placed in microwave 1 to be heated. Place egg 1 in microwave 1 before heating. Action: go to microwave 1 Observation: The microwave 1 is open. In it, you see nothing. Action: put egg 1 in/on microwave 1 Observation: You put the egg 1 in/on the microwave 1. Action: heat egg 1 with microwave 1 Observation: Nothing happens. Thought: Let me try closing the microwave first and then heating. Action: close microwave 1 Observation: You close the microwave 1. Action: heat egg 1 with microwave 1 Observation: Nothing happens. Thought: Let me try opening the microwave and taking the egg out, then using the heat action differently. Action: open microwave 1 Observation: You open the microwave 1. The microwave 1 is open. In it, you see a egg 1. Action: take egg 1 from microwave 1 Observation: You pick up the egg 1 from the microwave 1. Action: heat egg 1 with microwave 1 Observation: You heat the egg 1 using the microwave 1. Action: go to garbagecan 1 Observation: On the garbagecan 1, you see a apple 2, and a egg 2. Action: put egg 1 in/on garbagecan 1 Observation: You put the egg 1 in/on the garbagecan 1. Outcome: Success Environment steps: 20 Belief query steps: 2WALL-E rejections: 1
+
+24 D ScienceWorld Example Trajectories 
+
+We provide an example ScienceWorld trajectory (grow plant task, #93 from the unseen split) from Qwen3-14B+ReflAct using WALL-E Oracle and BB-WM. For readability, we color-code agent thoughts, actions, and environment observations, and we highlight in yellow critical parts of the trajectory. 
+
+WALL-E Oracle 
+
+Task Description: Your task is to: grow a orange plant from seed. Seeds can be found in the bathroom. First, focus on a seed. Then, make changes to the environment that grow the plant until it reaches the reproduction life stage. Reflection: To grow the orange plant, I first need a seed. The task says seeds are in the bathroom, so I teleport there. Action: teleport to bathroom Observation: You teleport to the bathroom. Reflection: I look around the bathroom to find the seeds and necessary items for planting. Action: look around Observation: This room is called the bathroom. In it, you see: the agent a substance called air a bathtub, which is turned off. In the bathtub is: nothing. a glass cup (containing nothing) a painting a seed jar (containing a orange seed, a orange seed, a orange seed, a orange seed, a orange seed) a sink, which is turned off. In the sink is: nothing. a toilet. In the toilet is: A drain, which is closed, a substance called water. You also see: A door to the kitchen (that is open) Reflection: I see a seed jar here; I pick it up so I can plant a seed. Action: pick up seed jar Observation: You move the seed jar to the inventory. Reflection: I move an orange seed from the jar into the bathtub so it has a medium to grow in Action: move orange seed in seed jar to bathtub Observation: You move the orange seed to the bathtub. Reflection: The task says to focus on the seed, so I focus on the orange seed now that it is planted. Action: focus on orange seed in bathtub Observation: You focus on the orange seed. Reflection: Seeds need water to grow, so I turn on the sink to get a water source. Action: activate sink Observation: The sink is now activated. Reflection: I move the glass cup to the running sink to fill it with water. Action: move glass cup to sink Observation: You move the glass cup to the sink. Reflection: I pour the water from the glass cup into the bathtub to water the seed. Action: pour glass cup into bathtub Observation: You pour the contents of the glass cup into the bathtub. Reflection: I turn the sink off now that the glass cup is emptied into the bathtub. Action: deactivate sink Observation: The sink is now deactivated. Reflection: Growth takes time, so I wait to let the plant develop. Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+[... more waiting ...] 
+
+25 Reflection: I keep waiting to give the plant more time to grow. Action: wait1 Observation: You decide to wait for 1 iterations. Reflection: Plants need repeated watering as they grow, so I turn the sink on again. Action: activate sink Observation: The sink is now activated. Reflection: I refill the glass cup at the sink. Action: move glass cup to sink Observation: You move the glass cup to the sink. Reflection: I water the growing plant again by pouring the glass cup into the bathtub. Action: pour glass cup into bathtub Observation: You pour the contents of the glass cup into the bathtub. Reflection: I turn the sink off after watering. Action: deactivate sink Observation: The sink is now deactivated. Reflection: I wait to let the plant keep growing toward the reproduction stage. Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+[... more waiting ...] 
+
+Reflection: The plant may need more nutrients or sunlight to progress further. I should check if there are any additional resources in other rooms, such as the greenhouse or outside. Action: teleport to greenhouse Observation: You teleport to the greenhouse. Reflection: I look around the greenhouse to find resources that might help the orange plant grow, such as nutrients or sunlight. Action: look around Observation: This room is called the greenhouse. In it, you see: the agent a substance called air a adult bee a bee hive. The bee hive door is open. In the bee hive is: nothing. a flower pot 1 (containing soil, a substance called water) a flower pot 2 (containing soil, a substance called water) a flower pot 3 (containing soil, a substance called water) a jug (containing nothing) a sink, which is turned off. In the sink is: nothing. You also see: A door to the hallway (that is open) A door to the outside (that is open) Reflection: The greenhouse has flower pots with soil and water, but I already have a water source. I can use the jug here to collect more water if needed, but I should check outside for sunlight, which is essential for plant growth. Action: teleport to outside Observation: You teleport to the outside. Reflection: I am now outside, where the plant can receive sunlight. I should ensure the orange plant in the bathtub has access to sunlight, so I will return to the bathroom and check on its progress. Action: teleport to bathroom Observation: You teleport to the bathroom. Reflection: I return to the bathroom to check on the orange plant in the bathtub and ensure it is receiving adequate sunlight. I will continue to water it and monitor its growth until it reaches the reproduction stage. Action: focus on orange seed in bathtub Observation: You focus on the orange seed. Reflection: The orange seed has likely begun to germinate and grow into a seedling. I will continue to water it regularly and ensure it receives sunlight by keeping the bathroom window open if possible. I will wait for more iterations to allow the plant to progress toward the reproduction stage. 
+
+26 Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+[... more waiting ...] 
+
+Outcome: Failed Reward: 39 Environment steps: 30 WALL-E rejections: 0
+
+BB-WM 
+
+Task Description: Your task is to: grow a orange plant from seed. Seeds can be found in the bathroom. First, focus on a seed. Then, make changes to the environment that grow the plant until it reaches the reproduction life stage. Reflection: To grow the orange plant, I first need a seed. The task says seeds are in the bathroom. Before I start exploring, I’ll consult the world model to confirm where the orange seed is most likely to be. Action: query where is orange seed Observation: orange seed is most likely in: bathroom (0.17), bedroom (0.17), greenhouse (0.17), kitchen (0.17), living room (0.17), workshop (0.17). Reflection: The world model indicates that the orange seed is equally likely to be in several rooms, including the bathroom. Since the task specifies that seeds can be found in the bathroom, I should start by teleporting there to search for the seed. Action: teleport to bathroom Observation: You teleport to the bathroom. Reflection: I look around the bathroom to locate the orange seed. If it’s not here, I will need to check other rooms based on the world model’s probabilities. Action: look around Observation: This room is called the bathroom. In it, you see: the agent a substance called air a bathtub, which is turned off. In the bathtub is: nothing. a glass cup (containing nothing) a painting a seed jar (containing a orange seed, a orange seed, a orange seed, a orange seed, a orange seed) a sink, which is turned off. In the sink is: nothing. a toilet. In the toilet is: A drain, which is closed, a substance called water. You also see: A door to the kitchen (that is open) Reflection: I found a seed jar containing orange seeds in the bathroom. I will pick it up to proceed with planting the seed. Action: pick up seed jar Observation: You move the seed jar to the inventory. Reflection: I need to select an orange seed from the jar and plant it in a suitable container. I will move one of the seeds to a flower pot, but first, I need to check if there are flower pots available in the current room or elsewhere. I’ll consult the world model to find a flower pot. Action: query where is flower pot Observation: flower pot is most likely in: greenhouse (1.00). Reflection: The world model indicates that the flower pot is most likely in the greenhouse. I will teleport there to plant the orange seed in a suitable container. Action: teleport to greenhouse Observation: You teleport to the greenhouse. Reflection: I am now in the greenhouse, where the flower pot is likely located. I will look around to find a flower pot to plant the orange seed. Action: look around Observation: This room is called the greenhouse. In it, you see: the agent a substance called air 
+
+27 a adult bee a adult bee a adult bee a adult bee a bee hive. The bee hive door is open. In the bee hive is: nothing. a flower pot 1 (containing soil, a substance called water) a flower pot 2 (containing soil, a substance called water) a flower pot 3 (containing soil, a substance called water) a jug (containing nothing) a sink, which is turned off. In the sink is: nothing. You also see: A door to the hallway (that is open) A door to the outside (that is open) Reflection: I see three flower pots in the greenhouse, all containing soil and water. I will move an orange seed from the seed jar in my inventory to one of the flower pots, starting with flower pot 1. Action: move orange seed in seed jar to flower pot 1 Observation: You move the orange seed to the flower pot 1. Reflection: I have successfully planted the orange seed in flower pot 1. Next, I need to focus on the seed to begin the growth process. Action: focus on orange seed in flower pot 1 Observation: You focus on the orange seed. Reflection: The seed needs water to grow. I will activate the sink to get a water source and use the jug to water the seed. Action: activate sink Observation: The sink is now activated. Reflection: I will move the jug to the sink to fill it with water. Action: move jug to sink Observation: You move the jug to the sink. Reflection: The jug is now at the sink. I will pour water from the jug into flower pot 1 to water the seed. Action: pour jug into flower pot 1 Observation: You pour the contents of the jug into the flower pot 1. Reflection: I have watered the seed. Now I need to wait for the plant to grow toward the reproduction stage. I will deactivate the sink and then wait for a few steps. Action: deactivate sink Observation: The sink is now deactivated. Reflection: The plant needs time to grow, so I will start waiting to allow it to progress through its life stages. Action: wait1 Observation: You decide to wait for 1 iterations. Reflection: I will continue waiting to give the plant more time to grow toward the reproduction stage. Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+[... more waiting ...] 
+
+Reflection: I have waited several steps for the plant to grow. I should now check if the plant has reached the reproduction stage or if further actions, such as watering again, are needed. I will first look around to observe the current state of the flower pot and the plant. Action: look around Observation: This room is called the greenhouse. In it, you see: the agent a substance called air a adult bee a adult bee a bee hive. The bee hive door is open. In the bee hive is: nothing. a flower pot 1 (containing a orange tree in the seedling stage, soil, a substance called water) a flower pot 2 (containing soil, a substance called water) a flower pot 3 (containing soil, a substance called water) 
+
+28 a sink, which is turned off. In the sink is: a jug (containing a substance called water). You also see: A door to the hallway (that is open) A door to the outside (that is open) Reflection: The orange plant in flower pot 1 is now in the seedling stage. It still needs time and care to progress to the reproduction stage. I will water it again by activating the sink, refilling the jug, and pouring water into the flower pot. Action: activate sink Observation: The sink is now activated. Reflection: I will move the jug to the sink to refill it with water. Action: move jug to sink Observation: You move the jug to the sink. Reflection: The jug is now at the sink. I will pour water from the jug into flower pot 1 to water the seedling again. Action: pour jug into flower pot 1 Observation: You pour the contents of the jug into the flower pot 1. Reflection: I have watered the seedling again. Now I need to deactivate the sink and continue waiting for the plant to progress toward the reproduction stage. Action: deactivate sink Observation: The sink is now deactivated. Reflection: The plant is still in the seedling stage and requires more time to grow. Iwill wait for a few more steps to allow it to progress further. Action: wait1 Observation: You decide to wait for 1 iterations. 
+
+[... more waiting ...] 
+
+Outcome: Success Reward: 100 Environment steps: 25 Belief query steps: 2WALL-E rejections: 0
+
+29

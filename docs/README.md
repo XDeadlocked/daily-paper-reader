@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-08</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 39 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>28</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-08 22:45:57 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:02:03 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读聚焦驾驶VLA零样本跨载体迁移与基于视觉语言模型的机器人真实-仿真校准评测；速读覆盖长程视频生成、量化训练与远程机器人控制。最值得关注的是两篇9.0分工作，均面向机器人系统泛化与仿真可靠性。建议普通读者优先追踪VLA跨载体迁移的落地潜力。</p>
+<p>今日共扫描39篇论文，精读28篇，重点聚焦世界模型与机器人学习前沿。最值得关注的是满分论文《Toward Unified Robot Learning》提出的表征-视觉语言动作-世界模型统一框架，以及9分工作在多风格端到端驾驶中的长时程一致世界模型。建议优先精读这两篇，并顺带浏览8分速读中面向LLM智能体与航天器交会的世界模型应用，把握通用智能体建模趋势。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">28 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards Zero-Shot Transfer Across Embodiments For Driving VLAs">Towards Zero-Shot Transfer Across Embodiments For Driving VLAs</span></li><li><span class="dpr-home-dashboard-paper-title" title="R2S-Eval: Robot Evaluation with Real-to-Sim Calibration via Vision-Language Models">R2S-Eval: Robot Evaluation with Real-to-Sim Calibration via Vision-Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving">Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="SV-WAM: An Efficient Surround-View World-Action Model for End-to-End Autonomous Driving">SV-WAM: An Efficient Surround-View World-Action Model for End-to-End Autonomous Driving</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>28</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="OctWorld: Long-Range World-Consistent Video Generation with Octree-Based 3D Mapping">OctWorld: Long-Range World-Consistent Video Generation with Octree-Based 3D Mapping</span></li><li><span class="dpr-home-dashboard-paper-title" title="DSAQuant: Denoising-Stage-Aligned Quantization-Aware Training for Video Generation">DSAQuant: Denoising-Stage-Aligned Quantization-Aware Training for Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Coupled Control and Wireless World Models for Resilient Remote Robotic Control">Coupled Control and Wireless World Models for Resilient Remote Robotic Control</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards a Belief-Based World Model for LLM Agents">Towards a Belief-Based World Model for LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="SolarWM: Open Data and Scalable Training for Long-Horizon Video World Models">SolarWM: Open Data and Scalable Training for Long-Horizon Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="GPU-Accelerated Astrodynamics World Models for Spacecraft Rendezvous and Proximity Operations">GPU-Accelerated Astrodynamics World Models for Spacecraft Rendezvous and Proximity Operations</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
