@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 39 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>28</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:02:03 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-10 21:46:55 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共扫描39篇论文，精读28篇，重点聚焦世界模型与机器人学习前沿。最值得关注的是满分论文《Toward Unified Robot Learning》提出的表征-视觉语言动作-世界模型统一框架，以及9分工作在多风格端到端驾驶中的长时程一致世界模型。建议优先精读这两篇，并顺带浏览8分速读中面向LLM智能体与航天器交会的世界模型应用，把握通用智能体建模趋势。</p>
+<p>今日共生成 17 篇推荐（精读 6 篇，速读 11 篇）</p>
+<p>精读：《Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models》（10.0/10）, 《Noisy-Space Policy Gradient for Diffusion Policies in Offline Reinforcement Learning》（9.0/10）</p>
+<p>速读：《ActionSplice: In-Flight Action Editing for Interactive World Models》（8.0/10）, 《Proxy Policy Steering》（8.0/10）, 《Identifying Habit, Physics, and Nuisance in Robot World Models》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">28 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving">Long-Horizon Consistent and Interaction-Aware World Models for Multi-Style End-to-End Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="SV-WAM: An Efficient Surround-View World-Action Model for End-to-End Autonomous Driving">SV-WAM: An Efficient Surround-View World-Action Model for End-to-End Autonomous Driving</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Noisy-Space Policy Gradient for Diffusion Policies in Offline Reinforcement Learning">Noisy-Space Policy Gradient for Diffusion Policies in Offline Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="HaWMPO: Hallucination-Aware World Model-based Policy Optimization for Generalist Robot Policy">HaWMPO: Hallucination-Aware World Model-based Policy Optimization for Generalist Robot Policy</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>28</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +90,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Towards a Belief-Based World Model for LLM Agents">Towards a Belief-Based World Model for LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="SolarWM: Open Data and Scalable Training for Long-Horizon Video World Models">SolarWM: Open Data and Scalable Training for Long-Horizon Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="GPU-Accelerated Astrodynamics World Models for Spacecraft Rendezvous and Proximity Operations">GPU-Accelerated Astrodynamics World Models for Spacecraft Rendezvous and Proximity Operations</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ActionSplice: In-Flight Action Editing for Interactive World Models">ActionSplice: In-Flight Action Editing for Interactive World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Proxy Policy Steering">Proxy Policy Steering</span></li><li><span class="dpr-home-dashboard-paper-title" title="Identifying Habit, Physics, and Nuisance in Robot World Models">Identifying Habit, Physics, and Nuisance in Robot World Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
