@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 7 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>11</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>3</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-11 21:39:44 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-12 21:47:01 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读11篇、速读10篇共21篇，重点聚焦世界模型与机器人学习的安全性和统一框架。最值得看的是两篇9.0分精读：安全关键具身系统的世界模型反思，以及表征、视觉-语言-动作与世界模型融合的统一机器人学习。普通读者可先从这两篇入手，再按兴趣跟进速读中的VLM机器人、可编程世界模型等应用方向。</p>
+<p>今日共生成 7 篇推荐（精读 4 篇，速读 3 篇）</p>
+<p>精读：《UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling》（9.0/10）, 《CST-WM: A Causally Structured World Model for Embodied Visual Tracking》（8.0/10）</p>
+<p>速读：《RoboDreamer: Anticipatory Humanoid Locomotion with Predictive State-Space Models》（7.0/10）, 《2AM: Grounding Agent-Side Memory as Guidance for Steerable Action Models in Long-Horizon Manipulation》（7.0/10）, 《Distributed Dexterous Manipulation with Spatially Conditioned Multi-Agent Transformers》（6.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rethinking World Models for Safety-Critical Embodied Systems">Rethinking World Models for Safety-Critical Embodied Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models">Toward Unified Robot Learning: Bridging Representation, Vision-Language-Action, and World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DUET-DINO: Simultaneous Cross-View World Modeling for Latent Planning in Robot Manipulation">DUET-DINO: Simultaneous Cross-View World Modeling for Latent Planning in Robot Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling">UniMPA: A Unified Memory-Prediction-Action Model via Action-Grounded Transition Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="CST-WM: A Causally Structured World Model for Embodied Visual Tracking">CST-WM: A Causally Structured World Model for Embodied Visual Tracking</span></li><li><span class="dpr-home-dashboard-paper-title" title="RoLA: Rotary-Positioned Low-Rank Linear Attention for Efficient Diffusion Transformers">RoLA: Rotary-Positioned Low-Rank Linear Attention for Efficient Diffusion Transformers</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +87,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">10 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Show-Harness: Just a VLM Agent Can Play Robots">Show-Harness: Just a VLM Agent Can Play Robots</span></li><li><span class="dpr-home-dashboard-paper-title" title="Programmable World Model">Programmable World Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="CamPilot: A Multi-Agent Cinematic Assistant for Camera-Controlled Movie Generation">CamPilot: A Multi-Agent Cinematic Assistant for Camera-Controlled Movie Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RoboDreamer: Anticipatory Humanoid Locomotion with Predictive State-Space Models">RoboDreamer: Anticipatory Humanoid Locomotion with Predictive State-Space Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="2AM: Grounding Agent-Side Memory as Guidance for Steerable Action Models in Long-Horizon Manipulation">2AM: Grounding Agent-Side Memory as Guidance for Steerable Action Models in Long-Horizon Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Distributed Dexterous Manipulation with Spatially Conditioned Multi-Agent Transformers">Distributed Dexterous Manipulation with Spatially Conditioned Multi-Agent Transformers</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>3</strong></span></div>
 </section>
 </div>
 

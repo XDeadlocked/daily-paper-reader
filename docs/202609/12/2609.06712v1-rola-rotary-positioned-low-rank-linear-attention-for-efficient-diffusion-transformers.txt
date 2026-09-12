@@ -1,0 +1,1161 @@
+Title: RoLA: Rotary-Positioned Low-Rank Linear Attention for Efficient Diffusion Transformers
+
+URL Source: https://arxiv.org/pdf/2609.06712v1
+
+Published Time: Wed, 09 Sep 2026 01:56:17 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# RoLA: Rotary-Positioned Low-Rank Linear Attention for Efficient Diffusion Transformers 
+
+Zekun Zhang ∗1, Yixiang Cai ∗1, Yuxi Liu ∗‡ 14 , Tengxu Sun 4, Tianle Liu 3, Zhoutong Wu 1, Haoyu Li 24 ,
+
+Baole Ai 4, Ang Wang 4, Jiamang Wang 4, Lin Qu 4, Kun Yuan †11Peking University, Melon Group , 2Tsinghua University , 3University of Electronic Science and Technology of China , 4Alibaba Group 
+
+## Abstract 
+
+Diffusion Transformers (DiTs) achieve strong video generation quality, but their dense spatiotem-poral self-attention scales quadratically with sequence length and quickly becomes the dominant inference bottleneck. Sparse low-rank hybrids alleviate this cost by combining a local sparse branch with a global compressed branch. In video DiTs equipped with 3D Rotary Position Embeddings (RoPE), the global branch faces a structural compatibility issue: when RoPE is applied before a nonlinear feature map, the rotation and nonlinearity generally do not commute, making it difficult to keep a query-independent linear summary while preserving relative rotary geometry. Existing work often sidesteps this issue by replacing genuine cross-token global aggregation with coordinate-conditioned surrogates or learnable absolute positional modules. These compromises can be effective, but they approximate relative decay from absolute coordinates and introduce extra positional parameters. We propose RoLA , a rotary-positioned low-rank linear-attention branch that keeps genuine cross-token aggregation while remaining compatible with a reusable linear summary. The design applies RoPE outside the nonlinear low-rank feature map and reuses a truncated subset of the pre-trained rotary schedule matched to the low-rank bottleneck. This yields a linear-time low-rank global branch with relative positional behavior by design and no additional positional parameters; the full sparse–low-rank module still includes the fixed-sparsity sparse branch. Experiments on open-source video DiTs show that the resulting method remains competitive in generation quality at 90% sparsity while achieving 2.63 × end-to-end inference speedup on Wan2.1-14B (720p, 81 frames, measured on an NVIDIA H100 GPU). 
+
+E-mail: zhangzekun@std.uestc.edu.cn caiyixiang@bupt.edu.cn yuxiliu666@stu.pku.edu.cn kunyuan@pku.edu.cn  
+
+> Date:
+
+September 9, 2026 
+
+Visual comparison of video generation quality across different attention methods.    
+
+> ∗Equal contribution.
+> †Corresponding author.
+> ‡Project leader. arXiv:2609.06712v1 [cs.CV] 6 Sep 2026
+
+## 1 Introduction 
+
+Diffusion Transformers (DiTs) [16] have become a dominant backbone for high-fidelity video generation [6, 10, 19, 23]. However, their dense spatiotemporal self-attention scales quadratically with sequence length, making inference increasingly expensive as video resolution and duration grow. Sparse attention methods [20– 22, 27] reduce this cost by computing only a selected subset of query–key interactions. While effective at moderate sparsity, aggressive sparsification often removes the global interactions required for semantic consistency, motion coherence, and stable scene layout. Sparse–linear hybrids address this limitation by augmenting a sparse local branch with a cheap global branch [5, 25, 26]. In video DiTs, however, this design can encounter a structural compatibility issue. On the one hand, 3D Rotary Position Embeddings (RoPE) encode relative geometry through position-dependent rotations. On the other hand, linear attention relies on a query-independent global summary that can be reused across tokens. If RoPE is pushed through a nonlinear feature map in the usual way, the rotation and nonlinearity generally do not commute, so the resulting summary can become entangled with absolute positions. We refer to this tension as the RoPE Dilemma .One practical workaround is to replace genuine cross-token aggregation in the global branch with coordinate-conditioned surrogates and learnable absolute positional modules [14]. This works, but it leaves two limitations. First, relative decay is approximated from absolute coordinates rather than represented by the global branch itself. Second, the design gives up the reusable linear-attention view of global context and introduces extra positional parameters. This naturally raises the question: can we build a genuine linear global branch that remains compatible with 3D relative-position structure? We answer this question by rotating the already-compressed low-rank features 
+
+after the nonlinearity. As a result, the branch keeps a reusable global summary while its pairwise interactions remain functions of relative offsets. We further reuse a truncated subset of the pre-trained rotary schedule that matches the low-rank bottleneck, avoiding any new positional module. Together, these two choices turn the compressed branch from an absolute-coordinate surrogate into a relative-position-aware linear branch, while preserving linear-time reuse and a hardware-friendly implementation. Although this outside-activation ordering is simple in isolation, making it work in a pre-trained 3D-RoPE video DiT requires resolving three coupled constraints: the limited rotary frequency budget of the low-rank bottleneck, stable fusion with a sparse branch on the backbone scale, and adaptation without disrupting pre-trained attention statistics. We refer to the resulting method as RoLA . We do not claim a new generic linear relative-position encoder; rather, RoLA is a video-DiT-specific sparse-global construction that makes post-activation RoPE compatible with a reusable low-rank global branch and a sparse deployment engine. Figure 1 summarizes the target operating regime: compared with dense attention and representative sparse or sparse–global baselines, the proposed method reduces attention cost and end-to-end latency while retaining a genuine global branch. These deployment-oriented results use a separate RTX 5090 long-sequence profiling setup; they illustrate scaling behavior rather than provide a direct latency counterpart to the H100-based main benchmark table. 
+
+Contributions. Our contributions are as follows: • Structural compatibility issue. In 3D-RoPE video DiTs, a genuine low-rank global branch must preserve relative-position geometry while remaining reusable as a query-independent linear summary. These two requirements conflict under the usual nonlinear linear-attention formulation. • Compatible rotary low-rank branch. The proposed branch applies RoPE after the nonlinear low-rank feature map and reuses a rank-truncated subset of the pre-trained rotary schedule. This preserves relative-position structure at the interaction level while keeping a reusable linear-time global summary, without introducing new positional parameters. • Mechanistic and empirical validation. Mechanism-level experiments on real features from mainstream open-source video models verify the branch’s relative-position behavior, and generation experiments across representative backbones demonstrate favorable quality–efficiency trade-offs under high sparsity and full-stack inference. 22 Related Work 
+
+Sparse attention for video DiTs. Sparse attention is a dominant approach to the quadratic attention bottleneck in video DiTs, exploiting structured, learned, or dynamic sparsity in spatiotemporal interactions. Sparse VideoGen [21] exploits spatial–temporal sparsity, while SVG2 [22] further improves sparse token selection through semantic-aware permutation; Efficient-vDiT [4] leverages repetitive attention tiles, while Sparse-vDiT [3] identifies recurring structured sparsity patterns across heads and layers. VSA [27] learns trainable sparse patterns, VMoBA [20] organizes attention into a mixture of blocks, Radial Attention [11] exploits spatiotemporal energy decay for distance-aware sparse computation, and MOD-DiT [13] dynamically predicts sparsity patterns across denoising intervals. Despite substantial efficiency gains, these sparse-only approaches retain only a subset of query-key interactions; under aggressive sparsity, weak but collectively important long-range context can be discarded, motivating complementary global modeling. 
+
+Sparse linear hybrids. To recover global context discarded by sparsification, recent methods combine sparse attention with efficient linear branches. SLA [25], SLA2 [26], SALAD [5], and SVG-EAR [29] explore trainable or lightweight sparse–linear compensation for discarded global interactions. Conventional sparse–linear formulations can nevertheless encounter the RoPE Dilemma (section 3): nonlinear feature maps generally do not commute with rotary transformations, making it difficult to preserve 3D-RoPE relative-position structure in a reusable linear branch. The limitation becomes more pronounced at extreme sparsity, where the linear branch must recover more discarded interactions. Related linear video DiTs, including SANA-Video [2] and SANA-Video 2.0 [1], further introduce RoPE-aware and hybrid linear-attention designs. We treat these SANA-style models as a separate dedicated linear/hybrid-linear video-DiT line rather than as direct baselines, because our main comparison targets sparse post-training hybrids under the same video-DiT adaptation setting. RoPeSLR, a low-rank Fourier compensator [14], instead sidesteps the dilemma in sparse–low-rank attention by replacing cross-token linear aggregation with a per-token coordinate MLP and a learnable absolute 3D positional embedding. Building on this sparse–global decomposition, our method retains genuine cross-token linear aggregation while directly reusing the pre-trained 3D-RoPE structure in the low-rank branch. 
+
+Rotary position embeddings. RoPE [18] encodes relative position through orthogonal rotations with an exponentially decaying frequency schedule. The compatibility of relative positional encoding with linear attention has also been studied in LRPE [17], which preserves relative positional modeling under linear-complexity computation. In video DiTs, however, the head dimension is split across the three spatiotemporal axes (3D RoPE), so the per-axis frequency budget is small; we reuse the first r rotary coordinates in the backbone’s native ordering, i.e., r/ 2 complete rotary coordinate pairs supported by the low-rank bottleneck, provide an idealized error-analysis intuition for this reuse (section B.2), and validate the resulting operator empirically (section 4.2; Fig. 4). Unlike LRPE, RoLA is not a generic standalone positional encoder; it is a sparse-video-DiT construction that preserves a reusable cross-token global branch while remaining compatible with a pre-trained 3D-RoPE backbone and the sparse engine. 0 50 100 150          
+
+> Generation latency (s) on Wan2.1-1.3B, 480p, 77 frames
+> Full attention VSA SLA RoPeSLR Ours
+> 137 71 60 62 49
+> 2.8x
+> (a) Deployment latency on RTX 5090 at one fixed setting
+> 510 30 50
+> video length (s)
+> 0150 300 450 600
+> Attention FLOPs / step (T)
+> 0.61 2.42 21.6 59.9
+> 5.98 23.9 215 598
+> (b) Theoretical attention FLOPs on 480x832 resolution
+> Ours Full Attention
+> 510 20
+> video length (s)
+> 0300 600 900 1200 1500
+> Generation latency (s)
+> 49 82 161 137 419 1518
+> (c) Long-sequence deployment latency on RTX 5090
+> Ours Full attention pipeline
+
+Figure 1 Deployment-oriented efficiency summary on RTX 5090 (different from the benchmark evaluation setting). Panel (a) shows representative fixed-setting deployment latency, panel (b) shows theoretical self-attention FLOPs per denoising step, and panel (c) shows long-sequence deployment latency. 
+
+3Figure 2 Architecture overview of the proposed method. (a) Dense 3D-RoPE attention decomposes into sparse top-k spikes and a residual background. (b) The method replaces dense attention in pre-trained DiT blocks with sparse–low-rank branches and gated fusion, reusing backbone RoPE without additional positional embeddings. The right part shows the rotary low-rank branch and distribution-aware gated fusion. 
+
+## 3 Preliminary 
+
+Notation. A video is flattened into L spatiotemporal tokens indexed by p = ( t, x, y ) ∈ [T ] × [Hs] × [Ws], with 
+
+L = T H sWs. Each head projects the input to Q, K, V ∈ RL×dh , with per-token vectors qp, k p, v p ∈ Rdh . We use p and q as token-position indices; qp and kq denote the query and key vectors at those positions. Full attention computes 
+
+O = softmax( QK ⊤/pdh)V, 
+
+whose O(L2) cost is the central bottleneck for ultra-long sequences ( L ≳ 10 4) induced by high-resolution video. 
+
+3D RoPE. 3D RoPE partitions the head dimension across the temporal and spatial axes, with dh = dt +dx +dy ,and applies a block-diagonal orthogonal rotation R(p) ∈ Rdh×dh . Its orthogonality gives the relative-position identity 
+
+sp,q = 1√dh
+
+⟨R(p)qp, R(q)kq ⟩ = 1√dh
+
+⟨qp, R(q − p)kq ⟩. (1) 
+
+RoPE Dilemma. Linear attention [9] relies on a query-independent global summary that can be reused across queries, whereas RoPE encodes relative geometry through position-dependent rotations. For a feature map ϕ, an inside-RoPE linear branch would form a key-side summary such as P 
+
+> q
+
+ϕ(R(q)kq )v⊤ 
+
+> q
+
+. When ϕ is a pointwise nonlinearity, the rotation and the nonlinearity generally do not commute, so the summary can depend on absolute positions in a way that cannot be cleanly absorbed into a relative offset. This makes it difficult to simultaneously preserve relative rotary geometry and maintain a reusable linear-time summary. This mismatch motivates RoLA: in the low-rank branch, RoPE is applied after the low-rank nonlinearity so that position information is injected without destroying the reusable global summary. Appendix B provides simple structural sanity checks for this design choice; we do not claim them as theoretical guarantees. 40 5 10 15 20             
+
+> key index (temporal)
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> query index
+> Full attention
+> 0510 15 20
+> key index (temporal)
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> query index
+> Low-rank, RoPE outside (ours)
+> 0510 15 20
+> key index (temporal)
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> query index
+> Low-rank, RoPE inside
+> 0510 15 20
+> key index (temporal)
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> query index
+> Low-rank, no RoPE
+> 4.95 5.00 5.05 5.10 5.15 5.20
+> 0.5 0.6 0.7 0.8 0.9
+> 0.75 0.80 0.85 0.90 0.95 1.00 1.05 1.10
+> 0.80 0.82 0.84 0.86 0.88 0.90 0.92 0.94 0.96
+
+Figure 3 Content-controlled positional kernels on a temporal slice. From left to right: full attention, the low-rank branch with RoPE applied outside the activation, the low-rank branch with RoPE applied inside the activation, and the low-rank branch without RoPE. Only the outside-activation design closely matches the banded relative-distance pattern of full attention. The inside-activation variant remains structured but distorts the relative geometry, while removing RoPE collapses the map to a nearly flat, position-blind response. Color bars are shown per panel to visualize structure; the comparison focuses on the spatial pattern rather than absolute color ranges. 
+
+Table 1 Capability-level comparison of representative efficient-attention methods. ✓ denotes that the capability is explicitly present, × denotes that it is absent, and ≈ denotes an approximate realization. Method Sparse local path Global compensation Genuine global routing Relative-aware global path Reusable linear summary No extra positional parameters Pure sparse ✓ × × × × ✓                        
+
+> VSA ✓××××✓
+> SLA ✓✓✓×✓✓
+> RoPeSLR ✓✓×≈××
+> RoLA (ours) ✓✓✓✓✓✓
+
+## 4 Method 
+
+The proposed method decomposes attention into two complementary branches: a hardware-efficient block-sparse branch that captures high-energy semantic spikes, and a low-rank linear branch that reconstructs the smooth global background continuum. The sparse branch follows standard block-sparse attention, e.g., SLA/VMoBA [20, 25], and is orthogonal to our main contribution; we therefore focus on the low-rank branch. In experiments, we keep this sparse branch fixed across compared sparse-based methods unless otherwise stated. 
+
+Why keep a sparse-plus-global decomposition? Several efficient-attention formulations suggest viewing 3D-RoPE video attention as sharp sparse spikes plus a smoother compressible background [14, 25]. We therefore focus on a narrower question: what should the compressed global branch look like if it must remain linear-time while preserving compatibility with relative rotary geometry? 
+
+We therefore do not claim the sparse-plus-low-rank decomposition itself as our contribution. This decomposition is shared with prior hybrid designs. Our contribution is the form of the low-rank branch: instead of replacing cross-token aggregation with an absolute-coordinate surrogate, our method keeps a genuine linear-attention branch and makes it compatible with relative rotary geometry by combining RoPE outside the activation (section 4.3) with rank-truncated reuse of the pre-trained rotary schedule (section 4.2). The resulting design is supported by simple structural sanity checks in Appendices B.1 and B.3; these checks are intended to clarify the design choice and are not claimed as theoretical contributions. Table 1 summarizes the component-level design space. The sparse local path and the use of a global correction are shared with prior efficient-attention designs; our distinction lies in retaining genuine cross-token global routing, preserving relative geometry in that path, and avoiding an auxiliary positional module. 
+
+4.1 Rotary-Positioned Low-Rank Linear Attention 
+
+Let qn
+
+p = norm q (qp) and kn
+
+q = norm k(kq ) denote the main-path normalized, pre-RoPE query and key representations, where norm q and norm k denote the query/key normalization used in the pre-trained backbone. 5The low-rank branch computes 
+
+˜qp = Rr (p) SiLU  Pq qn
+
+> p
+
+, ˜kq = Rr (q) SiLU  Pk kn
+
+> q
+
+, (2) and 
+
+C =
+
+> L
+
+X
+
+> q=1
+
+˜kq v⊤ 
+
+> q
+
+∈ Rr×dh , Olr  
+
+> p
+
+= RMSNorm  ˜q⊤ 
+
+> p
+
+C, (3) where Pq , P k ∈ Rr×dh are head-specific projections, vq is the backbone value vector and is not rotated, and Rr(p) is the 3D RoPE rotation restricted to the first r coordinates in the backbone’s native ordering (section 4.2). The global context C is computed once per head, so the branch costs O(Lrd h), i.e., it is linear in L. RMSNorm is applied after aggregation for numerical stability. Our relative-position analysis concerns the pre-RMSNorm logits; RMSNorm acts as a stabilization layer on the readout channels. Two properties distinguish equations (2) and (3) from both standard linear attention and the low rank compensator used by Liu et al. [14]. First, the rotation Rr is applied to the low-rank feature rather than to the full head dimension. Second, it is applied after the nonlinearity SiLU . We analyze these two choices below. The full forward pass, including the sparse branch and gated fusion, is given in algorithm 1 (section A). When r is close to dh/2, the leading matmul cost of the low-rank branch can be comparable to that of a full-width linear branch (section F); the purpose of the design is therefore not to reduce the linear-branch constant, but to obtain a relative-position-aware global branch that remains reusable under high sparsity. 
+
+4.2 Dimensionality Truncation of the Rotary Schedule 
+
+Why truncate the rotary schedule? The projected feature SiLU( Pq qn 
+
+> p
+
+) ∈ Rr lives in an r-dimensional space with r ≪ dh; we use r = 64 by default. Since RoPE acts on 2D rotary coordinate pairs, the low-rank branch can carry only r/ 2 such pairs and therefore cannot reuse the full dh-dimensional schedule. We truncate the pre-trained schedule to the first r coordinates under the backbone’s RoPE coordinate ordering. These coordinates correspond to r/ 2 complete rotary pairs, and we reuse the backbone’s own (freqs _cos , freqs _sin) 
+
+tensors. This adds no positional parameters and keeps the low-rank branch on the same geometric scale as the sparse branch and the pre-trained backbone. Concretely, we take the first r entries of the backbone’s flattened RoPE dimension, without reordering or re-learning frequencies. Because 3D RoPE partitions dimensions across axes, this truncation inherits the backbone’s per-axis allocation; the same construction applies to all axes, and we report representative temporal and height slices in the mechanism experiments. 
+
+Why is r = 64 sufficient in practice? The rank-r truncation is motivated by a simple error intuition: if the retained rotary coordinates capture most of the positional structure relevant to the global branch, the discarded rotary coordinates contribute only a small residual score. Section B.2 gives an idealized nested-setting intuition for why such truncation can be benign. Because the trained Pq , Pk are learned directly in the low-rank space, this intuition should not be read as a guarantee for the trained branch; the empirical fidelity sweep below is the operative evidence. This intuition is consistent with the sparse-plus-smooth background view in RoPeSLR [14]: the global branch mainly models a smooth and compressible background, suggesting that its positional structure can be captured in a reduced rotary subspace. In our implementation, we retain the first r rotary coordinates, i.e., r/ 2 complete rotary coordinate pairs, in the backbone’s native ordering; we do not reorder these coordinates by frequency. Empirically, Fig. 4 evaluates this design choice: the centered cosine similarity rises and the normalized L2 error falls monotonically, with both metrics saturating by r = 64 .Concretely, the temporal cosine improves from 0.55 to 0.80 and 0.93 at r=8 , 32 , 64 , while the height cosine improves from 0.19 to 0.60 and 0.93 . We therefore choose r = 64 as the default operating point. 
+
+4.3 RoPE Outside the Activation 
+
+A key design choice in the low-rank branch concerns the order of the rotation and the nonlinearity. In RoLA, we first apply the low-rank projection and the pointwise nonlinearity, and then apply the truncated RoPE 68 16 32 64 128       
+
+> retained rank r
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> centered cosine to full operator
+> (a) fidelity vs rank
+> temporal axis temporal axis (kernel) height axis height axis (kernel) r=64
+> 816 32 64 128
+> retained rank r
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+> centered normalized  L2
+> (b) error vs rank
+> temporal axis temporal axis (kernel) height axis height axis (kernel) r=64
+
+Figure 4 Fidelity of the rank-r truncated RoPE operator relative to the full operator ( r = 128 ). The left panel reports centered cosine similarity, and the right panel reports centered normalized L2 error as r increases. Solid lines use real-content operators, while dashed lines use content-controlled positional kernels; blue and orange correspond to temporal and height slices. Both metrics show that fidelity saturates by r = 64 , motivating our default truncation rank. 
+
+rotation. This ordering is motivated by a simple separation of roles: the nonlinear low-rank map should extract position-free content features, while RoPE should act only as a relative-position operator. When rotation is applied after the nonlinearity, the global context can still be accumulated once and reused by all queries; the positional effect appears only when a query reads out this context. Appendix B.1 gives a short structural sanity check of this relative-position property. If RoPE is instead applied before the nonlinearity, the rotation and the pointwise activation no longer commute. As a result, position information becomes entangled with the content features before the global aggregation, and the resulting key-side summary can depend on absolute positions rather than only on relative offsets. Appendix B.3 gives a simple obstruction argument explaining why the inside-activation ordering cannot generally admit an exact relative linear-attention factorization. This argument is intended as a design motivation rather than a learnability guarantee. Our mechanism experiments in section 5.1 test these two predictions directly. 
+
+Remark 4.1 (Contrast with absolute-PE injection) . The low-rank Fourier compensator of Liu et al. [14] sidesteps the dilemma by removing cross-token routing altogether and re-injecting position as a learnable absolute embedding. It learns to imitate relative decay from absolute coordinates. RoLA instead keeps genuine cross-token routing and obtains relative positional behavior through the outside-activation rotary design. The two designs are complementary points in the design space; we compare them empirically in section 5.3. 
+
+4.4 Feature Alignment and Gated Fusion 
+
+Fusing localized sparse outputs Os with the global low-rank output Olr requires variance stabilization. We normalize with RMSNorm [24] and combine the two branches through a token-wise scalar gate 
+
+g = σ(XW g + bg ) ∈ (0 , 1) L×1,
+
+where X denotes the input hidden states of the attention block and Wg ∈ Rdmodel ×1. The gate is deliberately bottlenecked to one scalar per token, so it modulates the magnitude of the low-rank branch rather than changing its channel-wise direction. The RMS of the sparse output provides a per-token scale reference for stable fusion: 
+
+rp =
+
+q 1
+
+> dh
+
+P
+
+> i
+
+(Os
+
+> p,i
+
+)2 + ϵ, Op =
+
+ Os 
+
+> p
+> rp
+
++ gp Olr 
+
+> p
+
+
+
+rp. (4) The sparse-output RMS is a natural per-token scale because it reflects the magnitude of the branch that remains active at that token. Dividing by rp normalizes the sparse branch, while multiplying back restores the original token scale after adding the gated global correction. The gate bias bg is initialized to a negative value so that the branch starts close to the sparse baseline, allowing the low-rank contribution to be introduced gradually during alignment. 74.5 Implementation Details 
+
+Post-training strategy. RoLA is integrated into a pre-trained DiT by a single-stage full fine-tuning procedure. We initialize the new parameters 
+
+Θnew = {Pq , P k, W g , b g }
+
+with Kaiming initialization [7] for the projections, zero for Wg , and a negative bg so that the module starts close to the sparse baseline. We then replace the attention module with RoLA and jointly optimize all parameters, including the backbone and Θnew , under the standard diffusion flow-matching objective Ltask 
+
+[12]. The adaptation is lightweight relative to pre-training: only the new branch parameters are trained from scratch, while the backbone is updated with a small learning rate. The rationale for adopting this single-stage recipe, instead of the two-stage strategy used in Liu et al. [14], is discussed in section E.1. 
+
+Engineering: fused inference kernel. At inference, the low-rank branch is evaluated using two fused Triton kernels. Because RoPE acts on even/odd coordinate pairs, we split each projection weight into even and odd rows offline and process the two halves as pure 2D matmuls, keeping the computation as dense matrix multiplications and avoiding irregular indexing. Kernel 1 accumulates 
+
+Ceven = X
+
+> q
+
+˜keven  
+
+> q
+
+v⊤ 
+
+> q
+
+, Codd = X
+
+> q
+
+˜kodd  
+
+> q
+
+v⊤
+
+> q
+
+over key/value tiles. Kernel 2 forms 
+
+Olr  
+
+> p
+
+= ˜ qeven  
+
+> p
+
+Ceven + ˜ qodd  
+
+> p
+
+Codd 
+
+and applies the per-token RMSNorm. This implementation exactly reproduces equations (2) and (3). Detailed FLOPs derivations and asymptotic complexity analysis are provided in section F. 
+
+## 5 Experiments 
+
+We evaluate RoLA at both the mechanism level and the generation level. Mechanism experiments test the two design principles of the method, while generation experiments measure quality and efficiency on full-scale video models. 
+
+5.1 Mechanism-Level Validation 
+
+Protocol. Mechanism experiments use pre-trained Wan2.1-T2V-1.3B [19] weights with dh = 128 and r = 64 .We extract normalized query/key features from real 480p, 81-frame denoising trajectories, average over heads and denoising steps, and use the low-rank projections from the single-stage fine-tuned checkpoint. For all positional metrics, we use pre-RMSNorm low-rank logits. 
+
+Low-rank branch encodes useful positional structure only with outside-RoPE (figure 3). We construct the low-rank attention map for a contiguous temporal slice and compare it with the full-attention positional kernel under content-controlled inputs. The full kernel exhibits a clear banded distance-decay structure. When RoPE is applied outside the activation, the low-rank branch closely matches this banded relative-position pattern. In contrast, the inside-activation variant remains structured but visibly distorts the clean relative geometry of the full kernel. Removing RoPE collapses the map to a nearly flat response, indicating that the branch becomes effectively position-blind. This result shows that RoPE is necessary for the low-rank branch to encode useful positional structure, and that the outside placement is the one that preserves the desired relative-position geometry. 
+
+Table 2 Positional fidelity by RoPE ordering.                  
+
+> RoPE ordering Shift residual ↓Offset range (position-aware) Behavior
+> No RoPE 0.00.0position-blind Inside activation 3.7×10 −10.47 leaks absolute position
+> Outside activation (ours) 1.8×10 −50.47 relative / shift-invariant
+
+RoPE placement: outside is both position-aware and shift-invariant (figure 5 and ta-ble 2). For each of the three orderings—rotation outside the ac-tivation (ours), rotation inside the 8Figure 5 Effect of RoPE placement in the low-rank branch. Panel (a) plots the low-rank kernel as a function of relative offset, testing whether the branch is position-aware. Panel (b) plots the shift-invariance residual under absolute translation, testing whether that dependence is purely relative. RoPE applied outside the activation is the only configuration that satisfies both conditions: non-trivial offset dependence in (a) and near-zero shift residual in (b). 
+
+activation, and no rotation—we measure: (i) the relative-distance dependence of the low-rank logit as a function of the temporal offset ∆ = p − q; and (ii) the shift-invariance residual 
+
+|s(p+δ, q +δ) − s(p, q )|
+
+at a fixed offset as the pair is translated. An ordering that preserves relative-position structure should exhibit both a non-trivial dependence on ∆ and a near-zero shift residual. Only the outside-activation ordering satisfies both conditions: it achieves a shift residual of 1.8×10 −5, which indicates near-zero translation dependence, while maintaining an offset range of 0.47 (table 2). Rotating inside the activation produces similar offset variation but a much larger shift residual ( 3.7×10 −1), consistent with the absolute-position leakage analyzed in section B.3. The no-RoPE branch has zero shift residual only trivially, because it is entirely position-blind with offset range 0.0; we therefore require both non-zero offset dependence and near-zero shift residual.                    
+
+> Table 3 Rank-truncation fidelity.
+> Retained rank r816 32 64 (default) 128
+> Cosine to full, temporal ↑0.55 0.60 0.80 0.93 1.00
+> Cosine to full, height ↑0.19 0.24 0.60 0.93 1.00
+
+Rank truncation approximates the full operator (figure 4 and table 3). 
+
+We sweep the retained rotary rank r ∈{8, 16 , 32 , 64 , 128 } and measure how faithfully the rank-r truncated operator approximates the full ( r = 128 ) relative-position opera-tor on real Wan Q/K features. For an axis-specific operator slice Ar and the full-rank reference A128 , we first subtract the entry-wise mean to obtain centered operators eAr and eA128 . Figure 4 reports two fidelity metrics: the centered cosine similarity and the normalized L2 error. The centered cosine saturates by r = 64 : on the temporal axis it improves from 0.55 to 0.80 and 0.93 at r=8 , 32 , 64 , reaching 1.0 at 
+
+r=128 ; on the height axis it improves from 0.19 to 0.60 and 0.93 , also reaching 1.0 at r=128 . The normalized 
+
+L2 error falls to near zero at the same point. Both metrics therefore identify r = 64 as a sufficient operating point for approximating the full relative-position operator on real content, consistent with the truncation intuition in section B.2. 
+
+5.2 Generation Quality 
+
+Models and datasets. We evaluate RoLA on Wan2.1-1.3B and Wan2.1-14B [19]. For lightweight adaptation of the newly introduced branch, we use a curated subset of OpenVid-1M [15] for both models. Quantitative evaluation follows the official VBench protocol. 
+
+Baselines. We compare with dense full attention, VSA [27], the sparse–linear method SLA [25], and the sparse low-rank predecessor RoPeSLR [14]. All baselines are implemented based on their official implementations and 9Table 4 Quantitative comparison on Wan2.1-1.3B and Wan2.1-14B benchmarks. We use NVIDIA H100 80G GPUs for all experiments. Wan2.1-1.3B uses 480p inputs. Wan2.1-14B uses 720p inputs with 81 frames. Latency is measured for the DiT denoising component under the VBench evaluation setting and is therefore not directly comparable to the RTX 5090 deployment measurements in Figure 1.                                                                                                                  
+
+> VBench Quality Additional Metrics Efficiency Model Method SC ↑MS ↑BC ↑IQ ↑AQ ↑PSNR ↑SSIM ↑LPIPS ↓Latency ↓Sparsity ↑
+> Wan2.1-1.3B Full 0.9403 0.9557 0.9498 0.6510 0.6088 –––50.9s 0%
+> VSA 0.9364 0.9757 0.9421 0.6328 0.5629 23.05 0.819 0.149 34.3s 90%
+> SLA 0.9401 0.9782 0.9486 0.6343 0.5918 24.17 0.844 0.130 31.2s 90%
+> RoPeSLR 0.9512 0.9789 0.9485 0.6481 0.6010 25.01 0.843 0.129 30.4s 90%
+> RoLA (Ours) 0.9521 0.9812 0.9490 0.6492 0.6068 25.67 0.860 0.121 21.7s 90%
+> Wan2.1-14B Full 0.9698 0.9850 0.9681 0.6996 0.6319 –––1075.7s 0%
+> VSA 0.9010 0.9788 0.9482 0.6012 0.5998 24.27 0.843 0.130 717.1s 90%
+> SLA 0.9481 0.9802 0.9511 0.6398 0.6052 26.02 0.878 0.124 601.0s 90%
+> RoPeSLR 0.9601 0.9842 0.9528 0.6627 0.6102 26.33 0.880 0.118 598.3s 90%
+> RoLA (Ours) 0.9629 0.9853 0.9537 0.6783 0.6294 28.65 0.891 0.108 409.3s 90%
+
+adapted to the same evaluation protocol when necessary. Sparse-based baselines use the same target sparsity when applicable, and all latency comparisons are measured under the same evaluation setting reported in each table or figure caption. For trainable baselines such as SLA and RoPeSLR, we use the same adaptation data, batch size, and number of optimization steps as RoLA; where a method’s original implementation requires a specific sparse routing or training recipe, we keep that method-specific design and otherwise follow the official code path. We do not include SANA-Video or SANA-Video 2.0 here, since they follow dedicated linear/hybrid-linear backbone training paradigms rather than the sparse post-training setting studied in this paper. 
+
+Metrics. We report five VBench dimensions [8]: Subject Consistency, Motion Smoothness, Background Consistency, Imaging Quality, and Aesthetic Quality. For each reported VBench dimension, we follow the official VBench evaluation protocol, using the corresponding official prompt set, evaluator, and scoring procedure consistently for all methods. We choose these dimensions because they are sensitive to temporal stability, background consistency, and visual quality, which are often affected by aggressive sparsification. Efficiency is measured by DiT end-to-end latency, attention sparsity, and theoretical attention cost. Here latency refers to end-to-end runtime of the DiT denoising component, excluding text encoding and VAE stages. Sparsity denotes the fraction of query-key attention interactions removed by the sparse attention engine relative to full attention. We additionally report PSNR, SSIM, and LPIPS as complementary frame-level fidelity and perceptual metrics, computed against the dense full-attention generated video under the same prompt and seed; the full row is therefore used as the reference and left blank. 
+
+Quality evaluation. As shown in Table 4, RoLA reduces computational overhead relative to dense full attention while remaining competitive on the reported VBench dimensions. Unlike RoPeSLR [14], whose global module is a low-rank Fourier compensator that imitates relative decay with an absolute positional embedding, RoLA injects relative-position structure without additional positional parameters (section 4.3), which is consistent with its improved mechanism-level fidelity at matched sparsity (section 5.1). In our evaluation, the VBench degradation relative to full attention is small. The low-rank branch is intended to recover global context discarded by pure sparse baselines such as VSA, and at matched sparsity RoLA achieves VBench scores closer to dense attention on the reported dimensions. Overall, these results support a favorable quality–efficiency trade-off within the evaluated settings. 
+
+Fine-tuning control. To isolate the effect of the attention algorithm from adaptation itself, we additionally evaluate the full-attention model after applying the same fine-tuning protocol as RoLA. The corresponding two-row comparison is provided in Appendix Table 9; it uses the same adaptation data, batch size, optimization steps, and evaluation protocol, while changing only whether the attention block is kept dense or replaced by RoLA. 
+
+5.3 Ablation Study 
+
+10 Table 5 Ablation on retained rotary rank r.                               
+
+> Rank rSC ↑MS ↑BC ↑IQ ↑AQ ↑
+> 80.8788 0.8715 0.9170 0.5574 0.5640 16 0.8910 0.8861 0.9298 0.5772 0.5601 32 0.9398 0.9540 0.9394 0.6138 0.5990
+> 64 (default) 0.9521 0.9812 0.9490 0.6492 0.6068 128 0.9540 0.9841 0.9525 0.6479 0.6099
+
+We ablate the central design axes to isolate their contributions. All ablations use Wan2.1-1.3B at matched 90% sparsity. 
+
+Controlled global-branch comparison. To separate the effect of the global branch from the sparse attention pattern, we fix the sparse engine, pattern, and target sparsity, and replace only the global branch. The resulting comparison is reported in Appendix Table 10. This experiment directly tests whether the gains come from the rotary low-rank construction rather than from a different sparse routing pattern. 
+
+Sparsity-quality trade-off. We also evaluate RoLA across multiple sparsity levels and report the selected VBench dimensions in Appendix Table 11. This sweep tests whether the proposed global branch remains useful as the sparse branch becomes increasingly aggressive.     
+
+> Table 6 Activation ablation. Projections are retrained per activation; the sparse-only baseline rel-L2is 0.612 .
+
+Activation Align rel-L2 ↓
+
+Identity (linear) 0.525 
+
+Tanh 0.525 
+
+ReLU 0.534 
+
+GELU 0.522 
+
+SiLU (default) 0.521 RoPE placement (structurally checked in section B.1). 
+
+We compare no rotation, rotation inside the activation, and rota-tion outside the activation. Table 2 shows that only the outside ordering preserves relative-position structure; the inside ordering leaks absolute position despite remaining position-aware. 
+
+Rotary truncation rank (figure 4). We sweep r ∈{8, 16 , 32 , 64 , 128 }. Operator fidelity saturates at r = 64 (ta-ble 3), and table 5 shows that downstream quality follows the same trend, with clear gains up to r = 64 and only marginal change beyond it. 
+
+Activation function. Here the alignment error Align rel-L2
+
+measures how well the sparse–low-rank output reconstructs the dense full-attention output: for each activation we retrain the low-rank projections and report the relative L2 distance 
+
+∥Ofused − Ofull ∥2/∥Ofull ∥2 between the fused attention output and the full-attention reference on real Wan Q/K/V features, averaged over tokens and heads (lower is better). As a reference, the sparse-only baseline without any low-rank branch attains rel-L2 = 0 .612 . We ablate SiLU against GELU, ReLU, Tanh, and identity. Table 6 shows that SiLU achieves the lowest alignment error among the tested activations. Identity and Tanh underperform, indicating that a smooth nonlinearity is beneficial for reconstructing the low-rank branch. 
+
+## 6 Conclusion 
+
+We present RoLA, a rotary-positioned low-rank attention branch for efficient video Diffusion Transformers. It addresses the compatibility issue between reusable linear aggregation and 3D relative rotary geometry in the low-rank global branch. By applying rank-truncated 3D RoPE outside the nonlinear activation, the branch keeps a reusable linear-time global summary while injecting relative positional structure without auxiliary absolute-position parameters. Mechanistic analysis and empirical evaluations indicate that RoLA achieves a favorable quality–efficiency trade-off under high sparsity, retaining generation fidelity while substantially reducing computational overhead. 
+
+Limitations. Our current evaluation focuses on two Wan models. The appendix contains structural sanity checks and idealized design intuitions (Propositions B.1, B.3, and B.4); they are not theoretical contributions, do not provide end-to-end generation guarantees, and are included only to motivate and verify the design choice. 
+
+## 7 Acknowledgments 
+
+This work was supported by Alibaba Group through Alibaba Research Intern Program. 11 References 
+
+[1] Junsong Chen, Jincheng Yu, Yitong Li, Shuchen Xue, Haozhe Liu, Jingyu Xin, Yuyang Zhao, Tian Ye, Zhangjie Wu, Zian Wang, et al. Sana-video 2.0: Hybrid linear attention with attention residuals for efficient video generation. 
+
+arXiv preprint arXiv:2607.21553 , 2026. [2] Junsong Chen, Yuyang Zhao, Jincheng Yu, Ruihang Chu, Junyu Chen, Shuai Yang, Xianbang Wang, Yicheng Pan, Zhou Daquan, Huan Ling, et al. Sana-video: Efficient video generation with block linear diffusion transformer. In 
+
+International Conference on Learning Representations , volume 2026, pages 38973–38997, 2026. [3] Pengtao Chen, Xianfang Zeng, Maosen Zhao, Mingzhu Shen, Wei Cheng, Gang Yu, and Tao Chen. Sparse-vdit: Unleashing the power of sparse attention to accelerate video diffusion transformers. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 2957–2965, 2026. [4] Hangliang Ding, Dacheng Li, Runlong Su, Peiyuan Zhang, Zhijie Deng, Ion Stoica, and Hao Zhang. Efficient-vdit: Efficient video diffusion transformers with attention tile. arXiv preprint arXiv:2502.06155 , 2025. [5] Tongcheng Fang, Hanling Zhang, Ruiqi Xie, Zhuo Han, Xin Tao, Tianchen Zhao, Pengfei Wan, Wenbo Ding, Wanli Ouyang, Xuefei Ning, et al. Salad: Achieve high-sparsity attention via efficient linear attention tuning for video diffusion transformer. arXiv preprint arXiv:2601.16515 , 2026. [6] Yoav HaCohen, Nisan Chiprut, Benny Brazowski, Daniel Shalem, Dudu Moshe, Eitan Richardson, Eran Levin, Guy Shiran, Nir Zabari, Ori Gordon, et al. Ltx-video: Realtime video latent diffusion. arXiv preprint arXiv:2501.00103 ,2024. [7] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification. In Proceedings of the IEEE international conference on computer vision ,pages 1026–1034, 2015. [8] Ziqi Huang, Yinan He, Jiashuo Yu, et al. VBench: Comprehensive benchmark suite for video generative models. 
+
+arXiv preprint , 2023. [9] Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and François Fleuret. Transformers are rnns: Fast autoregressive transformers with linear attention. In International conference on machine learning , pages 5156–5165. PMLR, 2020. [10] Weijie Kong, Qi Tian, Zijian Zhang, et al. HunyuanVideo: A systematic framework for large video generative models. arXiv preprint , 2024. [11] Xingyang Li, Muyang Li, Tianle Cai, Haocheng Xi, Shuo Yang, Yujun Lin, Lvmin Zhang, Songlin Yang, Jinbo Hu, Kelly Peng, et al. Radial attention: O(n log n) sparse attention with energy decay for long video generation. 
+
+Advances in Neural Information Processing Systems , 38:16822–16852, 2026. [12] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [13] Yuxi Liu, Yipeng Hu, Zekun Zhang, Kunze Jiang, and Kun Yuan. Mixture of distributions matters: Dynamic sparse attention for efficient video diffusion transformers. arXiv preprint arXiv:2601.11641 , 2026. [14] Yuxi Liu, Zekun Zhang, Yixiang Cai, Renjia Deng, Yutong He, and Kun Yuan. Ropeslr: 3d rope-driven sparse-lowrank attention for efficient diffusion transformers. arXiv preprint arXiv:2605.20659 , 2026. [15] Kepan Nan, Rui Xie, Penghao Zhou, et al. OpenVid-1M: A large-scale high-quality dataset for text-to-video generation. arXiv preprint arXiv:2407.02371 , 2024. [16] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 4195–4205, 2023. [17] Zhen Qin, Weixuan Sun, Kaiyue Lu, Hui Deng, Dongxu Li, Xiaodong Han, Yuchao Dai, Lingpeng Kong, and Yiran Zhong. Linearized relative positional encoding. arXiv preprint arXiv:2307.09270 , 2023. [18] Jianlin Su, Yu Lu, Shengfeng Pan, Ahmed Murtadha, Bo Wen, and Yunfeng Liu. RoFormer: Enhanced transformer with rotary position embedding. arXiv preprint arXiv:2104.09864 , 2021. [19] Team Wan et al. Wan: Open and advanced large-scale video generative models. arXiv preprint , 2025. 
+
+12 [20] Jianzong Wu, Liang Hou, Haotian Yang, et al. VMoBA: Mixture-of-block attention for video diffusion models. 
+
+arXiv preprint , 2025. [21] Haocheng Xi, Shuo Yang, Yilong Zhao, et al. Sparse VideoGen: Accelerating video diffusion transformers with spatial-temporal sparsity. In International Conference on Machine Learning (ICML) , 2025. [22] Shuo Yang, Haocheng Xi, Yilong Zhao, et al. Sparse VideoGen2: Accelerate video generation with sparse attention via semantic-aware permutation. arXiv preprint , 2025. [23] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. Cogvideox: Text-to-video diffusion models with an expert transformer. In 
+
+International Conference on Learning Representations , volume 2025, pages 83048–83077, 2025. [24] Biao Zhang and Rico Sennrich. Root mean square layer normalization. Advances in neural information processing systems , 32, 2019. [25] Jintao Zhang, Haoxu Wang, Kai Jiang, et al. SLA: Beyond sparsity in diffusion transformers via fine-tunable sparse-linear attention. arXiv preprint , 2025. [26] Jintao Zhang, Haoxu Wang, Kai Jiang, Kaiwen Zheng, Youhe Jiang, Ion Stoica, Jianfei Chen, Jun Zhu, and Joseph E Gonzalez. Sla2: Sparse-linear attention with learnable routing and qat. arXiv preprint arXiv:2602.12675 ,2026. [27] Peiyuan Zhang, Yongqi Chen, Haofeng Huang, Will Lin, Zhengzhong Liu, Ion Stoica, Eric Xing, and Hao Zhang. Faster video diffusion with trainable sparse attention. Advances in Neural Information Processing Systems , 38: 152509–152534, 2026. [28] Dian Zheng, Ziqi Huang, Hongbo Liu, Kai Zou, Yinan He, Fan Zhang, Lulu Gu, Yuanhan Zhang, Jingwen He, Wei-Shi Zheng, et al. Vbench-2.0: Advancing video generation benchmark suite for intrinsic faithfulness. arXiv preprint arXiv:2503.21755 , 2025. [29] Xuanyi Zhou, Qiuyang Mang, Shuo Yang, Haocheng Xi, Jintao Zhang, Huanzhi Mao, Joseph E Gonzalez, Kurt Keutzer, Ion Stoica, and Alvin Cheung. Svg-ear: Parameter-free linear compensation for sparse video generation via error-aware routing. arXiv preprint arXiv:2603.08982 , 2026. 
+
+13 Appendix 
+
+## A Full Forward Pass 
+
+Algorithm 1 gives the complete RoLA attention forward pass for a single block, combining the sparse branch, the rotary-positioned low-rank branch, and the distribution-aware gated fusion of section 4. All new parameters are jointly optimized with the backbone. 
+
+Algorithm 1 RoLA attention forward pass (single block, per head h). 
+
+Require: hidden states X ∈ RL×dmodel ; attention module with projections Wq , W k, W v , pre-attention norms 
+
+norm q , norm k, output projection Wo; new parameters Pq , P k ∈ Rr×dh , gate Wg ∈ Rdmodel ×1, gate bias bg ;full rotary schedule R(·); rank-truncated schedule Rr(·); sparse engine SparseAttn (e.g., VMoBA/SLA) with topk ratio 
+
+Ensure: attention output O ∈ RL×dmodel  
+
+> 1:
+
+Q, K, V ← Wq X, W kX, W v X ▷ QKV projection  
+
+> 2:
+
+Qn, K n ← norm q (Q), norm k(K) ▷ pre-RoPE normalized query/key, reshaped to [L, d h] per head 
+
+– Sparse branch (high-energy spikes) –  
+
+> 3:
+
+Qr, K r ← R(Qn), R(Kn) ▷ full-dimensional RoPE on the main path  
+
+> 4:
+
+Os ← SparseAttn( Qr, K r, V ) ▷ O L2(1 −S)dh
+
+
+
+– Low-rank branch (smooth global background), RoPE outside activation –  
+
+> 5:
+
+˜q ← Rr
+
+  SiLU( QnP ⊤ 
+
+> q
+
+), ˜k ← Rr
+
+  SiLU( KnP ⊤ 
+
+> k
+
+) ▷ activate, then rotate; ˜q, ˜k ∈ RL×r 
+
+> 6:
+
+C ← ˜k⊤V ∈ Rr×dh ▷ global context, computed once per head: O(Lrd h) 
+
+> 7:
+
+Olr ← RMSNorm  ˜q C  ▷ per-query readout: O(Lrd h)
+
+– Distribution-aware gated fusion –  
+
+> 8:
+
+g ← σ XW g + bg
+
+ ∈ (0 , 1) L×1 ▷ token-wise scalar gate  
+
+> 9:
+
+r ←
+
+q 1
+
+> dh
+
+P
+
+> i
+
+(Os:,i )2 + ϵ ▷ per-token RMS of the sparse output  
+
+> 10:
+
+Ofused ←  Os/r + g O lr  r ▷ RMS-normalized gated combination, Eq. 4  
+
+> 11:
+
+O ← Wo concat h
+
+ Ofused  ▷ merge heads, output projection  
+
+> 12:
+
+return O
+
+## B Formal Sanity Checks and Design Rationale 
+
+This appendix collects simple formal checks that motivate and sanity-check the design of RoLA. We do not present them as novel theoretical contributions or end-to-end performance guarantees. Theorem B.1 is a structural sanity check : by a direct application of the RoPE group property, the outside-activation branch satisfies shift-invariance and O(L) reuse; its role is to verify that this ordering meets the two desired structural requirements simultaneously. Theorem B.3 is an idealized design intuition : it bounds the truncation error in a nested full-dimensional idealization. Because Pk, Pq are learned directly in the low-rank space, this intuition motivates rather than guarantees the trained branch, whose fidelity is measured empirically (section 4.2). Theorem B.4 is a structural obstruction argument : inside-activation SiLU admits no exact 
+
+relative factorization; this rules out exactness, not approximate learnability, and whether a trained inside branch approximates relative behavior is an empirical question answered in section 5.1. Throughout this appendix, Rr(p) ∈ Rr×r denotes the 3D RoPE rotation restricted to the first r rotary coordinates in the backbone’s native coordinate ordering, i.e., the block-diagonal matrix formed by the retained complete 2D rotary pairs, split across the three spatiotemporal axes. This notation only specifies the retained coordinate indices and does not make any frequency-ordering assumption. It is orthogonal, 
+
+Rr (p)⊤Rr (p) = I, 
+
+and satisfies the group property 
+
+Rr (p)⊤Rr (q) = Rr (q − p),
+
+14 which is inherited blockwise from the 2D rotation identity 
+
+Rot( θp )⊤Rot( θq ) = Rot( θ(q − p)) .
+
+B.1 Relative-Position Structure of the Outside-Activation Branch 
+
+The following sanity check verifies the main reason for applying RoPE after the low-rank nonlinearity: if the nonlinear feature map is position-free, the rotary rotation can be moved into a relative offset without destroying the reusable linear aggregation. The proof is a direct application of the orthogonality and group property of RoPE. We emphasize that this is a structural sanity check rather than a novel theoretical result: it confirms that the outside ordering simultaneously satisfies the two requirements that theorem B.4 shows cannot hold jointly under the inside ordering. 
+
+Proposition B.1 (Structural sanity check: relative-position structure of the outside-activation branch) . Let 
+
+ϕ(·) = SiLU( Pq ·) and ψ(·) = SiLU( Pk ·) be the pointwise low-rank feature maps. With RoPE applied outside 
+
+the activation as in equation (2) , the low-rank pairwise interaction is a function of the relative offset: 
+
+˜q⊤ 
+
+> p
+
+˜kq =  Rr (p)ϕ(qp)⊤ Rr (q)ψ(kq ) = ϕ(qp)⊤ Rr (q − p) ψ(kq ). (5) 
+
+Meanwhile, the global context C = P 
+
+> q
+
+˜kq v⊤ 
+
+> q
+
+remains a single reusable sum. Hence the branch is simultaneously shift-invariant and O(L).Proof. Write the low-rank features in equation (2) as 
+
+˜qp = Rr (p)ϕ(qp), ˜kq = Rr (q)ψ(kq ),
+
+where 
+
+ϕ(qp) = SiLU( Pq qn 
+
+> p
+
+), ψ(kq ) = SiLU( Pkkn 
+
+> q
+
+)
+
+are position-free: they depend only on token content, not on the indices p or q.
+
+Step 1: relative interaction. For any query–key pair, 
+
+˜q⊤ 
+
+> p
+
+˜kq =  Rr (p)ϕ(qp)⊤ Rr (q)ψ(kq ) = ϕ(qp)⊤ Rr (p)⊤Rr (q) ψ(kq ) = ϕ(qp)⊤ Rr (q − p) ψ(kq ),
+
+where the last equality uses orthogonality and the group property. The right-hand side depends on the positions only through the relative offset q − p, establishing shift-invariance of the low-rank logit. 
+
+Step 2: O(L) associativity is preserved. The global context is 
+
+C =
+
+> L
+
+X
+
+> q=1
+
+˜kq v⊤ 
+
+> q
+
+=
+
+> L
+
+X
+
+> q=1
+
+Rr (q)ψ(kq )v⊤ 
+
+> q
+
+∈ Rr×dh .
+
+This is a single sum that does not depend on the query index p; it can therefore be computed once at cost 
+
+O(Lrd h). The per-query output 
+
+Olr  
+
+> p
+
+= RMSNorm(˜ q⊤ 
+
+> p
+
+C)
+
+costs O(rd h) per token, so the branch is O(Lrd h) overall. The rotation Rr(q) is absorbed into C before the sum, and the query-side rotation Rr(p) is applied after C; neither obstructs associativity, because both are linear operators acting outside the position-free feature maps. This is what simultaneously yields relative-position structure and linear cost. 
+
+B.2 Truncation-Error Intuition for the Rotary Low-Rank Branch 
+
+Notation and idealized nested view. Let R(p) ∈ Rdh×dh be the full 3D RoPE matrix, block-diagonal with 
+
+2 × 2 rotation blocks. Let r = 2 s ≤ dh be an even truncation rank, and assume that the first r coordinates in the backbone’s native ordering correspond to the first s complete 2 × 2 blocks. Define 
+
+P≤r = diag( Ir , 0(dh−r)×(dh−r)), P>r = Idh − P≤r .
+
+15 For a vector u ∈ Rdh , write 
+
+u≤r = P≤r u, u>r = P>r u. 
+
+The truncated RoPE matrix is 
+
+Rr (p) = P≤r R(p)P≤r .
+
+To make the truncation intuition precise, we consider an idealized nested setting. Let Φ( qp) and Ψ( kq ) be position-free full-dimensional feature maps, and suppose the rank-r branch retains the first r rotary coordinates of these maps in the backbone’s native ordering. In the actual implementation, Pq and Pk are learned directly in the low-dimensional space. Therefore, the following statement is not a theoretical contribution and should not be read as a strict guarantee for the trained branch; it is an idealized design intuition. The empirical operator-fidelity results in the main text are the operative evidence. 
+
+Assumption B.2 (Concentration in the retained rotary subspace) . For the global background branch of a pre-trained video DiT, the residual feature components outside the retained rotary subspace are small. Specifically, there exist constants ϵΦ(r), ϵ Ψ(r) > 0 such that 
+
+sup 
+
+> p
+
+∥P>r Φ( qp)∥2 ≤ ϵΦ(r), sup 
+
+> q
+
+∥P>r Ψ( kq )∥2 ≤ ϵΨ(r).
+
+For 3D-RoPE video DiTs, this concentration is consistent with the sparse-plus-smooth background decomposition identified in the low-rank Fourier compensation analysis of RoPeSLR [14]. RoPE uses a geometrically spaced rotary frequency schedule [18]; our implementation retains the first r rotary coordinates in the backbone’s native ordering, and this choice is justified by the empirical fidelity sweep rather than by a frequency-ordering assumption. Fig. 4 validates the sufficiency of this retained subspace at r = 64 .
+
+Proposition B.3 (Idealized truncation intuition for a nested rotary feature map) . Define the full and rank-r
+
+truncated pairwise scores as 
+
+sfull (p, q ) = Φ( qp)⊤R(q − p)Ψ( kq ),
+
+and 
+
+sr (p, q ) = Φ ≤r (qp)⊤Rr (q − p)Ψ ≤r (kq ).
+
+Then for all tokens p, q ,
+
+|sfull (p, q ) − sr (p, q )| ≤ ∥ P>r Φ( qp)∥2 ∥P>r Ψ( kq )∥2 .
+
+In particular, under Assumption B.2, 
+
+|sfull (p, q ) − sr (p, q )| ≤ ϵΦ(r) ϵΨ(r).
+
+Proof. Because P≤r selects an integer number of complete 2 × 2 RoPE blocks, the subspaces 
+
+U≤r = range( P≤r ), U>r = range( P>r )
+
+are invariant under R(p). Therefore, 
+
+P≤r R(p)P>r = 0 , P>r R(p)P≤r = 0 .
+
+In other words, R(p) preserves the split between the retained rotary subspace and the discarded rotary subspace. Now decompose the features as 
+
+Φ( qp) = Φ ≤r (qp) + Φ >r (qp), Ψ( kq ) = Ψ ≤r (kq ) + Ψ >r (kq ).
+
+Then 
+
+sfull (p, q ) = (Φ ≤r (qp) + Φ >r (qp)) ⊤ R(q − p) (Ψ ≤r (kq ) + Ψ >r (kq )) = Φ ≤r (qp)⊤R(q − p)Ψ ≤r (kq ) + Φ ≤r (qp)⊤R(q − p)Ψ >r (kq )+ Φ >r (qp)⊤R(q − p)Ψ ≤r (kq ) + Φ >r (qp)⊤R(q − p)Ψ >r (kq ).
+
+16 By the invariance of U≤r and U>r , the two cross terms vanish: 
+
+Φ≤r (qp)⊤R(q − p)Ψ >r (kq ) = 0 , Φ>r (qp)⊤R(q − p)Ψ ≤r (kq ) = 0 .
+
+Hence 
+
+sfull (p, q ) = Φ ≤r (qp)⊤R(q − p)Ψ ≤r (kq ) + Φ >r (qp)⊤R(q − p)Ψ >r (kq ).
+
+On the first term, Φ≤r and Ψ≤r live only on the first r coordinates, so 
+
+Φ≤r (qp)⊤R(q − p)Ψ ≤r (kq ) = Φ ≤r (qp)⊤Rr (q − p)Ψ ≤r (kq ) = sr (p, q ).
+
+Therefore, 
+
+sfull (p, q ) − sr (p, q ) = Φ >r (qp)⊤R(q − p)Ψ >r (kq ).
+
+Since R(q − p) is orthogonal, 
+
+|sfull (p, q ) − sr (p, q )| = Φ>r (qp)⊤R(q − p)Ψ >r (kq ) .
+
+By Cauchy–Schwarz, 
+
+|sfull (p, q ) − sr (p, q )| ≤ ∥ Φ>r (qp)∥2 ∥R(q − p)Ψ >r (kq )∥2 = ∥Φ>r (qp)∥2 ∥Ψ>r (kq )∥2 .
+
+The last equality uses orthogonality of R(q − p).Finally, under Assumption B.2, the right-hand side is bounded by ϵΦ(r)ϵΨ(r), which gives the stated bound. 
+
+B.3 Obstruction for Inside-Activation Rotary Factorization 
+
+The following obstruction argument explains why applying RoPE before the pointwise nonlinearity is struc-turally unfavorable: a pointwise nonlinearity does not commute with a rotation, so absolute position can become entangled with content before global aggregation. This argument is intended as a design motivation; it rules out exact factorization, not approximate learnability. 
+
+Proposition B.4 (No exact relative factorization under inside-activation SiLU ). Let r ≥ 2, and let σ = SiLU 
+
+be applied coordinatewise. Define the inside-activation low-rank features 
+
+˜q′ 
+
+> p
+
+= σ Rr (p)Pq qn
+
+> p
+
+, ˜k′ 
+
+> q
+
+= σ Rr (q)Pkkn
+
+> q
+
+.
+
+Then, in the idealized continuous-position setting, there do not exist functions g, h such that for all p, q ∈ R3
+
+and all content vectors qn 
+
+> p
+
+, k n 
+
+> q
+
+∈ Rr ,
+
+(˜ q′
+
+> p
+
+)⊤ ˜k′ 
+
+> q
+
+= g(qn 
+
+> p
+
+, k n 
+
+> q
+
+) h(q − p).
+
+In particular, if such a factorization existed, the global context 
+
+C′ = X
+
+> q
+
+˜k′ 
+
+> q
+
+v⊤
+
+> q
+
+would be shift-invariant; the proposition shows that this is impossible. Proof. We prove this by contradiction. Assume that such a factorization exists: 
+
+σ Rr (p)x⊤σ Rr (q)y = g(x, y ) h(q − p) ∀p, q ∈ R3, ∀x, y ∈ Rr .
+
+Step 1: Norm condition from the factorization. Set q = p and y = x. Then the left-hand side becomes 
+
+σ Rr (p)x⊤σ Rr (p)x = σ Rr (p)x 22 ,
+
+17 while the right-hand side becomes 
+
+g(x, x ) h(0) ,
+
+which is independent of p. Hence for every fixed x,
+
+σ Rr (p)x 22
+
+is constant in p.
+
+Step 2: Restrict to a single 2D rotary block. Since Rr(p) is block-diagonal, it suffices to consider a single 2 × 2 rotary block with non-zero frequency. Let t denote the rotation angle of that block. Choose x
+
+such that only this block is non-zero, and within that block, 
+
+x =
+
+a
+
+0
+
+
+
+, a > 0.
+
+Since σ(0) = 0 for SiLU , all other blocks contribute zero to the norm squared. Thus we obtain 
+
+σ Rr (p)x 22 = σ(a cos t)2 + σ(a sin t)2.
+
+By Step 1, this quantity must be independent of t. Define 
+
+F (t) = σ(a cos t)2 + σ(a sin t)2.
+
+Then F (t) is constant in t for every a > 0.
+
+Step 3: Compute the second derivative at t = 0 . Let 
+
+G(u) = σ(u)2.
+
+For u = a cos t and v = a sin t, we have 
+
+F (t) = G(u) + G(v).
+
+At t = 0 ,
+
+u(0) = a, u′(0) = 0 , u′′ (0) = −a, 
+
+and 
+
+v(0) = 0 , v′(0) = a, v′′ (0) = 0 .
+
+Since 
+
+F ′′ (t) = G′′ (u)( u′)2 + G′(u)u′′ + G′′ (v)( v′)2 + G′(v)v′′ ,
+
+substituting t = 0 gives 
+
+F ′′ (0) = G′′ (a) · 0 + G′(a) · (−a) + G′′ (0) · a2 + G′(0) · 0.
+
+Thus 
+
+F ′′ (0) = −aG ′(a) + a2G′′ (0) .
+
+Step 4: Use the derivatives of SiLU . For SiLU ,
+
+σ(0) = 0 , σ′(0) = 12 , σ′′ (0) = 12 .
+
+Since G(u) = σ(u)2, we have 
+
+G′(u) = 2 σ(u)σ′(u),
+
+and 
+
+G′′ (u) = 2  σ′(u)2 + σ(u)σ′′ (u) .
+
+18 In particular, 
+
+G′′ (0) = 2  σ′(0) 2 + σ(0) σ′′ (0)  = 2 
+
+ 14 + 0 
+
+
+
+= 12 .
+
+Therefore, 
+
+F ′′ (0) = −2aσ (a)σ′(a) + a2
+
+2 .
+
+Step 5: Contradiction from constancy of F (t). Since F (t) is constant in t, we must have 
+
+F ′′ (0) = 0 .
+
+Hence 
+
+−2aσ (a)σ′(a) + a2
+
+2 = 0 .
+
+For a > 0, this implies 
+
+σ(a)σ′(a) = a
+
+4 .
+
+Now observe that dda 
+
+ σ(a)2 = 2 σ(a)σ′(a).
+
+Thus dda 
+
+ σ(a)2 = a
+
+2 .
+
+Integrating from 0 to a and using σ(0) = 0 , we obtain 
+
+σ(a)2 =
+
+Z a
+
+> 0
+
+t
+
+2 dt = a2
+
+4 .
+
+Therefore, for all a > 0,
+
+σ(a)2 = a2
+
+4 .
+
+In particular, for a = 1 ,
+
+σ(1) 2 = 14 .
+
+However, for SiLU ,
+
+σ(1) = SiLU(1) = 11 + e−1 ,
+
+and  11 + e−1
+
+2̸
+
+= 14 ,
+
+because 11+ e−1̸ = 12 . This is a contradiction. Therefore, the assumed factorization cannot exist. Hence an inside-activation rotation cannot yield a purely relative-position low-rank kernel. 
+
+What the obstruction does and does not say. Theorem B.4 rules out an exact relative factorization; it does not claim that inside activation cannot be trained. A trained inside branch may approximate relative behavior, and the proposition predicts that any such approximation must carry residual absolute-position dependence. Table 2 confirms exactly this regime: the inside branch remains position-aware (offset range 0.47 ) yet has shift residual 3.7 × 10 −1, whereas the outside branch realizes the exact relative structure (shift residual 1.8 × 10 −5). 19 C Additional Wan2.2 and VBench 2.0 Results 
+
+Table 7 extends the main comparison to Wan2.2-T2V, evaluated under the official recommended setting with 1280 × 720 resolution, 81 frames, and 40 denoising steps. Table 8 further evaluates RoLA against the corresponding full-attention baseline on Wan2.1-14B and Wan2.2-A14B-T2V using selected VBench 2.0 [28] dimensions. We report Dynamic Spatial Relationship (DSR), Instance Preservation (IP), Multi-View Consistency (MVC), Motion Rationality (MR), Motion Order Understanding (MOU), and Complex Landscape (CL), which emphasize long-range relational, geometric, temporal, and complex-scene consistency that can be affected by aggressive attention sparsification.                                                                                  
+
+> Table 7 Additional quantitative comparison on Wan2.2-T2V benchmarks. The layout mirrors the main quantitative table. All measurements use NVIDIA H100 80G GPUs, and latency refers to the end-to-end runtime of the DiT denoising component (excluding text encoding and VAE stages). For the Wan2.2 MoE architecture, this latency measures the denoising computation only and does not include the high-noise/low-noise expert switching time.
+> VBench Quality Efficiency Model Method SC ↑MS ↑BC ↑IQ ↑AQ ↑Latency ↓Sparsity ↑
+> Wan2.2-A14B-T2V Full 0.9701 0.9866 0.9629 0.7102 0.6518 1584.6s 0%
+> VSA 0.9455 0.9754 0.9497 0.6522 0.5927 986.8s 90%
+> SLA 0.9572 0.9812 0.9578 0.6688 0.6182 883.9s 90%
+> RoPeSLR 0.9621 0.9850 0.9533 0.6702 0.6193 881.4s 90%
+> RoLA (Ours) 0.9645 0.9856 0.9589 0.6915 0.6401 548s 90%
+> Table 8 Selected VBench 2.0 dimensions on Wan2.1-14B and Wan2.2-A14B-T2V.
+> Model Method DSR ↑IP ↑MVC ↑MR ↑MOU ↑CL ↑
+> Wan2.1-14B Full 30.16 83.67 24.09 28.67 23.34 15.98
+> RoLA (Ours) 29.73 80.05 22.56 26.22 21.69 15.08 Wan2.2-A14B-T2V Full 41.03 86.82 32.63 34.54 28.56 19.02
+> RoLA (Ours) 39.26 83.88 29.94 31.82 26.12 18.55
+
+## D Additional Ablation Results 
+
+The following experiments are designed to address two potential confounds in the main comparison. First, we fix the sparse attention engine, routing pattern, and target sparsity while changing only the global branch. Second, we evaluate RoLA at multiple sparsity levels. Both tables report the five VBench dimensions used in the main experiment. 
+
+## E Training and Model Hyperparameters 
+
+E.1 Why Single-Stage Fine-Tuning Replaces the Prior Two-Stage Recipe 
+
+RoPeSLR [14] used a two-stage post-training procedure because its low-rank Fourier compensator is not a genuine linear-attention branch: it first learns a coordinate-MLP surrogate together with an absolute positional module, and only then co-adapts that surrogate with the full backbone. RoLA changes this optimization picture. Our added parameters 
+
+Θnew = {Pq , P k, W g , b g }
+
+sit directly on the final low-rank attention path, and their outputs are fused with the sparse branch through the same forward computation used at inference. This architecture makes a single joint stage the natural default for three reasons. First, the branch is initialized near the sparse baseline because the gate starts almost closed ( Wg = 0 , bg < 0), so early optimization does not 20 Table 9 Full-attention fine-tuning control on Wan2.1-1.3B at 480p. The first row copies the pretrained Full Attention result from Table 4; the second row keeps dense attention and applies the same single-stage fine-tuning protocol, adaptation data, batch size, and optimization steps as RoLA.                                          
+
+> Setting SC ↑MS ↑BC ↑IQ ↑AQ ↑
+> Full Attention 0.9403 0.9557 0.9498 0.6510 0.6088 Full Attention + matched fine-tuning 0.9409 0.9556 0.9495 0.6508 0.6084
+> Table 10 Controlled global-branch ablation on Wan2.1-1.3B at 90% sparsity. The sparse engine and routing pattern are fixed across rows; only the global branch is changed.
+> Global branch SC ↑MS ↑BC ↑IQ ↑AQ ↑
+> None (sparse only) 0.8480 0.8912 0.9530 0.4939 0.5281 No RoPE 0.9301 0.9253 0.9641 0.5817 0.6082 RoPE inside activation 0.9303 0.9257 0.9639 0.6027 0.6185
+> RoPE outside (ours) 0.9521 0.9812 0.9490 0.6492 0.6068
+
+abruptly perturb the pre-trained model. Second, the projections Pq , P k, the gate, and the backbone attention statistics must co-adapt under the final diffusion objective; training them separately would introduce an avoidable stage mismatch between branch fitting and whole-model behavior. Third, unlike the absolute-PE variant of the low-rank Fourier compensator [14], RoLA does not add a separate positional module whose standalone stabilization motivates a warm-up stage. We therefore adopt a single-stage full fine-tuning recipe for RoLA. This choice should be read as an architecture-matched training strategy rather than a blanket claim that two-stage optimization is inferior for all sparse– low-rank designs. To keep this distinction explicit, we report a controlled single-stage vs. two-stage ablation in section E.2; Table 12 reports the corresponding comparison under the same VBench setting. 
+
+E.2 Training-Strategy Ablation 
+
+Table 12 isolates the optimization question from the architectural one. This comparison keeps the backbone, sparsity, data, optimizer, and total update budget fixed, and changes only the post-training schedule: single-stage means the joint optimization used by RoLA, whereas two-stage follows the prior RoPeSLR-style warm-up-then-joint recipe. We evaluate both strategies under the same VBench setting to compare their downstream generation quality. Table 13 lists the main hyperparameters used for the single-stage full fine-tuning (section 4.5). The newly introduced parameters Θnew = {Pq , P k, W g , b g } use a higher learning rate than the backbone, since they are trained from initialization while the backbone is only lightly adapted. This stage is deliberately lightweight: RoLA adapts an already pre-trained video DiT rather than learning video generation from scratch. The rotary pairing and frequency schedule are directly inherited from the pre-trained backbone and fixed by the architecture, so the new projections only need to adapt the pre-trained query/key features to the low-rank feature space. In addition, the gate is initialized to a small value, allowing the new branch to be introduced gradually. In our setting, 2,000 training samples over four epochs are sufficient for effective adaptation. 
+
+## F Computational Complexity Analysis 
+
+The rotary-positioned low-rank branch retains the O(L) scaling of linear attention: the global context 
+
+C = ˜k⊤V ∈ Rr×dh
+
+is formed once at cost O(Lrd h) and reused across all queries, and the rank-truncated rotation adds only 
+
+O(Lr ) elementwise operations. Compared with the absolute-PE variant of the low-rank Fourier compensator in Liu et al. [14], which also has O(Lrd h) complexity but carries extra learnable positional parameters, RoLA 21 Table 11 Sparsity sweep for RoLA on Wan2.1-1.3B at 480p.                                     
+
+> Sparsity SC ↑MS ↑BC ↑IQ ↑AQ ↑
+> 80% 0.9528 0.9820 0.9495 0.6500 0.6072
+> 90% (default) 0.9521 0.9812 0.9490 0.6492 0.6068 95% 0.9503 0.9785 0.9401 0.6485 0.5929
+> Table 12 Controlled ablation of post-training strategy.
+> Strategy SC ↑MS ↑BC ↑IQ ↑AQ ↑
+> Single-stage (ours) 0.9629 0.9853 0.9537 0.6783 0.6294 Two-stage (RoPeSLR-style) 0.9631 0.9842 0.9521 0.6778 0.6296
+
+introduces zero additional positional parameters by reusing the backbone rotary tensors. For a fixed sparsity ratio and low-rank width, the asymptotic inference cost of the full module is dominated by the sparse branch, while the low-rank branch contributes only a linear overhead term. We give a detailed FLOPs analysis of the RoLA attention module during the forward pass, establishing two claims: (i) the rotary low-rank branch retains linear complexity in sequence length, with its cost controlled by the bottleneck width; and (ii) relative to pure sparse attention, the overhead of the low-rank branch is asymptotically negligible for long sequences under a fixed sparsity ratio and low-rank width. 
+
+Notation. Let B be the batch size, L the sequence length, H the number of heads, dh the per-head dimension (dmodel = Hd h), S the sparsity ratio (active fraction 1 − S), and r the low-rank bottleneck. We report dominant matmul FLOPs throughout. A matmul RM ×N · RN ×P costs 2M N P FLOPs; lower-order operations, including Softmax, RoPE, RMSNorm, sigmoid, and gated addition, are omitted from the FLOPs count. 
+
+Cost anatomy. The module decomposes into three parts. 
+
+(1) Sparse branch. With block sparsity S, each query attends to L(1 − S) keys; the QK ⊤ scores and 
+
+Softmax( ·)V aggregation give 
+
+Csparse = 4 BHL 2(1 − S) dh. (6) 
+
+(2) Low-rank branch. Down-projection QnP ⊤ 
+
+> q
+
+(and the key side) costs 2BLd hr each; the context C = ˜k⊤V
+
+costs 2BLrd h; the readout ˜qC costs 2BLrd h. Summing over H heads, 
+
+Clowrank = 8 BHLd h r. (7) 
+
+(3) Gating and fusion. The scalar-gate projection XW g costs 2BHLd h, i.e., 
+
+Cfusion = 2 BHLd h. (8) The total is therefore 
+
+CRoLA = 4 BHL 2(1 − S)dh + 8 BHLd h r + 2 BHLd h. (9) 
+
+Cost comparison with sparse-linear frameworks. A standard full-width linear branch with feature map ϕ : Rdh → Rdh forms KV ctx = ϕ(K)⊤V (2BHLd 2
+
+> h
+
+) and retrieves ϕ(Q)KV ctx (2BHLd 2
+
+> h
+
+), giving a dominant matmul cost Clinear = 4 BHLd 2
+
+> h
+
+. Under the same FLOPs accounting, our low-rank branch has 
+
+Clowrank = 8 BHLd h r, including the query/key down-projections, context aggregation, and readout. Therefore, 
+
+Clowrank 
+
+Clinear 
+
+= 8BHLd h r
+
+4BHLd 2
+
+> h
+
+= 2rdh
+
+. (10) Thus, the low-rank branch is cheaper than a full-width linear branch when r < d h/2, has the same dominant matmul FLOPs when r = dh/2, and remains linear in sequence length in either case. Under our default 22 Table 13 Training and model hyperparameters for RoLA on Wan2.1-T2V-14B. 
+
+Hyperparameter Value 
+
+Optimizer AdamW 
+
+β1, β 2 0.9, 0.999 
+
+Weight decay 10 −5
+
+Precision BF16 Low-rank dimension r 64 
+
+Gate bias init b0 −1.946 
+
+Global batch size 32 
+
+Single-stage full fine-tuning 
+
+Objective Flow-matching LR schedule Cosine decay Training samples 2000 Training epochs 4
+
+Learning rates 
+
+Backbone 2 × 10 −6
+
+Low-rank projections ( Pq , P k ) 5 × 10 −5
+
+Gate projection Wg 3 × 10 −5
+
+Gate bias bg 5 × 10 −5
+
+setting r = 64 and dh = 128 , the two branches have equal leading-order matmul FLOPs; the advantage of RoLA therefore lies not in reducing this leading-order cost, but in preserving relative-position structure within a compressed rotary feature space. 
+
+Asymptotically negligible overhead over pure sparse attention. The extra counted FLOPs relative to the pure sparse baseline are 
+
+η = Clowrank + Cfusion 
+
+Csparse 
+
+= 8BHLd h r + 2 BHLd h
+
+4BHL 2(1 − S)dh
+
+= 2r + 0 .5
+
+L(1 − S) . (11) For the fixed sparsity ratio S < 1 and fixed low-rank width r used in our experiments, the number of active keys per query, L(1 − S), grows linearly with the sequence length L. Therefore, 
+
+η = O(L−1), lim  
+
+> L→∞
+
+η = 0 . (12) Thus, under the fixed-sparsity regime considered in this work, the additional FLOPs introduced by the low-rank branch and gated fusion become asymptotically negligible relative to the sparse-attention computation as the video sequence length increases. In other words, RoLA adds only a linear-cost global branch on top of the sparse attention module, while the dominant sparse-attention cost grows quadratically with L for a fixed sparsity ratio. 
+
+## G Additional Qualitative Comparisons 
+
+The following figure shows representative video samples. RoLA preserves better temporal coherence and scene layout under high sparsity compared with competing sparse-global methods. 23 Full VSA  
+
+> SLA Ours
+
+"A brown bear catches a leaping salmon in a fast shallow river" (a) Full VSA  
+
+> SLA Ours
+
+"A herd of elephants crosses a wide dusty savannah at sunset" 
+
+(b) Full VSA  
+
+> SLA Ours
+
+"A traditional glassblower rotates a glowing bubble of molten glass" 
+
+(c) Figure 6 Qualitative comparison on five video prompts. (a) Bear, (b) Elephants, (c) Glassblower, (d) Lighthouse, (e) Tuscany. 
+
+24 Full VSA  
+
+> SLA Ours
+
+"A lone lighthouse on a rocky headland battered by a storm wave" (d) Full VSA  
+
+> SLA Ours
+
+"An old stone village in Tuscany at first light" 
+
+(e) Figure 6 Qualitative comparison on five video prompts (continued). (d) Lighthouse, (e) Tuscany. 
+
+25
