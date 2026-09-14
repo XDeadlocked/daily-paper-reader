@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-13</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-14</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 5 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>6</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-13 22:05:23 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-14 23:02:23 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共筛读5篇论文，精读1篇、速读4篇，焦点集中在机器人操作与多模态导航。</p>
-<p>最值得看的是9.0分的GloVLA——让几何与局部VLA交互实现非结构化环境下的鲁棒物体中心操作，速读中&quot;一个MLLM一次调用&quot;的空间感知路点导航也值得顺带了解。</p>
-<p>普通读者可先从GloVLA的操作思路入手，再回看其余速读，注意其中一篇涉及真伪难辨的风险议题。</p>
+<p>今日精读6篇、速读6篇共12篇，重点聚焦扩散策略优化与机器人基础模型。最值得看的是两篇9分精读：DIA用去噪中间优势优化扩散策略，以及面向可变形线性物体的在线材质估计条件扩散策略。普通读者可先读这两篇精读，再按需扫速读中的类人越障与机器人泛化方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">1 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GloVLA: Let Geometry Move and Local VLA Interact for Robust Object-Centric Manipulation in Unstructured Environments">GloVLA: Let Geometry Move and Local VLA Interact for Robust Object-Centric Manipulation in Unstructured Environments</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DIA: Denoising Intermediate Advantage for Diffusion Policy Optimization">DIA: Denoising Intermediate Advantage for Diffusion Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Online Material Estimation for Conditioned Diffusion Policy in Shaping Deformable Linear Objects">Online Material Estimation for Conditioned Diffusion Policy in Shaping Deformable Linear Objects</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="One MLLM, One Call: Efficient Zero-Shot Vision-and-Language Navigation via Spatial-Aware Waypoints">One MLLM, One Call: Efficient Zero-Shot Vision-and-Language Navigation via Spatial-Aware Waypoints</span></li><li><span class="dpr-home-dashboard-paper-title" title="DF26: We Cannot Tell Fake From Real Anymore">DF26: We Cannot Tell Fake From Real Anymore</span></li><li><span class="dpr-home-dashboard-paper-title" title="FARM: Reading Failure Signals from the Internal Predictive States of a Frozen Robotic World Model">FARM: Reading Failure Signals from the Internal Predictive States of a Frozen Robotic World Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DWMP: Leveraging Dual World Models for Humanoid Obstacle Traversal">DWMP: Leveraging Dual World Models for Humanoid Obstacle Traversal</span></li><li><span class="dpr-home-dashboard-paper-title" title="SignRefine: Adapting Foundational Video Models for Sign Language Generation">SignRefine: Adapting Foundational Video Models for Sign Language Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Breaking the Vision-Action Shortcut: Latent Interface Training for Generalizable Robotics Foundation Models">Breaking the Vision-Action Shortcut: Latent Interface Training for Generalizable Robotics Foundation Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 </div>
 
