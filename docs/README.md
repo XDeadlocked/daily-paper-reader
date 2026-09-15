@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-14</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-15</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-14 23:02:23 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-15 22:29:52 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读6篇、速读6篇共12篇，重点聚焦扩散策略优化与机器人基础模型。最值得看的是两篇9分精读：DIA用去噪中间优势优化扩散策略，以及面向可变形线性物体的在线材质估计条件扩散策略。普通读者可先读这两篇精读，再按需扫速读中的类人越障与机器人泛化方向。</p>
+<p>今日收录18篇，精读7篇、速读11篇，BEACON与LePlanner以9.0分领跑。</p>
+<p>最值得看的是主体特定视频生成中的行为与外观控制，以及面向世界模型的迭代摊销控制器。</p>
+<p>普通读者可先读这两篇9分精读，再按兴趣扫读8分的GeomVLA、VGFM与PhysBrain 1.5。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DIA: Denoising Intermediate Advantage for Diffusion Policy Optimization">DIA: Denoising Intermediate Advantage for Diffusion Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Online Material Estimation for Conditioned Diffusion Policy in Shaping Deformable Linear Objects">Online Material Estimation for Conditioned Diffusion Policy in Shaping Deformable Linear Objects</span></li><li><span class="dpr-home-dashboard-paper-title" title="Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model">Dynin-Robotics: Omnimodal Unified Diffusion Vision-Language-Action Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="BEACON: Behavior and Appearance Control for Subject-Specific Video Generation">BEACON: Behavior and Appearance Control for Subject-Specific Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="LePlanner: An Iterative Amortized Controller For World Models">LePlanner: An Iterative Amortized Controller For World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ReWeight: Leveraging Human Data for VLA Post-Training via Demonstration Retrieval and Sample Weighting">ReWeight: Leveraging Human Data for VLA Post-Training via Demonstration Retrieval and Sample Weighting</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DWMP: Leveraging Dual World Models for Humanoid Obstacle Traversal">DWMP: Leveraging Dual World Models for Humanoid Obstacle Traversal</span></li><li><span class="dpr-home-dashboard-paper-title" title="SignRefine: Adapting Foundational Video Models for Sign Language Generation">SignRefine: Adapting Foundational Video Models for Sign Language Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Breaking the Vision-Action Shortcut: Latent Interface Training for Generalizable Robotics Foundation Models">Breaking the Vision-Action Shortcut: Latent Interface Training for Generalizable Robotics Foundation Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GeomVLA: Unifying Scene, Motion, and Action in 3D">GeomVLA: Unifying Scene, Motion, and Action in 3D</span></li><li><span class="dpr-home-dashboard-paper-title" title="VGFM: Expressive Robot Policies via Dense Value Guidance in Flow Matching">VGFM: Expressive Robot Policies via Dense Value Guidance in Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhysBrain 1.5: From Vision-Language Models to Physical Foundation Models">PhysBrain 1.5: From Vision-Language Models to Physical Foundation Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 

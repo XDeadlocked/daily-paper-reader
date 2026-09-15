@@ -1,0 +1,842 @@
+BEACON: Behavior and Appearance Control for
+Subject-Specific Video Generation
+Baptiste Pokrzywa1,2, Nabyl Quignon3, Yara Bahram1, Muhammad Osama
+Zeeshan1, Antitza Dantcheva3 , Eric Granger1
+1 LIVIA, École de technologie supérieure, Montreal, Canada
+2 CentraleSupélec, Université Paris-Saclay, Gif-sur-Yvette, France
+3 Inria, Université Côte d’Azur, Sophia Antipolis, France
+Abstract. Generating human-centric videos that preserve both visual
+identity and person-specific expressive behavior remains a fundamental
+challenge. In addition to reproducing appearance, a model must replicate
+the facial behaviors that characterize how a subject expresses emotion
+over time. However, most state-of-the-art methods condition generation
+on a single reference image, which contains no information about these
+temporal dynamics. As a result, they tend to preserve the subject’s vi-
+sual identity but often produce expressions with limited variation and
+weak subject specificity. To mitigate this issue, we introduce BEACON, a
+lightweight framework for person-specific video generation that produces
+more expressive videos by disentangling visual identity from expressive
+behavior. BEACON conditions generation on two complementary signals:
+a reference image encoding the identity and a reference video capturing
+subject-specific facial dynamics. By conditioning on these complemen-
+tary signals, BEACON generates videos that better preserve both the sub-
+ject’s appearance and characteristic facial dynamics, while also support-
+ing identity-expression transfer. Our experiments4 on the MEAD and
+RAVDESS datasets show that by fine-tuning on approximately 2,000
+pairs and updating about 1% of the pretrained Wan video diffusion
+model, BEACON improves facial expressivity over state-of-the-art video
+generation methods while maintaining competitive identity preservation.
+1
+Introduction
+Large-scale pre-trained video diffusion models [6,13,19] have enabled many con-
+trollable video generation tasks, including identity-preserving video generation.
+The goal is to generate realistic videos of a target individual while faithfully
+preserving the person’s visual appearance from a reference signal. Such capabili-
+ties have numerous applications in virtual avatars, content creation, and human-
+computer interaction. Despite recent advances, preserving a person’s visual iden-
+tity is only one aspect of human-centric video generation. State-of-the-art meth-
+ods [5, 10, 14, 22] primarily focus on controlling who appears in the generated
+4 Our code is included in supplementary materials and will be made public.
+arXiv:2609.13264v1  [cs.CV]  7 Sep 2026
+
+
+2
+B. Pokrzywa et al.
+"A woman speaks directly to the camera in a close-up talking-head video, facing the camera head
+-on. The camera is static and centered. She is fearful with high emotional intensity."
+"A man speaks directly to the camera in a close-up talking-head video, facing the camera head-
+on. The camera is static and centered. He is comptentuous with high emotional intensity."
+Identity Image
+Expressive Video
+Identity-Expression Transfer
+Identity-Expression Preservation
+Expressive Video
+Identity Image
+"A man speaks directly to the camera in a close-up talking-head video, facing the camera head-on.
+The camera is static and centered. He is sad with high emotional intensity."
+Fig. 1: Given a reference image encoding visual identity, a reference video capturing
+subject-specific facial dynamics, and a text prompt, BEACON generates expressive videos
+that preserve both the subject’s appearance and characteristic facial behaviour (top),
+while enabling identity-expression transfer across different subjects (bottom).
+video, while providing limited control over how that person behaves and ex-
+presses spontaneous emotions over time. Affective behaviour is dynamic and
+spatio-temporal in nature. In a video, emotions may be conveyed through facial
+and vocal expressions, gaze, head motion, gestures, and their temporal evolu-
+tion [16, 17, 20]. For example, two individuals may smile or express pain with
+substantial differences in timing, intensity, asymmetry, or motion patterns.
+SoTA methods for human-centric video generation [10,14,22,24] tend to pre-
+serve the subject’s visual identity but produce limited expressive variations and
+weak subject specificity. Most existing approaches extract identity features from
+one or more reference images and inject them into a pretrained video generation
+backbone to guide subject-consistent generation. While this design effectively
+preserves appearance, the conditioning signal provides little or no information
+about the temporal dynamics that characterize how a particular individual nat-
+urally moves and expresses emotions. As a result, the generated facial behaviour
+is determined by the textual prompt and the generative prior of the pretrained
+model rather than by person-specific expressive patterns.
+To address this challenge, we propose BEACON, a reference-conditioned frame-
+work for person-specific video generation that jointly preserves visual identity
+and subject-specific expressive behaviour. Our approach complements the tex-
+tual prompt and static identity reference image with a short reference video that
+serves as an explicit expressive conditioning signal. This design is motivated by
+the observation that both language and an image can describe the semantic con-
+
+
+Abbreviated paper title
+3
+tent of an emotion, but often fail to specify how a particular individual expresses
+it through timing, intensity, gaze patterns, and head-motion dynamics. In con-
+trast, a reference video naturally captures these rich spatio-temporal behavioural
+cues and provides direct information about the person’s expressions.
+By modeling identity and expressive behaviour as separate sources of varia-
+tion, BEACON enables independent control over appearance and behaviour during
+generation. It naturally encompasses a wider range of tasks, including identity
+preservation but also identity-expression transfer as shown in 1. It opens new
+opportunities for privacy-sensitive applications. In particular, it enables the gen-
+eration of anonymized yet behaviourally faithful videos, as well as synthetic sam-
+ples that can complement real-world datasets for guided training and evaluating
+human behaviour recognition systems.
+The proposed framework builds upon the pretrained Wan video diffusion
+model [19] and augments it with complementary image and video conditioning
+branches, providing explicit identity and behavioural guidance during genera-
+tion. Disentanglement between identity and expressive behaviour is primarily
+encouraged through the training data construction from the MEAD dataset [20]
+and dedicated augmentation strategies, which expose the model with diverse
+combinations of identities and expressive behaviours. To integrate these condi-
+tioning signals, the image and video branches communicate with the generation
+pathway through an Identity-Expression Decoupled Attention (IEDA) mecha-
+nism combined with the Conditional Position Mapping (CPM) of StandIn [22].
+This allows for controlled interactions between reference identity tokens, expres-
+sive tokens, and video tokens while preserving their distinct roles. With these
+methods, the model can effectively leverage complementary identity and be-
+havioural signals while requiring only lightweight adaptation of the pretrained
+generator.
+Contributions: (i) BEACON– a novel framework for expression-specific iden-
+tity control in human-centric video generation. Unlike state-of-the-art identity-
+preserving approaches that primarily focus on appearance, our method explicitly
+focuses on expressivity by conditioning the generation on both a target identity
+and a reference expressive behaviour; (ii) By disentangling identity and expres-
+sive behaviour through dual image-video conditioning and cross-paired identity-
+expression training, our framework supports multiple inference-time tasks, in-
+cluding identity preservation and identity-expression transfer; (iii) Our experi-
+mental results obtained with the MEAD and RAVDESS datasets indicate that
+BEACON can significantly improve the expressiveness of generated videos while
+maintaining state-of-the-art identity preservation.
+2
+Related Work
+(a) Video Generation: Current video generation models predominantly rely
+on diffusion-based frameworks, which have progressively shifted from U-Net ar-
+chitectures toward Diffusion Transformers (DiTs), as illustrated by large-scale
+Text-To-Video (T2V) foundation models such as Sora [13], HunyuanVideo [9],
+
+
+4
+B. Pokrzywa et al.
+and Wan [19]. These models synthesize realistic and temporally coherent videos
+from text descriptions and have demonstrated remarkable capabilities for general-
+purpose video generation. Although these models have demonstrated impressive
+capabilities for generating diverse, high-quality videos, maintaining both subject
+identity and fine-grained expression control remains a significant challenge.
+(b) Human-Centric Video Generation: For finer control over the gener-
+ated content, recent works [8,10,14,22,24] have moved from purely text-driven
+generation toward reference-conditioned paradigms. In Subject-to-Video (S2V),
+the model is given a text prompt and one or several reference images of the
+subject and aims to generate a video that both follows the textual instruction
+and preserves the visual attributes of the referenced subject. Early S2V meth-
+ods addressed identity preservation by jointly learning identity conditioning and
+video generation within a single end-to-end architecture. Representative exam-
+ples include VACE [8], Phantom [14], and ConsisID [24]. Although they differ in
+their implementation, these methods share a common principle: identity features
+are extracted from one or multiple reference images and injected directly into
+the generative backbone, allowing the model to learn subject-consistent video
+synthesis during training. This design has proven effective for preserving iden-
+tity, establishing end-to-end identity conditioning as a strong baseline for S2V
+generation. However, end-to-end approaches require jointly learning both video
+generation and identity conditioning, which is computationally expensive.
+(c) Lightweight Adapters for Identity Control: Rather than relearning the
+video generation capabilities of the backbone, recent works introduce lightweight
+identity adapters that augment frozen video foundation models, improving both
+training efficiency and modularity while facilitating adaptation to new archi-
+tectures. ID-Animator [5] extracts identity embeddings from a reference image
+and injects them into a pretrained text-to-video model through a dedicated face
+adapter. To encourage the adapter to focus on identity rather than viewpoint,
+lighting, or background, it employs a random-reference training strategy using
+multiple images of the same individual. Stand-In [22] introduces a lightweight
+plug-and-play identity adapter that preserves a person’s identity from a single
+reference image while requiring only minimal additional training. Its modular de-
+sign makes it particularly attractive for adapting recent video foundation models
+and serves as the basis of our work. Despite their efficiency and flexibility, these
+methods remain conditioned on static images. They preserve who the subject is
+but provide little information about how the subject naturally moves or expresses
+emotions.
+To overcome this limitation, Slot-ID [10] extends image-based identity adapters
+by conditioning video generation on both a reference portrait and a short ref-
+erence video. The method extracts spatio-temporal features from the reference
+clip and compresses them into a compact set of identity tokens, which are sub-
+sequently integrated into a pretrained video generation backbone. By leveraging
+temporal information, Slot-ID achieves stronger identity consistency than single-
+image approaches while retaining the efficiency of adapter-based methods. How-
+ever, while incorporating temporal references improves identity consistency, the
+
+
+Abbreviated paper title
+5
+temporal information is primarily used to build a richer identity representation.
+As a result, appearance and behavioural cues remain entangled, and the expres-
+sive dynamics contained in the reference video are not explicitly modeled as a
+separate controllable factor. This limitation highlights a broader gap in current
+S2V methods. Most existing approaches are designed to preserve who the subject
+is, rather than how the subject behaves. Although recent S2V models have made
+substantial progress in maintaining identity consistency, they remain limited in
+their ability to faithfully preserve person-specific expression dynamics.
+Instead of simply increasing the amount of reference information available to
+the model, this paper advocates for explicit disentanglement of visual identity
+from expressive behaviour, so that the generation model can preserve either
+factor independently or both jointly.
+3
+Proposed BEACON Method
+We address S2V generation by explicitly factorizing the subject conditioning S
+into identity and expressive behaviour such that the generation process becomes:
+  p_ \ th et
+a 
+(V \ m id p, S) \quad \longrightarrow \quad p_\theta (V \mid p, I_{\mathrm {id}}, V_{\mathrm {exp}}), \label {eq:conditioning} 
+(1)
+where p denotes the text prompt, Iid is a reference image encoding visual identity
+and Vexp is a reference video encoding expressive behaviour. This formulation
+enables independent control over appearance and expressive dynamics. BEACON
+implements this formulation by introducing two complementary components: an
+expressive video conditioning branch (Sec. 3.2, Fig. 2) and a dedicated training
+scheme (Sec. 3.2, Fig. 3) designed to promote the disentanglement of visual
+identity and expressive behaviour that together enable the generation of more
+expressive videos while independently controlling visual identity and expressive
+behaviour.
+3.1
+Background
+Stand-In [22] is a lightweight S2V framework that augments pretrained flow-
+based video generators with an identity conditioning branch. Rather than fine-
+tuning the entire backbone, it introduces a plug-and-play identity adapter that
+injects information from a single reference image into the latent generation pro-
+cess. This modular design achieves strong identity preservation while requiring
+only minimal adaptation of the pretrained model, making it a particularly suit-
+able foundation for our proposed identity-expression factorization.
+The model reuses the pretrained VAE of the video backbone to encode the
+reference image into the same latent space as the generated video. Given a refer-
+ence image Iid, Stand-In computes image latents zr = EVAE(r), then patchifies
+them into image tokens Tid. In parallel, the noisy video latents are also patchified
+into video tokens Tv. The two token sequences Tid and Tv are concatenated and
+processed together inside the DiT blocks.
+
+
+6
+B. Pokrzywa et al.
+Identity information is transferred from the reference image to the generated
+video through Restricted Self-Attention. The key idea is to allow video tokens to
+attend to reference-image tokens, while preventing the reference tokens from be-
+ing updated by the noisy video tokens. This keeps the reference branch stable and
+avoids treating the conditioning image as part of the denoising video sequence.
+Stand-In also introduces CPM, which assigns the reference-image tokens their
+own positional coordinate system. This avoids forcing image and video tokens
+to share the same spatio-temporal positions, which would disturb the pretrained
+positional prior of the video backbone.
+3.2
+Expressive Video Conditioning Branch
+We introduce a secondary conditioning stream based on an expressive reference
+video. While the identity branch captures static appearance cues, the expressive
+branch provides dynamic information such as facial motion, expression intensity,
+head movement, and the temporal evolution of emotions. The noisy latent video
+zt is patchified into video tokens Tv. In parallel, the identity reference image and
+the expressive reference video are encoded using the pretrained VAE of the video
+backbone. The model therefore operates on three token groups: video tokens Tv,
+identity tokens Tid, and expressive tokens Texp, corresponding respectively to
+generation, identity, and expressive behaviour. Both conditioning branches are
+added on top of the pretrained T2V backbone, while keeping the generative
+backbone frozen.
+Text Prompt
+"A man speaks directly
+to the camera. He is
+contemptuous..."
+Latent Noise
+Reference Identity
+Reference Expression
+Base Video DiT
+BEACON (Ours)
+3D VAE Encoder
+Face Token Selection
+Video Tokens
+Identity Tokens
+Expression Tokens
+CPM
+DiT Block
+Identity–Expression Decoupled Attention
+Other Layers
+×N
+Text Tokens
+Conditionnal Position Mapping (CPM)
+Identity–Expression Decoupled Attention
+Expressive
+Tokens
+Identity
+Tokens
+Video
+Tokens
+Frozen Parameters
+Trainable Parameters
+Fig. 2: Overview of the proposed BEACON architecture. It conditions T2V generation
+on an identity reference image and an expressive reference video in addition to the text
+prompt. The expressive branch extracts facial dynamics from the reference video and
+injects them into the frozen video generation backbonwhile preserving their decoupling
+from visual identity.
+
+
+Abbreviated paper title
+7
+Facial Token Selection. The reference video produces a large number of spatio-
+temporal latent tokens. Since our objective is to model facial expressive be-
+haviour rather than scene dynamics, many of the video tokens are irrelevant.
+We use InsightFace [3] to localize the face area and retain only the expressive
+tokens associated with facial regions. Let F denote the set of token locations
+belonging to the detected face region. The filtered expressive token set is defined
+as:
+  
+T_{ \ mat h rm { e xp}}^{f } = \left \{ t_i \in T_{\mathrm {exp}} \;\middle |\; \mathrm {loc}(t_i)\in \mathcal {F} \right \}. \label {eq:facial_tokens} 
+(2)
+This filtering step reduces the number of expressive tokens from 16.3k to 2.2k
+while preserving the most relevant expression-related information. The resulting
+token set T f
+exp is subsequently used as the expressive conditioning signal.
+Identity-Expression Decoupled Attention. Our proposed attention mecha-
+nism operates on three token groups: generated video tokens Tv, identity tokens
+Tid, and expressive tokens T f
+exp, as illustrated in Fig. 2. To this end, generated
+video tokens are allowed to attend to both conditioning branches, enabling the
+synthesis process to integrate appearance and expressive information simulta-
+neously. In contrast, the identity and expressive branches remain completely
+isolated and never attend to one another, preventing information leakage be-
+tween the two conditioning signals. Video tokens attend to all available token
+groups,
+  T _v \
+l
+eft arro w \m athrm {Att n} \ Big (
+ Q_v, [K_v, K_{\mathrm {id}}, K_{\mathrm {exp}}], [V_v, V_{\mathrm {id}}, V_{\mathrm {exp}}] \Big ) \label {eq:decoupled_attention} 
+(3)
+while each conditioning branch remains isolated and performs self-attention in-
+dependently,
+  \ b egin {ali gned } T_{
+\ m
+ath r m {id}} &\ lefta rrow \mathrm {Attn} (Q_{\mathrm {id}}, K_{\mathrm {id}}, V_{\mathrm {id}}), \\ T_{\mathrm {exp}}^{f} &\leftarrow \mathrm {Attn} (Q_{\mathrm {exp}}, K_{\mathrm {exp}}, V_{\mathrm {exp}}). \end {aligned} \label {eq:identity_expression_attention} 
+(4)
+Extending Conditional Position Mapping. We extend CPM (introduced
+in Sec. 3.1) to support the additional expressive conditioning branch while pre-
+serving the pretrained spatio-temporal positional prior of the video backbone.
+Generated video tokens retain their original coordinates, whereas both condi-
+tioning branches are projected into a dedicated region. Let (t, x, y) denote the
+temporal and spatial coordinates of a video token. Generated video tokens retain
+their original coordinates:
+  P _v = (t, x, y). \label {eq:video_position} 
+(5)
+The identity and expressive conditioning branches are projected into a dedi-
+cated conditioning region of the positional space through a common spatial offset
+(h, w). Identity tokens correspond to a static image and therefore receive a fixed
+artificial temporal coordinate:
+  P _ {\ma t h rm { id}} = (-1,\;x+h,\;y+w) \label {eq:identity_position}. 
+(6)
+In contrast, expressive tokens preserve their temporal structure:
+  P_ { \ma t h rm { exp}} = (t,\;x+h,\;y+w). \label {eq:expression_position} 
+(7)
+
+
+8
+B. Pokrzywa et al.
+As a result, both conditioning branches occupy the same spatial region while
+remaining distinguishable through their temporal coordinates. This design allows
+the model to preserve the temporal structure of the expressive reference video
+while clearly separating conditioning tokens from generated video tokens.
+3.3
+Training Scheme
+A key contribution of BEACON lies in the construction of the training pairs, which
+are specifically designed to encourage the disentanglement of visual identity and
+expressive behaviour without requiring any explicit supervision. Rather than
+pairing the target video with an arbitrary reference sequence, we exploit the
+structure of the MEAD dataset, where each subject performs multiple recordings
+of the same emotion at different intensity levels.
+For every target video V , the identity branch always receives the same neutral
+reference image Iid of the corresponding subject. The identity pathway is con-
+sistently exposed to stable appearance cues throughout training. The expressive
+branch is conditioned on a different recording Vexp of the same subject perform-
+ing the same emotion with the same intensity as the target video. Although
+both videos share the same expressive behaviour, they correspond to different
+performances, preventing the model from trivially copying the target sequence
+while still providing meaningful supervision of subject-specific facial dynamics.
+This training protocol naturally encourages the desired factorization. Be-
+cause the identity branch always observes the same neutral portrait, identity in-
+formation is associated with the appearance pathway. In contrast, the expressive
+branch receives temporally varying recordings of the same subject, encouraging
+it to encode behavioural patterns rather than static visual characteristics.
+Synthetic Cross-Pair Regularization. To further reinforce the disentangle-
+ment between appearance and behaviour, the training set is augmented with
+Identity Image
+IID • constant per subject
+Expressive Video
+Vexp
+Target video
+V • ground truth
+Text Prompt
+A man speaks directly
+to the camera, static
+and centered. He
+is fearful ...
+A man speaks directly
+to the camera, static
+and centered. He
+is angry ...
+Synthetic Cross-Pair
+ MEAD Pair
+ID A
+ID A
+ID A
+ID B
+Synthetic
+75 % MEAD pairs
+25 % Synthetic pairs
+Training Samples Composition
+Fig. 3: BEACON training scheme. Training combines real MEAD pairs, where the
+identity image, expressive video, and target video all belong to the same subject, with
+synthetic cross-identity pairs, where the expressive video contains a different identity
+and the target video is generated using a Portrait Animation Model [21].
+
+
+Abbreviated paper title
+9
+synthetic expressive videos generated using HunyuanPortrait [21]. For these syn-
+thetic samples, the driving motion is taken from a different identity than that of
+the reference image, ensuring that the identity encoded in the expressive video
+intentionally differs from the target identity. This prevents the expressive branch
+from recovering appearance cues, forcing it to encode only behavioural dynam-
+ics. Synthetic samples account for 25% of each training mini-batch, while the
+remaining 75% are real MEAD videos. This regularization encourages the model
+to consistently recover the subject’s appearance from the identity image while
+relying on the expressive branch exclusively for facial motion and expression.
+4
+Experimental Methodology
+4.1
+Implementation Details
+BEACON is built upon a 14B DiT T2V-WanVideo model [19]. We fine-tune the
+model using rank-128 LoRA applied to the QKV projection of the conditioning
+tokens in the self-attention layer, introducing around 0.15B trainable parameters.
+The training is performed using the AdamW optimizer with a learning rate of
+1×10−4. We train the model for 3k steps. All videos contain 81 frames. Training
+is performed on approximately 2,000 identity-expression pairs extracted from
+the MEAD dataset, including 500 synthetic pairs generated with mismatched
+identity and expressive behaviour for cross-pair regularization. Videos are re-
+sized to 640 × 384. The model is trained with a per-GPU batch size of 1 on
+four NVIDIA A100 GPUs and a gradient accumulation factor of 2, resulting in
+an effective batch size of 8. Additionally, the expressive conditioning branch is
+randomly dropped with a probability of 10% during training. Empirically, this
+regularization mitigates high-frequency artifacts introduced by the expressive
+reference video and results in more stable and visually coherent generations.
+4.2
+Dataset
+We evaluate BEACON on the MEAD dataset [20], a controlled facial expression
+dataset containing multiple identities performing the same scripted sentences un-
+der eight emotion categories and three intensity levels. Its controlled acquisition
+protocol provides repeated performances of the same emotion by each subject,
+making it particularly well suited for evaluating both identity preservation and
+expressive behaviour.
+In addition to MEAD, we evaluate BEACON on the RAVDESS dataset [15]
+to assess its generalization to a different facial expression dataset. RAVDESS
+contains recordings of 24 professional actors (12 female and 12 male) performing
+eight emotional expressions: neutral, calm, happy, sad, angry, fearful, disgust,
+and surprised, with two intensity levels for most emotions. Its different subjects
+and expressive patterns provide a complementary setting for evaluating the gen-
+eralization of our method beyond MEAD.
+
+
+10
+B. Pokrzywa et al.
+4.3
+Evaluation Metrics
+BEACON is evaluated according to three complementary dimensions: identity preser-
+vation, expressive behaviour consistency, and video quality.
+Identity Preservation. Identity preservation is measured using the Face Sim-
+ilarity (FaceSim) metric from the OpenS2V benchmark [23]. This benchmark
+follows the protocol first introduced by ConsisID [24]: InsightFace is first used
+to detect and align faces in both the generated frames and the reference image.
+Identity embeddings are then extracted using CurricularFace, and cosine simi-
+larities are averaged over all valid frames to obtain a single FaceSim score for
+each generated video.
+Expressive Behaviour Consistency. To quantify how faithfully facial dynam-
+ics are reproduced, we use the Expressive Fréchet Inception Distance (E-FID),
+recently adopted for audio-driven portrait synthesis [2,18]. Following [4], facial
+expression parameters are first extracted from each frame using a 3D face re-
+construction model. E-FID is then computed as the Fréchet distance between
+the distributions of expression parameters extracted from the generated and
+ground-truth videos. Lower values indicate better agreement between the gener-
+ated and target expressive behaviours. We additionally report the Action Unit
+Error (AUE), a metric used to evaluate facial motion accuracy in talking-head
+generation [11,12]. Action Unit intensities are extracted using OpenFace [1] and
+AUE is computed as the average absolute difference between generated and
+ground-truth AU vectors.
+Video Quality. We assess video quality using VBench [7], reporting Subject
+Consistency, Aesthetic Quality, and Motion Smoothness to evaluate appearance
+consistency, perceptual quality, and temporal coherence, respectively.
+Prompt. All methods are evaluated using the same prompt template. It specifies
+the target emotion while keeping the scene configuration unchanged, ensuring
+that differences in performance arise from the conditioning strategy rather than
+prompt variations. For example, the prompt used for an angry sequence is:
+“A man speaks directly to the camera. The camera is static and centered.
+He is angry, with a strong facial expression and high emotional intensity.
+Lighting is even and frontal, with a clean and simple background.”
+Choice of Reference Image. For each subject, we select a neutral frontal
+frame as identity reference to minimize expression, pose, viewpoint, and lighting-
+specific cues.
+4.4
+Evaluation Protocol
+Generating a single S2V video requires approximately 6 to 10 minutes on a
+single A100 GPU. Therefore, exhaustive evaluation over thousands of videos
+would be prohibitively expensive. To obtain reliable estimates for distribution-
+based metrics such as E-FID while keeping the computational cost reasonable,
+we evaluate all methods on a selected subset of the MEAD dataset. We evaluate
+eight held-out subjects (four female, four male), ensuring evaluation on unseen
+
+
+Abbreviated paper title
+11
+identities. For each subject, we generate ten videos for each of the eight emotions,
+resulting in 640 videos (80 per subject and emotion).
+5
+Results and Interpretation
+5.1
+Comparison with State-of-the-art Methods
+Table 1 reports the comparison between BEACON and existing methods on the
+MEAD dataset. BEACON substantially outperforms other methods in terms of
+expressive behaviour consistency. This confirms that conditioning on a reference
+video, rather than a single static image, provides the model with the temporal
+cues necessary to preserve person-specific expressive dynamics.
+In terms of identity preservation, BEACON achieves a FaceSim of 79.0%, slightly
+below Stand-In’s 82.6%. However, this comparison relies on a neutral reference
+frame of the subject. As shown in Table 2, when FaceSim is instead computed
+against a reference frame sampled from the same emotion as the generated video,
+the trend reverses: BEACON’s FaceSim increases while Stand-In’s drops substan-
+tially. This discrepancy suggests that Stand-In tends to generate videos with
+limited expressive variation, remaining close to a neutral appearance regardless
+of the target emotion, whereas BEACON produces expressive videos that more
+faithfully reflect the intended emotional state.
+Table 1: Quantitative comparison of S2V generation methods on the MEAD dataset.
+Method
+E-FID ↓
+AUE ↓FaceSim ↑
+Subject
+Consistency ↑
+Aesthetic
+Quality ↑
+Motion
+Smoothness ↑
+Per Subject Per Emotion
+Stand-In [22]
+2.28
+2.87
+0.259
+0.826
+0.985
+0.526
+0.996
+ConsisID [24]
+3.17
+3.94
+0.295
+0.804
+0.948
+0.502
+0.982
+BEACON
+0.86
+0.89
+0.142
+0.760
+0.991
+0.500
+0.997
+Table 2: Face similarity evaluated with neutral and expressive reference frames.
+Method
+Ground Truth Frame
+FaceSim ↑
+Stand-In [22]
+Neutral
+0.826
+BEACON
+Neutral
+0.760
+Stand-In [22]
+Expressive
+0.678
+BEACON
+Expressive
+0.852
+BEACON generalizes well to other talking-head datasets, as illustrated by the
+results on RAVDESS in Table 3, where BEACON still outperforms Stand-In on
+
+
+12
+B. Pokrzywa et al.
+Table 3: Comparison of S2V generation methods on the RAVDESS dataset.
+Method
+E-FID ↓
+AUE ↓FaceSim ↑
+Subject
+Consistency ↑
+Aesthetic
+Quality ↑
+Motion
+Smoothness ↑
+Per Subject Per Emotion
+Stand-In [22]
+2.89
+1.83
+0.202
+0.805
+0.990
+0.527
+0.996
+ConsisID [24]
+3.97
+2.85
+0.248
+0.802
+0.958
+0.523
+0.991
+BEACON
+1.57
+0.97
+0.174
+0.854
+0.993
+0.522
+0.996
+ConsisID
+Ours
+Stand
+In
+Ground Truth
+Surprise
+Fear
+Fig. 4: Qualitative comparison of generated videos. Examples are shown from
+two datasets: MEAD (left) and RAVDESS (right).
+)
+Fig. 5: E-FID matrices between generated videos and ground-truth videos across all
+emotion categories on MEAD dataset. Left: Stand-In. Right: BEACON.
+expressivity. Interestingly, the FaceSim trend is reversed on RAVDESS. This
+may be explained by the high sensitivity of face recognition models to acquisition
+conditions such as pose and illumination.
+Qualitative comparisons are presented in Fig. 4. Both Stand-In and Con-
+sisID tend to generate behaviourally neutral videos, whereas BEACON produces
+richer and more subject-specific facial deformations. In the fear generation ex-
+ample, Stand-In fails to reproduce some of the subject’s characteristic facial
+
+
+Abbreviated paper title
+13
+movements, such as the forehead wrinkles visible in the expressive reference. In
+contrast, BEACON better captures these fine-grained facial dynamics by leverag-
+ing the expressive video conditioning. This tendency to generate behaviourally
+neutral videos is also reflected in the E-FID matrices in Fig. 5, which compare
+the generated videos with reference videos of the same subjects across different
+emotions. For Stand-In, regardless of the target emotion, the generated videos
+consistently exhibit a lower E-FID with the subject’s neutral videos than with
+videos of the corresponding emotion, indicating a bias toward neutral facial
+behaviour. In contrast, BEACON achieves the lowest E-FID for the correct emo-
+tion, demonstrating its ability to reproduce subject-specific expressive behaviour
+rather than collapsing toward neutral expressions.
+5.2
+Analysis of Disentanglement
+Table 4 reports results on 80 videos generated from the MEAD evaluation set,
+where the identity image and expressive video are taken from different subjects
+to evaluate identity-expression transfer. This experiment assesses whether the
+model extracts expressive dynamics from the expressive video while preserv-
+ing the visual identity provided by the identity image. The results demonstrate
+that synthetic cross-identity training pairs are essential for learning effective
+identity-expression disentanglement. They increase the Face Similarity between
+the generated video and the identity reference from 0.10 to 0.69, while reducing
+the similarity with the expressive reference identity from 0.67 to 0.25, indicat-
+ing substantially less identity leakage from the expressive branch. Without syn-
+thetic cross-identity training, the model instead generates videos that resemble
+the identity of the expressive reference rather than that of the identity reference.
+The slight increase in E-FID can be explained by the role of synthetic cross-
+identity training. Without synthetic cross-identity pairs, the model mainly learns
+to reproduce the expressive reference video, effectively copying both its identity
+and facial dynamics. This behavior is also reflected in the Face Similarity metrics,
+where the generated videos remain substantially more similar to the expressive
+reference identity. In contrast, introducing synthetic cross-identity data forces
+the model to transfer expressive behaviour to a different identity rather than
+directly replicating the reference video. This more challenging objective may in-
+troduce slight deviations in the transferred facial dynamics, leading to a marginal
+increase in E-FID.
+Table 4: Ablation of synthetic training data for identity-expression disentanglement
+Method
+Face Similarity
+Identity Ref. ↑
+Expression Ref. ↓
+E-FID ↓
+BEACON w/o Synthetic Data
+0.10
+0.67
+0.83
+BEACON
+0.69
+0.25
+1.01
+
+
+14
+B. Pokrzywa et al.
+Expressive
+ Video
+"A woman speaks directly to the camera
+in a close-up talking-head video, facing
+the camera head-on. The camera is static
+and centered. She is happy with high
+emotional intensity."
+"A woman speaks directly to the camera
+in a close-up talking-head video, facing
+the camera head-on. The camera is static
+and centered. She is sad with high
+emotional intensity."
+"A man speaks directly to the camera in a
+close-up talking-head video, facing the
+camera head-on. The camera is static and
+centered. He is fearful with high emotional
+intensity."
+Prompt
+Generated Video
+Identity 
+Image
+Identity-Expression 
+Preservation
+Identity
+Expression 
+Transfer
+Fig. 6: Identity-expression preservation and transfer. Examples of the different
+inference settings enabled by BEACON. Identity and expressive references can originate
+from the same subject for joint preservation, or from different subjects for identity-
+expression transfer.
+Although the model successfully transfers expressive behaviour across iden-
+tities, as illustrated in Fig. 1, minor appearance leakage may still occur in some
+cases, as shown in Fig. 6, where the generated eye color is partially influenced
+by the expressive reference. This residual leakage is also reflected in the non-zero
+Face Similarity with the expressive reference identity. This disentanglement also
+enables different inference settings, as illustrated in Fig. 6. When the identity im-
+age and expressive video belong to the same subject, the model jointly preserves
+identity and expressive behaviour. Otherwise, when the two conditioning signals
+come from different subjects, the generated video combines the identity of the
+reference image with the expressive behaviour of the reference video, resulting
+in identity-expression transfer.
+6
+Conclusion
+BEACON is a lightweight framework proposed for person-specific video generation
+that jointly conditions on an identity image and an expressive reference video.
+By separating identity and expressive behaviour through dual conditioning and a
+dedicated training strategy, BEACON generates videos with more subject-specific
+facial dynamics while maintaining strong identity preservation. Experiments on
+MEAD and RAVDESS display improved expressive behaviour consistency com-
+pared with existing S2V approaches, while the proposed factorization also sup-
+ports identity-expression transfer. Our framework focuses on controlled talking-
+head videos with static cameras and relatively simple backgrounds. In contrast,
+one of the strengths of recent S2V models is their ability to generate subjects
+across diverse scenes and poses. Extending BEACON beyond controlled talking-
+head settings to more diverse and unconstrained scenarios therefore represents
+an important direction for future work.
+
+
+Abbreviated paper title
+15
+References
+1. Baltrusaitis, T., Zadeh, A., Lim, Y.C., Morency, L.P.: Openface 2.0: Facial behavior
+analysis toolkit. In: 2018 13th IEEE International Conference on Automatic Face
+& Gesture Recognition (FG 2018). pp. 59–66. IEEE (2018). https://doi.org/10.
+1109/FG.2018.00019 10
+2. Chen, C., Chen, L., Ma: Echomimic: Lifelike audio-driven portrait animations
+through editable landmark conditions. arXiv preprint arXiv:2407.08136 (2024) 10
+3. Deng, J., Guo, J., Xue, N., Zafeiriou, S.: Arcface: Additive angular margin loss for
+deep face recognition. In: CVPR. pp. 4690–4699 (2019) 7
+4. Deng, Y., Xu, C., Jia, T.: Accurate 3d face reconstruction with weakly-supervised
+learning: From single image to image set. arXiv preprint arXiv:1903.08527 (2020)
+10
+5. He, X., Liu, Q., Qian, S., Wang, X., Hu, T., Cao, K., Yan, K., Zhang, J.: Id-
+animator: Zero-shot identity-preserving human video generation (2024). https:
+//doi.org/10.48550/arXiv.2404.15275 1, 4
+6. Hong, W., Ding, M., Zheng, W., Liu, X., Tang, J.: Cogvideo: Large-scale pretrain-
+ing for text-to-video generation via transformers (2022), https://arxiv.org/abs/
+2205.15868 1
+7. Huang, Z., He, Y., Yu, J., Zhang, F., Si, C., Jiang, Y., Zhang, Y., Wu, T., Jin, Q.,
+Chanpaisit, N., Wang, Y., Chen, X., Wang, L., Lin, D., Qiao, Y., Liu, Z.: Vbench:
+Comprehensive benchmark suite for video generative models. In: Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+(2024) 10
+8. Jiang, Z., Han, Z., Mao, C., Zhang, J., Pan, Y., Liu, Y.: Vace: All-in-one video
+creation and editing (2025), https://arxiv.org/abs/2503.07598 4
+9. Kong, W., Tian, Q., Zhang, Z., Min, R., Dai, Z., Zhou, J., Xiong, J., Li, X., Wu,
+B., Zhang, J., Wu, K., Lin, Q., Yuan, J., Long, Y., Wang, A., Wang, A., Li, C.,
+Huang, D., Yang, F., Tan, H., Wang, H., Song, J., Bai, J., Wu, J., Xue, J., Wang,
+J., Wang, K., Liu, M., Li, P., Li, S., Wang, W., Yu, W., Deng, X., Li, Y., Chen,
+Y., Cui, Y., Peng, Y., Yu, Z., He, Z., Xu, Z., Zhou, Z., Xu, Z., Tao, Y., Lu, Q.,
+Liu, S., Zhou, D., Wang, H., Yang, Y., Wang, D., Liu, Y., Jiang, J., Zhong, C.:
+Hunyuanvideo: A systematic framework for large video generative models (2025),
+https://arxiv.org/abs/2412.03603 3
+10. Lai, Y., Wang, H., Zhou, K., Shao, T.: Slot-id: Identity-preserving video generation
+from reference videos via slot-based temporal identity encoding. arXiv preprint
+arXiv:2601.01352 (2026) 1, 2, 4
+11. Li, J., Zhang, J., Bai, X., Zheng, J., Ning, X., Zhou, J., Gu, L.: Talkinggaussian:
+Structure-persistent 3d talking head synthesis via gaussian splatting. In: European
+Conference on Computer Vision. pp. 127–145. Springer (2024) 10
+12. Liang, X., Fan, Y., Yang, Q., Wang, X., Gao, W., Li, G.: Dgtalker: Disentangled
+generative latent space learning for audio-driven gaussian talking heads. In: Pro-
+ceedings of the IEEE/CVF International Conference on Computer Vision (ICCV).
+pp. 11079–11088 (2025) 10
+13. Lin, B., Ge, Y., Cheng, X., Li, Z., Zhu, B., Wang, S., He, X., Ye, Y., Yuan, S.,
+Chen, L., Jia, T., Zhang, J., Tang, Z., Pang, Y., She, B., Yan, C., Hu, Z., Dong, X.,
+Chen, L., Pan, Z., Zhou, X., Dong, S., Tian, Y., Yuan, L.: Open-sora plan: Open-
+source large video generation model (2024), https://arxiv.org/abs/2412.00131
+1, 3
+
+
+16
+B. Pokrzywa et al.
+14. Liu, L., Ma, T., Li, B., Chen, Z., Liu, J., Li, G., Zhou, S., He, Q., Wu, X.: Phantom:
+Subject-consistent video generation via cross-modal alignment (2025), https://
+arxiv.org/abs/2502.11079 1, 2, 4
+15. Livingstone, S.R., Russo, F.A.: The ryerson audio-visual database of emotional
+speech and song (ravdess): A dynamic, multimodal set of facial and vocal ex-
+pressions in north american english. PLOS ONE 13(5), e0196391 (2018). https:
+//doi.org/10.1371/journal.pone.0196391 9
+16. Pantic, M., Patras, I.: Dynamics of facial expression: Recognition of facial actions
+and their temporal segments from face profile image sequences. IEEE Transactions
+on Systems, Man, and Cybernetics, Part B 36(2), 433–449 (2005) 2
+17. Praveen, R.G., Cardinal, P., Granger, E.: Weakly supervised learning for facial
+affective behavior analysis: A review. IEEE Transactions on Affective Computing
+17(2), 1521–1543 (2026). https://doi.org/10.1109/TAFFC.2026.3677128 2
+18. Tian, W., Zhang, B.: Emo: Emote portrait alive - generating expressive portrait
+videos with audio2video diffusion model under weak conditions. arXiv preprint
+arXiv:1903.08527 (2024) 10
+19. Wan, T., Wang, A., Ai, B., Wen, B., Mao, C., Xie, C.W., Chen, D., Yu, F., Zhao,
+H., Yang, J., Zeng, J., Wang, J., Zhang, J., Zhou, J., Wang, J., Chen, J., Zhu, K.,
+Zhao, K., Yan, K., Huang, L., Feng, M., Zhang, N., Li, P., Wu, P., Chu, R., Feng,
+R., Zhang, S., Sun, S., Fang, T., Wang, T., Gui, T., Weng, T., Shen, T., Lin, W.,
+Wang, W., Wang, W., Zhou, W., Wang, W., Shen, W., Yu, W., Shi, X., Huang,
+X., Xu, X., Kou, Y., Lv, Y., Li, Y., Liu, Y., Wang, Y., Zhang, Y., Huang, Y., Li,
+Y., Wu, Y., Liu, Y., Pan, Y., Zheng, Y., Hong, Y., Shi, Y., Feng, Y., Jiang, Z.,
+Han, Z., Wu, Z.F., Liu, Z.: Wan: Open and advanced large-scale video generative
+models (2025), https://arxiv.org/abs/2503.20314 1, 3, 4, 9
+20. Wang, K., Wu, Q., Song, L., Yang, Z., Wu, W., Qian, C., He, R., Qiao, Y., Loy,
+C.C.: Mead: A large-scale audio-visual dataset for emotional talking-face genera-
+tion. In: ECCV (2020) 2, 3, 9
+21. Xu, Z., Yu, Z., Zhou, Z., Zhou, J., Jin, X., Hong, F.T., Ji, X., Zhu, J., Cai, C.,
+Tang, S., Lin, Q., Li, X., Lu, Q.: Hunyuanportrait: Implicit condition control for
+enhanced portrait animation (2025), https://arxiv.org/abs/2503.18860 8, 9
+22. Xue, B., Duan, Z.P., Yan, Q., Wang, W., Liu, H., Guo, C.L., Li, C., Li, C., Lyu,
+J.: Stand-in: A lightweight and plug-and-play identity control for video generation.
+arXiv preprint arXiv:2508.07901 (2025) 1, 2, 3, 4, 5, 11, 12
+23. Yuan, H., Deng, Y., Huang, L., Luo, Y.: Opens2v-nexus: A detailed bench-
+mark and million-scale dataset for subject-to-video generation. arXiv preprint
+arXiv:2505.20292 (2025) 10
+24. Yuan, H., He, G., Shi, C., Luo, Y.: Identity-preserving text-to-video generation by
+frequency decomposition. arXiv preprint arXiv:2411.17440 (2025) 2, 4, 10, 11, 12
