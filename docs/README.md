@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-15</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 4 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>0</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-15 22:29:52 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 22:08:45 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日收录18篇，精读7篇、速读11篇，BEACON与LePlanner以9.0分领跑。</p>
-<p>最值得看的是主体特定视频生成中的行为与外观控制，以及面向世界模型的迭代摊销控制器。</p>
-<p>普通读者可先读这两篇9分精读，再按兴趣扫读8分的GeomVLA、VGFM与PhysBrain 1.5。</p>
+<p>今日速读4篇、精读0篇，方向集中在机器人双臂操作与视觉语言导航。</p>
+<p>最值得看的是《VLBiMan++》与《GLAM》（均7.0/10）：前者拓展视觉语言锚定的单样本双臂操作泛化边界，后者用全局时空记忆训练潜在世界模型做主动探索与导航。</p>
+<p>普通读者可先读这两篇的摘要与结论，判断是否值得投入时间精读。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">0 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="BEACON: Behavior and Appearance Control for Subject-Specific Video Generation">BEACON: Behavior and Appearance Control for Subject-Specific Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="LePlanner: An Iterative Amortized Controller For World Models">LePlanner: An Iterative Amortized Controller For World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ReWeight: Leveraging Human Data for VLA Post-Training via Demonstration Retrieval and Sample Weighting">ReWeight: Leveraging Human Data for VLA Post-Training via Demonstration Retrieval and Sample Weighting</span></li></ul>
+<p class="dpr-home-dashboard-empty">今日暂无推荐。</p>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="GeomVLA: Unifying Scene, Motion, and Action in 3D">GeomVLA: Unifying Scene, Motion, and Action in 3D</span></li><li><span class="dpr-home-dashboard-paper-title" title="VGFM: Expressive Robot Policies via Dense Value Guidance in Flow Matching">VGFM: Expressive Robot Policies via Dense Value Guidance in Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhysBrain 1.5: From Vision-Language Models to Physical Foundation Models">PhysBrain 1.5: From Vision-Language Models to Physical Foundation Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VLBiMan++: Expanding the Generalization Boundary of Vision-Language Anchored One-Shot Bimanual Manipulation">VLBiMan++: Expanding the Generalization Boundary of Vision-Language Anchored One-Shot Bimanual Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="GLAM: Training a latent world model over global spatiotemporal memory for active exploration and navigation">GLAM: Training a latent world model over global spatiotemporal memory for active exploration and navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="AnchorVLN: Geometry-Anchored Vision-Language Grounding Reasoning for Open-Vocabulary Navigation">AnchorVLN: Geometry-Anchored Vision-Language Grounding Reasoning for Open-Vocabulary Navigation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
 </section>
 </div>
 
