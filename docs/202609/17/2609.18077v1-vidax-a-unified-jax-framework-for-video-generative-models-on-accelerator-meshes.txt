@@ -1,0 +1,217 @@
+Title: vidax: A Unified JAX Framework for Video Generative Models on Accelerator Meshes
+
+URL Source: https://arxiv.org/pdf/2609.18077v1
+
+Published Time: Thu, 17 Sep 2026 00:31:47 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# vidax : A Unified JAX Framework for Video Generative Models on Accelerator Meshes 
+
+Congyue Deng 
+
+Massachusetts Institute of Technology 
+
+congyued@mit.edu 
+
+Abstract 
+
+Open-source video generative models ship almost exclusively as PyTorch/CUDA reference implementations. This leaves Cloud TPU pods without a production-ready inference path, despite offering large, cost-effective accelerator memory pools ideal for long-sequence spatiotemporal attention. We present vidax , an open-source JAX/Flax inference engine and zero-copy PyTorch-to-JAX weight translator for modern video generation architectures. vidax covers a diverse set of spatiotemporal models — including Diffusion Transformers, omnimodal Mixture-of-Transformers, 3D VAEs, text encoders, and native samplers — with zero PyTorch dependency in the execution path. The framework unifies 1D tensor parallelism with DeepSpeed-Ulysses sequence parallelism on a single JAX sharding mesh, integrates TPU flash-attention kernels, and implements per-layer weight offloading to support reference resolutions that exceed single-device memory. We benchmark compile times, latency, and peak memory utilization on TPU v4-8 hardware, and document real-world numerical bugs surfaced during checkpoint translation. vidax is released open-source as a baseline for JAX and TPU video generation research. 
+
+1 Introduction 
+
+Spatiotemporal constraints in video generation. Modern video generative models — including Wan, Cosmos, LTX, HunyuanVideo, and CogVideoX — represent a significant departure from 2D image synthesis in their memory and compute profiles. While underlying architectures range from standard Diffusion Transformers to omnimodal Mixture-of-Transformers, they collectively rely on spatio-temporal latent representations paired with full self-attention over multi-frame patch volumes. Patchifying temporal volumes inflates sequence lengths into tens of thousands of tokens, causing quadratic attention complexity and per-token activation footprints to dwarf raw parameter counts. Consequently, achieving native reference resolutions requires integrating sequence parallelism, optimized attention kernels, and memory-offloading strategies as fundamental execution requirements rather than optional performance enhancements. 
+
+The framework gap in the JAX ecosystem Despite the rapid evolution of video generation ar-chitectures, official reference implementations remain strictly tied to PyTorch and CUDA-centric execution ecosystems. Cloud TPU hardware offers competitive memory capacities and an expressive SPMD programming model through JAX. However, the ecosystem lacks a unified inference frame-work optimized for the multi-dimensional parallelisms that video sequence lengths demand. Porting these architectures to JAX introduces distinct system-level challenges: navigating memory-staging overheads during large-scale checkpoint loading, maintaining execution safety across compilation boundaries, and composing intra-layer tensor parallelism with inter-layer sequence parallelism within compiler constraints. 
+
+> Preprint. arXiv:2609.18077v1 [cs.CV] 16 Sep 2026
+
+Contributions. We present vidax , an open-source JAX/Flax inference engine and weight translation framework designed to bridge this gap. Our main contributions are as follows: • Unified Architecture Coverage: A modular Flax library supporting diverse video generation backbones (DiTs and omnimodal models), 3D VAEs, and text conditioning towers, paired with a host-resident weight translator providing exact numerical matching without memory duplication. • Composable Multi-Axis Parallelism: A 3-axis JAX sharding mesh unifying Megatron-style tensor parallelism with DeepSpeed-Ulysses sequence parallelism, enabling flexible trade-offs between parameter residency and activation memory. • Memory-Extended Execution Path: Integrated Pallas flash-attention kernels and per-layer host weight offloading, allowing model inference on memory-constrained hardware. • System Evaluation & Correctness Analysis: A comprehensive benchmark suite evaluating compile times, latency, and HBM utilization on TPU v4-8 hardware, alongside a detailed breakdown of real-checkpoint correctness edge cases. All code, benchmark configurations, and documentation are available open-source at https:// github.com/FlyingGiraffe/vidax .
+
+2 System Architecture & Design 
+
+Host-resident weight translation. To handle large parameter trees, vidax implements zero-copy weight ingestion using JAX [1] and Flax [5] nn.Module architectures with explicit setup() hooks rather than @nn.compact declarations. This splits forward execution into independent preprocessing, block-loop, and postprocessing stages. Checkpoint weights are staged host-side as NumPy arrays rather than being instantiated directly via jnp.array() . Staging directly on-device defaults to an unsharded allocation on a single accelerator, causing peak memory spikes that trigger OOM errors on large DiTs. Staging on the host until a single device_put call ensures parameters are allocated on-device exactly once, already correctly sharded across the target mesh. 
+
+Spatiotemporal tensor and sequence sharding. vidax.core.sharding builds a 3-axis JAX mesh covering data, Megatron-style [14] 1D tensor, and DeepSpeed-Ulysses [6] sequence parallelism. Tensor parallelism uses standard column- and row-parallel linear projections, relying on GSPMD [18] for automated reduction insertions. However, for architectures where per-token activation states dominate memory — such as models using per-token AdaLN modulation — tensor parallelism alone is insufficient. Here, sequence parallelism partitions temporal tokens across transformer blocks, executing all_to_all transposes to head-sharded views exclusively for attention ops. When com-posing tensor and sequence parallelism inside shard_map , local output shapes and jax.lax.psum 
+
+reductions are defined manually to prevent redundant bias accumulation. 
+
+3D RoPE, 3D VAEs, and flash attention. Because 3D Rotary Position Embedding (3D RoPE) conventions across time, height, and width are mathematically non-interchangeable, each model family retains its exact reference formulation. Unmasked attention ops dispatch to Pallas TPU flash-attention kernels [2] to avoid materializing full query-key attention matrices, which scale quadratically with video sequence length. Because Pallas custom calls bypass GSPMD partitioning, multi-device flash-attention invocations are wrapped in explicit shard_map calls. For models lacking native TPU kernels ( e.g. , LTX-2.5’s neighborhood-attention VAE decoder), vidax falls back to a custom scan /vmap -based windowed-attention primitive. The 3D VAE architectures reuse the explicit 
+
+setup() split, enabling frame-wise encoding and decoding as JIT-compiled per-chunk calls within a host Python loop. 
+
+Per-layer weight offloading. For high-resolution regimes where keeping the full parameter tree resident leaves no headroom for the rest of the pipeline ( e.g. , Wan2.1 14B at 720p, whose fp32 DiT crowds out the VAE’s execution buffers), vidax implements per-layer host-to-device offloading modeled on ZeRO-Offload [13]. Parameters remain host-resident, with layer blocks dynamically streamed into a fixed-shape HBM buffer via device_put . A single jax.jit -compiled block function is reused across layers, using donate_argnums to mutate buffers in place. Because host-to-device transfer latency does not fully overlap with compute, offloading is treated strictly as an optional fallback to prevent OOMs at reference resolutions rather than a default execution path. 
+
+JIT compilation and memory ergonomics. To ensure predictable XLA compilation and prevent HLO tracing bloat, vidax enforces three system-wide rules. First, spatial and temporal sequence 2dimensions are kept strictly static to allow compiled execution graph reuse without re-tracing. Second, outer iteration loops — such as multi-step sampling passes, layer offloading sweeps, and chunked VAE decoding — remain plain host Python loops around individual JIT-compiled functions; wrapping an entire multi-step sampling pass in a single jax.jit traces the full loop into one HLO graph, forcing intermediate activations from all steps to coexist in memory. Third, precision downcasting (e.g. , converting fp32 checkpoint weights to bfloat16 ) is performed on the host prior to device placement, avoiding the memory overhead of temporary dual-precision arrays on accelerator chips. 
+
+3 Supported Models 
+
+3.1 Architecture coverage 
+
+In its initial release, vidax supports five primary model families (Table 1): Wan, Cosmos, LTX, HunyuanVideo, and CogVideoX. Most implementations are Diffusion Transformers (DiTs). However, architectures vary significantly across and within families; for example, Cosmos3 uses a dual-pathway omnimodal Mixture-of-Transformers rather than a DiT. Furthermore, several families group distinct architectures under a single brand name ( e.g. , Wan2.1 vs. Wan2.2, Cosmos-Predict2.5 vs. Cosmos3, and LTX-Video vs. LTX-2.5). In these cases, family boundaries reflect upstream product branding rather than architectural continuity, occasionally requiring separate codebase implementations. 
+
+Wan (2.1/2.2) [16]: A family of 3D-RoPE DiTs conditioned on UMT5-XXL, with a CLIP-ViT-H/14 vision encoder added for Wan2.1’s image-to-video model (Wan2.2 drops the CLIP branch, conditioning image-to-video by latent concatenation/substitution instead). Wan2.1 uses per-sample AdaLN modulation. Wan2.2 introduces two architectural variants: the A14B model (a two-expert MoE) and the TI2V-5B model. Both Wan2.2 variants switch to per-token AdaLN modulation, requiring the dedicated sequence-parallel strategy described in Section 2. 
+
+Cosmos (Predict2.5 [11] / Cosmos3 [12]): A family bridging standard DiT designs and unified omnimodal models. Cosmos-Predict2.5 is a DiT using a Qwen2.5-VL-7B text encoder with AdaLN-LoRA timestep modulation. Cosmos3 replaces this design entirely with a Mixture-of-Transformers that combines causal "understanding" and full-attention "generation" pathways into a single backbone, using additive timestep injection without AdaLN. 
+
+LTX (Video [4] / 2.5 [3]): A family focused on efficient video generation using custom VAE pipelines. LTX-Video is a standard T5-XXL-conditioned DiT paired with a pixel-unshuffle VAE. LTX-2.5 scales to 22B parameters, introducing a Gemma-4 12B text encoder, an ancestral (SDE) Euler sampler, and an optional neighborhood-attention VAE decoder that requires the windowed-attention kernel detailed in Section 2. 
+
+HunyuanVideo [7, 17]: A family designed around multi-tower text and visual conditioning. HunyuanVideo-1.5 (8.3B) conditions on three encoders simultaneously: Qwen2.5-VL-7B for seman-tics, a byT5-small glyph encoder for precise text rendering, and SigLIP for image-to-video. The original 13B model is also supported: a dual-stream/single-stream MMDiT sharing HunyuanVideo-1.5’s block implementation, but conditioned instead on a Llama-3-8B decoder tower plus a pooled CLIP-L vector (and the full multimodal LLaVA-Llama-3 model for image-to-video). 
+
+CogVideoX (1.0/1.5) [19]: A DiT family built on a 3D causal VAE and a joint text-video 3D full-attention mechanism for spatio-temporal modeling. Structural design varies by scale and version: the 2B model uses fixed sinusoidal positional embeddings rather than RoPE, whereas the 1.5 series introduces temporal patchification alongside a revised 3D-RoPE grid structure. 
+
+3.2 Weight import, precision, and verification 
+
+Parameter conversion for every model is verified against official reference checkpoints using exact 1:1 key mapping and, where a reference PyTorch environment was available, direct numerical comparison of intermediate activations. Most models execute in bfloat16 . However, we preserve target precision fixes where necessary: Wan2.1 maintains fp32 DiT weights because the reference implementation keeps its residual stream in fp32 under autocast, while LTX-2.5 retains specific fp32 AdaLN tables from its native checkpoint. Both precision choices prevent measurable quality degradation, as detailed in Appendix A. 3Table 1: Supported model families and their distinguishing details.                                         
+
+> Family Sizes Conditioning Timestep inj. Scheduler Wan2.1 1.3B, 14B UMT5-XXL, CLIP (I2V) per-sample AdaLN Euler / rect. flow Wan2.2 5B, A14B (MoE) UMT5-XXL per-token AdaLN Euler / rect. flow Cosmos-Predict2.5 2B, 14B Qwen2.5-VL-7B per-frame AdaLN-LoRA UniPC Cosmos3 16B, 4B Qwen tokenizer, in-backbone additive (no AdaLN) UniPC, Karras LTX-Video 0.9.8 2B, 13B T5-XXL AdaLN Rect. flow LTX-2.5 22B Gemma-4 12B cross-attn. AdaLN Ancestral Euler HunyuanVideo 13B Llama-3-8B, CLIP-L, LLaVA (I2V) AdaLN, embedded guid. Flow matching HunyuanVideo-1.5 8.3B Qwen2.5-VL, byT5, SigLIP (I2V) AdaLN Flow matching CogVideoX / 1.5 2B, 5B T5-v1.1-XXL AdaLN (v-pred.) DDIM / DPM
+
+All five families are verified end-to-end and benchmarked (Section 4). Verification includes bit-exact or high-correlation block-level parity checks against the original PyTorch implementation, exact 1:1 parameter-tree matches, and prompt-faithful end-to-end generation (examples shown in Figure 1). 
+
+3.3 Diffusion and Flow Matching Schedulers 
+
+Three sampler families are implemented from scratch and shared across models: • Euler Rectified-Flow Integration : First-order flow-matching integrators [9, 8], including an ancestral stochastic differential equation (SDE) variant required for LTX-2.5. • Multistep UniPC : A higher-order predictor-corrector scheduler adapted for flow matching [20]. UniPC achieves comparable sampling quality in significantly fewer steps ( e.g. , 35 steps for Cosmos versus ∼50 for Wan). • DDIM and DPM-Solver : v-prediction discrete schedulers [15, 10] tailored for CogVideoX, representing the primary non-flow-matching pipeline in the library. All three scheduler families are fully integrated into the vidax pipeline, allowing unified model execu-tion across diverse mathematical formulations — from flow-matching Euler (Wan, HunyuanVideo-1.5) and UniPC (Cosmos) to ancestral SDE Euler (LTX-2.5) and v-prediction DPM-Solver (CogVideoX). By standardizing scheduler interfaces in JAX, the library supports zero-overhead switching between first-order, higher-order, and stochastic samplers across all supported model architectures. 
+
+4 Empirical Evaluation & Benchmarks 
+
+Experimental setup. We evaluate all five model families supported by vidax (Table 1) across their publicly available checkpoint sizes and tasks. Benchmarks are conducted on a single TPU v4-8 slice (4 chips) running JAX v0.11.0. Each metric represents the mean of 5 independent end-to-end runs with a batch size of 1 and classifier-free guidance enabled ( 2× internal batch size). To measure realistic performance, resolutions, frame counts, and sampling steps use each model’s reference defaults. The compilation cache is cleared prior to each run to isolate compilation overheads. Tensor parallel ( TP ) and sequence parallel ( SP ) configurations are noted per model. While benchmarks focus on TPU v4-8, the codebase targets portable JAX/XLA and Pallas primitives rather than TPU-generation-specific kernels, so the same execution path carries over to newer accelerator generations like TPU v5e and v6e. 
+
+Qualitative results. Figure 1 showcases generation results from two representative models per family, all executed via vidax using a standardized text prompt at default reference resolutions, frame counts, and step budgets. The evaluated pairs span key architectural variations within each family: a dense DiT versus a two-expert MoE (Wan2.1 14B vs. Wan2.2 A14B), a standard DiT versus a Mixture-of-Transformers (Cosmos-Predict2.5 14B vs. Cosmos3 Nano), and successive model generations within a family (LTX-Video 13B vs. LTX-2.5 22B; HunyuanVideo 13B vs. HunyuanVideo-1.5 8.3B; CogVideoX 5B vs. CogVideoX1.5 5B). Spanning five text-conditioning tower families, three scheduler formulations, and seven VAE designs, every configuration produces temporally coherent and prompt-faithful video through a single JAX execution path — qualitatively confirming the end-to-end correctness established by our numerical and block-level verification. 4Wan2.1 14B · 1280×720 · 81 frames · 50 steps Wan2.2 A14B · 832×480 · 81 frames · 50 steps                     
+
+> Cosmos-Predict2.5 14B ·1280×704 · 93 frames · 35 steps Cosmos3 Nano 16B ·1280×704 · 93 frames · 35 steps
+> LTX-Video 13B ·1216×704 · 121 frames · 30 steps LTX-2.5 22B ·1216×704 · 121 frames · 30 steps
+> HunyuanVideo 13B ·1280×720 · 129 frames · 50 steps HunyuanVideo-1.5 8.3B ·1280×720 · 121 frames · 30 steps
+> CogVideoX 5B ·720×480 · 49 frames · 50 steps CogVideoX1.5 5B ·1360×768 · 81 frames · 50 steps
+
+Figure 1: Generated video clips of different models; each row pairs two models from one supported family. Every clip is generated by vidax on TPU v4-8 from one shared standardized prompt ( “A majestic red panda climbing a bamboo tree in the snow, 4k” ) at that model’s reference settings. Table 2: Representative inference performance and memory footprint on a TPU v4-8 slice (4 chips) at reference resolution, frame count, and step budget. 
+
+Model TP/SP Resolution Frames Offload Compile (s) Per-step (s) Peak HBM (GB) Cosmos3 Nano (16B) 4/– 1280x704 93 – 64.2 7.1 29.5 Cosmos-Predict2.5 14B 4/1 1280x704 93 chunk 1 48.5 128.0 14.7 Wan2.2 A14B 2/2 832x480 81 chunk 10 65.8 43.2 28.4 Wan2.1 14B 4/1 1280x720 81 chunk 20 108.2 123.0 23.0 LTX-Video 13B (dev) 4/– 1216x704 121 – 134.7 5.2 15.3 LTX-2.5 22B (dev) 4/– 1216x704 121 chunk 8 87.7 7.3 16.7 HunyuanVideo-1.5 8.3B 4/– 1280x720 121 – 410.8 221.0 30.3 HunyuanVideo 13B 4/– 1280x720 129 chunk 20/40 506.7 299.6 18.4 CogVideoX 5B 4/– 720x480 49 – 105.8 9.4 23.2 CogVideoX1.5 5B 1/4 1360x768 81 – 306.6 52.8 31.5 
+
+Denoising latency and memory. Table 2 summarizes compile time, per-step latency, and peak HBM utilization per chip for representative configurations at reference resolutions. A complete evaluation table of all models, tasks, and inference setups is provided in Appendix B. Figure 2(a) illustrates the inference speed and memory trade-offs across model sizes. For fully device-resident configurations, per-step latency tracks parameter count and token volume predictably. Configurations requiring per-layer weight offloading (Wan2.1 14B, Cosmos-Predict2.5 14B, Wan2.2 A14B, HunyuanVideo 13B) exhibit significantly higher latency because host-to-device parameter transfers do not fully overlap with compute on this hardware. LTX-2.5 22B is an exception: its weights fit within TP = 4 HBM, and offloading is used exclusively to partition the forward trace and free intermediate activations between blocks. 
+
+Memory optimization analysis. Peak HBM utilization is held close to the usable TPU v4 budget (∼30.75 GB per chip) through selective tensor parallelism, sequence parallelism, and per-layer weight offloading; the most demanding configurations (CogVideoX1.5, native-720p Wan2.1 I2V) sit right at that ceiling. Without these mechanisms, native reference resolutions trigger out-of-memory errors. Table 3 lists the primary memory constraints and corresponding mitigations. To quantify the impact of memory management, we evaluate the trade-off between resident-weight headroom and execution throughput. Per-layer weight offloading trades compute efficiency for 51 2 5 10 20 40       
+
+> DiT parameters (billions, active)
+> 10 1
+> 10 2
+> Per-step latency (s, log scale)
+> (a) Denoising latency vs. model size
+> Cosmos3 Nano Cosmos3 Edge Cosmos-Pred2.5 14B Cosmos-Pred2.5 2B Wan2.2 A14B Wan2.2 5B Wan2.1 14B Wan2.1 1.3B LTX-2.5 22B LTX-Video 13B LTX-Video 2B HunyuanVideo-1.5 8.3B HunyuanVideo 13B CogVideoX 5B CogVideoX 2B CogVideoX1.5 5B
+> Memory strategy (panel a)
+> Fully resident Sequence parallel Weight o ffl oading Offl oading + SP
+> 124820 40
+> Offl oad chunk size (blocks per HBM transfer)
+> 100 110 120 130 140 150
+> Per-step latency (s)
+> (b) O ffl oading vs. model e ffi ciency (Wan2.1-14B 720p)
+> Per-step latency Peak HBM / chip
+> 14 16 18 20 22 24 26 28 30 32
+> Peak HBM / chip (GB)
+> TPU v4 HBM ceiling
+
+Figure 2: Performance and memory utilization on TPU v4-8. (a) Mean per-step latency versus DiT parameter count (active parameters), with marker area proportional to output pixel-volume and color indicating memory mitigation strategy. (b) Per-step latency and peak HBM per chip for Wan2.1 14B across an offload chunk-size sweep, with the dashed line denoting the usable v4 HBM ceiling. Table 3: Primary memory constraints and required hardware mitigation strategies across models. 
+
+Model Family Mitigation Primary Memory Constraint Wan2.1 (720p) Offload fp32 DiT weights leave insufficient HBM for VAE execution buffers. Wan2.2 A14B Offload+SP High activation memory from per-token AdaLN modulation. Cosmos-Predict2.5 14B Offload 93-frame context does not fit fully resident at any TP/SP split. Wan2.2 5B TP Parameter volume fits 4-way tensor parallelism without residual pressure. LTX-Video TP Shards self-attention activations (13B/2B) and, for the 13B checkpoints, weights too large to fit replicated on one chip. LTX-2.5 22B TP+Offload TP(4) fits weights; offloading manages unfused intermediate block activations. HunyuanVideo-1.5 8.3B TP 4-way sharding of the DiT’s own weights, needed alongside the replicated multi-tower conditioning footprint. HunyuanVideo 13B TP+Offload 13B weights and 129-frame 720p activations exceed HBM even at TP(4). CogVideoX1.5 5B SP ∼45k-token joint-attention activations exceed HBM under TP; requires SP=4. 
+
+memory capacity by streaming parameters dynamically into a fixed device buffer. As demonstrated by the chunk-size sweep on Wan2.1 14B at native 720p (Figure 2(b)), increasing the chunk size improves transfer-compute overlap and reduces per-step latency — falling monotonically from 141 .7
+
+s at a chunk size of 1 to 111 .3 s when the full 40-block model is resident — while scaling peak HBM usage from 15 .2 GB to 26 .1 GB. Consequently, weight offloading serves strictly as a memory-fit mechanism for high-resolution execution paths rather than a throughput-neutral optimization. 
+
+5 Conclusions & Future Work 
+
+We presented vidax , a JAX/Flax inference engine and weight translator that brings major open-source video generation models to Cloud TPUs with zero PyTorch dependency during execution. By combining tensor and sequence parallelism, TPU flash-attention kernels, and per-layer weight offloading, the engine successfully runs reference-resolution video generation within device memory constraints. Additionally, the porting process identified concrete numerical and structural edge cases across official checkpoints that pure simulation studies often miss. Future development may focus on three primary directions: • Hardware generalization: Extending benchmarking and performance validation beyond TPU v4 slices to newer TPU architectures (v5e and v6e). • Training and fine-Tuning: Leveraging the existing sharded execution graph and offloading infrastructure to support post-training workloads, such as LoRA and full-parameter fine-tuning. • Low-level kernel optimization: Developing custom Pallas and Mosaic kernels tailored to the TPU memory hierarchy to reduce latency overheads. 6Acknowledgments 
+
+This project is supported by the Google TPU Research Cloud (TRC) Program. Congyue Deng also acknowledges the Tayebati Postdoctoral Fellowship. 
+
+References 
+
+[1] James Bradbury, Roy Frostig, Peter Hawkins, Matthew James Johnson, Yash Katariya, Chris Leary, Dougal Maclaurin, George Necula, Adam Paszke, Jake VanderPlas, Skye Wanderman-Milne, and Qiao Zhang. JAX: composable transformations of Python+NumPy programs. http://github.com/jax-ml/jax ,2018. [2] Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, and Christopher Ré. Flashattention: Fast and memory-efficient exact attention with IO-awareness. In Advances in Neural Information Processing Systems ,2022. [3] Yoav HaCohen, Benny Brazowski, Nisan Chiprut, et al. LTX-2: Efficient joint audio-visual foundation model. arXiv preprint arXiv:2601.03233 , 2026. [4] Yoav HaCohen, Nisan Chiprut, et al. LTX-Video: Realtime video latent diffusion. arXiv preprint arXiv:2501.00103 , 2025. [5] Jonathan Heek, Anselm Levskaya, Avital Oliver, Marvin Ritter, Bertrand Rondepierre, Andreas Steiner, and Marc van Zee. Flax: A neural network library and ecosystem for JAX. http://github.com/ google/flax , 2020. [6] Sam Ade Jacobs, Masahiro Tanaka, Chengming Zhang, Minjia Zhang, Shuaiwen Leon Song, Samyam Rajbhandari, and Yuxiong He. DeepSpeed Ulysses: System optimizations for enabling training of extreme long sequence transformer models. arXiv preprint arXiv:2309.14509 , 2023. [7] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. HunyuanVideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 , 2024. [8] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [9] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [10] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. DPM-Solver: A fast ODE solver for diffusion probabilistic model sampling in around 10 steps. arXiv preprint arXiv:2206.00927 ,2022. [11] NVIDIA et al. World simulation with video foundation models for physical AI. arXiv preprint arXiv:2511.00062 , 2025. [12] NVIDIA et al. Cosmos 3: Omnimodal world models for physical AI. arXiv preprint arXiv:2606.02800 ,2026. [13] Jie Ren, Samyam Rajbhandari, Reza Yazdani Aminabadi, Olatunji Ruwase, Shuangyan Yang, Minjia Zhang, Dong Li, and Yuxiong He. ZeRO-Offload: Democratizing billion-scale model training. arXiv preprint arXiv:2101.06840 , 2021. [14] Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catanzaro. Megatron-LM: Training multi-billion parameter language models using model parallelism. arXiv preprint arXiv:1909.08053 , 2019. [15] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. [16] Wan Team, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, Jianyuan Zeng, et al. Wan: Open and advanced large-scale video generative models. 
+
+arXiv preprint arXiv:2503.20314 , 2025. [17] Bing Wu, Chang Zou, Changlin Li, et al. HunyuanVideo 1.5 technical report. arXiv preprint arXiv:2511.18870 , 2025. 
+
+7[18] Yuanzhong Xu, HyoukJoong Lee, Dehao Chen, Blake Hechtman, Yanping Huang, Rahul Joshi, Maxim Krikun, Dmitry Lepikhin, Andy Ly, Marcello Maggioni, et al. GSPMD: General and scalable parallelization for ML computation graphs. arXiv preprint arXiv:2105.04663 , 2021. [19] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. CogVideoX: Text-to-video diffusion models with an expert transformer. arXiv preprint arXiv:2408.06072 , 2024. [20] Wenliang Zhao, Lujia Bai, Yongming Rao, Jie Zhou, and Jiwen Lu. UniPC: A unified predictor-corrector framework for fast sampling of diffusion models. arXiv preprint arXiv:2302.04867 , 2023. 
+
+A Debugging Notes and System Verification 
+
+Validating vidax against real, pre-trained video generation checkpoints exposed several correctness edge cases and performance bottlenecks that remain invisible during synthetic testing or unsharded execution. Table 4 categorizes these issues by their root systems causes across numerical precision, parallel execution, architecture parity, and memory graph boundaries. 
+
+Diagnostic Methodologies. Two specific debugging practices proved essential for isolating errors during engine development: • Low-Noise Real-Photo Probes: When diffusion models emit unstructured noise or grid artifacts, standard forward passes cannot easily distinguish between incorrect noise-level conditioning and corrupted network weights. By encoding a real image into latent space, adding a small amount of noise, executing a single denoising step, and decoding, we isolated a noise-level-conditioning (preconditioning) bug from a general weights/attention fault within a single iteration. • Explicit Precision Auditing: Mixed-precision checkpoints must be audited at the individual tensor level rather than relying on global type casting. Preserving fp32 precision on specific parameters (such as AdaLN tables in LTX-2.5 and residual accumulators in Wan2.1) was crucial for numerical parity. 
+
+Systems Insights on Declarative Sharding. A key architectural takeaway from this implementation concerns JAX’s sharding abstraction model. Using jax.sharding declarations alongside GSPMD auto-partitioning simplifies Megatron-style tensor parallelism down to annotating parameter trees, eliminating manual collective operations ( e.g. , all-reduce ). However, this automation ends at the boundary of custom kernels ( shard_map and Pallas dispatch). At this boundary, manual communica-tion logic must be explicitly managed, highlighting a fundamental abstraction line in current JAX systems engineering. 
+
+B Full benchmark table 
+
+Table 5 provides the complete benchmark evaluation across all supported DiT inference configurations measured on a single TPU v4-8 slice (4 chips, jax==0.11.0 ). The remainder of this section details the experimental methodologies, architectural trade-offs, and memory mitigation mechanisms underlying these measurements. 
+
+Experimental Methodology. Each reported row represents the mean across 5 independent end-to-end runs with a batch size of 1 and classifier-free guidance enabled ( 2× internal batch size). Prior to each run, the XLA compilation cache is cleared to isolate compilation latency from execution runtime. All runs utilize a default bf16 input/output dtype across activations, VAE, and text encoders. The Weight 
+
+column denotes the model-specific storage dtype for the DiT parameters. Resolutions, frame counts, and step counts reflect each model family’s default reference specifications. Benchmark evaluations use standardized text prompts (and conditioning images for I2V tasks) to maintain cross-family comparability. 
+
+Metrics and Latency Decomposition. Performance metrics are split into one-time compilation overheads and sampling runtime: • Compile (s): Measures the single execution overhead required by XLA to trace and compile the model graph for a fixed tensor shape, precision, and sharding specification. This cost is incurred once per execution signature and amortized over long-running serving deployments. 8Table 4: Taxonomy of correctness and performance bugs identified during cross-framework porting. 
+
+Symptom Root Cause Resolution 
+
+1. Precision, Rounding & Accumulation Errors 
+
+Wan2.1 14B I2V: hazy, low-detail output at na-tive 720p/81f. Running residual additions in bf16 com-pounds rounding errors across the 40-block chain at high token counts. Use fp32 for DiT parameters/accumulators; cast to bf16 transiently only during matmuls. CogVideoX: 16–37% T5 embedding drift vs. Py-Torch reference. T5-XXL residual stream reaches ∼ 10 5; at-tending unmasked padding tokens compounds 
+
+bf16 rounding across 24 layers. Execute T5 forward pass in fp32 , cast outputs to bf16 , and immediately free fp32 weights. LTX-Video: port outputs agree with PyTorch only to ∼2 decimals. JAX defaults to lower-precision TPU matrix multiplication ( "default" ) for throughput. Set jax_default_matmul_precision="highest" 
+
+during parity checks (reduces max diff to 
+
+∼ 3 × 10 −5). LTX-2.5 (dev): washed-out output, blown high-lights, and compounding quality loss. Missing guidance-rescale correction caused CFG over-saturation; a blanket dtype cast also downcast the 290 AdaLN modulation tables the checkpoint ships in fp32 .Add –guidance_rescale (0.7 for dev); pre-serve fp32 for scale_shift_table parame-ter leaves regardless of –dit_dtype .
+
+2. Sharding, Parallelism & Custom Kernels 
+
+Wan2.1/2.2: blocky output under Weight-Offload + SP. Row-parallel psum sums fully replicated 
+
+nn.Dense biases once per TP device. Implement psum_row_parallel : subtract bias, perform psum , and add a single bias copy back. HunyuanVideo-1.5: 
+
+RESOURCE_EXHAUSTED 
+
+at 720p resolution. Dense attention mask materialization 
+
+(B, H, S q , S k ) bypasses Pallas flash attention 
+
+O(S) memory savings. Replaced dense mask tensor with Pallas 
+
+SegmentIds to skip invalid key blocks dynam-ically. HunyuanVideo-1.5: Mo-saic partitioning failure with replicated ops. Mixing sharded parameters with unsharded ker-nels ( SingleTokenRefiner ) breaks global JIT trace. Wrap unsharded kernel dispatches in an ex-plicit fully replicated shard_map .
+
+3. Model Architecture & Conditioning Parity 
+
+Cosmos-Predict2.5: color grid artifacts across all settings. Incorrect EDM preconditioning wrapper, un-patchify channel swap, and missing timestep rescaling. Removed preconditioning, corrected channel ordering, and restored internal DiT timestep scaling. Cosmos3 Edge (4B): flat, featureless output on short prompts. Edge (4B) strictly requires JSON-structured ex-panded prompts, whereas Nano (16B) tolerates raw text. Enforce checkpoint-native JSON prompt for-matting during tokenization. LTX-2.5: semantic prompt drift across random seeds. Feature-extractor scaling used total 49-layer width as denominator instead of Gemma’s single-layer width. Scale conditioning vectors by single-layer 
+
+embedding_dim .HunyuanVideo: Llama encoder divergence on padded prompts. Tokenizer default padding_side diverged from reference, invalidating left/right causal assumptions. Pass padding_side="right" explicitly to 
+
+AutoTokenizer .
+
+4. Memory, Tiling & Execution Graphs 
+
+LTX-2.5 VAE Decoder: 147 GB HLO tempo-raries at a tiny synthetic latent. Naive local-window attention materializes memory proportional to the product of all win-dow axes ( 11 3 for this checkpoint’s stage-5 kernel). Rebuilt 3D neighborhood attention around 
+
+lax.scan (one query row at a time) plus vmap 
+
+for the inner gather. LTX-2.5 VAE Decoder: compile appears to hang (>1 hour) at real resolu-tion. A first attempt to fix the OOM above (looping per query step in Python) unrolls at trace time into near-identical subgraph copies across ev-ery block. 
+
+lax.scan compiles the per-step body once regardless of step count; final tp = 4 shard-ing then resolves a remaining OOM down to 14.76 GB/chip. CogVideoX: boundary ar-tifacts at VAE spatial tile seams. Initial implementation blended each tile against the pristine, unmodified neighbor grid, unlike the reference’s stateful blend. Match the reference: write each blended tile back into the grid in place before it is used as a neighbor for the next. 
+
+9Table 5: Performance and memory footprint across all evaluated model configurations on TPU v4-8.                                                                                                                                                                                                                                                                                                                                                                          
+
+> Model Variant Task TP/SP Res. Frames Steps Weight Offload Compile (s) Per-step (s) HBM (GB) Cosmos3 Nano (16B) T2V 4/– 1280x704 93 35 bf16 –64.2 7.1 29.5 Cosmos3 Edge (4B) T2V 4/– 832x480 121 35 bf16 –64.5 2.4 17.0 Cosmos-Predict2.5 14B T2V 4/1 1280x704 93 35 bf16 chunk 1 48.5 128.0 14.7 Cosmos-Predict2.5 2B T2V 4/1 1280x704 93 35 bf16 –112.9 38.8 16.0 Wan2.2 A14B T2V 2/2 832x480 81 50 fp32 chunk 10 65.8 43.2 28.4 Wan2.2 A14B T2V 2/2 1280x720 33 50 fp32 chunk 1 33.7 46.4 18.1 Wan2.2 A14B I2V 2/2 544x720 ∗81 40 fp32 chunk 10 146.1 44.5 28.3 Wan2.2 A14B I2V 2/2 832x1104 ∗33 40 fp32 chunk 1 102.9 49.1 20.5 Wan2.2 5B T2V 4/1 1280x704 121 50 fp32 –87.3 10.5 18.3 Wan2.2 5B I2V 4/1 704x1280 ∗121 40 fp32 –145.8 12.1 18.3 Wan2.1 14B T2V 4/1 1280x720 81 50 fp32 chunk 20 108.2 123.0 23.0 Wan2.1 14B T2V 4/1 832x480 81 50 bf16 –142.5 26.1 17.2 Wan2.1 14B (720P) I2V 4/1 832x1104 ∗81 40 fp32 chunk 20 131.3 127.2 32.7 Wan2.1 14B (480P) I2V 4/1 544x720 ∗81 40 bf16 –150.3 28.1 22.1 Wan2.1 1.3B T2V 4/1 832x480 81 50 bf16 –85.4 7.0 10.2 LTX-2.5 22B (dev) T2V 4/– 1216x704 121 30 bf16 †chunk 8 87.7 7.3 16.7 LTX-2.5 22B (distilled) T2V 4/– 1216x704 121 8bf16 †chunk 8 87.9 4.7 15.3 LTX-2.5 22B (dev), diff. VAE T2V 4/– 1216x704 121 30 bf16 †chunk 8 479.5 95.3 ‡16.1 LTX-2.5 22B (distilled), diff. VAE T2V 4/– 1216x704 121 8bf16 †chunk 8 478.2 335.1 ‡14.8 LTX-Video (0.9.8) 13B (dev) T2V 4/– 1216x704 121 30 bf16 –134.7 5.2 15.3 LTX-Video (0.9.8) 13B (distilled) T2V 4/– 1216x704 121 8bf16 –136.4 13.0 15.3 LTX-Video (0.9.8) 2B (distilled) T2V 4/– 1216x704 121 8bf16 –83.5 5.9 8.8 HunyuanVideo-1.5 8.3B (720P) T2V 4/– 1280x720 121 30 bf16 –410.8 221.0 30.3 HunyuanVideo-1.5 8.3B (720P) I2V 4/– 832x1104 ∗121 30 bf16 –416.7 219.2 32.0 HunyuanVideo-1.5 8.3B (480P) T2V 4/– 832x480 121 30 bf16 –362.3 119.5 29.1 HunyuanVideo-1.5 8.3B (480P) I2V 4/– 544x720 ∗121 30 bf16 –362.4 112.9 31.4 HunyuanVideo 13B T2V 4/– 1280x720 129 50 bf16 chunk 20/40 506.7 299.6 18.4 HunyuanVideo 13B I2V 4/– 832x1088 ∗129 50 bf16 chunk 20/40 557.3 306.4 18.4 CogVideoX1.5 5B T2V 1/4 1360x768 ∥81 50 bf16 –306.6 52.8 31.5 CogVideoX1.5 5B I2V 1/4 1360x768 ∥¶ 81 50 bf16 –304.2 52.8 31.5 CogVideoX 5B T2V 4/– 720x480 49 50 bf16 –105.8 9.4 23.2 CogVideoX 5B I2V 4/– 720x480 ¶49 50 bf16 –106.1 9.4 23.3 CogVideoX 2B T2V 2/– 720x480 49 50 bf16 §–48.4 4.2 17.2
+
+• Per-step (s): Calculated as total generation latency (sampling loop plus VAE decoding) divided by the step budget. This serves as the primary standardized metric for evaluating execution speed across models with differing sampling steps. For LTX-2.5’s diffusion-VAE-decoder rows ( ‡), this figure is dominated by a one-time VAE-decode compile and execution rather than the DiT sampling cost, so it is not directly comparable across the two VAE variants. • Peak HBM (GB): Represents the maximum memory allocation watermark per chip. Keeping this value at or near the usable TPU v4 limit ( ∼30.75 GB per chip) dictates the necessary sharding and offloading strategy; the most demanding rows ( e.g. , native-720p Wan2.1 I2V, CogVideoX1.5) sit slightly above it. 
+
+Sharding and Weight Offloading Dynamics. Configurations specify parameter parallelism via TP 
+
+(tensor parallelism) and SP (sequence parallelism). Where memory limits prevent device-resident execution, per-layer weight offloading streams parameter blocks dynamically into a static device buffer: • Offloading Offsets for Auxiliary Stages: Wan2.1 (720p) uses offloading to preserve HBM headroom for the VAE’s execution buffers, and Cosmos-Predict2.5 (14B) uses it because its full 93-frame context does not fit fully resident at any TP /SP split — in both cases even though the raw DiT parameters fit on-chip. Adjusting the offloading chunk size allows tuning the trade-off between transfer-compute overlap and peak memory utilization. • Combined Offloading and Sequence Parallelism: Wan2.2 A14B uses per-token AdaLN modu-lations, making activation memory the binding bottleneck rather than parameter volume. Con-sequently, it shards the currently-resident expert with both tensor parallelism ( TP = 2 ) and sequence parallelism ( SP = 2 ), plus per-layer offloading for the remaining HBM headroom. Conversely, Wan2.2 5B manages memory pressure using pure tensor parallelism ( TP = 4 ). • Activation Memory Truncation in LTX Models: LTX-Video relies on 4-way tensor parallelism (TP = 4 ) primarily to shard self-attention activations over 121 frames. LTX-2.5 22B combines 
+
+TP = 4 with weight offloading ( chunk 8 ); here, offloading functions as a graph-splitting mechanism to free intermediate activations between transformer blocks rather than purely as a 10 parameter storage solution. Its Weight column reports the dominant bf16 dtype ( †); a small set of AdaLN modulation tables is preserved at fp32 regardless of --dit_dtype .
+
+Precision and Architecture-Specific Execution Edge Cases. 
+
+• Wan2.1 Precision Requirements: Wan2.1’s native-720p rows enforce fp32 DiT parameter precision ( –dit_dtype float32 , the reference-matching default) to match the reference imple-mentation’s residual accumulation behavior, as bf16 parameter quantization introduces noticeable output degradation over long token sequences at that scale; the smaller 480p/1.3B rows shown here use bf16 safely instead. • HunyuanVideo Full Attention Overhead: HunyuanVideo-1.5 shards parameters across TP = 4 
+
+alongside a replicated Qwen2.5-VL model. Due to unwindowed global attention across joint image-text sequences, its 720p execution exhibits higher step latency (221.0 s/step). Hunyuan-Video 13B specifies dual offload chunks ( chunk 20/40 ) to independently stream its 20 double-stream and 40 single-stream blocks. • CogVideoX Parallelism Constraints: CogVideoX1.5 5B executes at 1360 ×768 (∥) using DeepSpeed-Ulysses sequence parallelism ( SP = 4 ), as plain tensor parallelism fails compilation on a TPU v4-8 slice. CogVideoX 2B employs tp = 2 because its 30 attention heads are indivisible by 4, and its checkpoint ships as fp16 ( §), cast to bf16 here for column comparability. • I2V Dynamic Resolutions: Image-to-Video ( ∗) models adjust target spatial dimensions dy-namically based on input aspect ratios and maximum token area constraints rather than fixed square/landscape dimensions; this does not apply to the CogVideoX I2V rows below ( ¶). • Fixed-Resolution I2V Exceptions ( ¶): CogVideoX 5B I2V and CogVideoX1.5 5B I2V are each locked by a learned positional-embedding buffer to their T2V sibling’s fixed resolution ( 720 ×480 
+
+/ 1360 ×768 ) rather than deriving it from the conditioning image; the image is resized into that fixed box, generation proceeds there, and by default the output is rescaled back to the conditioning image’s own aspect ratio afterward. 11
