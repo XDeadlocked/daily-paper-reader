@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-17</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-18</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 23 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-17 22:45:42 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-18 22:09:14 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-17 机器人学习日报：共筛23篇，精读12篇、速读11篇，聚焦视觉-语言-动作与机器人控制前沿。最值得看的是两篇9分精读——机器人学习与控制的世界-动作模型综述，以及面向操作的对称感知VLA模型SAVLA。普通读者可先从这两篇综述和模型切入，再按需速读MoE适配、视觉线索导航等8分工作。</p>
+<p>2026-09-18 日报精选19篇机器人学习与控制论文，8篇精读聚焦世界-动作模型与VLA动作分词。最值得看的是满分综述《World-Action Models for Robot Learning and Control》和9分的《M²Tok》多码本离散动作分词。普通读者可先从这两篇入手，建立世界模型驱动机器人控制的整体认知。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="SAVLA: Symmetry-Aware Vision-Language-Action Models for Robotic Manipulation">SAVLA: Symmetry-Aware Vision-Language-Action Models for Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="World Models for Embodied Intelligence: From Plausible to Controllable to Actionable">World Models for Embodied Intelligence: From Plausible to Controllable to Actionable</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="${M}^2$Tok: Multi-head Multi-codebook Discrete Action Tokenization for Vision-Language-Action Models">${M}^2$Tok: Multi-head Multi-codebook Discrete Action Tokenization for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActionPiece: Rethinking Action Tokenization for Autoregressive Vision-Language-Action Models">ActionPiece: Rethinking Action Tokenization for Autoregressive Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>12</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Dense to MoE Adaptation for Compact Vision Language Action Policies">Dense to MoE Adaptation for Compact Vision Language Action Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="Visual Cue Guided Video Planning for Generalizable Robot Navigation">Visual Cue Guided Video Planning for Generalizable Robot Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SWIM: Vision-Language-Grounded Soft Whole-Body Interactive Manipulation">SWIM: Vision-Language-Grounded Soft Whole-Body Interactive Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RAF-VLA: Representation Alignment with the Future for End-to-End Autonomous Driving">RAF-VLA: Representation Alignment with the Future for End-to-End Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="CSWAM: Better Causal Semantic Representations for Out-of-Distribution Generalization in World Action Models">CSWAM: Better Causal Semantic Representations for Out-of-Distribution Generalization in World Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActiveScale: Scaling Active Perception for Robots across Model, Data, and Hardware">ActiveScale: Scaling Active Perception for Robots across Model, Data, and Hardware</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
