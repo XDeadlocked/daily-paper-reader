@@ -1,0 +1,615 @@
+Title: Recency Forcing: Bridging the Long-Horizon Gap in Autoregressive Video Generation
+
+URL Source: https://arxiv.org/pdf/2609.19729v1
+
+Published Time: Fri, 18 Sep 2026 00:38:50 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Recency Forcing: Bridging the Long-Horizon Gap in Autoregressive Video Generation 
+
+Tri Cao ∗ Hung Nguyen ∗† Phong Nguyen Khoi Nguyen 
+
+Qualcomm AI Research †
+
+{tricc, hunnguy, phongnh, khoi}@qti.qualcomm.com 
+
+## Abstract 
+
+Autoregressive (AR) video generation degrades over long horizons due to an over-looked train-inference discrepancy we term KV eviction mismatch : models train on short clips where all context frames reside in the KV cache, but at inference, memory constraints force distant frames to be evicted from the KV cache – re-moving context the model was conditioned on. Rather than simulating eviction via context truncation – which discards temporal information the model still needs and degrades motion coherence – we keep the context but while progressively reducing the influence of distant frames, making their eventual eviction negligi-ble. To guide this design, we introduce the positional response R(∆ , t denoise ),a perturbation-based sensitivity measure revealing that context influence decays steeply with temporal distance and varies systematically across denoising steps. Motivated by this analysis, we propose Recency Forcing , which applies a non-positive, timestep-dependent bias, termed Temporal Response Bias (TRB) , on pre-softmax attention logits derived directly from R, closing the train–inference gap without modifying context length or training objectives. We further introduce 
+
+Biased Attention Reparameterization (BAR) , an exact reformulation that moves the bias outside the softmax, making TRB a standard FlashAttention call at zero overhead. Recency Forcing operates in both training-free mode and training-based 
+
+mode. Experiments on VBench and VBench-Long demonstrate state-of-the-art long-horizon generation quality at no additional inference cost. 
+
+## 1 Introduction 
+
+Autoregressive (AR) video generation predicts each frame from past context, enabling streaming and interactive applications with unbounded temporal rollouts, such as world modeling [18, 34, 40], game simulation [4, 41, 42, 56, 59], and robotics [27, 48]—settings where the bidirectional attention used by most state-of-the-art models [23, 43, 51] is fundamentally incompatible. Recent distillation-based methods (CausVid [55], Self-Forcing [19], Causal Forcing [63]) enable fast few-step causal generation via distribution matching, but suffer from a key limitation: they are trained on short clips (e.g., 5 seconds, 21 latent frames in Wan2.1) and degrade rapidly when rolled out to long horizons. Recent work extends these models to longer videos by adding an attention sink [47] as a persistent anchor, then layering additional mechanisms on top. These efforts cluster into three families: 
+
+(1) KV-cache compression and pruning controls memory growth by selectively pruning past context [7, 35, 53, 57, 62]; (2) RoPE-based methods modify positional encoding for better length       
+
+> *Equal contribution.
+> †Work primarily done while at Qualcomm AI Research.
+> ‡Qualcomm AI Research is an initiative of Qualcomm Technologies, Inc. Preprint. arXiv:2609.19729v1 [cs.CV] 17 Sep 2026 0s 30s 60s 0s 30s 60s
+> Training-free Training-based
+
+Recency Forcing Figure 1: Our Recency Forcing enables high-quality video generation up to 60 seconds, far beyond the 5-second training horizon. Our method works as a plug-in ( training-free ) module to improve the long-horizon performance of Self-Forcing, while further finetuning ( training-based ) achieves state-of-the-art long-horizon video generation. extrapolation [9, 26, 31, 50, 52]; (3) correction-based methods expose the model to its own degraded outputs or use RL feedback to stabilize rollout [13, 33, 37, 46]. We identify an aspect that prior work does not address: a train–test discrepancy we call KV eviction mismatch . During training, all context frames are accessible; at inference, memory constraints force distant frames to be evicted [19, 55], removing context the model was trained to depend on. The most direct fix – truncating context during training [33, 49] – discards the temporal information needed for consistent motion, and we observe degraded motion fidelity as a result (empirically analyzed in Sec. 4.2 - Fig. 3). We instead keep the full context but progressively diminish the influence of distant frames so that by eviction time, their contribution is negligible. The key question is what shape this decay should take. We introduce the positional response 
+
+R(∆ , t denoise ), a perturbation-based sensitivity score measuring how the model’s output changes when the context frame at temporal distance ∆ from the current denoising frame is perturbed at denoising step tdenoise . The measured response reveals a two-axis structure: early timesteps focus sharply on nearby frames, while later timesteps draw information from a broader context window. Any fixed decay schedule cannot capture this, motivating a timestep-dependent design. We propose Recency Forcing , whose core component is Temporal Response Bias (TRB) : an additive softmax bias decaying with temporal distance at a rate that varies with the denoising timestep – steep early, gentle late – mirroring R. Since distant frames already receive negligible weight at the eviction boundary, their removal becomes information-preserving, closing the train–test gap by design. Recency Forcing targets attention weighting, a layer none of the three prior families modifies, and composes cleanly with all of them. To make TRB practical, we introduce Biased Attention Reparameterization (BAR) , an exact reformulation that moves the bias outside the softmax, making TRB a standard FlashAttention [10] call with no kernel modifications and zero inference overhead. We evaluate on VBench [20] and VBench-Long [21], generating videos up to 60 seconds— 12 × longer than the training horizon. The approach supports two modes: training-free , requiring no modification to the base model, where our method serves as a plug-in enhancement to Self-Forcing [19] and improves the VBench-Long quality score to 82.63 with no additional inference overhead ; and 
+
+training-based , requiring only ∼12 hours of DMD retraining, further improving the score to 84.02, achieving state-of-the-art performance and surpassing prior methods on several metrics. Illustrative results are shown in Fig. 1. Our contributions are as follows: • Analysis. The positional response R(∆ , t denoise ), revealing a two-axis decay structure in context usage that no prior work has measured or exploited. • Method. Recency Forcing with Temporal Response Bias (TRB), which closes the KV eviction mismatch by aligning attention weights with the measured R.• Implementation. Biased Attention Reparameterization (BAR), an exact reformulation of TRB, enabling compatibility with FlashAttention kernel with zero inference overhead. 22 Related Work 
+
+Video generation models have evolved from U-Net diffusion models [5, 15] to scalable Diffusion Transformers (DiT) [36], with recent models such as CogVideoX [51], HunyuanVideo [23], Wan [43], Cosmos [1], and LTX-Video [16] achieving high-quality synthesis via transformer architectures over spatiotemporal tokens. These models generate all frames jointly using bidirectional attention, serving as the backbone for many AR models. Among them, Wan [43] has emerged as the dominant open-source base for AR video generation [19, 55, 63]; we likewise build on Wan2.1. 
+
+Autoregressive video generation. A growing line of work extends bidirectional video diffusion to autoregressive generation [17, 28, 30, 39, 45, 58, 60]. Early AR methods such as NOVA [11], SkyReels [6], and PyramidFlow [24] generate chunk-by-chunk but require many sampling steps. More recent distillation-based methods achieve real-time generation: CausVid [55] distills a bidirectional DiT into a few-step causal generator; Self-Forcing [19] reduces exposure bias by conditioning on the model’s own outputs; Causal Forcing [63] further improves the ODE pretraining stage. All of these are trained on short clips ( ∼5 seconds) and degrade over longer horizons — the regime we target. 
+
+Non-autoregressive long video generation. Most DiT-based models are limited to 5–10 second clips, and extending them is non-trivial. Hierarchical and sliding-window approaches such as NUWA-XL [54], RIFLEx [61], and FIFO-Diffusion [22] extend video length but do not exploit causal structure, making them less suitable for streaming settings. 
+
+Autoregressive long video generation. The autoregressive paradigm is a natural fit for long-horizon generation, but AR models alone are insufficient: trained on short clips, they suffer from drift when extended, as observed in [19, 63]. Recent work addresses this by extending distilled AR frameworks, introducing an attention sink [47] as an anchor for long-term consistency, and further incorporating additional mechanisms. These efforts cluster into three families. (1) KV-cache compression and pruning controls memory growth by selectively discarding or compressing past context. DeepForc-ing [53] uses participative compression to preserve important tokens while discarding redundant ones, reducing drift; related methods include PackForcing [35], RelaxForcing [62], and MALT [57]. 
+
+(2) RoPE-based methods modify positional encoding for better length extrapolation, including 
+
+∞-RoPE [52], Rolling Forcing [31], LoL [9], and Anchor variants [26, 50]. (3) Correction-based methods expose the model to its own degraded outputs or use RL feedback to stabilize rollout. Self-Resampling [14] feeds the model its own generated errors, BAgger [37] constructs corrective trajectories, Pathwise [46] aligns rollout trajectories with teacher distributions, and Self-Forcing++ [8] simulates long rollouts and optimizes with RL-based feedback [33]. These approaches improve long-horizon AR generation from different angles – memory, positional generalization, and training robustness – all aiming to extend context capacity. In contrast, our method addresses the train–inference mismatch by modulating attention to past frames based on temporal distance and denoising timestep. 
+
+## 3 Method 
+
+3.1 Preliminaries Flow matching. Flow matching [3, 29, 32] trains a velocity field vθ (xt, t ) to transport a Gaussian prior to the data distribution. Following Wan2.1 [43] and its distillations [19, 55, 63], we use t = 1 
+
+for pure noise and t = 0 for clean data, with linear path xt = (1 − t)x0 + tϵ and training loss 
+
+LFM (θ) = Et, x0,ϵ vθ (xt, t ) − (ϵ − x0) 22. (1) 
+
+Autoregressive video generation. AR video models factorize the joint distribution as 
+
+pθ (x1: N 
+
+> 0
+
+) = 
+
+> N
+
+Y
+
+> i=1
+
+pθ (xi 
+
+> 0
+
+| x<i  
+
+> 0
+
+), (2) 31 3 5 7 9 11 13 15 17 19 
+
+Temporal distance Δ    
+
+> 10 0
+> 10 −1
+> 10 −2
+> 10 −3 ̃
+> R(Δ,  tdenoise )
+> tdenoise = 1
+> tdenoise = 2
+> tdenoise = 3
+> tdenoise = 4
+
+(a) Normalized positional response ˜R(∆ , t denoise ) across denoising steps. 1 3 5 7 9 11 13 15 17 19      
+
+> Temporal distance Δ
+> 10 0
+> 10 −1
+> 10 −2
+> 10 −3
+> Attention weight  tdenoise = 1
+> tdenoise = 2
+> tdenoise = 3
+> tdenoise = 4
+
+(b) Linear decay. 1 3 5 7 9 11 13 15 17 19       
+
+> Temporal distance Δ
+> 10 0
+> 10 −1
+> 10 −2
+> 10 −3
+> Attention weight  tdenoise = 1
+> tdenoise = 2
+> tdenoise = 3
+> tdenoise = 4
+
+(c) Logarithmic decay. 1 3 5 7 9 11 13 15 17 19       
+
+> Temporal distance Δ
+> 10 0
+> 10 −1
+> 10 −2
+> 10 −3
+> Attention weight  tdenoise = 1
+> tdenoise = 2
+> tdenoise = 3
+> tdenoise = 4
+
+(d) Power-law decay. 
+
+Figure 2: (a) Normalized positional response ˜R(∆ , t denoise ) showing that context influence decays sharply with temporal distance and varies across denoising steps. (b–d) Candidate decay functions designed to follow the observed empirical pattern. predicting each frame via a diffusion process conditioned on past generated frames x<i  
+
+> 0
+
+(context frames ). Generating a single frame requires many denoising steps (e.g., 50 in Wan2.1), making vanilla AR generation prohibitively slow for streaming use. 
+
+3.2 Analysis: How Context Frames Influence Current Predictions Positional response. Considering a 4-step AR model, we propose a perturbation-based sensitivity score R(∆ , t denoise ) that measures how strongly the model relies on the context frame at temporal distance ∆ from the current denoising frame at denoising step tdenoise ∈ { 1, 2, 3, 4}. Here, tdenoise = 1 
+
+denotes the highest-noise-level step, progressing to tdenoise = 4 at the lowest-noise-level step. 
+
+R(∆ , t denoise ) = E vθ
+
+ xitdenoise | x<i 
+
+> 0
+
+ − vθ
+
+ xitdenoise | δ∆(x<i  
+
+> 0
+
+) 2
+
+, (3) where δ∆(x<i  
+
+> 0
+
+) replaces the frame at position ∆ with one from an alternative rollout of the same prompt (different random seed). We use replacement rather than additive noise to avoid introducing out-of-distribution perturbations. We normalize by the response at ∆ = 1 for cross-step comparison: 
+
+˜R(∆ , t denoise ) = R(∆ , t denoise )
+
+R(1 , t denoise ) . (4) 
+
+Observations. Fig. 2a shows ˜R averaged over 30 prompts and 20 alternative contexts, measured on Causal Forcing [63]. Three patterns emerge consistently: (1) monotonic ordering – curves are strictly ordered by tdenoise at all distances; (2) steep decay – ˜R drops by orders of magnitude within a few frames, regardless of denoising step; (3) step-dependent long-range reach – responses at short distances are similar across steps, while responses at large ∆ diverge substantially, indicating that denoising steps differ primarily in how they attend to distant context rather than in their reliance on nearby frames. 
+
+Implications. A fixed attention pattern is suboptimal: any effective mechanism must (a) impose a temporal decay suppressing distant frames, and (b) modulate that decay with the denoising timestep. Context truncation satisfies (a) but abruptly removes frames the model still partially relies on, 430s  60s 0s   
+
+> Recency Forcing (Our)
+> L௔௧௧௘௡௧௜௢௡ = 9
+> (truncated)
+> L௔௧௧௘௡௧௜௢௡ = 21
+
+Figure 3: Qualitative comparison of context truncation (Lattention = 9 ) and Recency Forcing over a 60-second roll-out. Truncation produces unstable motion and scene changes (middle row), while Recency Forcing maintains consistent sub-ject identity and visual quality throughout (bottom row). Table 1: Runtime comparison of FlexAttention with direct bias injection vs. our BAR-based FlashAttention. BAR achieves 
+
+11 .76 × speedup with no approx-imation.       
+
+> Method Time (ms) ↓Speedup ↑
+> FlexAttn + bias 70.34 1.00 ×
+> Ours (FlashAttn) 6.06 11.76 ×
+
+introducing motion discontinuities (as illustrated in the second row Fig. 3) and degrading performance (as reported in Tab. 4). We instead adopt continuous temporal attenuation, which suppresses distant-frame influence gradually while preserving the full context – and by driving distant-frame weights to near zero before eviction, also closes the KV eviction mismatch. We instantiate this as Recency Forcing , with Temporal Response Bias (TRB) – a non-positive, timestep-dependent bias on pre-softmax logits derived from ˜R – and Biased Attention Reparameter-ization (BAR) , an exact reformulation of TRB compatible with FlashAttention [10] at zero overhead. Details follow in Secs. 3.3 and 3.4. 
+
+3.3 Temporal Response Bias (TRB) 
+
+We introduce TRB by adding a bias term to the scaled dot-product attention (SDPA) logits before the softmax, modulating how strongly the model attends to past frames based on both temporal distance 
+
+∆ and denoising timestep tdenoise :
+
+SDPA( Q, K, V ; B) = Softmax 
+
+ QK ⊤
+
+√d + B
+
+
+
+V, (5) where B ∈ RN ×N , Bi,j = bias (∆ i,j , t denoise ), and ∆i,j = i − j.
+
+Context partition. We partition context into three regions (Fig. 4): global (Lglobal initial frames as an attention sink), recent (Lrecent nearest frames for short-term motion), and history (intermediate frames). Including the current denoising frames Lcurrent , the attention window size is defined as 
+
+Lattention = Lglobal + Lhistory + Lrecent + Lcurrent . Recent and global contexts are kept unattenuated, as the positional response at ∆ = 1 remains near-maximal throughout denoising, while the global context is explicitly designated as an attention sink [31]. We thus apply TRB only to the history context. 
+
+Design principles. The bias satisfies three properties: (1) timestep-dependent strength – stronger at early steps, weaker at later ones; (2) rapid decay with ∆, matching the sharp drop in ˜R; (3) non-positive values ( Bi,j ≤ 0), ensuring suppression of distant-frame attention rather than amplification. 
+
+Candidate decay functions. We explore three families parameterized by α(tdenoise ) > 0 (decreasing function of tdenoise ) and γ(tdenoise ) > 0 (increasing function of tdenoise ): bias lin = − α(tdenoise ) · (∆ − Lrecent ), (6) bias log = − α(tdenoise ) · log(1 + ∆ − Lrecent ), (7) bias pow = − β · ˜∆ γ(tdenoise ), ˜∆ = ∆ − Lrecent 
+
+Lhistory 
+
+, (8) with β > 0 is a scale contant controlling the decay range. All three are illustrated in Figs. 2b to 2d. 5Current           
+
+> DiT Block
+> …
+> Causal DiT
+> 𝜀 ∼ܫ ,0( ܰ)
+> Self Attention
+> Cross Attention
+> Prompt:
+> A stylish woman
+> strolls
+> down a bustling Tokyo street, …
+> oldest frame to be evicted
+> Global History Recent
+> Context
+> FFN
+> DiT Block Temporal Response Bias (TRB)
+> ݔܽ݉ݐ݂݋ݏ ܳܭ்݀Δ, t(ݏ ܾܽ݅+ denoise ܸ)
+> Temporal Distance ઢ
+> ݐௗ௘௡௢௜௦௘
+> ݔܽ݉ݐ݂݋ݏ ܳܭ்ܸ݀෨
+> Biased Attention Reparameterization
+> ݃ܽ݅݀= ܸ෨ ݁௕௜௔௦ [ܸ; ૚]
+
+,ܭ ,ܳ(݊ݐݐܣℎݏ݈ܽܨ )ܸ෨ ܶ ݏ݁݉݅ݐ Figure 4: Overview of Recency Forcing. The context is partitioned into global sink frames (Lglobal ), history frames ( Lhistory ), and recent frames ( Lrecent ). Standard AR methods apply uniform attention over this window and evict distant frames at inference, creating a KV eviction mismatch. Recency Forcing addresses this by injecting Temporal Response Bias (TRB) into the attention logits, decaying the influence of history frames as a function of temporal distance ∆ and denoising timestep tdenoise . While a direct implementation requires flexible kernels (e.g., FlexAttention), Biased Attention Reparameterization (BAR) provides an exact-equivalent reformulation that runs on standard FlashAttention at zero overhead. Linear decay suppresses at a constant rate; logarithmic decay under-suppresses distant frames relative to ˜R; power-law decay with γ(tdenoise ) produces a convex profile matching the observed steep drop-off, concentrating suppression on distant frames. Ablations (Sec. 4.2) confirm power-law performs best; we adopt it for all experiments. 
+
+Timestep-dependent schedules. For our 4-step generator ( tdenoise ∈ { 1, 2, 3, 4}), we use: 
+
+α(tdenoise ) = αbase − tdenoise 
+
+4 , γ(tdenoise ) = γbase · 2 tdenoise , (9) where αbase and γbase are the only free parameters. Decreasing α(tdenoise ) weakens suppression magnitude as denoising progresses; increasing γ(tdenoise ) simultaneously sharpens the decay shape – together reproducing the two-axis structure in ˜R. In training-based mode, both base parameters are uniformly sampled during training; in training-free mode, they are set directly from ˜R.
+
+3.4 Biased Attention Reparameterization (BAR) 
+
+TRB requires injecting the bias B into the pre-softmax logits. A direct implementation using flexible attention kernels such as FlexAttention [12] supports this naturally but incurs non-trivial overhead and is incompatible with the fused softmax in FlashAttention [10], which does not expose intermediate logits. We resolve this with Biased Attention Reparameterization (BAR) : an exact algebraic reformulation that moves the bias outside the softmax, making TRB a standard FlashAttention call with a lightweight value augmentation. For a single query frame qi, since Bi,j depends only on ∆i, j and is independent of the content 
+
+(qi, k j ), it can be factored as wj = exp( Bi,j ) ∈ (0 , 1] , giving: 
+
+oi = Softmax 
+
+ qiK⊤ 
+
+> √d
+
++ Bi, :
+
+
+
+V =
+
+P 
+
+> j
+
+exp 
+
+ qik⊤ 
+
+> j
+> √d
+
++ Bi,j 
+
+
+
+vj
+
+P 
+
+> j
+
+exp 
+
+ qik⊤ 
+
+> j
+> √d
+
++ Bi,j 
+
+ =
+
+P 
+
+> j
+
+exp 
+
+ qik⊤
+
+> j
+> √d
+
+
+
+wj vj
+
+P 
+
+> j
+
+exp 
+
+ qik⊤
+
+> j
+> √d
+
+
+
+wj
+
+. (10) Absorbing wj into an augmented value ˜vj = wj · [vj ; 1] ∈ Rd+1 where [·; ·] is concatenation and stacking into ˜V ∈ RN ×(d+1) , this is equivalent to standard attention followed by a scalar 6normalization: 
+
+˜oi = Softmax 
+
+ qiK⊤
+
+> √d
+
+ ˜V , oi = ˜ oi[: d ] / ˜oi[ d ]. (11) This is algebraically identical to Eq. (5) with no approximation. 
+
+Efficiency. BAR requires three lightweight modifications to a standard attention call: (i) rescale each value vector vj by its decay weight wj = exp( Bi,j ), (ii) append a scalar wj to vj to form ˜vj , and (iii) normalize the output by its final channel. Steps (i)–(ii) are O(N d ) and (iii) is O(N ), both negligible relative to the O(N 2d) attention cost. The attention computation itself is an unmodified FlashAtten-tion call, inheriting all of its memory efficiency and speed. Our BAR implementation achieves more than 11 × speedup over FlexAttention with direct logit modification, with no degradation in output quality. Detailed runtimes are included in Tab. 1 
+
+Training and inference modes. Recency Forcing supports two operating modes: training-free and 
+
+training-based . In both modes, the decay weights wj = exp( Bi,j ) are computed using the power-law function Eq. (8). In the training-based mode, the model is further fine-tuned during a short DMD retraining stage ( ∼12 hours on 4 H100s), yielding additional gains. Importantly, BAR introduces no additional computational cost at inference in either mode. 
+
+## 4 Experiments 
+
+Implementation details. We build Recency Forcing on Wan2.1-T2V-1.3B [43], replacing standard SDPA with BAR-based TRB in all self-attention layers. The training-free variant is applied directly to chunk-wise Self-Forcing [19], while the training-based variant fine-tunes only the DMD stage of Causal Forcing [63]. We use Lattention = 21 and Lglobal = Lrecent = 3 . Additional training and implementation details are provided in Appendix- Sec. B. 
+
+Evaluation. We evaluate on VBench [20] for short-video quality and VBench-Long [21] for long-horizon consistency, using 200 MovieGen [38] prompts following Rolling Forcing [31], with a disjoint 50-prompt set for ablations. All videos are 60 seconds at 16 fps, 832 ×480 . We additionally conduct a user study with 23 participants across four aspects: color consistency, motion dynamics, subject consistency, and overall quality. Details are in Appendix-Sec. C. 
+
+Baselines. We compare against recent autoregressive video generation methods across two settings. For short video generation (VBench), we include SkyReelsV2 [6], MAGI-1 [2], NOVA [11], Pyramid Flow [24], CausVid [55], Self-Forcing [19], LongLive [49], Causal Forcing [63], and Rolling Forcing [31]. For long video generation (VBench-Long), we compare against both training-free methods – Infinity RoPE [52] and Deep Forcing [53] – and training-based AR methods — Self-Forcing [19], Causal Forcing [63], Rolling Forcing [31], and LongLive [49]. 
+
+4.1 Comparison with prior approaches Quantitative results. Tab. 2 reports VBench results for short video quality, and Tab. 3 reports VBench-Long results for long-horizon generation. We highlight three takeaways. First, short video quality is preserved. Our method achieves the best overall score on VBench, demonstrating that integrating TRB introduces no degradation in short-video quality – the bias has negligible effect when all context frames fit within the training window. Second, long-horizon stability is substantially improved. On VBench-Long, our method achieves the highest dynamic degree (75.48) while maintaining strong imaging quality (70.50) and subject consistency (97.68). This indicates that TRB effectively mitigates long-horizon drift without sacrificing visual fidelity or motion naturalness. 
+
+Third, the training-free variant is competitive. Among training-free methods, our approach achieves the best overall VBench-Long score, confirming that the positional response curves ˜R
+
+provide a reliable prior for setting the decay schedule without any additional training. 
+
+Qualitative results. Fig. 5 shows 60-second video generations across methods. Competing methods exhibit three main failure modes. Self-Forcing shows progressive drift in color, texture, and sharpness, leading to quality degredation. LongLive reduces drift but introduces repetition due to its global sink 7Table 2: Comparison on VBench on generated short (5-second) videos . Higher is better. 
+
+Model Total Score Quality Score Semantic Score 
+
+Autoregressive Video Diffusion Models 
+
+SkyReels-V2 [6] 82.67 84.70 74.53 MAGI-1 [2] 79.18 82.04 67.74 NOVA [11] 80.12 80.39 79.05 Pyramid Flow [24] 81.72 84.74 69.62 
+
+Distilled Autoregressive Video Models 
+
+CausVid [55] ∗ 81.20 84.05 69.80 Self Forcing [19] 84.31 85.07 81.28 Causal Forcing [63] 84.04 84.59 81.84 
+
+Rolling Forcing [31] 81.22 84.08 69.78 LONGLIVE [49] 84.87 86.97 76.47 
+
+Recency Forcing (Ours) 85.08 86.20 80.59  
+
+> ∗We compare with the official implementation of CausVid using the same base model (Wan-1.3B).
+
+Table 3: Results on VBench-Long [21] evaluated on 60-second videos. Higher is better.                                                                  
+
+> Model Quality Dynamic Motion Smoothness Temporal Flickering Imaging Aesthetic Subject Consistency Background Consistency
+> Training-free
+> Infinity RoPE [52] 82.30 56.22 98.53 97.41 67.14 59.20 97.31 96.15 Deep Forcing [53] 82.14 56.01 98.10 96.88 68.22 59.85 97.35 96.30
+> Recency Forcing (Ours) 82.63 56.27 98.23 96.98 68.94 60.48 97.81 96.64
+> Training-based
+> Self Forcing [19] 80.11 34.50 98.48 97.77 65.93 56.55 96.97 96.24 Causal Forcing [63] 78.98 65.19 96.94 95.21 63.44 51.35 95.39 95.51 Rolling Forcing [31] 81.56 34.68 98.71 97.62 70.18 59.93 97.74 96.54 LongLive [49] 81.98 42.85 98.75 97.61 68.71 61.48 97.09 95.99
+> Recency Forcing (Ours) 84.02 75.48 98.00 96.32 70.50 61.31 97.68 96.49
+
+mechanism (red boxes in Fig. 5). Deep-Forcing reduces drift but introduces compression artifacts such as motion blur. Infinity-RoPE mitigates drift but suffers from gradual subject inconsistency over time. In contrast, our method maintains consistent visual quality and motion dynamics over the full 60 seconds without noticeable artifacts or inconsistency. 
+
+4.2 Ablation Studies 
+
+We conduct ablation studies on a held-out set of 50 prompts as the validation set, evaluating on VBench-Long with 60-second videos. All metrics are higher-is-better . Unless stated otherwise, ablations use the training-based variant with power-law decay. 
+
+Context truncation vs. temporal decay. We first compare the two design directions in Sec. 3.2 for mitigating KV eviction mismatch in Fig. 3 and Tab. 4. Context truncation (9-frame context) partially reduces the mismatch but removes useful temporal context, causing unnatural motion and unwanted scene change. This increases the dynamic degree (88.58) while harming the overall quality. In contrast, our temporal decay suppresses distant-frame influence smoothly, achieving better VBench-Long performance than both truncation and Causal Forcing. 
+
+Choice of bias function. We compare linear, logarithmic, and power-law decay forms (Eqs. (6) to (8)). As shown in Tab. 5, power-law decay performs best overall, consistent with its convex profile better matching the steep drop-off observed in the positional response curves ˜R. Linear and logarithmic decay both under-suppress distant frames relative to the empirical response, leading to residual drift. We adopt power-law decay for all subsequent experiments. 
+
+Effect of decay strength γbase . We vary γbase at inference time to study decay aggressiveness. As shown in Tab. 6, small values insufficiently suppress distant frames, while large values over-suppress history and harm motion coherence. We find γbase = 0 .1 provides the best trade-off. 8Recency 
+
+> Forcing
+> (Ours)
+> Self
+> Forcing
+> Long
+> Live
+> Rolling
+> Forcing
+> Deep
+> Forcing
+> Infinity
+> RoPE
+
+30s  60s 0s Figure 5: Qualitative comparison on 60-second videos. Self-Forcing suffers from color drift, LongLive produces scene repetition (red boxes), DeepForcing introduces blur, and Infinity-RoPE loses subject consistency. Recency Forcing preserves visual fidelity and motion throughout. For better visualization, we refer the reader to Appendix Sec. A in the supplementary material. Table 4: Context truncation vs. TRB decay. Row 1 ( Lattention = 21 , no decay) is the Causal Forcing baseline. Truncation ( Lattention = 9 ) inflates dy-namic degree at the cost of overall quality; TRB achieves the best balance. 
+
+Lattention Decay Quality Imaging Dynamic 
+
+21 none 80.56 65.09 78.32 9 none 81.10 66.40 88.58 
+
+21 TRB 84.17 69.05 81.55 
+
+Table 5: Effect of bias function. Power-law decay best matches the steep drop-off in the po-sitional response ˜R, yielding the highest quality and dynamic degree.             
+
+> Bias( ∆, t denoise )Quality Imaging Dynamic
+> Linear 83.26 68.90 66.06 Log 83.16 69.42 72.06 Power-law 84.17 69.05 81.55
+
+Table 6: Effect of decay strength γbase .
+
+γbase Quality Imaging Dynamic 
+
+0.01 84.36 69.63 79.42 0.1 84.17 69.05 81.55 0.5 82.91 67.05 81.94 1.0 82.61 65.98 83.93 
+
+Table 7: Effect of recent context size Lrecent .
+
+Lrecent Quality Imaging Dynamic 
+
+0 82.80 69.86 40.90 3 84.17 69.05 81.55 
+
+6 82.14 69.51 49.03 
+
+Effect of recent context length. We vary Lrecent ∈ { 0, 3, 6} to study the effect of recent context length. As shown in Tab. 7, removing recent context entirely ( Lrecent = 0 ) significantly degrades motion quality, showing that nearby frames provide critical motion cues. Larger Lrecent improves motion stability with diminishing returns beyond a small window. We use Lrecent = 3 by default. 
+
+## 5 Conclusion 
+
+We propose Recency Forcing , whose core component is Temporal Response Bias (TRB) : an additive softmax bias decaying with temporal distance at a rate that varies with the denoising timestep 9– steep early, gentle late – mirroring R. Since distant frames already receive negligible weight at the eviction boundary, their removal becomes information-preserving, closing the train–test gap by design. Recency Forcing targets attention weighting, a layer none of the three prior families modifies, and composes cleanly with all of them. To make TRB practical, we introduce Biased Attention Reparameterization (BAR) , an exact reformulation that moves the bias outside the softmax, making TRB a standard FlashAttention [10] call with no kernel modifications and zero inference overhead. 10 References 
+
+[1] Nvidia Niket Agarwal, Arslan Ali, Maciej Bala, Yogesh Balaji, Erik Barker, Tiffany Cai, Prithvijit Chattopadhyay, Yongxin Chen, Yin Cui, Yifan Ding, Daniel Dworakowski, JiaoJiao Fan, Michele Fenzi, Francesco Ferroni, Sanja Fidler, Dieter Fox, Songwei Ge, Yunhao Ge, Jinwei Gu, Siddharth Gururani, Ethan He, Jiahui Huang, Jacob Samuel Huffman, Pooya Jannaty, Jingyi Jin, Seung Wook Kim, Gergely Kl’ar, Grace Lam, Shiyi Lan, Laura Leal-Taixé, Anqi Li, Zhaoshuo Li, Chen-Hsuan Lin, Tsung-Yi Lin, Huan Ling, Ming-Yu Liu, Xian Liu, Alice Luo, Qianli Ma, Hanzi Mao, Kaichun Mo, Arsalan Mousavian, Seungjun Nah, Sriharsha Niverty, David Page, Despoina Paschalidou, Zeeshan Patel, Lindsey Pavao, Morteza Ramezanali, Fitsum A. Reda, Xiao-Shuai Ren, Vasanth Rao Naik Sabavat, Ed Schmerling, Stella Shi, Bartosz Stefaniak, Shitao Tang, Lyne P. Tchapmi, Przemek Tredak, Wei-Cheng Tseng, Jibin Rajan Varghese, Hao Wang, Haoxiang Wang, Hengyi Wang, Tingwei Wang, Fangyin Wei, Xinyue Wei, Jay Zhangjie Wu, Jiashu Xu, Wei Yang, Lin Yen-Chen, Xiaohui Zeng, Yuan Zeng, Jing Zhang, Qinsheng Zhang, Yuxuan Zhang, Qingqing Zhao, and Artur Zolkowski. Cosmos world foundation model platform for physical ai. 
+
+ArXiv , abs/2501.03575, 2025. [2] Sand. ai, Han Sack Teng, Hong Jia, Lei Sun, Lingzhi Li, Maolin Li, Min Tang, Shu Han, Tianning Zhang, W. Q. Zhang, Weifeng Luo, Xiaoyang Kang, Yuchen Sun, Yue Cao, Yunpeng Huang, Yutong Lin, Yuxin Fang, Zewei Tao, Zheng Zhang, Zhongshu Wang, Zixun Liu, Daiqi Shi, Guoli Su, Hanwen Sun, Hong-Fei Pan, Jie Wang, Jie Sheng, Mingyan Cui, Min Hu, Ming Yan, Shucheng Yin, Si-Hui Zhang, Tingting Liu, Xi Yin, Xiaoyu Yang, Xin Song, Xuan Hu, Yankai Zhang, and Yu-Qian Li. Magi-1: Autoregressive video generation at scale. ArXiv , abs/2505.13211, 2025. [3] Michael Albergo, Nicholas M Boffi, and Eric Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. Journal of Machine Learning Research , 26(209):1–80, 2025. [4] Eloi Alonso, Adam Jelley, Vincent Micheli, Anssi Kanervisto, Amos Storkey, Tim Pearce, and François Fleuret. Diffusion for world modeling: Visual details matter in atari. Advances in Neural Information Processing Systems , 37:58757–58791, 2024. [5] A. Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, and Dominik Lorenz. Stable video diffusion: Scaling latent video diffusion models to large datasets. ArXiv , abs/2311.15127, 2023. [6] Guibin Chen, Dixuan Lin, Jiangping Yang, Chunze Lin, Juncheng Zhu, Mingyuan Fan, Hao Zhang, Sheng Chen, Zhenghao Chen, Chengcheng Ma, Weiming Xiong, Wei Wang, Nuo Pang, Kang Kang, Zhi-Xin Xu, Yuzhe Jin, Yu Liang, Yu-Ning Song, Peng Zhao, Bo Xu, Di Qiu, Debang Li, Zhengcong Fei, Yang Li, and Yahui Zhou. Skyreels-v2: Infinite-length film generative model. ArXiv , abs/2504.13074, 2025. [7] Hanmo Chen, Chenghao Xu, Xu Yang, Xuan Chen, and Cheng Deng. Past-and future-informed kv cache policy with salience estimation in autoregressive video diffusion. arXiv preprint arXiv:2601.21896 , 2026. [8] Justin Cui, Jie Wu, Ming Li, Tao Yang, Xiaojie Li, Rui Wang, Andrew Bai, Yuanhao Ban, and Cho-Jui Hsieh. Self-forcing++: Towards minute-scale high-quality video generation. arXiv preprint arXiv:2510.02283 ,2025. [9] Justin Cui, Jie Wu, Ming Li, Tao Yang, Xiaojie Li, Rui Wang, Andrew Bai, Yuanhao Ban, and Cho-Jui Hsieh. Lol: Longer than longer, scaling video generation to hour. arXiv preprint arXiv:2601.16914 , 2026. [10] Tri Dao. Flashattention-2: Faster attention with better parallelism and work partitioning. arXiv preprint arXiv:2307.08691 , 2023. [11] Haoge Deng, Ting Pan, Haiwen Diao, Zhengxiong Luo, Yufeng Cui, Huchuan Lu, Shiguang Shan, Yonggang Qi, and Xinlong Wang. Autoregressive video generation without vector quantization. ArXiv ,abs/2412.14169, 2024. [12] Juechu Dong, Boyuan Feng, Driss Guessous, Yanbo Liang, and Horace He. Flex attention: A programming model for generating optimized attention kernels. arXiv preprint arXiv:2412.05496 , 2(3):4, 2024. [13] Yuwei Guo, Ceyuan Yang, Hao He, Yang Zhao, Meng Wei, Zhenheng Yang, Weilin Huang, and Dahua Lin. End-to-end training for autoregressive video diffusion via self-resampling. ArXiv , abs/2512.15702, 2025. [14] Yuwei Guo, Ceyuan Yang, Hao He, Yang Zhao, Meng Wei, Zhenheng Yang, Weilin Huang, and Dahua Lin. End-to-end training for autoregressive video diffusion via self-resampling. arXiv preprint arXiv:2512.15702 , 2025. [15] Yuwei Guo, Ceyuan Yang, Anyi Rao, Yaohui Wang, Y. Qiao, Dahua Lin, and Bo Dai. Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. ArXiv , abs/2307.04725, 2023. 
+
+11 [16] Yoav HaCohen, Nisan Chiprut, Benny Brazowski, Daniel Shalem, Dudu Moshe, Eitan Richardson, Eran Levin, Guy Shiran, Nir Zabari, Ori Gordon, et al. Ltx-video: Realtime video latent diffusion. arXiv preprint arXiv:2501.00103 , 2024. [17] Roberto Henschel, Levon Khachatryan, Hayk Poghosyan, Daniil Hayrapetyan, Vahram Tadevosyan, Zhangyang Wang, Shant Navasardyan, and Humphrey Shi. Streamingt2v: Consistent, dynamic, and extendable long video generation from text. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 2568–2577, 2025. [18] Yicong Hong, Yiqun Mei, Chongjian Ge, Yiran Xu, Yang Zhou, Sai Bi, Yannick Hold-Geoffroy, Mike Roberts, Matthew Fisher, Eli Shechtman, et al. Relic: Interactive video world model with long-horizon memory. arXiv preprint arXiv:2512.04040 , 2025. [19] Xun Huang, Zhengqi Li, Guande He, Mingyuan Zhou, and Eli Shechtman. Self forcing: Bridging the train-test gap in autoregressive video diffusion. ArXiv , abs/2506.08009, 2025. [20] Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qin Jin, Nattapol Chanpaisit, Yaohui Wang, Xinyuan Chen, Limin Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. Vbench: Comprehensive benchmark suite for video generative models. 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 21807–21818, 2023. [21] Ziqi Huang, Fan Zhang, Xiaojie Xu, Yinan He, Jiashuo Yu, Ziyue Dong, Qianli Ma, Nattapol Chanpaisit, Chenyang Si, Yuming Jiang, et al. Vbench++: Comprehensive and versatile benchmark suite for video generative models. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2025. [22] Jihwan Kim, Junoh Kang, Jinyoung Choi, and Bohyung Han. Fifo-diffusion: Generating infinite videos from text without training. ArXiv , abs/2405.11473, 2024. [23] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. Hunyuanvideo: A systematic framework for large video generative models. arXiv preprint arXiv:2412.03603 , 2024. [24] Jiarui Lei, Xiaobo Hu, Yue Wang, and Dong Liu. Pyramidflow: High-resolution defect contrastive localization using pyramid normalizing flow. 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14143–14152, 2023. [25] Haodong Li, Shaoteng Liu, Zhe Lin, and Manmohan Chandraker. Rolling sink: Bridging limited-horizon training and open-ended testing in autoregressive video diffusion. arXiv preprint arXiv:2602.07775 , 2026. [26] Jia Li, Xiaomeng Fu, Xurui Peng, Weifeng Chen, Youwei Zheng, Tianyu Zhao, Jiexi Wang, Fangmin Chen, Xing Wang, and Hayden Kwok-Hay So. Train short, inference long: Training-free horizon extension for autoregressive video generation. arXiv preprint arXiv:2602.14027 , 2026. [27] Shuang Li, Yihuai Gao, Dorsa Sadigh, and Shuran Song. Unified video action model. arXiv preprint arXiv:2503.00200 , 2025. [28] Zongyi Li, Shujie Hu, Shujie Liu, Long Zhou, Jeongsoo Choi, Lingwei Meng, Xun Guo, Jinyu Li, Hefei Ling, and Furu Wei. Arlon: Boosting diffusion transformers with autoregressive models for long video generation. arXiv preprint arXiv:2410.20502 , 2024. [29] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. ArXiv , abs/2210.02747, 2022. [30] Haozhe Liu, Shikun Liu, Zijian Zhou, Mengmeng Xu, Yanping Xie, Xiao Han, Juan C Pérez, Ding Liu, Kumara Kahatapitiya, Menglin Jia, et al. Mardini: Masked autoregressive diffusion for video generation at scale. arXiv preprint arXiv:2410.20280 , 2024. [31] Kunhao Liu, Wenbo Hu, Jiale Xu, Ying Shan, and Shijian Lu. Rolling forcing: Autoregressive long video diffusion in real time. arXiv preprint arXiv:2509.25161 , 2025. [32] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [33] Yunhong Lu, Yanhong Zeng, Haobo Li, Hao Ouyang, Qiuyu Wang, Ka Leong Cheng, Jiapeng Zhu, Hengyuan Cao, Zhipeng Zhang, Xing Zhu, et al. Reward forcing: Efficient streaming video generation with rewarded distribution matching distillation. arXiv preprint arXiv:2512.04678 , 2025. [34] Xiaofeng Mao, Zhen Li, Chuanhao Li, Xiaojie Xu, Kaining Ying, Tong He, Jiangmiao Pang, Yu Qiao, and Kaipeng Zhang. Yume-1.5: A text-controlled interactive world generation model. arXiv preprint arXiv:2512.22096 , 2025. 
+
+12 [35] Xiaofeng Mao, Shaohao Rui, Kaining Ying, Bo Zheng, Chuanhao Li, Mingmin Chi, and Kaipeng Zhang. Packforcing: Short video training suffices for long video sampling and long context inference. arXiv preprint arXiv:2603.25730 , 2026. [36] William S. Peebles and Saining Xie. Scalable diffusion models with transformers. 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pages 4172–4182, 2022. [37] Ryan Po, Eric Ryan Chan, Changan Chen, and Gordon Wetzstein. Bagger: Backwards aggregation for mitigating drift in autoregressive video diffusion models. ArXiv , abs/2512.12080, 2025. [38] Adam Polyak, Amit Zohar, Andrew Brown, Andros Tjandra, Animesh Sinha, Ann Lee, Apoorv Vyas, Bowen Shi, Chih-Yao Ma, Ching-Yao Chuang, et al. Movie gen: A cast of media foundation models. 
+
+arXiv preprint arXiv:2410.13720 , 2024. [39] Sucheng Ren, Chen Chen, Zhenbang Wang, Liangchen Song, Xiangxin Zhu, Alan Yuille, Yinfei Yang, and Jiasen Lu. Autoregressive video generation beyond next frames prediction. arXiv preprint arXiv:2509.24081 , 2025. [40] Wenqiang Sun, Haiyu Zhang, Haoyuan Wang, Junta Wu, Zehan Wang, Zhenwei Wang, Yunhong Wang, Jun Zhang, Tengfei Wang, and Chunchao Guo. Worldplay: Towards long-term geometric consistency for real-time interactive world modeling. arXiv preprint arXiv:2512.14614 , 2025. [41] Junshu Tang, Jiacheng Liu, Jiaqi Li, Longhuang Wu, Haoyu Yang, Penghao Zhao, Siruis Gong, Xiang Yuan, Shuai Shao, Linfeng Zhang, et al. Hunyuan-gamecraft-2: Instruction-following interactive game world model. arXiv preprint arXiv:2511.23429 , 2025. [42] Dani Valevski, Yaniv Leviathan, Moab Arar, and Shlomi Fruchter. Diffusion models are real-time game engines. arXiv preprint arXiv:2408.14837 , 2024. [43] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [44] Wenhao Wang and Yi Yang. Vidprom: A million-scale real prompt-gallery dataset for text-to-video diffusion models. Advances in Neural Information Processing Systems , 37:65618–65642, 2024. [45] Wenming Weng, Ruoyu Feng, Yanhui Wang, Qi Dai, Chunyu Wang, Dacheng Yin, Zhiyuan Zhao, Kai Qiu, Jianmin Bao, Yuhui Yuan, et al. Art-v: Auto-regressive text-to-video generation with diffusion models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 7395–7405, 2024. [46] Xunzhi Xiang, Zixuan Duan, Guiyu Zhang, Haiyu Zhang, Zhe Gao, Junta Wu, Shaofeng Zhang, Tengfei Wang, Qi Fan, and Chunchao Guo. Pathwise test-time correction for autoregressive long video generation. 
+
+ArXiv , abs/2602.05871, 2026. [47] Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. Efficient streaming language models with attention sinks, 2024. URL https://arxiv. org/abs/2309.17453 , page 1, 2023. [48] Mengjiao Yang, Yilun Du, Kamyar Ghasemipour, Jonathan Tompson, Dale Schuurmans, and Pieter Abbeel. Learning interactive real-world simulators. arXiv preprint arXiv:2310.06114 , 1(2):6, 2023. [49] Shuai Yang, Wei Huang, Ruihang Chu, Yicheng Xiao, Yuyang Zhao, Xianbang Wang, Muyang Li, Enze Xie, Yingcong Chen, Yao Lu, et al. Longlive: Real-time interactive long video generation. arXiv preprint arXiv:2509.22622 , 2025. [50] Yang Yang, Tianyi Zhang, Wei Huang, Jinwei Chen, Boxi Wu, Xiaofei He, Deng Cai, Bo Li, and Peng-Tao Jiang. Anchor forcing: Anchor memory and tri-region rope for interactive streaming video diffusion. arXiv preprint arXiv:2603.13405 , 2026. [51] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. Cogvideox: Text-to-video diffusion models with an expert transformer. arXiv preprint arXiv:2408.06072 , 2024. [52] Hidir Yesiltepe, Tuna Han Salih Meral, Adil Kaan Akan, Kaan Oktay, and Pinar Yanardag. Infinity-rope: Action-controllable infinite video generation emerges from autoregressive self-rollout. arXiv preprint arXiv:2511.20649 , 2025. [53] Jung Yi, Wooseok Jang, Paul Hyunbin Cho, Jisu Nam, Heeji Yoon, and Seungryong Kim. Deep forc-ing: Training-free long video generation with deep sink and participative compression. arXiv preprint arXiv:2512.05081 , 2025. 
+
+13 [54] Sheng-Siang Yin, Chenfei Wu, Huan Yang, Jianfeng Wang, Xiaodong Wang, Minheng Ni, Zhengyuan Yang, Linjie Li, Shuguang Liu, Fan Yang, Jianlong Fu, Gong Ming, Lijuan Wang, Zicheng Liu, Houqiang Li, and Nan Duan. Nuwa-xl: Diffusion over diffusion for extremely long video generation. ArXiv ,abs/2303.12346, 2023. [55] Tianwei Yin, Qiang Zhang, Richard Zhang, William T Freeman, Fredo Durand, Eli Shechtman, and Xun Huang. From slow bidirectional to fast autoregressive video diffusion models. In CVPR , 2025. [56] Jiwen Yu, Yiran Qin, Xintao Wang, Pengfei Wan, Di Zhang, and Xihui Liu. Gamefactory: Creating new games with generative interactive videos. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 11590–11599, 2025. [57] Sihyun Yu, Meera Hahn, Dan Kondratyuk, Jinwoo Shin, Agrim Gupta, José Lezama, Irfan Essa, David Ross, and Jonathan Huang. Malt diffusion: Memory-augmented latent transformers for any-length video generation. arXiv preprint arXiv:2502.12632 , 2025. [58] Hangjie Yuan, Weihua Chen, Jun Cen, Hu Yu, Jingyun Liang, Shuning Chang, Zhihui Lin, Tao Feng, Pengwei Liu, Jiazheng Xing, et al. Lumos-1: On autoregressive video generation from a unified model perspective. arXiv preprint arXiv:2507.08801 , 2025. [59] Yifan Zhang, Chunli Peng, Boyang Wang, Puyi Wang, Qingcheng Zhu, Fei Kang, Biao Jiang, Ze-dong Gao, Eric Li, Yang Liu, et al. Matrix-game: Interactive world foundation model. arXiv preprint arXiv:2506.18701 , 2025. [60] Yuan Zhang, Jiacheng Jiang, Guoqing Ma, Zhiying Lu, Haoyang Huang, Jian min Yuan, and Nan Duan. Generative pre-trained autoregressive diffusion transformer. ArXiv , abs/2505.07344, 2025. [61] Min Zhao, Guande He, Yixiao Chen, Hongzhou Zhu, Chongxuan Li, and Jun Zhu. Riflex: A free lunch for length extrapolation in video diffusion transformers. ArXiv , abs/2502.15894, 2025. [62] Zengqun Zhao, Yanzuo Lu, Ziquan Liu, Jifei Song, Jiankang Deng, and Ioannis Patras. Relax forcing: Relaxed kv-memory for consistent long video generation. arXiv preprint arXiv:2603.21366 , 2026. [63] Hongzhou Zhu, Min Zhao, Guande He, Hang Su, Chongxuan Li, and Jun Zhu. Causal forcing: Autoregres-sive diffusion distillation done right for high-quality real-time interactive video generation. arXiv preprint arXiv:2602.02214 , 2026. 
+
+14 A Additional qualitative results 
+
+We provide additional qualitative and comparison results on our Project Web Page .
+
+## B Implementation Details 
+
+We implement Recency Forcing on top of a 1.3B autoregressive video diffusion model following Causal Forcing [63], built on the Wan2.1-T2V-1.3B backbone [43]. We replace standard SDPA with BAR-based TRB in all self-attention layers. The model generates videos at a resolution of 832 × 480 ,
+
+Lattention = 21 latent frames, Lglobal = Lrecent = Lcurrent = 3 latent frames, with TRB applied to the remaining history frames. 
+
+Analysis. The positional response R(∆ , t dempose ) analysis is conducted on both chunk-wise and frame-wise Causal Forcing [63], only frame-wise version is reported in Sec. 3.2 for conceptual clarity. 
+
+Training. Our method can be directly applied to pretrained distilled autoregressive video models [19, 63]. For the training-based variant, we initialize from a pretrained causal ODE checkpoint of Causal Forcing [63] and fine-tune only the DMD stage with TRB following the Self-Forcing [19] training protocol. Training is conducted on short clips (5 seconds) sampled from a filtered and LLM-augmented version of VidProM [44] for 3,500 steps with batch size 4 on H100 GPUs. During training, we sample αbase ∼ U (0 , 2) and γbase ∼ U (0 , 1) , and set β = Lhistory .
+
+Inference. During inference, KV-cache eviction is applied as in prior work, while TRB adaptively reduces reliance on evicted frames. All experiments use chunk-wise Causal Forcing [63] as the base model, with a chunk size of 3 latent frames, temporal distance ∆ is calculated between chunks. For the training-free setting, we apply our method to Self-Forcing [19] to ensure a fair comparison with other training-free methods (e.g., Deep Forcing [53] and ∞-RoPE [52]). For long video generation, we adopt relative RoPE [31, 53, 62], where the RoPE indices of the global context are shifted to align with the immediately preceding history frames. For fair comparison, we also incorporate the Causal Forcing baseline with both global sink tokens and relative RoPE. 
+
+## C User Study 
+
+We conduct a human evaluation using a one-versus-other protocol. 
+
+Setup. We conduct a user study with 23 participants and evaluate on randomly sampled 20 prompts. For each prompt, we generate videos from four methods: Self Forcing [19], Rolling Forcing [25], Longlive [49], and our Recency Forcing. Each participant is assigned up to 20 pairwise comparisons randomly sampled from four methods. 
+
+Protocol. We adopt a Two-Alternative Forced Choice (2AFC) protocol. Participants are shown two videos at a time and asked to select the better one according to the following criteria: • Color consistency : which video has more consistent colors across frames? • Dynamic motion : which video show more natural and convincing motion dynamics? • Subject consistency : which video keep the subject more consistent over time? • Overall quality : Which video has better overall quality? The evaluation is conducted via a web-based interface with randomized ordering to avoid bias. 
+
+Statistics. In total, we collected over 1620 responses. Results are reported as preference percentages. 
+
+Results. As shown in Fig. 6, participants consistently prefer Recency Forcing across all four evalu-ation aspects. The largest margin appears in motion dynamics, suggesting that TRB’s suppression of distant-frame drift improves perceptual identity preservation — an effect not fully captured by automatic metrics. These results further support our quantitative and qualitative findings. 15 0 25 50 75 100  
+
+> Preference Rate (%) Recency Forcing Self Forcing Recency Forcing Rolling Forcing Recency Forcing LongLive
+
+Overall quality (a) Overall quality. 0 25 50 75 100  
+
+> Preference Rate (%) Recency Forcing Self Forcing Recency Forcing Rolling Forcing Recency Forcing LongLive
+
+Color consistency (b) Color consistency. 0 25 50 75 100  
+
+> Preference Rate (%) Recency Forcing Self Forcing Recency Forcing Rolling Forcing Recency Forcing LongLive
+
+Dynamic motion 
+
+(c) Dynamic motion. 0 25 50 75 100  
+
+> Preference Rate (%) Recency Forcing Self Forcing Recency Forcing Rolling Forcing Recency Forcing LongLive
+
+Subject consistency (d) Subject consistency. 
+
+Figure 6: User preference study. Preference rates of Recency Forcing against baseline methods across four evaluation aspects: (a) overall quality, (b) color consistency, (c) dynamic motion, and (d) 
+
+subject consistency. Recency Forcing is consistently preferred in all settings. The largest margin is observed in dynamic motion , highlighting improved long-range identity preservation beyond what is reflected by automatic metrics. 
+
+## D Details of Biased Attention Reparameterization 
+
+We provide the full derivation of Biased Attention Reparameterization (BAR) .For a single query frame qi, biased attention is defined as: 
+
+oi = Softmax 
+
+ qiK⊤
+
+√d + Bi, :
+
+
+
+V. (12) Expanding the softmax: 
+
+oi =
+
+P 
+
+> j
+
+exp 
+
+ qik⊤ 
+
+> j
+> √d
+
++ Bi,j 
+
+
+
+vj
+
+P 
+
+> j
+
+exp 
+
+ qik⊤ 
+
+> j
+> √d
+
++ Bi,j 
+
+ . (13) Since Bi,j depends only on position, define: 
+
+wj = exp( Bi,j ) ∈ (0 , 1] . (14) Substituting: 
+
+oi =
+
+P 
+
+> j
+
+exp 
+
+ qik⊤
+
+> j
+> √d
+
+
+
+wj vj
+
+P 
+
+> j
+
+exp 
+
+ qik⊤
+
+> j
+> √d
+
+
+
+wj
+
+. (15) We absorb wj into an augmented value: 
+
+˜vj = wj · [vj ; 1] ∈ Rd+1 , (16) where [; ] denotes concatenation. Stacking all augmented values gives ˜V ∈ RN ×(d+1) .16 Figure 7: An example interface for our user preference study, where videos generated by different methods are displayed in a randomized left/right arrangement. The attention can then be rewritten as standard attention: 
+
+˜oi = Softmax 
+
+ qiK⊤
+
+√d
+
+
+
+˜V . (17) Finally, the original output is recovered by: 
+
+oi = ˜ oi[: d], /, ˜oi[d]. (18) This reformulation is algebraically identical to the original biased attention with no approximation, enabling efficient implementation using standard FlashAttention kernels. 
+
+## E Limitations 
+
+Though our method can be applied to generate arbitrarily long videos, we observe degradation when the duration exceeds 4-5 minutes. As shown in Fig. 8, the first-row sample exhibits visual inconsistency and gradual drift in the house column over time, while the bird in the second-row sample disappears and later reappears with inconsistent appearance. Generating infinitely long videos without quality degradation remains highly challenging, as previous methods typically demonstrate generation only up to limited durations (usually around 120 seconds). 17 0s  120s  240s  300s 
+
+> Prompt: At a misty waterfall shrine in Japan, a shrine maiden in a white and vermilion outƱt Ʊlls the frame in ultra-realistic UHD with drifting incense...
+> Prompt: Along a rainforest suspension bridge, a biologist in a yellow poncho and Ʊeld vest Ʊlls the foreground in HDR 4K with wet leaves and bright insects.
+
+Figure 8: Failure cases of our method at extremely long horizons (5-minute videos). In the first-row example, the house’s column gradually drifts and changes color after approximately 2 minutes. In the second-row example, the bird disappears as the video approaches the 4-minute mark, then reappears with inconsistent visual appearance compared to earlier frames. 18

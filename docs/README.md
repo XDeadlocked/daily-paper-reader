@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-18</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-19</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 16 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-18 22:09:14 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-19 21:30:39 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-18 日报精选19篇机器人学习与控制论文，8篇精读聚焦世界-动作模型与VLA动作分词。最值得看的是满分综述《World-Action Models for Robot Learning and Control》和9分的《M²Tok》多码本离散动作分词。普通读者可先从这两篇入手，建立世界模型驱动机器人控制的整体认知。</p>
+<p>2026-09-19 日报完成16篇筛选，精读6篇、速读10篇，聚焦机器人与世界-动作模型前沿。最值得看的是满分综述《World-Action Models for Robot Learning and Control》及《Modality-Autoregressive World-Action Models》，系统梳理了世界模型与动作生成的结合路径。普通读者可先从这两篇综述入手，再顺着速读中的水下双臂机器人和联邦VLA训练拓展视野。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="${M}^2$Tok: Multi-head Multi-codebook Discrete Action Tokenization for Vision-Language-Action Models">${M}^2$Tok: Multi-head Multi-codebook Discrete Action Tokenization for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActionPiece: Rethinking Action Tokenization for Autoregressive Vision-Language-Action Models">ActionPiece: Rethinking Action Tokenization for Autoregressive Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="Modality-Autoregressive World-Action Models">Modality-Autoregressive World-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RAF-VLA: Representation Alignment with the Future for End-to-End Autonomous Driving">RAF-VLA: Representation Alignment with the Future for End-to-End Autonomous Driving</span></li><li><span class="dpr-home-dashboard-paper-title" title="CSWAM: Better Causal Semantic Representations for Out-of-Distribution Generalization in World Action Models">CSWAM: Better Causal Semantic Representations for Out-of-Distribution Generalization in World Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActiveScale: Scaling Active Perception for Robots across Model, Data, and Hardware">ActiveScale: Scaling Active Perception for Robots across Model, Data, and Hardware</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ULOHA: An Underwater Bimanual Robot System for Robot Learning">ULOHA: An Underwater Bimanual Robot System for Robot Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Recency Forcing: Bridging the Long-Horizon Gap in Autoregressive Video Generation">Recency Forcing: Bridging the Long-Horizon Gap in Autoregressive Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Co-VLA: Consensus-based Federated Training for Vision-Language-Action Models">Co-VLA: Consensus-based Federated Training for Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 </div>
 
