@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-20</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-21</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-20 21:48:23 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-21 22:36:10 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 11 篇推荐（精读 5 篇，速读 6 篇）</p>
+<p>今日共生成 15 篇推荐（精读 6 篇，速读 9 篇）</p>
 <p>精读：《World-Action Models for Robot Learning and Control: A Survey》（10.0/10）, 《A Comprehensive Review of Generative Physical Artificial Intelligence》（9.0/10）</p>
-<p>速读：《WholeBodyWAM: Learning Whole-Body World Action Models with Scalable Motion Priors》（7.0/10）, 《GAVEL: Graph World Models for Verified and Efficient Long-Horizon LLM Task Planning》（7.0/10）, 《Bridging Learned Visual Perception and Symbolic Belief-Space Planning》（6.0/10）</p>
+<p>速读：《ForeTac-VLA: A Forecasting-Based Tactile-Vision-Language-Action Model for Contact-Rich Robotic Manipulation》（8.0/10）, 《ME-Dex 1.0: Bringing Heterogeneous Tactile Sensing into World Action Modeling》（8.0/10）, 《MT-WAM: Reorienting the One-Pass Predictive Representation Toward Action Generation》（8.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -74,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="ForceDelta-VLA: Distilling Force-Conditioned ActionCorrections for Contact-Rich Manipulation">ForceDelta-VLA: Distilling Force-Conditioned ActionCorrections for Contact-Rich Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="World-Action Models for Robot Learning and Control: A Survey">World-Action Models for Robot Learning and Control: A Survey</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Catch Me If You Can: Real-Time Feedback Denoising for Responsive VLAs">Catch Me If You Can: Real-Time Feedback Denoising for Responsive VLAs</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,12 +87,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WholeBodyWAM: Learning Whole-Body World Action Models with Scalable Motion Priors">WholeBodyWAM: Learning Whole-Body World Action Models with Scalable Motion Priors</span></li><li><span class="dpr-home-dashboard-paper-title" title="GAVEL: Graph World Models for Verified and Efficient Long-Horizon LLM Task Planning">GAVEL: Graph World Models for Verified and Efficient Long-Horizon LLM Task Planning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Bridging Learned Visual Perception and Symbolic Belief-Space Planning">Bridging Learned Visual Perception and Symbolic Belief-Space Planning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ForeTac-VLA: A Forecasting-Based Tactile-Vision-Language-Action Model for Contact-Rich Robotic Manipulation">ForeTac-VLA: A Forecasting-Based Tactile-Vision-Language-Action Model for Contact-Rich Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="ME-Dex 1.0: Bringing Heterogeneous Tactile Sensing into World Action Modeling">ME-Dex 1.0: Bringing Heterogeneous Tactile Sensing into World Action Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="MT-WAM: Reorienting the One-Pass Predictive Representation Toward Action Generation">MT-WAM: Reorienting the One-Pass Predictive Representation Toward Action Generation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 </div>
 
