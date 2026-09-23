@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-22</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-23</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 27 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-22 22:39:01 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-23 22:38:28 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今天筛完27篇文献，精读16篇、速读11篇，焦点集中在生成式物理AI与世界模型驱动的机器人/VLA策略。</p>
-<p>最值得看的是两篇9分精读：《A Comprehensive Review of Generative Physical Artificial Intelligence》和《Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization》。</p>
-<p>普通读者可先借综述建立全局地图，再跟进“世界模型+策略优化”及VLM/VLA鲁棒性验证这两条落地线索。</p>
+<p>2026-09-23 日报精选17篇，精读6篇、速读11篇，聚焦生成式物理AI与VLA模型。最值得看的是两篇9分精读：生成式物理人工智能综述，以及面向VLA的任务语义动作校准。建议普通读者先读这两篇精读，再按需浏览VLM迁移机器人控制等速读文章。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">16 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization">Prioritized Rollouts for Efficient World Model-based Vision-Language-Action Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stable and Efficient Real-World Online VLA Post-Training via Asynchronous Replay-Anchored Policy Improvement">Stable and Efficient Real-World Online VLA Post-Training via Asynchronous Replay-Anchored Policy Improvement</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="Beyond Appearance Shifts: Task-Semantic Action Calibration for VLA Models">Beyond Appearance Shifts: Task-Semantic Action Calibration for VLA Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Think Like a World Model, Act Like a VLA: Distilling World-Model Representations into Compact Robot Policies">Think Like a World Model, Act Like a VLA: Distilling World-Model Representations into Compact Robot Policies</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>16</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Validating, Not Sampling: Region-Level Robustness of Vision-Language and Vision-Language-Action Models">Validating, Not Sampling: Region-Level Robustness of Vision-Language and Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="AffordanceWAM: Affordance-Aware Joint World-Action Modeling for Robot Manipulation">AffordanceWAM: Affordance-Aware Joint World-Action Modeling for Robot Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="ConsistWorld: Evidence Routing for Consistent Multi-Agent World Models">ConsistWorld: Evidence Routing for Consistent Multi-Agent World Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VLPSA: Vision-Language-Poisson-Safe Actions for Full-Body Safety of Learned Policies">VLPSA: Vision-Language-Poisson-Safe Actions for Full-Body Safety of Learned Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="BEACON: Belief-Enabled Adaptive CONtrol for Imitation Learning under Uncertainty">BEACON: Belief-Enabled Adaptive CONtrol for Imitation Learning under Uncertainty</span></li><li><span class="dpr-home-dashboard-paper-title" title="Transferring the Intelligence of VLMs to Robotic Control">Transferring the Intelligence of VLMs to Robotic Control</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
