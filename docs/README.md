@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-24</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-25</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-24 22:45:48 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-25 22:36:24 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,10 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 12 篇推荐（精读 8 篇，速读 4 篇）</p>
-<p>精读：《A Comprehensive Review of Generative Physical Artificial Intelligence》（9.0/10）, 《BEE: Intervention-Adaptive Real-World Reinforcement Learning with Vision-Language-Action Models》（9.0/10）</p>
-<p>速读：《RouteRLT: Learning When and Which RL Specialist Should Control a Vision-Language-Action Policy》（8.0/10）, 《Behavior-Aligned Action Tokenization for Robot Policy Learning》（8.0/10）, 《InfiNoVA: Infinite Novel View Augmentation for Viewpoint Invariant Robot Policies》（8.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>今日扫完17篇VLA/机器人论文，精读8篇、速读9篇，重点集中在接触丰富操作与几何变化监督两条高分线。最值得看的是9.0分的CompVLA可变柔顺VLA和HABILIS Brain 0几何变化监督，速读中的VLA-Scope失败预测、KeyGen无监督关键点、动作表示方向-尺度分解也指向同一趋势：让VLA更稳、更泛化。普通读者可先读这两篇9分精读，再按“失败预测—表征—策略泛化”顺序扫速读，抓住VLA从能动作走向可靠操作的主线。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -77,7 +74,7 @@
     <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Comprehensive Review of Generative Physical Artificial Intelligence">A Comprehensive Review of Generative Physical Artificial Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="BEE: Intervention-Adaptive Real-World Reinforcement Learning with Vision-Language-Action Models">BEE: Intervention-Adaptive Real-World Reinforcement Learning with Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Latent evolving World Action Model">Latent evolving World Action Model</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CompVLA: A Variable Compliance Vision-Language-Action Model for Contact-rich Manipulation">CompVLA: A Variable Compliance Vision-Language-Action Model for Contact-rich Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="HABILIS Brain 0: Geometry-Change Supervision for Vision-Language-Action and Residual Flow Recovery">HABILIS Brain 0: Geometry-Change Supervision for Vision-Language-Action and Residual Flow Recovery</span></li><li><span class="dpr-home-dashboard-paper-title" title="ViRDM: Taming Representation Distribution Matching for Few-Step Causal Video Generation">ViRDM: Taming Representation Distribution Matching for Few-Step Causal Video Generation</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
@@ -87,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="RouteRLT: Learning When and Which RL Specialist Should Control a Vision-Language-Action Policy">RouteRLT: Learning When and Which RL Specialist Should Control a Vision-Language-Action Policy</span></li><li><span class="dpr-home-dashboard-paper-title" title="Behavior-Aligned Action Tokenization for Robot Policy Learning">Behavior-Aligned Action Tokenization for Robot Policy Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="InfiNoVA: Infinite Novel View Augmentation for Viewpoint Invariant Robot Policies">InfiNoVA: Infinite Novel View Augmentation for Viewpoint Invariant Robot Policies</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VLA-Scope: Shift-Aware Failure Prediction for Vision-Language-Action Models">VLA-Scope: Shift-Aware Failure Prediction for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="KeyGen: Unsupervised Keypoint based Object-Centric Representations for Category-Level Policy Generalization">KeyGen: Unsupervised Keypoint based Object-Centric Representations for Category-Level Policy Generalization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Direction-Scale Decomposition in Action Representation: Rethinking What to Tokenize for Vision-Language-Action Models">Direction-Scale Decomposition in Action Representation: Rethinking What to Tokenize for Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
 </section>
 </div>
 
