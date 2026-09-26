@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-25</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-26</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 14 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>8</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>8</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-25 22:36:24 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-26 21:40:44 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日扫完17篇VLA/机器人论文，精读8篇、速读9篇，重点集中在接触丰富操作与几何变化监督两条高分线。最值得看的是9.0分的CompVLA可变柔顺VLA和HABILIS Brain 0几何变化监督，速读中的VLA-Scope失败预测、KeyGen无监督关键点、动作表示方向-尺度分解也指向同一趋势：让VLA更稳、更泛化。普通读者可先读这两篇9分精读，再按“失败预测—表征—策略泛化”顺序扫速读，抓住VLA从能动作走向可靠操作的主线。</p>
+<p>今日筛选14篇（精读6、速读8），重点聚焦双臂操作与世界模型两条主线。最值得看的是9.0分的《JAMB: Joint Action-Motion Diffusion for Bimanual Manipulation》与《InternW0: A Foundational Physical World Model for Efficient Real-World Interactions》，另有8.0分的X-Planner、DeltaWAM等速读补充。建议普通读者先读JAMB和InternW0的摘要与图示，抓住“动作-运动联合扩散”和“物理世界模型”两个关键词即可。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">8 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CompVLA: A Variable Compliance Vision-Language-Action Model for Contact-rich Manipulation">CompVLA: A Variable Compliance Vision-Language-Action Model for Contact-rich Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="HABILIS Brain 0: Geometry-Change Supervision for Vision-Language-Action and Residual Flow Recovery">HABILIS Brain 0: Geometry-Change Supervision for Vision-Language-Action and Residual Flow Recovery</span></li><li><span class="dpr-home-dashboard-paper-title" title="ViRDM: Taming Representation Distribution Matching for Few-Step Causal Video Generation">ViRDM: Taming Representation Distribution Matching for Few-Step Causal Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="JAMB: Joint Action-Motion Diffusion for Bimanual Manipulation">JAMB: Joint Action-Motion Diffusion for Bimanual Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="InternW0: A Foundational Physical World Model for Efficient Real-World Interactions">InternW0: A Foundational Physical World Model for Efficient Real-World Interactions</span></li><li><span class="dpr-home-dashboard-paper-title" title="Uncertainty-Gated Exploration Noise Suppresses Task Collapse in Online RL Fine-Tuning of a Flow-Matching Vision-Language-Action Policy">Uncertainty-Gated Exploration Noise Suppresses Task Collapse in Online RL Fine-Tuning of a Flow-Matching Vision-Language-Action Policy</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">8 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VLA-Scope: Shift-Aware Failure Prediction for Vision-Language-Action Models">VLA-Scope: Shift-Aware Failure Prediction for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="KeyGen: Unsupervised Keypoint based Object-Centric Representations for Category-Level Policy Generalization">KeyGen: Unsupervised Keypoint based Object-Centric Representations for Category-Level Policy Generalization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Direction-Scale Decomposition in Action Representation: Rethinking What to Tokenize for Vision-Language-Action Models">Direction-Scale Decomposition in Action Representation: Rethinking What to Tokenize for Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="The Right Future for Action: Learning Action-Relevant Predictive States in World Action Models">The Right Future for Action: Learning Action-Relevant Predictive States in World Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="X-Planner: Event-Structured Task Planning for Embodied Intelligence">X-Planner: Event-Structured Task Planning for Embodied Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="DeltaWAM: Delta World Action Models for Bimanual Manipulation">DeltaWAM: Delta World Action Models for Bimanual Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>9</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span></div>
 </section>
 </div>
 
