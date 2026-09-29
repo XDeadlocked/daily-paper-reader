@@ -1,0 +1,400 @@
+Title: MVAgent: Multi-Agent Video Generation via Consistent Condition Construction and Shot-Level Policy Optimization
+
+URL Source: https://arxiv.org/pdf/2609.30609v1
+
+Published Time: Mon, 28 Sep 2026 00:20:42 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# MVAGENT: MULTI-AGENT VIDEO GENERATION VIA CONSISTENT CONDITION CONSTRUCTION AND SHOT-LEVEL POLICY OPTIMIZATION 
+
+# Xiangyu Kong 1,2,†, Wenjie Zhou 2,†, Fengping Tian 2, Lihua Fang 2, Haoqin Sun 2,Chenyang Lyu 2,∗, Longyue Wang 2, Weihua Luo 21University of Exeter, United Kingdom 
+
+> 2
+
+# Alibaba Group, China 
+
+ABSTRACT 
+
+Multi-shot agentic video generation requires consistent charac-ter appearance, stable spatial layout across camera angles, and con-tinuous character state between shots. When every shot is a sep-arate request to a frozen generator, repeated text does not deter-mine appearance, layout or state. We therefore recast the problem as condition construction and present MVAgent, a multi-agent pipeline whose agents collaborate through typed conditioning inputs. Be-cause an environment image shows one viewpoint, a Spatial Ground-ing agent samples views from generated camera-traversal clips and anchors each shot to the view matching its framing. As generated shots drift from the plan, an Observer records how each shot ends in a continuity memory, from which a Transition agent builds charac-ter action and spatial references for the next shot. An Orchestrator composes these inputs into each request. Since a request reveals its effect only after rendering, we train it by agentic reinforcement learning with Trunk-GDPO, which compares rendered candidates at every shot rather than once per video and continues the best as the trunk. With generator and judges frozen, MVAgent attains the highest cross-shot consistency and narrative-planning quality among the compared methods on ViMax-Bench and is preferred over the strongest agentic baseline in human evaluation. 
+
+Index Terms — Agentic video generation, multi-agent collabo-ration, reinforcement learning 
+
+1. INTRODUCTION 
+
+Text-to-video models [1] generate high-quality individual shots, but a short film of eight to sixteen shots across several scenes addition-ally requires consistent character appearance, stable spatial layout and continuous character state across shots. With a black-box gener-ator, separate requests share no internal state, so a recurring character may change appearance, the fixed elements of an environment may shift between viewpoints, and consecutive shots may show incom-patible character states. Repeated textual descriptions constrain se-mantic content but not the visual appearance or spatial arrangement the generator produces. Existing approaches improve consistency through identity adapters [2], reference attention [3], camera control [4], explicit scene representations [5] or joint multi-shot generation [6]. All of these require generator parameters or internal features that a black-box generator does not expose. Agentic frameworks instead decompose production into roles and coordinate frozen models around them: LLM-directed pipelines [7] plan scenes and shots with director and screenwriter roles, AniMaker [8] adds clip selection and  
+
+> ∗Corresponding author. †Equal contribution.
+
+review agents, ViMax [9] coordinates production roles and renders transition clips, NEWTON [10] trains a planner on trajectory-level rewards, and VISTA [11] and UniVA [12] add multi-critic refine-ment and plan-and-act tool use. In these systems the roles exchange only text plans, prompts and keyframes, which underdetermine what the generator renders, and the roles are fixed prompts that never learn from the shots they produce. We instead treat condition construction as the interface between narrative planning and frozen video generation, and realise it in MVAgent, a multi-agent pipeline whose agents collaborate through typed conditioning inputs rather than text alone (Fig. 1a), like the structured outputs of MetaGPT [13]. Because a single environment image constrains only the viewpoint it shows, generative spatial an-choring (Sec. 2.2) lets a Spatial Grounding agent sample views from camera-traversal clips rendered by the generator and index them by visible fixed elements, so that a view matching the target camera guides each shot. As generated clips depart from the planned states, an Observer stores VLM descriptions of each clip in a continuity memory (Sec. 2.3), from which a Transition agent derives character action and spatial references, so that each shot opens from the state actually reached. An Orchestrator composes these inputs into each request. Since a request reveals its effect only after rendering, we train it by agentic reinforcement learning [14], the optimization of LLM agents through multi-step interaction with an environment, here with one costly render per step and one evaluation per video. Instead of crediting every step with that evaluation [15, 10] or rely-ing on states that recur across rollouts [16], Trunk-GDPO (Sec. 2.4) branches candidates from each shot state, compares them with group-relative, reward-decoupled advantages [17, 18] and continues the best as the trunk, with asynchronous updates [19] hiding ren-dering latency. Our contributions are twofold. First, we design a multi-agent collaboration for agentic video generation that recasts cross-shot consistency as condition construction through generative spatial anchoring and observation-grounded continuity. Second, to train Orchestrator, we propose Trunk-GDPO, which supervises it at shot level within a frozen pipeline and improves consistency and human preference over episode-level training. 
+
+2. METHOD Framework overview. MVAgent (Fig. 1a) is a multi-agent pipeline whose agents collaborate through typed conditioning inputs. The Screenwriter fixes the persistent assets and the shot plan, the Spatial Grounding agent supplies a view of the environment for each shot, the Observer and the Transition agent supply the continuity memory and a transition reference, and the Orchestrator composes these in-puts into one request for the frozen generator. All roles are frozen ex-arXiv:2609.30609v1 [cs.CV] 24 Sep 2026 Fig. 1 . MVAgent. (a) The Screenwriter and the Spatial Grounding agent supply the persistent assets, the environment image Ib and the multi-view library, which anchor character appearance and spatial layout. The Observer and the Transition agent supply the continuity memory and the reference ˆIt, which carry character state. The Orchestrator composes them into each request to the frozen video generator. (b) Trunk-GDPO trains the Orchestrator. A shot-level candidate group shares one state and policy version, all candidates are rendered and judged, components are normalised separately before aggregation, and the trunk advances the video, with asynchronous sampling and training. cept the Orchestrator’s shot-generation policy, which Trunk-GDPO trains with feedback from frozen judges. 
+
+2.1. Problem statement 
+
+A video consists of T shots produced by a black-box video gener-ator G that is accessed only through its conditioning inputs. Shot t
+
+receives a prompt pt and an ordered tuple of reference images Ct,written [·], whose positions carry fixed roles, the first image anchor-ing the transition into the shot and the remaining images identifying the characters, and yields vt ∼ G(· | pt, Ct). The Screenwriter provides the persistent assets, namely a portrait Ipor  
+
+> j
+
+of each char-acter and the fixed elements Eb of each environment b, and a shot plan that specifies for each shot the cast Pt, the environment bt,a camera specification κt (shot size, camera position and facing), the action and dialogue, and the intended opening and end states. Character appearance and spatial layout, namely the arrangement of 
+
+Eb under changes of viewpoint, are addressed by the spatial branch (Sec. 2.2), character state across connected shots by the continuity branch (Sec. 2.3), and adherence to the shot plan by the Orchestra-tor’s request composition (Sec. 2.4). Since G is fixed and text con-strains semantics rather than appearance, the problem is to construct requests {(pt, Ct)}Tt=1 that carry the persistent assets together with observations of the generated state. 
+
+2.2. Generative spatial anchoring 
+
+Textual environment descriptions underdetermine spatial layout, so separate requests place recurring elements differently, and a sin-gle reference image constrains only the viewpoint it shows. The Spatial Grounding agent therefore anchors each environment b to a multi-view library that is generated rather than reconstructed. From a character-free environment image Ib rendered for Eb, it renders camera-traversal clips vtrav  
+
+> b
+
+∼ G(· | ptrav  
+
+> b
+
+, [Ib]) , where the prompt 
+
+ptrav  
+
+> b
+
+moves the camera through the environment, so that the tem-poral coherence of the generator keeps one layout in view while the viewpoint changes. Frames sampled from these clips form the candi-date set Fb, a candidate joins the view set Ub only when it is distinct from every view admitted before it in sampling order, and the library 
+
+Vb pairs each admitted view with a structured description of its fixed elements and their arrangement, produced by a VLM Φ:
+
+Ub = {Ib} ∪ f ∈ F b : min u∈U ≺fb
+
+∆( f, u ) ≥ δ ,
+
+Vb = {(Ib,m , c b,m )}nb
+
+> m=0
+
+, cb,m = Φ( Ib,m ), (1) where U≺fb denotes the views admitted before f , ∆ is a pixel-space distance with distinctness threshold δ, and Ib, 0 = Ib, . . . , I b,n b enu-merate Ub.At generation time the library is queried with the camera spec-ification: an LLM Λ compares κt with the descriptions and returns the view whose fixed elements should be visible under the intended framing, m⋆t = Λ( κt, {cbt,m }m), with the environment image as default when no view applies. The retrieved view and its description condition the transition of Sec. 2.3 as a visual reference and a textual layout constraint, which anchor the arrangement of fixed elements while leaving framing to the shot plan. 
+
+2.3. Continuity memory 
+
+After each shot the Observer, a VLM, describes the camera configu-ration and the position, orientation and action of each visible charac-ter at the end of vt−1, and the description is stored in the continuity memory with the shot plan entry and the request. The Transition agent turns this memory into a reference for character actions and positions by rendering a two-shot transition whose first shot restates the observed state and whose second shot states opening of shot t:
+
+ˆIt = Ref 
+
+
+
+G · | p2s  
+
+> t
+
+, [ft−1] ∥ I por  
+
+> t
+
+∥ [Isp  
+
+> t
+
+]
+
+,
+
+Ct = [ ˆIt] ∥ I por  
+
+> t
+
+,
+
+(2) where ∥ denotes ordered concatenation, p2s  
+
+> t
+
+is the prompt of this transition, ft−1 is the final frame of vt−1, Ipor  
+
+> t
+
+= [ Ipor  
+
+> j
+
+]j∈P t holds the portraits of the cast, the spatial reference Isp  
+
+> t
+
+is the selected view 
+
+Ibt,m ⋆t when the environment is unchanged and the environment im-age Ibt otherwise, and Ref extracts the first frame after the cut. The Spatial Grounding agent verifies that ˆIt preserves the arrangement of fixed elements described by cbt,m ⋆t , irrespective of illumination, and requests one regeneration with a new seed when the verification fails. The selected continuation updates the memory for the next shot. 2.4. Trunk-GDPO 
+
+The Orchestrator’s policy selects a generation mode and writes a prompt specifying reference usage, planned actions, camera behav-ior and applicable continuity constraints. An episode is one video and an agent step is one request. A terminal reward evaluates a com-pleted video only once, whereas each rendered shot can be evalu-ated locally, so Trunk-GDPO samples K candidates from the same shot state, executes and evaluates all of them, and uses their rela-tive rewards to supervise the policy, while one candidate continues the rollout. This candidate is the trunk , by analogy with expanding one branch of a search tree. A video of T shots yields T comparison groups from T K candidate renders, the same number as K complete videos, and supervises individual decisions under a shared context without estimating their delayed effects. 
+
+Groups and advantages. The state st collects the shot plan en-try, the persistent assets, the continuity memory, the selected view 
+
+Ibt,m ⋆t , the reference tuple Ct and the available generation modes 
+
+Mt. The policy emits a structured output yt, a JSON object naming the mode and the prompt, a fixed executor validates it into the request 
+
+at = Exec( st, y t) = ( pt, Ct), and the feedback et comprises the rendered clip vt and the judge assessments. With the backends used here reference-to-video is the only mode, so learning affects prompt construction. At each shot, K candidates {y(i) 
+
+> t
+
+}Ki=1 ∼ πθold (· | st)
+
+share one state and one behavior-policy version and receive compo-nent rewards r(i) 
+
+> t,k
+
+= Rk (st, y (i) 
+
+> t
+
+, e (i) 
+
+> t
+
+) for k ∈ K . Because the com-ponents differ in scale and applicability, each available component is normalised across the candidates before aggregation, following GDPO [18]: 
+
+A(i) 
+
+> t,k
+
+= r(i) 
+
+> t,k
+
+− mean i′
+
+ r(i′)
+
+> t,k
+
+
+
+std i′
+
+ r(i′)
+
+> t,k
+
+ + ϵ , A(i) 
+
+> t
+
+=
+
+P
+
+> k∈K (i)
+> t
+
+wk A(i)
+
+> t,k
+
+P
+
+> k∈K (i)
+> t
+
+wk
+
+,
+
+(3) where K(i) 
+
+> t
+
+contains the components available for candidate i, tied components yield zero advantage, and no value function is learned. The candidate with the highest combined advantage advances shot-level video generation and updates the memory, 
+
+st+1 = T  st, y (i⋆t ) 
+
+> t
+
+, e (i⋆t )
+
+> t
+
+, i⋆t = arg max 
+
+> i
+
+A(i) 
+
+> t
+
+. (4) 
+
+Objective and LoRA policy. Let ρ(i) 
+
+> t,j
+
+denote the current-to-behavior probability ratio for token j of candidate i. The policy maximises a clipped surrogate [20] regularised towards the frozen reference policy πref :
+
+J (θ) = E
+
+h 1
+
+P 
+
+> i
+
+|y(i) 
+
+> t
+
+|
+
+> K
+
+X 
+
+> i=1
+> |y(i)
+> t|
+
+X
+
+> j=1
+
+min ρ(i) 
+
+> t,j
+
+A(i) 
+
+> t
+
+,
+
+clip( ρ(i) 
+
+> t,j
+
+, 1−εℓ, 1+ εh)A(i)
+
+> t
+
+i
+
+− β DKL 
+
+ πθ ∥ πref 
+
+,
+
+(5) where the asymmetric clipping follows DAPO [17], response tokens are averaged within the group, each group supports one optimizer update, and the KL penalty uses the per-token k3 estimator. Training updates low-rank adapters [21] on the attention projections with zero initial effective update, so the initial policy is the base model and disabling the adapters recovers πref , and only adapter parameters move between the trainer and the sampling workers. 
+
+Asynchronous training. To overlap rendering with optimiza-tion, N sampling streams generate videos and enqueue each com-pleted group, and one trainer performs one update per group and publishes adapter parameters every B updates (Fig. 1b). Streams reload parameters only at shot boundaries, so the K candidates of a group share one behavior policy while different shots of a video may use different versions. Groups older than σmax versions are discarded, so the policy staleness of every update is bounded, and stored token IDs and behavior log-probabilities let the trainer recom-pute current-policy probabilities in the same contexts, which keeps the ratios consistent with the stored samples. 
+
+Reward components. The components in Eq. (3) are a format, a text and a video reward, k ∈ K = {fmt , txt , vid }, whose advan-tages are weighted by wfmt = 0 .15 , wtxt = 0 .35 and wvid = 0 .50 .The format reward r(i) 
+
+> t, fmt
+
+is 1 if the executor accepts y(i) 
+
+> t
+
+and 0 other-wise, and weighs least because a larger weight rewarded well-formed but empty prompts. The text reward r(i) 
+
+> t, txt
+
+is one fifth of the text judge’s mean 1–5 rating on criteria including plan adherence, vi-sual specificity and reference usage. For the video reward r(i)
+
+> t, vid
+
+, the video judge ranks the K clips on acting (act), physical plausibility (phy) and camera work (cam), which lack a reference, but checks consistency (cons) against the portraits and the selected view, since ranking would still reward the best of a failing group: 
+
+r(i) 
+
+> t, vid
+
+= P 
+
+> d∈D
+
+λd r(i)
+
+> t,d
+
+, D = {act , phy , cam , cons },r(i) 
+
+> t,d
+
+=
+
+(
+
+1 − rk (i)
+
+> t,d
+
+/(K − 1) , d ∈ { act , phy , cam },q(i)
+
+> t, +
+
+/ q(i) 
+
+> t, +
+
++ q(i)
+
+> t, −
+
+, d = cons ,
+
+(6) where λd are fixed weights summing to one, rk (i) 
+
+> t,d
+
+is the zero-based rank of clip i, and q(i) 
+
+> t, +
+
+and q(i) 
+
+> t, −
+
+count the appearance attributes and fixed elements the clip matches and contradicts. 
+
+3. EXPERIMENTS Setup. Each final shot uses one policy output at inference, without best-of-K selection or post-generation repair. Unless a table row names another LLM, the LLM-based agents use GPT-5.4, the VLM-based agents use Gemini 3 Pro and the video generator is Veo 3.1. For Trunk-GDPO training only the LLM in the Orchestrator role is replaced by the open-source Qwen3-32B [22] with rank-64 LoRA (α = 128 ), and Table 4 uses this configuration. The frozen text and video judges are qwen3.8-max and Gemini 3.1 Pro. Training uses K = 4 , (εℓ, ε h) = (0 .2, 0.3) , β = 10 −3, learning rate 10 −5,
+
+B = 4 , σmax = 5 , N = 4 sampling streams on four GPUs, one trainer on four GPUs. 
+
+Benchmarks and metrics. ViMax-Bench [9] contains 35 sto-ries (12 Medium with two scenes and 8–10 shots, 23 Long with three to four scenes and 12–16 shots) covering character persis-tence, background persistence and multi-person interaction. Follow-ing its protocol, we encode each shot with ViCLIP [23] and report intra-scene (IC), cross-scene (CC) and global (GC) cosine similar-ity. Narrative quality follows the rubric of [9] on 50 NarrativeQA novels [24], where GPT-5.4 scores character behavior consistency (CBC), narrative coherence (NC), plot pacing and rhythm (PPR), visual specificity and shot usability (VSU), scene transition qual-ity (STQ) and faithfulness (NF) on a 1–5 scale. In the pairwise protocol of [9], three raters compare video pairs shown in random order on cross-scene consistency (CSC), semantic following (SF) and aesthetic quality (AQ), reported as preference rates in percent. 
+
+Cross-shot consistency. Table 1 reports results alongside the baseline scores from [9]. With Gemini 3 Pro and Veo 3.1, MVAgent achieves the highest score in eight of nine columns, including overall GC (0.5689 versus 0.5571 for ViMax), and with Gemini 3.1 Flash and Veo 3.1 it exceeds ViMax in every column, both under the same language and video backends. Table 1 . Cross-shot consistency on ViMax-Bench (ViCLIP cosine similarity for cross-scene CC, intra-scene IC and global GC, higher is better). Agentic rows name the LLM and the generator, bold and underline mark the highest and second-highest scores.                                                                                    
+
+> Method Medium Long Overall CC IC GC CC IC GC CC IC GC Veo 3.1 0.5536 0.5640 0.5582 0.4687 0.4778 0.4704 0.4978 0.5074 0.5005 IC-LoRA 0.5398 0.5713 0.5537 0.5015 0.5328 0.5087 0.5147 0.5460 0.5241 StoryDiffusion 0.5606 0.5796 0.5691 0.5007 0.5195 0.5048 0.5212 0.5401 0.5269 HoloCine 0.5366 0.5892 0.5597 0.4940 0.5565 0.5080 0.5098 0.5686 0.5272 ViMax (Gemini 3.1 Flash, Veo 3.1) 0.5681 0.5914 0.5785 0.5088 0.5402 0.5157 0.5291 0.5577 0.5372 ViMax (Gemini 3 Pro, Veo 3.1) 0.5886 0.6046 0.5957 0.5298 0.5629 0.5369 0.5500 0.5772 0.5571 MVAgent (Gemini 3.1 Flash, Veo 3.1) 0.5926 0.6012 0.5890 0.5126 0.5494 0.5271 0.5403 0.5602 0.5450
+> MVAgent (Gemini 3 Pro, Veo 3.1) 0.5997 0.6029 0.5978 0.5348 0.5704 0.5437 0.5611 0.5863 0.5689
+
+Fig. 2 . Qualitative comparison of three conditioning strategies for a multi-shot story. Each row shows keyframes generated with the same video model, story and camera specifications. 
+
+Table 2 . Narrative-planning quality (1–5 scale) with different frozen agent backbones, following novel-to-video protocol of [9].                             
+
+> Backbone CBC NC PPR VSU STQ NF Avg. Ours-Gemini 3 Pro 4.37 4.08 4.19 4.83 4.01 2.64 4.02 Ours-Gemini 3.1 Flash 4.29 3.96 4.20 4.76 4.10 2.57 3.98 Ours-GPT-5.4 4.54 4.22 4.41 4.90 4.23 2.82 4.19
+
+Qualitative comparison. Fig. 2 compares three conditioning strategies with the generator, story and camera specifications held fixed. MVAgent preserves character appearance across the four shots, and the store retains its arrangement of doors, counters and shelves under different framings. Text-only conditioning changes the counter, freezer and door arrangement and the customer’s ap-pearance despite repeated descriptions, and inconsistent descriptions produce larger changes in both. 
+
+Narrative quality and LLM backbone. MVAgent achieves the highest mean score in the novel-to-video comparison (4.256 versus 4.107 for the strongest agentic baseline). Its advantage does not ex-tend to faithfulness, which is consistent with the absence of retrieval over the novel. Table 2 compares frozen agent backbones with the other roles fixed. GPT-5.4 obtains the highest score on all six dimen-sions with an average of 4.19. Faithfulness is the lowest dimension for every backbone and visual specificity the highest. 
+
+Subjective evaluation. Table 3 reports pairwise human pref-erences against four baselines. MVAgent’s preference rate exceeds 50% on every criterion in each comparison, with averages from 60.06% against ViMax to 80.12% against StoryDiffusion. Against ViMax the rates are 61.39% for cross-scene consistency, 63.02% for 
+
+Table 3 . Pairwise human preference rates (%) for MVAgent against each baseline on ViMax-Bench.                     
+
+> MVAgent vs. CSC SF AQ Avg. Veo 3.1 78.85% 78.38% 71.06% 76.07% StoryDiffusion 82.79% 79.62% 77.94% 80.12% HoloCine 65.31% 68.11% 57.45% 63.49% ViMax 61.39% 63.02% 55.78% 60.06%
+
+Table 4 . Ablation on ViMax-Bench with consistency as in Table 1 and preference rates (%) of the full model against each variant under the protocol of Table 3.                                                   
+
+> Variant Consistency Subjective evaluation (%) CC IC GC CSC SF AQ Avg. Portraits only 0.5286 0.5597 0.5360 71.5 56.3 53.9 60.6 w/o multi-view library 0.5319 0.5624 0.5388 69.1 55.8 52.7 59.2 Planned state only 0.5382 0.5690 0.5417 67.2 54.3 52.9 58.1 Ours (w/o RL) 0.5239 0.5496 0.5204 63.6 54.4 51.1 56.3 Episode-level RL 0.5362 0.5681 0.5403 55.0 52.9 51.2 53.0
+> Ours 0.5417 0.5712 0.5438 ----
+
+semantic following and 55.78% for aesthetic quality, so the larger margins concern consistency and semantic following. 
+
+Ablation. Table 4 evaluates conditioning components and train-ing configurations. The conditioning variants use portraits alone, retain the environment image without the multi-view library, or re-place observed character states with planned states. The full model achieves the highest CC, IC and GC and is preferred over every vari-ant, from 60.6% against portraits alone to 58.1% against planned states, so the margin shrinks as components are added. The training comparison contrasts the untrained base policy, episode-level RL, which groups complete-video rollouts under a terminal reward per video, and Trunk-GDPO, which forms candidate groups at individ-ual shot states. The full model is preferred over the untrained pol-icy in 56.3% and over episode-level RL in 53.0% of comparisons, chiefly on cross-scene consistency (63.6% and 55.0%). Within each group, both metrics agree on the ranking. 
+
+4. CONCLUSION 
+
+MVAgent formulates multi-shot narrative video generation as con-dition construction for a frozen generator, carried out by agents that exchange typed conditioning inputs. A Spatial Grounding agent sup-plies reusable spatial references, an Observer and a Transition agent turn VLM observations into continuity memory and action and posi-tion references, and Trunk-GDPO trains the Orchestrator that com-poses them into requests with shot-level feedback, subject to the gen-erator’s capabilities and the judges’ reliability. 5. REFERENCES 
+
+[1] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al., “Wan: Open and advanced large-scale video gen-erative models,” arXiv preprint arXiv:2503.20314 , 2025. [2] Shenghai Yuan, Jinfa Huang, Xianyi He, Yunyang Ge, Yu-jun Shi, Liuhan Chen, Jiebo Luo, and Li Yuan, “Identity-preserving text-to-video generation by frequency decomposi-tion,” in 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . IEEE, 2025, pp. 12978–12988. [3] Yupeng Zhou, Daquan Zhou, Ming-Ming Cheng, Jiashi Feng, and Qibin Hou, “Storydiffusion: Consistent self-attention for long-range image and video generation,” Advances in Neural Information Processing Systems , vol. 37, pp. 110315–110340, 2024. [4] Hao He, Yinghao Xu, Yuwei Guo, Gordon Wetzstein, Bo Dai, Hongsheng Li, and Ceyuan Yang, “Cameractrl: Enabling camera control for video diffusion models,” in International Conference on Learning Representations , 2025, vol. 2025, pp. 100433–100464. [5] Xuanchi Ren, Tianchang Shen, Jiahui Huang, Huan Ling, Yifan Lu, Merlin Nimier-David, Thomas M¨ uller, Alexander Keller, Sanja Fidler, and Jun Gao, “Gen3c: 3d-informed world-consistent video generation with precise camera control,” in 
+
+2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . IEEE, 2025, pp. 6121–6132. [6] Yihao Meng, Hao Ouyang, Yue Yu, Qiuyu Wang, Wen Wang, Ka Leong Cheng, Hanlin Wang, Shuailei Ma, Yixuan Li, Cheng Chen, et al., “Holocine: Holistic generation of cine-matic multi-shot long video narratives,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recog-nition , 2026, pp. 461–471. [7] Weijia Wu, Zeyu Zhu, and Mike Zheng Shou, “Automated movie generation via multi-agent cot planning,” arXiv preprint arXiv:2503.07314 , 2025. [8] Haoyuan Shi, Yunxin Li, Xinyu Chen, Longyue Wang, Baotian Hu, and Min Zhang, “Animaker: Multi-agent animated story-telling with mcts-driven clip generation,” in Proceedings of the SIGGRAPH Asia 2025 Conference Papers , 2025, pp. 1–11. [9] Lingxuan Huang, Sizhe He, Hengji Zhou, Liqiang Nie, Liang-hao Xia, and Chao Huang, “Vimax: Agentic video generation,” 
+
+arXiv preprint arXiv:2606.07649 , 2026. [10] Yuxiang Feng, Juncheng Wang, Chao Xu, Yijie Qian, Hui-han Wang, Wenlong Hou, Yang Liu, Baigui Sun, Yong Liu, and Shujun Wang, “Newton: Agentic planning for physically grounded video generation,” arXiv preprint arXiv:2605.18396 ,2026. [11] Do Xuan Long, Xingchen Wan, Hootan Nakhost, Chen-Yu Lee, Tomas Pfister, and Sercan ¨ O Arik, “Vista: A test-time self-improving video generation agent,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recog-nition , 2026, pp. 6021–6032. [12] Zhengyang Liang, Daoan Zhang, Huichi Zhou, Rui Huang, Bobo Li, Yuechen Zhang, Shengqiong Wu, Xiaohan Wang, Jiebo Luo, Lizi Liao, et al., “Univa: Universal video agent towards open-source next-generation video generalist,” arXiv preprint arXiv:2511.08521 , 2025. [13] Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang, Steven Yau, Zi-juan Lin, Liyang Zhou, et al., “Metagpt: Meta programming for a multi-agent collaborative framework,” in International Conference on Learning Representations , 2024, vol. 2024, pp. 23247–23275. [14] Guibin Zhang, Hejia Geng, Xiaohang Yu, Zhenfei Yin, Zaibin Zhang, Zelin Tan, Heng Zhou, Zhongzhi Li, Xiangyuan Xue, Yijiang Li, et al., “The landscape of agentic reinforcement learning for llms: A survey,” arXiv preprint arXiv:2509.02547 ,2025. [15] Zhuofeng Li, Haoxiang Zhang, Seungju Han, Sheng Liu, Jian-wen Xie, Yu Zhang, Yejin Choi, James Y Zou, and Pan Lu, “In-the-flow agentic system optimization for effective planning and tool use,” in International Conference on Learning Repre-sentations , 2026, vol. 2026, pp. 50524–50570. [16] Lang Feng, Zhenghai Xue, Tingcong Liu, and Bo An, “Group-in-group policy optimization for llm agent training,” Advances in Neural Information Processing Systems , vol. 38, pp. 46375– 46408, 2026. [17] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et al., “Dapo: An open-source llm reinforcement learning system at scale,” Advances in Neural Information Processing Systems , vol. 38, pp. 113222–113244, 2026. [18] Shih-Yang Liu, Xin Dong, Ximing Lu, Shizhe Diao, Pe-ter Belcak, Mingjie Liu, Min-Hung Chen, Hongxu Yin, Yu-Chiang Frank Wang, Kwang-Ting Cheng, et al., “Gdpo: Group reward-decoupled normalization policy optimization for multi-reward rl optimization,” arXiv preprint arXiv:2601.05242 ,2026. [19] Michael Noukhovitch, Shengyi Huang, Sophie Xhonneux, Ar-ian Hosseini, Rishabh Agarwal, and Aaron Courville, “Asyn-chronous rlhf: Faster and more efficient off-policy rl for lan-guage models,” in International Conference on Learning Rep-resentations , 2025, vol. 2025, pp. 4003–4029. [20] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Rad-ford, and Oleg Klimov, “Proximal policy optimization algo-rithms,” arXiv preprint arXiv:1707.06347 , 2017. [21] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen, “Lora: Low-rank adaptation of large language models,” arXiv preprint arXiv:2106.09685 , 2021. [22] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al., “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025. [23] Yi Wang, Yinan He, Yizhuo Li, Kunchang Li, Jiashuo Yu, Xin Ma, Xinhao Li, Guo Chen, Xinyuan Chen, Yaohui Wang, et al., “Internvid: A large-scale video-text dataset for multimodal un-derstanding and generation,” in International Conference on Learning Representations , 2024, vol. 2024, pp. 42055–42079. [24] Tom´ aˇ s Koˇ cisk` y, Jonathan Schwarz, Phil Blunsom, Chris Dyer, Karl Moritz Hermann, G´ abor Melis, and Edward Grefenstette, “The narrativeqa reading comprehension challenge,” Transac-tions of the Association for Computational Linguistics , vol. 6, pp. 317–328, 2018.

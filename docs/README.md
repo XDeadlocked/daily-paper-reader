@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-27</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-29</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 11 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-27 22:09:25 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-29 00:30:25 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,10 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 11 篇推荐（精读 6 篇，速读 5 篇）</p>
-<p>精读：《ForceRFT: Refining VLA Actions through Force-Guided Residual Reinforcement Learning》（9.0/10）, 《IndustrialVLA-Bench: A Traceable Multi-Axis Evaluation of Open Robot Policy Models》（9.0/10）</p>
-<p>速读：《Object-Centric Conditioning for Visuomotor Flow Matching》（7.0/10）, 《Robo-Harness K1: Harnessing Robot-Use Agents via Perception Augmentation》（7.0/10）, 《MAVP: Map-Aware Visuomotor Policies for Mobile Manipulation》（6.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>2026-09-29日报：筛完17篇，精读6篇、速读11篇，其中两篇9.0分精读聚焦VLA“规划—执行”闭环与用世界模型精炼VLA行为。</p>
+<p>最值得看的方向是VLA如何补上规划到执行的落差，以及世界模型/仿真RL如何接入VLA；速读里的NavGen、VLaRL和线性表示假设都在这条主线上。</p>
+<p>普通读者可先读两篇9.0精读，再按兴趣挑8.0速读，重点判断方法是否真能落地。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -77,7 +76,7 @@
     <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ForceRFT: Refining VLA Actions through Force-Guided Residual Reinforcement Learning">ForceRFT: Refining VLA Actions through Force-Guided Residual Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="IndustrialVLA-Bench: A Traceable Multi-Axis Evaluation of Open Robot Policy Models">IndustrialVLA-Bench: A Traceable Multi-Axis Evaluation of Open Robot Policy Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Grounded Action Model: 3D Grounding as a Foundation for Robotics">Grounded Action Model: 3D Grounding as a Foundation for Robotics</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models">Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Towards VLA-Dreamer: Refining VLA Behavior Using World Models">Towards VLA-Dreamer: Refining VLA Behavior Using World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models">DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
 </section>
@@ -87,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Object-Centric Conditioning for Visuomotor Flow Matching">Object-Centric Conditioning for Visuomotor Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="Robo-Harness K1: Harnessing Robot-Use Agents via Perception Augmentation">Robo-Harness K1: Harnessing Robot-Use Agents via Perception Augmentation</span></li><li><span class="dpr-home-dashboard-paper-title" title="MAVP: Map-Aware Visuomotor Policies for Mobile Manipulation">MAVP: Map-Aware Visuomotor Policies for Mobile Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation">NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL">VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Linear Representation Hypothesis for Vision-Language-Action Models">The Linear Representation Hypothesis for Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
