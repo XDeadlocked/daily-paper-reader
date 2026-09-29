@@ -1,0 +1,1895 @@
+Title: Diffusion Subgoal Planning for Long-Horizon Offline Goal-Conditioned Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2609.34575v1
+
+Published Time: Tue, 29 Sep 2026 03:14:46 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Diffusion Subgoal Planning for Long-Horizon Offline Goal-Conditioned Reinforcement Learning 
+
+Hengrui Zhang 1 Yuhu Cheng 1 C. L. Philip Chen 2 Xuesong Wang 1∗
+
+> 1
+
+School of Information and Control Engineering, China University of Mining and Technology 
+
+> 2
+
+School of Computer Science and Engineering, South China University of Technology 
+
+{hengruizhang, chengyuhu, wangxuesong}@cumt.edu.cn {philip.chen}@ieee.org 
+
+Abstract 
+
+Offline goal-conditioned reinforcement learning (GCRL) learns goal-directed poli-cies from reward-free data, but in long-horizon tasks, goal-conditioned value functions often provide unstable guidance due to sparse rewards and discount-ing. Hierarchical methods partially mitigate this issue via subgoal decomposition; however, high-level decision-making still relies on noise-sensitive value estimates, leading to unstable behavior in complex environments. We address this limitation by proposing Diffusion Subgoal Planning ( DSP ), a diffusion-based framework for high-level subgoal generation. DSP casts high-level planning as guided gen-erative inference over goal-conditioned subgoals and learns both conditional and unconditional flows, enabling classifier-free guidance to introduce a goal-directed bias at inference time. By removing explicit value-based guidance from high-level planning, DSP generates reachable and goal-directed subgoals through a generative model while retaining hierarchical execution. Experiments on offline GCRL bench-marks demonstrate that DSP outperforms prior methods on a range of navigation and manipulation tasks, with particularly strong performance in maze environments that require multi-step subgoal planning. 
+
+Project page: https://henry0132.github.io/DSP 
+
+Repository: https://github.com/Henry0132/DSP 
+
+1 Introduction 
+
+Goal-conditioned reinforcement learning (GCRL) formulates decision-making problems in terms of desired outcomes, reducing the need to manually design reward functions in high-dimensional spaces and enabling task generalization [14, 36, 16]. Offline GCRL [47, 53] further extends this setting to learning solely from reward-free trajectories, resembling self-supervised learning from past experience. However, without explicit rewards, desired goals are often temporally distant, and value function estimation can suffer from limited data coverage and accumulated errors [45, 15, 29], resulting in noisy and unreliable learning signals in long-horizon tasks. Hierarchical Implicit Q-Learning (HIQL) [45] addresses long-horizon challenges by introducing a two-level policy, where a high-level policy proposes intermediate subgoals and a low-level policy executes actions conditioned on them. While this hierarchy improves stability over flat policies, large-scale offline GCRL evaluations show that in tasks involving complex navigation, spatial search, or high-dimensional manipulation, HIQL can struggle to obtain reliable guidance from noisy value functions, leading to degraded performance [47, 1, 44]. Subsequent analyses attribute these failures 
+
+> ∗Corresponding author. Preprint. arXiv:2609.34575v1 [cs.AI] 28 Sep 2026
+
+in part to imprecise value guidance and the resulting errors in high-level planning [48, 1]. Since hierarchical performance depends critically on subgoal quality, several methods seek to improve value estimation itself, such as Pi-HIQL [15], which enforces geometric structure via Eikonal regularization, and OTA [1], which promotes hierarchical consistency through option-aware mechanisms. However, these approaches share a common assumption that high-level planning should be driven by value function estimates. When subgoals are selected through noisy values, long-horizon planning can remain unstable. This naturally raises a central question: 
+
+Can hierarchical planning be retained without value-based high-level guidance? 
+
+Diffusion models [20, 56] provide a promising alternative to value-based planning by generating reachable intermediate states that reflect the structure of the offline data distribution [24, 2]. Moreover, goal-directed preferences can be incorporated into the sampling process via guidance mechanisms such as classifier-free guidance (CFG) [19], enabling controllable subgoal generation without explicit high-level value estimation. Motivated by these properties, we propose Diffusion Subgoal Planning ( DSP ), a diffusion-based framework for high-level subgoal generation in offline GCRL. DSP formulates high-level planning as guided generative inference over goal-conditioned subgoals, enabling high-level decision-making without explicit value-based guidance while preserving the benefits of hierarchical execution. Con-cretely, DSP learns both conditional and unconditional velocity fields, and uses classifier-free guidance at inference time to bias subgoal generation toward the desired goal. This guidance mechanism further admits an implicit advantage-weighted interpretation at the subgoal level. Experiments on offline GCRL benchmarks demonstrate that DSP outperforms prior methods on a range of navigation and manipulation tasks, with particularly strong gains in long-horizon maze environments that require multi-step subgoal planning. 
+
+2 Related Works 
+
+Offline GCRL. Offline goal-conditioned reinforcement learning aims to learn a universal policy that reaches arbitrary target states from arbitrary initial states using a fixed dataset [50, 14, 43, 47]. Most approaches treat goals as future states and adopt self-supervised training schemes, including hindsight relabeling [3, 11], state occupancy matching [53, 10], and related goal relabeling methods [42, 57]. Recent work further incorporates hierarchical structures to decompose complex tasks into multi-step plans via recursive subgoal inference [45, 15, 1, 25, 32]. Despite differences in formulation, these methods share a common assumption that high-level subgoals are optimized using learning signals derived from goal-conditioned value functions, making noisy value estimates a central bottleneck for reliable long-horizon planning in offline settings. 
+
+Hierarchical RL. Hierarchical reinforcement learning introduces decision-making at multiple tem-poral scales to address long-horizon planning and exploration [17, 5, 13]. Early approaches rely on graph-based subgoal planning [65, 27], while later methods generate intermediate waypoints using temporal distance [37], latent abstractions [9, 13], or value-based criteria [1, 52]. Although these approaches aim to simplify planning by defining reachable high-level subgoals, graph-based methods are often computationally expensive and difficult to scale [51, 31, 4], while waypoint prediction methods that depend on value functions or distance estimates are highly sensitive to estimation accuracy, particularly under sparse data coverage [10]. As a result, existing hierarchical RL methods can remain sensitive to value-function noise, particularly in offline settings [47]. 
+
+Diffusion Policies for RL. Diffusion models have been adopted in reinforcement learning as expres-sive generative models [20, 54–56, 35, 38], with applications to action generation [60, 39, 7, 18], trajectory modeling [2, 34], and goal-conditioned or planning-oriented generation [23, 26, 63]. Recent methods further use guidance or flow matching to improve action-level policy learning and control-lability [12, 49]. Other works explore hierarchical diffusion-based planning or subgoal generation [33, 6, 64], where diffusion models are typically used as trajectory or milestone planners [22, 21], often combined with MPC, return guidance, or multi-step planning procedures. In contrast, DSP uses guided generation as a high-level subgoal decision mechanism in hierarchical offline GCRL, replacing explicit value-based subgoal selection while retaining a separately trained low-level executor. 23 Preliminaries 
+
+Problem Setting. Offline GCRL is formulated as a finite-horizon discounted Markov decision process M = ( S, A, G, P, r, Pg , d 0, γ ), where S, A, and G denote the state, action, and goal spaces, respectively. The transition dynamics are given by P(s′ | s, a ), and the reward function is r(s, g ). The initial state distribution d0 and goal distribution Pg specify how episodes are initialized. The discount factor is γ ∈ [0 , 1) . Following standard practice, we assume G = S. At the beginning of each episode, a goal g ∼ P g is sampled, and the agent aims to reach g by maximizing the expected discounted return 
+
+J(π) = Eτ ∼π(·| g)
+
+hPTt=0 γtr(st, g )
+
+i
+
+, where τ = ( s0, a 0, s 1, a 1, . . . , s T ) is a trajectory induced by a goal-conditioned policy π(a | s, g ). The corresponding goal-conditioned value function is 
+
+V π (s, g ) = Eτ ∼π(·| g)
+
+hPTt=0 γtr(st, g ) s0 = s
+
+i
+
+. In the offline setting, the policy is learned solely from a fixed dataset D of trajectories, without further interaction with the environment. 
+
+Hierarchical Implicit Q-Learning. In GCRL, accurately estimating value functions for distant goals is particularly challenging in long-horizon tasks. HIQL [45] addresses this issue by introducing a hierarchical policy structure built on implicit Q-learning [30], which directly learns value estimates from offline data. Specifically, HIQL learns a goal-conditioned value function by minimizing the following expectile regression objective: 
+
+LV = E(st,s t+1 )∼D , g ∼pD
+
+Lε
+
+> 2
+
+ r(st, g ) + γ ¯V (st+1 , g ) − V (st, g ) , (1) where pD denotes the goal sampling distribution, ¯V is a target value network, and Lε 
+
+> 2
+
+is the expectile loss 
+
+Lε
+
+> 2
+
+(u) = |ε − 1(u < 0) | u2, (2) with expectile parameter ε. Following prior work [61, 42, 62], the reward is defined as r(st, g ) = 
+
+−1(st̸ = g). HIQL decomposes the policy into two levels. The high-level policy πh(st+k | st, g )
+
+predicts a subgoal k steps ahead, while the low-level policy πl(at | st, s t+k) executes actions to reach the proposed subgoal. Both policies are trained using advantage-weighted regression (AWR): 
+
+J (πh) = E(st,s t+k )∼D , g ∼pD
+
+exp  βhAh(st, s t+k, g ) log πh(st+k | st, g ) , (3) 
+
+J (πl) = E(st,a t,s t+1 ,s t+k )∼D 
+
+exp  βlAl(st, s t+1 , s t+k) log πl(at | st, s t+k) , (4) where βh and βl are inverse temperature parameters, and the advantages are defined as 
+
+Ah(st, s t+k, g ) = V (st+k, g ) − V (st, g ) and Al(st, s t+1 , s t+k) = V (st+1 , s t+k) − V (st, s t+k).
+
+4 High-Level Planning with Reduced Horizon-Dependent Value Noise 
+
+This section analyzes a limitation of HIQL in long-horizon settings and motivates our approach. We first use a one-dimensional illustrative example to show how hierarchical structures improve the signal-to-noise ratio (§4.1). We then provide a theoretical analysis showing that DSP removes one horizon-dependent error path caused by noisy high-level value estimates while preserving the benefits of hierarchy (§4.2). Finally, we empirically validate these insights on representative offline GCRL benchmarks (§4.3). 
+
+4.1 Why Value-Function Noise Limits Long-Horizon Subgoal Planning 
+
+To analyze how value-function noise constrains long-horizon subgoal planning, we revisit the one-dimensional toy example introduced in [45]. As shown in Figure 1, the environment consists of a one-dimensional state space, where the agent can move left or right at each time step toward a goal located at the rightmost position. The reward is sparse: r(st = g) = 0 and −1 otherwise. … …sg
+
+Figure 1: 1-D toy environment. Assuming unit discount, the optimal goal-conditioned value function is V ∗(s, g ) = −| s − g|. We model the learned value function as a noisy approximation of the optimal one, ˆV (s, g ) = V ∗(s, g ) + σz s,g V ∗(s, g ), where 
+
+zs,g ∼ N (0 , I ) and σ controls the noise scale. This formu-lation captures a common empirical challenge in offline GCRL: value estimation errors tend to grow with the distance to the goal. 3Under this setting, flat policies incur a higher probability of incorrect actions than hierarchical policies, as formalized in Proposition 4.1. 
+
+Proposition 4.1 (Hierarchical Policy Can Reduce Policy Error [45]) . In the toy environment, the probability of the flat policy π selecting an incorrect action is 
+
+E(π) = Φ −√2
+
+σ√T 2 + 1 
+
+!
+
+, (5) 
+
+and the probability of the hierarchical policy πl ◦ πh selecting an incorrect action is bounded by 
+
+E(πl ◦ πh) ≤ Φ −√2
+
+σp(T /k )2 + 1 
+
+!
+
++ Φ −√2
+
+σ√k2 + 1 
+
+!
+
+, (6) 
+
+where Φ denotes the cumulative distribution function of the standard normal distribution, Φ( x) = 
+
+P[z ≤ x] = 1√2π
+
+R x 
+
+> −∞
+
+e−t2/2dt .
+
+Proposition 4.1 shows that hierarchy improves robustness by reducing the effective decision horizon from T to T /k . However, high-level planning in HIQL still depends on value estimates V (s, g ),causing estimation errors to propagate through subgoal selection with a T /k scaling. Consequently, hierarchy attenuates but does not eliminate horizon-dependent value noise, which can become a bottleneck in long-horizon tasks. 
+
+4.2 Diffusion Subgoal Planning Reduces Horizon-Dependent Value Noise 
+
+We analyze the error structure of DSP in the same toy environment to contrast its behavior with HIQL. DSP adopts a two-level hierarchical policy: the high-level policy πh 
+
+> DSP
+
+generates a subgoal, and the low-level policy πℓ 
+
+> DSP
+
+produces an action conditioned on that subgoal. The overall policy is therefore composed as πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+.Appendix B.2 first derives the exact one-step decision error for an arbitrary generated subgoal distribution, without assuming Gaussianity or unimodality. To obtain a transparent closed-form comparison with HIQL, Proposition 4.2 considers a matched-distance setting in which both methods select subgoals at the same distance k. This controls for low-level execution difficulty and isolates the difference between generative and value-based high-level direction selection. 
+
+Proposition 4.2 (Reduced High-Level Value-Noise Amplification) . Consider the one-dimensional environment illustrated in Figure 1, with current state s, final goal g = s + T , and 1 ≤ k < T .Suppose that both DSP and HIQL select one of two subgoals: s + k in the correct direction or s − k
+
+in the incorrect direction. Let ϵ denote the probability that DSP selects s − k, and define 
+
+pℓ(k) := Φ −√2
+
+σ√k2 + 1 
+
+!
+
+, ph(T, k ) := Φ −√2
+
+σp(T /k )2 + 1 
+
+!
+
+. (7) 
+
+Here, pℓ(k) is the probability that the low-level policy moves away from its selected subgoal at distance k, while ph(T, k ) is the probability that HIQL selects the wrong-direction subgoal. Under the independent Gaussian value-noise model of Proposition 4.1, and assuming that DSP’s generated direction is independent of the low-level value noise, the exact one-step decision errors are 
+
+E  πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+ = pℓ(k) + (1 − 2pℓ(k)) ϵ, (8) 
+
+E  πℓ ◦ πh = pℓ(k) + (1 − 2pℓ(k)) ph(T, k ). (9) 
+
+Consequently, 
+
+E  πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+ < E  πℓ ◦ πh ⇐⇒ ϵ < p h(T, k ). (10) 
+
+For the additional closed-form special case in which σdata is independent of T and the wrong-direction probability is parameterized as 
+
+ϵ = Φ 
+
+
+
+− kσdata 
+
+
+
+, (11) 4(a) HIQL w/oGoal-Conditioned Value Function              
+
+> Start Goal
+> 012345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34
+> 100
+> 80
+> 60
+> 40
+> 20
+> 0Value
+
+(b) DSP 
+
+Figure 2: Comparative visualization of high-level planning in the antmaze-giant-navigate-v0 
+
+environment. The state space is projected onto the 2D (x, y ) plane, where the background heatmap illustrates the landscape of the goal-conditioned value function; brighter regions correspond to higher values. HIQL w/o selects subgoals through value-based guidance, making its subgoal trajectories sensitive to value-function noise. In contrast, DSP generates smoother and topologically connected paths without explicit value-based high-level guidance. 
+
+condition (10) is equivalent to 
+
+T > k 
+
+vuut
+
+√2σdata 
+
+σk 
+
+!2
+
+− 1 (12) 
+
+when √2σdata  
+
+> σk
+
+> 1. When √2σdata  
+
+> σk
+
+≤ 1, condition (10) holds for every T > 0.
+
+Remark. The matched-distance setting assigns DSP and HIQL the same local subgoal distance and therefore the same low-level error pℓ(k). Their ordering is determined solely by whether DSP’s wrong-direction probability ϵ is smaller than HIQL’s high-level value-comparison error ph(T, k ).As T /k increases, ph(T, k ) → 12 , and Equation (9) consequently approaches 12 , reflecting the degradation of long-horizon value-based direction selection under the noisy-value model. The Gaussian expression in Equation (11) is only a closed-form special case for parameterizing ϵ.The general derivation in Appendix B.2 allows the generated subgoal distribution to be non-Gaussian, multimodal, and dependent on T . Accordingly, Proposition 4.2 does not imply horizon-independent DSP error: the generated subgoal distribution may deteriorate as the task horizon increases or offline data coverage decreases. The result instead isolates the removal of the explicit T /k -scaled high-level value-noise path present in HIQL-style subgoal selection. The proof of Proposition 4.2 is provided in Appendix B.2, and empirical validation is presented in Section 4.3. 
+
+4.3 Empirical Evidence: DSP Generates More Reliable Subgoals 
+
+We qualitatively compare the high-level subgoals generated by HIQL w/o2 and DSP on 
+
+antmaze-giant-navigate-v0 , a representative high-dimensional offline GCRL task requiring long-distance navigation through a complex maze under sparse rewards. This environment provides a challenging test for the stability of high-level planning over long horizons. Figure 2 overlays the subgoal trajectories produced by HIQL w/o and DSP on the same value landscape. As shown in Figure 2(a), HIQL w/o often proposes subgoals that become trapped in local optima or intersect obstacles, resulting in unstable plans. These behaviors are consistent with our analysis in 
+
+> 2
+
+HIQL w/o removes the subgoal representation bottleneck in HIQL and operates directly on state-space subgoals. As shown in Table 1, HIQL and HIQL w/o achieve comparable performance on antmaze-giant-navigate-v0 , enabling a fair qualitative comparison. 
+
+5Sections 4.1 and 4.2, where high-level planning based on noisy value estimates exhibits horizon-dependent error accumulation. In contrast, DSP produces smoother subgoal sequences that respect the maze topology and maintain progress toward the goal. By generating subgoals through a diffusion-based process rather than value comparison, DSP reduces sensitivity to local errors in the value landscape. As a result, the agent more reliably follows feasible corridors in this long-horizon navigation task. Additional visualizations on mazes of varying sizes are provided in Appendix O. 
+
+5 Diffusion Subgoal Planning 
+
+This section introduces Diffusion Subgoal Planning (DSP). DSP aims to retain the execution effi-ciency and local guidance benefits of hierarchical structures while removing explicit value-based guidance from high-level subgoal generation. Instead, subgoals are generated through a controllable diffusion-based process grounded in the data distribution. Section 5.1 formulates subgoal planning as probabilistic inference, Section 5.2 describes the learning of goal-conditioned velocity fields, and Section 5.3 presents inference-time control via classifier-free guidance and its connection to implicit advantage-weighted subgoal selection. Section 5.4 summarizes the complete algorithm. 
+
+Notation: Unless otherwise specified, superscripts index diffusion time steps i ∈ [0 , 1] , while subscripts index trajectory time steps t ∈ { 0, . . . , T − 1}.
+
+5.1 Subgoal Generation as Probabilistic Inference 
+
+Hierarchical goal-conditioned reinforcement learning can be formulated as a probabilistic inference problem. At the trajectory level, we introduce a binary optimality variable O as an analytical device indicating whether a trajectory reaches the final goal with high return. Under this formulation, high-level planning corresponds to sampling subgoals from the posterior 
+
+w ∼ p(w | s, O = 1) . (13) This posterior characterizes subgoals that are likely to support goal-reaching behavior from the current state s.Existing approaches typically approximate this posterior by first learning a goal-conditioned value function V (s, g ) and then deriving the high-level policy via value-based optimization [45, 5, 1]. As analyzed in Section 4.1, this approximation couples subgoal selection to value estimation errors, leading to horizon-dependent noise amplification and brittle long-horizon planning. We instead adopt a generative planning perspective. By Bayes’ rule, the posterior can be decomposed as 
+
+log p(w | s, O = 1) ∝ log p(w | s) + log p(O = 1 | w, s ). (14) Here, log p(w | s) defines a data-induced prior over reachable and feasible subgoals, while log p(O =1 | w, s ) captures a goal-directed preference. In DSP, this preference is operationalized through the goal condition g: the goal-conditioned branch captures how the subgoal distribution changes when the desired goal is specified. Rather than explicitly regressing this preference term through value functions, DSP learns unconditional and goal-conditioned generative velocity fields. Their difference implicitly encodes goal preference at inference time, enabling subgoal sampling that is biased toward goal-relevant waypoints without value-based high-level planning and its associated horizon-dependent noise. 
+
+5.2 Learning the Goal-Directed Velocity Field 
+
+We model subgoal generation as a deterministic flow that transforms a simple prior noise variable 
+
+w0 ∼ N (0 , I ) into a goal-conditioned subgoal distribution p(w | s, g ) via a parameterized velocity field. Rather than predicting noise or scores, we adopt a flow matching objective that directly learns the velocity field defining the generative ordinary differential equation, enabling stable and efficient training [40, 41]. Given a training subgoal w1, constructed as a k-step future state from the offline dataset, i.e., 
+
+w1 = st+k, we define a linear interpolation path 
+
+wi = (1 − i)w0 + iw 1, i ∈ [0 , 1] , (15) 6and supervise the model to match the corresponding velocity along this path, dw i 
+
+> di
+
+= w1 − w0.This objective encourages the learned flow to transport samples from the prior toward the empirical subgoal distribution. To jointly learn the unconditional distribution p(w | s) and the goal-conditioned distribution p(w |
+
+s, g ) within a single model, we employ CFG through conditional dropout during training. The resulting objective is 
+
+LDSP (θ) = Ei∼U (0 ,1) , w 0∼N (0 ,I ),
+
+> (st,w 1)∼D , g ∼pD
+
+h
+
+vθ (wi, i, s t, ˜g) − (w1 − w0) 2i
+
+, (16) where the conditioning variable ˜g equals g with probability 1 − punc and is set to ∅ otherwise. This design enables a single network to represent both vθ (· | s, g ) and vθ (· | s), laying the foundation for controllable guided sampling at inference time. 
+
+5.3 Guided Sampling as Implicit Policy Extraction 
+
+Although flow matching learns the empirical goal-conditioned subgoal distribution during training, DSP further exploits the relationship between the unconditional and conditional distributions at inference time. Specifically, classifier-free guidance performs a density-ratio reweighting of the behavior-induced subgoal distribution. Let vθ (wi, i, s, ∅) and vθ (wi, i, s, g ) denote the unconditional and goal-conditioned velocity fields. DSP constructs 
+
+ˆvθ (wi, i ) = vθ (wi, i, s, ∅) + ω  vθ (wi, i, s, g ) − vθ (wi, i, s, ∅) , (17) where ω controls the strength of goal-directed guidance. Under the score approximation interpretation of CFG, the conditional-unconditional difference corresponds to ∇w log p(w|s,g ) 
+
+> p(w|s)
+
+.The following proposition establishes the connection between this density ratio and the RL advantage of the induced high-level behavior policy. 
+
+Proposition 5.1 (CFG as Implicit Relative-Advantage-Weighted Subgoal Extraction) . Let πβ (w|s) = 
+
+p(w|s) denote the behavior-induced subgoal distribution. Assume that the goal-conditioned subgoal distribution is obtained by future-state relabeling under πβ . Then, 
+
+p(w|s, g )
+
+p(w|s) = Qβ (s, w, g )
+
+Vβ (s, g ) , (18) 
+
+where Qβ (s, w, g ) is the goal-conditioned value of selecting subgoal w under πβ , and Vβ (s, g ) = 
+
+Ew∼πβ (·| s)[Qβ (s, w, g )] .
+
+Equivalently, 
+
+log p(w|s, g )
+
+p(w|s) = log 
+
+
+
+1 + Aβ (s, w, g )
+
+Vβ (s, g )
+
+
+
+, (19) 
+
+where Aβ (s, w, g ) = Qβ (s, w, g ) − Vβ (s, g ) is the behavior-policy RL advantage. Therefore, CFG sampling induces the tilted distribution 
+
+pω (w | s, g ) ∝ πβ (w | s)
+
+ Qβ (s, w, g )
+
+Vβ (s, g )
+
+ω
+
+∝ πβ (w | s)Qβ (s, w, g )ω . (20) 
+
+Equivalently, 
+
+pω (w | s, g ) ∝ πβ (w | s) exp 
+
+
+
+ω eAβ (s, w, g )
+
+
+
+, (21) 
+
+where eAβ (s, w, g ) = log Qβ (s,w,g )  
+
+> Vβ(s,g )
+
+. This corresponds to implicit relative-advantage-weighted sub-goal extraction. 
+
+Proposition 5.1 clarifies that the implicit quantity amplified by CFG is the log-relative advantage 
+
+eAβ (s, w, g ) = log Qβ (s,w,g )  
+
+> Vβ(s,g )
+
+, which is a strictly increasing transformation of the additive RL advan-tage. Therefore, CFG preserves the ordering of subgoals induced by Aβ (s, w, g ) while avoiding explicit value estimation during high-level planning. The detailed proof of Proposition 5.1 is provided in Appendix B.3. 75.4 Practical Algorithm 
+
+We combine the diffusion-based high-level planner with the value function and low-level policy learning scheme of HIQL, using the following objectives: 
+
+LV (ϕ) = E(st,s t+1 )∼D , g ∼pD
+
+Lε
+
+> 2
+
+ r(st, g ) + γV ¯ϕ(st+1 , g ) − Vϕ(st, g ) . (22) 
+
+Jπℓ (ϑ) = E(st,a t,s t+1 ,w )∼D 
+
+exp ( α (Vϕ(st+1 , w ) − Vϕ(st, w ))) log πℓϑ(at | st, w ) . (23) Algorithms 1 and 2 summarize the training and inference procedures of DSP. The high-level planner generates subgoals via guided diffusion over velocity fields, while the low-level policy executes actions using value-based advantage-weighted updates. 
+
+Algorithm 1 DSP Training  
+
+> 1:
+
+Input: Dataset D; value Vϕ, V ¯ϕ; flow vθ ;policy πℓϑ. 
+
+> 2:
+
+while not converged do  
+
+> 3:
+
+Sample (st, a t, s t+1 , w, g ) ∼ D  
+
+> 4:
+
+Sample w0 ∼ N (0 , I ), i ∼ U (0 , 1)  
+
+> 5:
+
+Set w1 ← w, wi ← (1 − i)w0 + iw 1 
+
+> 6:
+
+Update Vϕ using Eq. (22)  
+
+> 7:
+
+¯ϕ ← (1 − κ) ¯ϕ + κϕ  
+
+> 8:
+
+Update vθ using Eq. (16)  
+
+> 9:
+
+Update πℓϑ using Eq. (23)  
+
+> 10:
+
+end while  
+
+> 11:
+
+Output: Trained Vϕ, vθ , and πℓϑ
+
+Algorithm 2 DSP Inference  
+
+> 1:
+
+Input: Goal g; state s0; flow vθ ; policy πℓϑ; guidance ω;steps N . 
+
+> 2:
+
+Define: ∆vθ (w, i, s, g ) = vθ (w, i, s, g ) − vθ (w, i, s, ∅) 
+
+> 3:
+
+Initialize st ← s0 
+
+> 4:
+
+while not done do  
+
+> 5:
+
+Sample w ∼ N (0 , I ) 
+
+> 6:
+
+for i ∈ { 0, 1 
+
+> N
+
+, . . . , N −1 
+
+> N
+
+} do  
+
+> 7:
+
+w ← w + 1 
+
+> N
+
+[vθ (w, i, s t, ∅) + ω∆vθ (w, i, s t, g )]  
+
+> 8:
+
+end for  
+
+> 9:
+
+at ∼ πℓϑ(· | st, w ) 
+
+> 10:
+
+Execute at and observe st+1 , st ← st+1  
+
+> 11:
+
+end while 
+
+6 Experiments 
+
+We evaluate DSP on OGBench, a challenging offline GCRL benchmark designed to test long-horizon reasoning and multi-goal composition. Section 6.1 describes the experimental setup. Sections 6.2 and 6.3 report results on locomotion and manipulation tasks, respectively. Implementation details and hyperparameters are provided in Appendix C and D. Hyperparameter sensitivity, high-level planner ablations, inference-time analysis, and stitching experiments are reported in Appendices I, J.1, K, and L, respectively. 
+
+6.1 Experimental Setup 
+
+We evaluate DSP on a subset of environments and datasets from OGBench, a benchmark designed for offline GCRL with multiple goal-conditioned evaluation protocols. OGBench includes datasets of varying characteristics to assess long-horizon reasoning, trajectory stitching, and multi-goal composition. We focus on two categories of tasks. 
+
+Locomotion. Locomotion tasks require controlling a robot to navigate mazes and reach target locations. We consider point , ant , and humanoid embodiments across medium , large , and giant 
+
+maze layouts. We further include the challenging antsoccer task, where an ant robot must push a ball to a target location, evaluated under both arena and medium settings. 
+
+Manipulation. Manipulation tasks involve a 6-DoF robotic arm performing object-centric interac-tions, including cube grasping, button pressing, window opening, and drawer manipulation. These tasks evaluate the agent’s ability to compose sequential behaviors under complex dynamics. For comparison, we consider both flat and hierarchical baselines: GCBC [14], CFGRL [12], GCIVL 
+
+[47], OTA [1], Pi-HIQL [15], and HIQL [45]. We follow the hyperparameter settings reported in the original works and rerun their released code to report mean and standard deviation. Additional details on OGBench and the baseline methods are provided in Appendix F and G. 
+
+6.2 Locomotion Results 
+
+We first evaluate DSP on the locomotion suite of OGBench. As summarized in Table 1, DSP achieves strong performance across the evaluated locomotion tasks, showing its effectiveness for offline 8Table 1: Complete comparison between DSP and the offline GCRL baselines. The table reports the average binary success rate (%) across five test-time goals for each task, averaged over 5 seeds. Standard deviations are indicated by the ± symbol. Entries within 95% of the best-performing value in each row are highlighted in bold .
+
+Datasets Flat Policies Hierarchical Policies GCBC CFGRL GCIVL OTA Pi-HIQL HIQL HIQL w/o DSP 
+
+pointmaze-medium-navigate-v0 4.8 ± 6.9 65 .2 ± 5.3 70 .2 ± 5.9 85 .4 ± 5.0 62 .2 ± 7.3 70 .6 ± 7.0 74 .6 ± 6.1 90 .6 ± 3.8
+
+pointmaze-large-navigate-v0 25 .6 ± 6.3 74 .6 ± 2.9 42 .6 ± 5.3 87 .6 ± 9.2 80 .2 ± 13 .3 39 .4 ± 2.3 50 .0 ± 10 .4 93 .6 ± 2.9
+
+pointmaze-giant-navigate-v0 2.2 ± 4.9 3.4 ± 2.5 1.0 ± 2.2 69 .4 ± 11 .6 3.0 ± 2.9 5.0 ± 5.0 0.0 ± 0.0 43 .4 ± 7.2
+
+pointmaze-teleport-navigate-v0 23 .8 ± 5.7 49 .2 ± 5.1 43 .6 ± 2.5 40 .2 ± 5.4 33 .6 ± 9.0 8.8 ± 6.4 8.2 ± 6.2 51 .0 ± 5.8
+
+antmaze-medium-navigate-v0 32 .6 ± 8.5 34 .8 ± 5.5 74 .6 ± 8.0 91 .6 ± 2.4 90 .8 ± 2.7 93 .2 ± 1.3 92 .8 ± 2.4 98 .4 ± 0.5
+
+antmaze-large-navigate-v0 23 .0 ± 2.0 18 .4 ± 5.7 15 .0 ± 6.6 89 .2 ± 2.3 81 .8 ± 3.1 87 .8 ± 1.5 88 .6 ± 2.1 92 .0 ± 4.1
+
+antmaze-giant-navigate-v0 0.0 ± 0.0 0.0 ± 0.0 0.0 ± 0.0 68 .4 ± 3.4 50 .4 ± 3.7 58 .2 ± 4.7 50 .4 ± 8.0 69 .2 ± 2.9
+
+antmaze-teleport-navigate-v0 26 .4 ± 2.2 35 .2 ± 7.5 35 .6 ± 5.7 48 .4 ± 2.6 49 .4 ± 2.7 43 .4 ± 6.6 40 .8 ± 4.1 59 .8 ± 1.3
+
+humanoidmaze-medium-navigate-v0 6.8 ± 1.3 7.0 ± 2.3 32 .6 ± 4.0 82 .4 ± 3.6 76 .2 ± 3.8 74 .8 ± 3.0 52 .6 ± 4.3 89 .6 ± 2.9
+
+humanoidmaze-large-navigate-v0 1.0 ± 1.4 1.2 ± 1.6 2.6 ± 1.8 76 .4 ± 4.0 39 .0 ± 3.2 23 .6 ± 2.9 7.2 ± 3.4 69 .4 ± 3.9
+
+humanoidmaze-giant-navigate-v0 0.0 ± 0.0 0.4 ± 0.5 0.0 ± 0.0 81 .4 ± 4.9 34 .2 ± 3.3 5.0 ± 1.6 0.0 ± 0.0 66 .0 ± 3.4
+
+antsoccer-arena-navigate-v0 5.4 ± 3.0 12 .2 ± 4.1 47 .4 ± 7.5 39 .8 ± 6.5 17 .8 ± 2.9 60 .6 ± 4.5 56 .6 ± 5.5 76 .6 ± 4.0
+
+antsoccer-medium-navigate-v0 1.4 ± 0.5 3.6 ± 2.1 11 .6 ± 2.3 16 .6 ± 3.5 2.4 ± 1.5 8.4 ± 1.5 7.2 ± 1.5 15 .2 ± 2.4
+
+cube-single-play-v0 5.2 ± 2.2 7.6 ± 2.3 53 .4 ± 5.4 10 .0 ± 4.2 1.2 ± 1.1 11 .8 ± 2.3 21 .8 ± 4.0 41 .0 ± 6.1
+
+cube-double-play-v0 1.0 ± 1.0 1.6 ± 1.1 31 .6 ± 3.0 2.2 ± 0.8 0.0 ± 0.0 3.6 ± 2.2 9.4 ± 4.4 30 .8 ± 8.4
+
+scene-play-v0 4.8 ± 2.6 17 .2 ± 3.3 44 .6 ± 2.9 23 .4 ± 7.1 16 .6 ± 3.1 37 .2 ± 4.2 42 .0 ± 5.2 62 .6 ± 5.9
+
+puzzle-3x3-play-v0 3.0 ± 1.2 2.0 ± 1.2 4.2 ± 2.5 4.6 ± 3.2 5.6 ± 1.5 8.8 ± 1.3 16 .0 ± 2.9 13 .4 ± 2.3
+
+puzzle-4x4-play-v0 0.0 ± 0.0 0.0 ± 0.0 7.8 ± 2.6 3.4 ± 1.8 13 .6 ± 8.4 7.8 ± 2.6 5.4 ± 2.3 27 .6 ± 2.9
+
+Total 167 .0 333 .6 518 .4 920 .4 658 .0 648 .0 623 .6 1090 .20.0 0.2 0.4 0.6 0.8 1.0                      
+
+> Steps 1e6 020 40 60 80 100
+> Success Rate (%) pointmaze-giant-navigate-v0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Steps 1e6 020 40 60 80 100
+> antmaze-giant-navigate-v0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Steps 1e6 020 40 60 80 100
+> humanoidmaze-giant-navigate-v0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Steps 1e6 020 40 60 80 100
+> antsoccer-arena-navigate-v0
+> HIQL HIQL w/o DSP
+
+Figure 3: Learning curves on challenging OGBench navigation tasks. DSP generally converges more reliably than HIQL and HIQL w/o in these long-horizon settings, suggesting the benefit of guided generative subgoal planning. long-horizon planning. In low-dimensional point environments, DSP outperforms prior methods in the medium and large mazes and remains competitive in the more challenging giant setting. The learning curves in Figure 3 further show that DSP converges more reliably than HIQL-based baselines in several difficult giant environments. The gains also extend to higher-dimensional robotic domains, including ant and humanoid . DSP attains near-optimal success rates in antmaze-medium and antmaze-large , and remains among the strongest methods on several humanoidmaze tasks, where high-dimensional states and complex dynamics make long-horizon value-based planning more difficult. These results are consistent with the intended role of DSP: generating data-supported, goal-directed subgoals without relying on explicit value comparisons at the high level. DSP also achieves the best or near-best performance on the antsoccer tasks under both arena and 
+
+medium configurations. These environments combine long-range navigation with object interaction, providing a useful test of planning consistency under coupled dynamics. Overall, the locomotion results suggest that guided generative subgoal planning is particularly effective in long-horizon navigation tasks that require stable multi-step subgoal generation. 
+
+6.3 Manipulation Results 
+
+We further evaluate DSP on the manipulation suite of OGBench, spanning single-object grasping, multi-object interaction, and compositional puzzle solving. Unlike locomotion, these tasks emphasize sequencing local physical interactions rather than long-range navigation. 9As shown in Table 1, GCIVL performs strongly on local tasks such as cube-single and 
+
+cube-double , where compact goal spaces and short-horizon value estimates provide useful guidance. In these cases, flat policies remain competitive, and hierarchy may offer limited benefit. DSP shows clearer advantages on multi-step interaction tasks such as scene-play and compositional tasks in the puzzle suite, where consistent subgoal coordination is more important. By generating data-supported subgoals without explicit high-level value comparisons, DSP performs strongly on 
+
+scene-play and puzzle-4x4 , while remaining competitive across the suite. Overall, these results complement the locomotion findings: DSP is most useful when high-level planning requires stable multi-step subgoal generation, while remaining competitive on more local manipulation tasks. 
+
+6.4 Guidance, Data Support, and Executor Reachability 
+
+Table 2: Guidance–support–reachability trade-off. D:support distance; V : validity; R: valid-and-reached rate. V , R, and Succ. are percentages.                                         
+
+> Datasets ωD↓V↑R↑Succ. ↑
+> AntMaze-Giant
+> 11.6 100.0 68.8 46.0 31.7 100.0 62.1 69.2
+> 51.8 98.8 51.6 56.4 10 2.1 96.9 40.6 27.0
+> Scene-Play
+> 11.8 98.0 92.4 35.6 32.0 96.5 90.7 50.4 52.4 94.5 86.6 62.6
+> 10 3.7 84.4 45.3 35.2
+
+To quantify how guidance affects subgoal fea-sibility, we hold the trained checkpoints and all other settings fixed and vary ω. We mea-sure standardized training-support distance 
+
+D, state-validity rate V , valid-and-reached rate R, and task success. Lower D indicates greater proximity to the offline data, while higher V and R indicate more valid and ex-ecutable subgoals. Full metric definitions are provided in Appendix H. Relative to ω = 1 , the family-default scales improve success by 23.2 and 27.0 percentage points on Ant-Giant and Scene-Play, respec-tively, while reducing the valid-and-reached rate by 6.7 and 5.8 points. At ω = 10 , support distance increases and validity, reachability, and success all deteriorate. These results show that moderate guidance balances goal direction and executability, whereas excessive guidance is a practical failure mode; DSP does not provide a hard subgoal-feasibility guarantee. 
+
+7 Conclusion 
+
+In this work, we propose Diffusion Subgoal Planning (DSP), a generative framework for high-level subgoal planning in offline goal-conditioned reinforcement learning. DSP targets a key limitation of hierarchical methods: high-level subgoal selection can become unreliable when guided by noisy goal-conditioned value estimates in long-horizon tasks. Instead of explicitly querying values for high-level planning, DSP learns unconditional and goal-conditioned velocity fields and uses classifier-free guidance to bias generated subgoals toward the desired goal. Combined with a low-level policy trained through implicit value learning, DSP achieves strong performance across challenging OGBench locomotion and manipulation tasks. These results suggest that guided generative subgoal modeling is a promising alternative to explicit value-based high-level planning in long-horizon offline GCRL. 
+
+Acknowledgments 
+
+This work was supported by the Key Research and Development Program of Jiangsu Province under Grant BE2022095. We thank Qiyu Wang at University College London for helpful discussions and constructive feedback on this work. We also thank the reviewers and Area Chair for their constructive feedback, which helped improve the paper. 10 References 
+
+[1] Hongjoon Ahn, Heewoong Choi, Jisu Han, and Taesup Moon. Option-aware tempo-rally abstracted value for offline goal-conditioned reinforcement learning. arXiv preprint arXiv:2505.12737 , 2025. [2] Anurag Ajay, Yilun Du, Abhi Gupta, Joshua Tenenbaum, Tommi Jaakkola, and Pulkit Agrawal. Is conditional generative modeling all you need for decision-making? arXiv preprint arXiv:2211.15657 , 2022. [3] Marcin Andrychowicz, Filip Wolski, Alex Ray, Jonas Schneider, Rachel Fong, Peter Welinder, Bob McGrew, Josh Tobin, OpenAI Pieter Abbeel, and Wojciech Zaremba. Hindsight experience replay. Advances in Neural Information Processing Systems , 30, 2017. [4] Marco Bagatella and Georg Martius. Goal-conditioned offline planning from curious exploration. 
+
+Advances in Neural Information Processing Systems , 36:15358–15383, 2023. [5] Elliot Chane-Sane, Cordelia Schmid, and Ivan Laptev. Goal-conditioned reinforcement learning with imagined subgoals. In International Conference on Machine Learning , pages 1430–1440. PMLR, 2021. [6] Chang Chen, Fei Deng, Kenji Kawaguchi, Caglar Gulcehre, and Sungjin Ahn. Simple hierarchi-cal planning with diffusion. arXiv preprint arXiv:2401.02644 , 2024. [7] Huayu Chen, Cheng Lu, Zhengyi Wang, Hang Su, and Jun Zhu. Score regularized policy optimization through diffusion behavior. arXiv preprint arXiv:2310.07297 , 2023. [8] Yuanpei Chen, Tianhao Wu, Shengjie Wang, Xidong Feng, Jiechuan Jiang, Zongqing Lu, Stephen McAleer, Hao Dong, Song-Chun Zhu, and Yaodong Yang. Towards human-level bimanual dexterous manipulation with reinforcement learning. Advances in Neural Information Processing Systems , 35:5150–5163, 2022. [9] Jinwoo Choi, Sang-Hyun Lee, and Seung-Woo Seo. Chain-of-goals hierarchical policy for long-horizon offline goal-conditioned RL. arXiv preprint arXiv:2602.03389 , 2026. [10] Benjamin Eysenbach, Tianjun Zhang, Sergey Levine, and Russ R Salakhutdinov. Contrastive learning as goal-conditioned reinforcement learning. Advances in Neural Information Process-ing Systems , 35:35603–35620, 2022. [11] Meng Fang, Tianyi Zhou, Yali Du, Lei Han, and Zhengyou Zhang. Curriculum-guided hindsight experience replay. Advances in Neural Information Processing Systems , 32, 2019. [12] Kevin Frans, Seohong Park, Pieter Abbeel, and Sergey Levine. Diffusion guidance is a controllable policy improvement operator. arXiv preprint arXiv:2505.23458 , 2025. [13] Divyansh Garg, Skanda Vaidyanath, Kuno Kim, Jiaming Song, and Stefano Ermon. Lisa: learn-ing interpretable skill abstractions from language. Advances in Neural Information Processing Systems , 35:21711–21724, 2022. [14] Dibya Ghosh, Abhishek Gupta, Ashwin Reddy, Justin Fu, Coline Devin, Benjamin Eysenbach, and Sergey Levine. Learning to reach goals via iterated supervised learning. arXiv preprint arXiv:1912.06088 , 2019. [15] Vittorio Giammarino, Ruiqi Ni, and Ahmed H Qureshi. Physics-informed value learner for offline goal-conditioned reinforcement learning. arXiv preprint arXiv:2509.06782 , 2025. [16] Xudong Gong, Dawei Feng, Kele Xu, Bo Ding, and Huaimin Wang. Goal-conditioned on-policy reinforcement learning. Advances in Neural Information Processing Systems , 37:45975–46001, 2024. [17] Tuomas Haarnoja, Kristian Hartikainen, Pieter Abbeel, and Sergey Levine. Latent space policies for hierarchical reinforcement learning. In International Conference on Machine Learning ,volume 80, pages 1851–1860. PMLR, 2018. 11 [18] Philippe Hansen-Estruch, Ilya Kostrikov, Michael Janner, Jakub Grudzien Kuba, and Sergey Levine. Idql: Implicit q-learning as an actor-critic method with diffusion policies. arXiv preprint arXiv:2304.10573 , 2023. [19] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 , 2022. [20] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in Neural Information Processing Systems , 33:6840–6851, 2020. [21] Mineui Hong, Minjae Kang, and Songhwai Oh. Diffused task-agnostic milestone planner. 
+
+Advances in Neural Information Processing Systems , 36:387–405, 2023. [22] Zixuan Huang, Yating Lin, Fan Yang, and Dmitry Berenson. Subgoal diffuser: Coarse-to-fine subgoal generation to guide model predictive control for robot manipulation. In IEEE International Conference on Robotics and Automation , pages 16489–16495, 2024. [23] Vineet Jain and Siamak Ravanbakhsh. Learning to reach goals via diffusion. In International Conference on Machine Learning , pages 21170–21195. PMLR, 2024. [24] Michael Janner, Yilun Du, Joshua B Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. arXiv preprint arXiv:2205.09991 , 2022. [25] Kaiqiang Ke, Qian Lin, Zongkai Liu, Shenghong He, and Chao Yu. Conservative offline goal-conditioned implicit V-learning. In International Conference on Machine Learning , 2025. Accepted. Available at https://openreview.net/forum?id=5ryn8tYWHL .[26] Donghyeon Ki, JunHyeok Oh, Seong-Woong Shim, and Byung-Jun Lee. Prior-guided diffusion planning for offline reinforcement learning. arXiv preprint arXiv:2505.10881 , 2025. [27] Junsu Kim, Younggyo Seo, and Jinwoo Shin. Landmark-guided subgoal generation in hi-erarchical reinforcement learning. Advances in neural information processing systems , 34: 28336–28349, 2021. [28] Sungyoon Kim, Yunseon Choi, Daiki E Matsunaga, and Kee-Eung Kim. Stitching sub-trajectories with conditional diffusion model for goal-conditioned offline rl. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 13160–13167, 2024. [29] Anthony Kobanda, Waris Radji, Mathieu Petitbois, Odalric-Ambrym Maillard, and Rémy Portelas. Offline goal-conditioned reinforcement learning with projective quasimetric planning. 
+
+arXiv preprint arXiv:2506.18847 , 2025. [30] Ilya Kostrikov, Ashvin Nair, and Sergey Levine. Offline reinforcement learning with implicit q-learning. arXiv preprint arXiv:2110.06169 , 2021. [31] Seungjae Lee, Jigang Kim, Inkyu Jang, and H Jin Kim. Dhrl: A graph-based approach for long-horizon and sparse hierarchical reinforcement learning. Advances in Neural Information Processing Systems , 35:13668–13678, 2022. [32] Jinning Li, Chen Tang, Masayoshi Tomizuka, and Wei Zhan. Hierarchical planning through goal-conditioned offline reinforcement learning. IEEE Robotics and Automation Letters , 7(4): 10216–10223, 2022. [33] Wenhao Li, Xiangfeng Wang, Bo Jin, and Hongyuan Zha. Hierarchical diffusion for offline decision making. In International Conference on Machine Learning , pages 20035–20064. PMLR, 2023. [34] Zhixuan Liang, Yao Mu, Hengbo Ma, Masayoshi Tomizuka, Mingyu Ding, and Ping Luo. Skilldiffuser: interpretable hierarchical planning via skill abstractions in diffusion-based task execution. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 16467–16476, 2024. [35] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. 12 [36] Minghuan Liu, Menghui Zhu, and Weinan Zhang. Goal-conditioned reinforcement learning: Problems and solutions. arXiv preprint arXiv:2201.08299 , 2022. [37] Ruijia Liu, Ancheng Hou, Shaoyuan Li, and Xiang Yin. Sagas: Semantic-aware graph-assisted stitching for offline temporal logic planning. arXiv preprint arXiv:2512.00775 , 2025. [38] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [39] Cheng Lu, Huayu Chen, Jianfei Chen, Hang Su, Chongxuan Li, and Jun Zhu. Contrastive energy prediction for exact energy-guided diffusion sampling in offline reinforcement learning. In International Conference on Machine Learning , pages 22825–22855. PMLR, 2023. [40] Chenrui Ma, Xi Xiao, Tianyang Wang, Xiao Wang, and Yanning Shen. Stochastic interpolants via conditional dependent coupling. arXiv preprint arXiv:2509.23122 , 2025. [41] Chenrui Ma, Xi Xiao, Lin Zhao, Tianyang Wang, Ferdinando Fioretto, and Yanning Shen. Drift flow matching. arXiv preprint arXiv:2605.17244 , 2026. [42] Jason Yecheng Ma, Jason Yan, Dinesh Jayaraman, and Osbert Bastani. Offline goal-conditioned reinforcement learning via f -advantage regression. Advances in Neural Information Processing Systems , 35:310–323, 2022. [43] Lina Mezghani, Sainbayar Sukhbaatar, Piotr Bojanowski, Alessandro Lazaric, and Karteek Alahari. Learning goal-conditioned policies offline with self-supervised reward shaping. In 
+
+Conference on Robot Learning , pages 1401–1410. PMLR, 2023. [44] Evgenii Opryshko, Junwei Quan, Claas Voelcker, Yilun Du, and Igor Gilitschenski. Test-time graph search for goal-conditioned reinforcement learning. arXiv preprint arXiv:2510.07257 ,2025. [45] Seohong Park, Dibya Ghosh, Benjamin Eysenbach, and Sergey Levine. Hiql: offline goal-conditioned rl with latent states as actions. Advances in Neural Information Processing Systems ,36:34866–34891, 2023. [46] Seohong Park, Oleh Rybkin, and Sergey Levine. Metra: Scalable unsupervised rl with metric-aware abstraction. arXiv preprint arXiv:2310.08887 , 2023. [47] Seohong Park, Kevin Frans, Benjamin Eysenbach, and Sergey Levine. Ogbench: benchmarking offline goal-conditioned rl. arXiv preprint arXiv:2410.20092 , 2024. [48] Seohong Park, Kevin Frans, Deepinder Mann, Benjamin Eysenbach, Aviral Kumar, and Sergey Levine. Horizon reduction makes rl scalable. arXiv preprint arXiv:2506.04168 , 2025. [49] Seohong Park, Qiyang Li, and Sergey Levine. Flow q-learning. arXiv preprint arXiv:2502.02538 , 2025. [50] Tom Schaul, Daniel Horgan, Karol Gregor, and David Silver. Universal value function ap-proximators. In International Conference on Machine Learning , pages 1312–1320. PMLR, 2015. [51] Wenling Shang, Alex Trott, Stephan Zheng, Caiming Xiong, and Richard Socher. Learning world graphs to accelerate hierarchical reinforcement learning. arXiv preprint arXiv:1907.00664 ,2019. [52] Wonchul Shin and Yusung Kim. Guide to control: Offline hierarchical reinforcement learning using subgoal generation for long-horizon and sparse-reward tasks. In International Joint Conference on Artificial Intelligence , pages 4217–4225, 2023. [53] Harshit Sikchi, Rohan Chitnis, Ahmed Touati, Alborz Geramifard, Amy Zhang, and Scott Niekum. Smore: score models for offline goal-conditioned reinforcement learning. arXiv preprint arXiv:2311.02013 , 2023. [54] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. 13 [55] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. Advances in Neural Information Processing Systems , 32, 2019. [56] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. [57] Mianchu Wang, Rui Yang, Xi Chen, Hao Sun, Meng Fang, and Giovanni Montana. Goplan: goal-conditioned offline reinforcement learning by planning with learned models. arXiv preprint arXiv:2310.20025 , 2023. [58] Tongzhou Wang, Antonio Torralba, Phillip Isola, and Amy Zhang. Optimal goal-reaching reinforcement learning via quasimetric learning. In International Conference on Machine Learning , pages 36411–36430. PMLR, 2023. [59] Xuesong Wang, Hengrui Zhang, Jiazhi Zhang, C. L. Philip Chen, and Yuhu Cheng. Pcdt: Pessimistic critic decision transformer for offline reinforcement learning. IEEE Transactions on Systems, Man, and Cybernetics: Systems , 55(10):7247–7258, 2025. doi: 10.1109/TSMC.2025. 3583392. [60] Zhendong Wang, Jonathan J Hunt, and Mingyuan Zhou. Diffusion policies as an expressive policy class for offline reinforcement learning. arXiv preprint arXiv:2208.06193 , 2022. [61] Rui Yang, Yiming Lu, Wenzhe Li, Hao Sun, Meng Fang, Yali Du, Xiu Li, Lei Han, and Chongjie Zhang. Rethinking goal-conditioned supervised learning and its connection to offline rl. arXiv preprint arXiv:2202.04478 , 2022. [62] Rui Yang, Yong Lin, Xiaoteng Ma, Hao Hu, Chongjie Zhang, and Tong Zhang. What is essential for unseen goal generalization of offline goal-conditioned rl? In International Conference on Machine Learning , pages 39543–39571. PMLR, 2023. [63] Yifu Yuan, Zhenrui Zheng, Zibin Dong, and Jianye Hao. Moduli: Unlocking preference generalization via diffusion models for offline multi-objective reinforcement learning. arXiv preprint arXiv:2408.15501 , 2024. [64] Xianghua Zeng, Hao Peng, Angsheng Li, and Yicheng Pan. Structural information-based hierarchical diffusion for offline reinforcement learning. arXiv preprint arXiv:2509.21942 ,2025. [65] Tianren Zhang, Shangqi Guo, Tian Tan, Xiaolin Hu, and Feng Chen. Generating adjacency-constrained subgoals in hierarchical reinforcement learning. Advances in neural information processing systems , 33:21579–21590, 2020. 14 A Limitations and Future Work 
+
+DSP targets offline, state-based goal-conditioned RL settings where the dataset contains meaningful local reachability structure. As with many offline generative planning methods, performance may be affected when data coverage is limited or evaluation goals deviate substantially from the behavior data. DSP also uses iterative diffusion sampling for high-level subgoal generation, introducing an inference cost controlled by the number of sampling steps; in our experiments, a modest number of steps is sufficient for strong performance. Future work may extend DSP to partially observable domains, develop more efficient generative parameterizations for faster subgoal sampling, and explore pretrained representations or cross-task transfer to reduce dependence on task-specific data coverage. 
+
+B Proofs 
+
+B.1 Proof of Proposition 4.1 
+
+Proof. For simplicity, we assume that T /k is an integer and k ≤ T . Defining z1 := z1,T and 
+
+z2 := z−1,T , the probability of the flat policy π selecting an incorrect action can be computed as follows: 
+
+E(π) = P[ ˆV (s + 1 , g ) ≤ ˆV (s − 1, g )] (24) 
+
+= P[ ˆV (1 , T ) ≤ ˆV (−1, T )] (25) 
+
+= P[−(T − 1)(1 + σz 1) ≤ − (T + 1)(1 + σz 2)] (26) 
+
+= P[z1σ(T − 1) − z2σ(T + 1) ≥ 2] (27) 
+
+= P[zσ pT 2 + 1 ≤ − √2] (28) 
+
+= Φ −√2
+
+σ√T 2 + 1 
+
+!
+
+, (29) where z is a standard Gaussian random variable, and we use the fact that the sum of two independent Gaussian random variables with standard deviations of σ1 and σ2 follows a normal distribution with a standard deviation of pσ21 + σ22 . Similarly, the probability of the hierarchical policy πl ◦ πh selecting an incorrect action is bounded using a union bound as 
+
+E(πl ◦ πh) ≤ E (πh) + E(πl) (30) 
+
+= P[ ˆV (s + k, g ) ≤ ˆV (s − k, g )] + P[ ˆV (s + 1 , s + k) ≤ ˆV (s − 1, s + k)] (31) 
+
+= P[ ˆV (k, T ) ≤ ˆV (−k, T )] + P[ ˆV (1 , k ) ≤ ˆV (−1, k )] (32) 
+
+= Φ −√2
+
+σp(T /k )2 + 1 
+
+!
+
++ Φ −√2
+
+σ√k2 + 1 
+
+!
+
+. (33) 
+
+B.2 Proof of Proposition 4.2 
+
+Proof. We first derive the exact one-step decision error for an arbitrary generated subgoal distribution. This general result is then specialized to the matched-distance setting of Proposition 4.2. 
+
+Arbitrary generated subgoals. Let w ∼ πh
+
+> DSP
+
+(· | s, g ) be an arbitrary generated subgoal, assumed to be independent of the low-level value-noise variables. The final goal g = s + T lies to the right of the current state s, so a globally incorrect primitive action moves to the left. First consider w > s and define d := w − s > 0. The distances from the two successor states to w are 
+
+|s + 1 − w| = |d − 1|, |s − 1 − w| = d + 1 . (34) 15 Let z+ := zs+1 ,w , z − := zs−1,w , where z+, z − ∼ N (0 , 1) independently. Under the noisy-value model, 
+
+ˆV (s + 1 , w ) = −| d − 1| (1 + σz +) , (35) 
+
+ˆV (s − 1, w ) = −(d + 1) (1 + σz −) . (36) Since both w and the final goal lie to the right of s, the low-level policy makes a globally incorrect decision when it selects the left action: 
+
+ˆV (s + 1 , w ) ≤ ˆV (s − 1, w ). (37) Substituting the noisy values and rearranging gives 
+
+σ (|d − 1|z+ − (d + 1) z−) ≥ (d + 1) − | d − 1|. (38) Using 
+
+(d + 1) − | d − 1| = 2 min {d, 1}, (39) 
+
+|d − 1|2 + ( d + 1) 2 = 2( d2 + 1) , (40) we obtain 
+
+P
+
+h ˆV (s + 1 , w ) ≤ ˆV (s − 1, w ) | w
+
+i
+
+= Φ −√2 min {d, 1}
+
+σ√d2 + 1 
+
+!
+
+=: pℓ(d). (41) Now consider w < s and define d := s − w > 0. By symmetry, pℓ(d) is the probability that the low-level policy moves to the right, away from the selected subgoal. In this case, however, the right action is globally correct because the final goal lies to the right. Hence, conditioned on w < s , the probability of a globally incorrect left action is 
+
+1 − pℓ(d).
+
+When w = s, the two actions are symmetric under the noise model, so the globally incorrect left action is selected with probability 1/2. Taking expectation over w therefore yields 
+
+E  πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+ = Ew [pℓ(w − s)1{w > s } + (1 − pℓ(s − w)) 1{w < s }] + 12 P(w = s). (42) Equation (42) holds for an arbitrary generated subgoal distribution and does not require Gaussianity, symmetry, or unimodality. 
+
+Matched-distance DSP error. Under the matched-distance setting of Proposition 4.2, DSP selects 
+
+s + k with probability 1 − ϵ and s − k with probability ϵ. Since k ≥ 1, Equation (41) gives 
+
+pℓ(k) = Φ −√2
+
+σ√k2 + 1 
+
+!
+
+.
+
+If DSP selects s + k, the globally incorrect action is chosen with probability pℓ(k). If DSP selects 
+
+s − k, the globally incorrect action is chosen with probability 1 − pℓ(k). Therefore, 
+
+E  πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+ = (1 − ϵ)pℓ(k) + ϵ (1 − pℓ(k)) = pℓ(k) + (1 − 2pℓ(k)) ϵ, (43) which proves Equation (8). 
+
+Matched-distance HIQL error. Let H denote the event that HIQL selects the wrong-direction subgoal s − k, and let L denote the event that its low-level policy moves away from the selected subgoal. Proposition 4.1 gives 
+
+P(H) = ph(T, k ) = Φ −√2
+
+σp(T /k )2 + 1 
+
+!
+
+. (44) 16 By symmetry, the conditional low-level error is pℓ(k) for either selected subgoal: 
+
+P(L | H) = P(L | Hc) = pℓ(k). (45) Because the high- and low-level comparisons use independent value-noise variables, H and L are independent. The final primitive action is globally incorrect in exactly two cases: the high-level direction is correct and the low-level policy moves away from its subgoal, or the high-level direction is incorrect and the low-level policy moves toward its subgoal. Hence, 
+
+E  πℓ ◦ πh = P(Hc ∩ L) + P(H ∩ Lc)= (1 − ph(T, k )) pℓ(k) + ph(T, k ) (1 − pℓ(k)) = pℓ(k) + (1 − 2pℓ(k)) ph(T, k ), (46) which proves Equation (9). Since pℓ(k) < 1/2, we have 
+
+E  πℓ 
+
+> DSP
+
+◦ πh
+
+> DSP
+
+ < E  πℓ ◦ πh ⇐⇒ ϵ < p h(T, k ), (47) which proves Equation (10). 
+
+Gaussian directional-error special case. For the closed-form special case in Equation (11), consider an auxiliary directional proposal 
+
+u ∼ N  s + k, σ 2data 
+
+ ,
+
+where the matched-distance planner selects s + k when u > s and s − k otherwise. This auxiliary proposal is used only to parameterize the wrong-direction probability ϵ. We have 
+
+ϵ = P(u ≤ s)= P
+
+ u − (s + k)
+
+σdata 
+
+≤ − kσdata 
+
+
+
+= Φ 
+
+
+
+− kσdata 
+
+
+
+. (48) Condition (10) therefore becomes 
+
+Φ
+
+
+
+− kσdata 
+
+
+
+< Φ −√2
+
+σp(T /k )2 + 1 
+
+!
+
+. (49) By the strict monotonicity of Φ, this is equivalent to 
+
+p(T /k )2 + 1 >
+
+√2σdata 
+
+σk . (50) When √2σdata 
+
+σk > 1,
+
+rearranging Equation (50) yields 
+
+T > k 
+
+vuut
+
+√2σdata 
+
+σk 
+
+!2
+
+− 1, (51) which is Equation (12). When √2σdata  
+
+> σk
+
+≤ 1, the left-hand side of Equation (50) is strictly greater than one for every T > 0, so no additional positive lower bound on T is required. 
+
+B.3 Proof of Proposition 5.1 
+
+Proof. We separate the proof into two parts. We first establish the exact relationship between the conditional density ratio and the behavior-policy goal-reaching value. We then connect classifier-free guidance to Qβ -weighted subgoal extraction. 17 Density ratio as normalized goal-reaching value. By construction of the future-state relabeling process, Qβ (s, w, g ) is the conditional probability mass or density of sampling g from the future continuation after first selecting w:
+
+pD (g | s, w ) = Qβ (s, w, g ). (52) Moreover, pD (w | s) = πβ (w | s). Marginalizing over the behavior subgoal distribution gives 
+
+pD (g | s) = 
+
+Z
+
+pD (g | s, w )pD (w | s) dw =
+
+Z
+
+Qβ (s, w, g )πβ (w | s) dw = Vβ (s, g ). (53) Bayes’ rule therefore yields 
+
+pD (w | s, g ) = pD (g | s, w )pD (w | s)
+
+pD (g | s) = πβ (w | s) Qβ (s, w, g )
+
+Vβ (s, g ) . (54) Dividing both sides by pD (w | s) = πβ (w | s) gives 
+
+pD (w | s, g )
+
+pD (w | s) = Qβ (s, w, g )
+
+Vβ (s, g ) . (55) Using 
+
+Qβ (s, w, g ) = Vβ (s, g ) + Aβ (s, w, g ), (56) we obtain 
+
+pD (w | s, g )
+
+pD (w | s) = 1 + Aβ (s, w, g )
+
+Vβ (s, g ) . (57) Taking logarithms yields 
+
+eAβ (s, w, g ) = log pD (w | s, g )
+
+pD (w | s) = log Qβ (s, w, g )
+
+Vβ (s, g ) = log 
+
+
+
+1 + Aβ (s, w, g )
+
+Vβ (s, g )
+
+
+
+. (58) For fixed (s, g ), Vβ (s, g ) does not depend on w. Wherever Qβ (s, w, g ) > 0,
+
+∂ eAβ (s, w, g )
+
+∂A β (s, w, g ) = 1
+
+Vβ (s, g ) + Aβ (s, w, g )= 1
+
+Qβ (s, w, g ) > 0. (59) Thus, eAβ is a strictly increasing transformation of the behavior-policy RL advantage. In particular, 
+
+eAβ (s, w, g ) > 0 ⇐⇒ Aβ (s, w, g ) > 0, (60) and both quantities induce the same ordering over w for fixed (s, g ).
+
+Classifier-free guidance as Qβ -weighted extraction. We next connect the density-ratio identity to the guided velocity field used by DSP. Under the score-approximation interpretation adopted in Proposition 5.1, the unconditional and goal-conditioned velocity fields satisfy 
+
+vθ (wi, i, s, ∅) ≈ ∇ wi log pi(wi | s), vθ (wi, i, s, g ) ≈ ∇ wi log pi(wi | s, g ), (61) where pi denotes the corresponding distribution at diffusion time i. Therefore, their difference satisfies 
+
+vθ (wi, i, s, g ) − vθ (wi, i, s, ∅) ≈ ∇ wi log pi(wi | s, g )
+
+pi(wi | s) . (62) Substituting these approximations into the CFG velocity field gives 
+
+ˆvθ (wi, i ) = vθ (wi, i, s, ∅) + ω  vθ (wi, i, s, g ) − vθ (wi, i, s, ∅)
+
+≈ ∇ wi
+
+
+
+log pi(wi | s) + ω log pi(wi | s, g )
+
+pi(wi | s)
+
+
+
+= ∇wi log 
+
+
+
+pi(wi | s)
+
+ pi(wi | s, g )
+
+pi(wi | s)
+
+ω 
+
+. (63) 18 Under the corresponding endpoint-density interpretation of CFG, the induced subgoal distribution is 
+
+pω (w | s, g ) ∝ p(w | s)
+
+ p(w | s, g )
+
+p(w | s)
+
+ω
+
+. (64) Using p(w | s) = πβ (w | s) and the density-ratio identity 
+
+p(w | s, g )
+
+p(w | s) = Qβ (s, w, g )
+
+Vβ (s, g ) , (65) we obtain 
+
+pω (w | s, g ) ∝ πβ (w | s)
+
+ Qβ (s, w, g )
+
+Vβ (s, g )
+
+ω
+
+∝ πβ (w | s)Qβ (s, w, g )ω , (66) where Vβ (s, g )ω is absorbed into the normalization constant because it does not depend on w.Equivalently, 
+
+pω (w | s, g ) ∝ πβ (w | s) exp 
+
+
+
+ω eAβ (s, w, g )
+
+
+
+, (67) where eAβ (s, w, g ) = log Qβ (s,w,g )  
+
+> Vβ(s,g )
+
+.
+
+C Implementation Details 
+
+C.1 Goal Mixed Sampling 
+
+We adopt the standard HER [3, 47] trick provided by OGBench. To train both value networks and actors, we employ a mixture of three distinct goal distributions: • pcur (g |s ): A degenerate distribution at the current state s (i.e., g = s). • ptraj (g |s ): A uniform distribution over future states visited within the same trajectory as the current state s.• prand (g |s ): A uniform distribution over arbitrary states sampled from the entire dataset, independent of the current state s.The specific mixing ratios for each task are detailed in Table 3. 
+
+C.2 Target Value Network 
+
+In our proposed method, we retain the conventional use of target value networks to further stabilize the training process. Previous studies [50, 5] have demonstrated that this technique facilitates faster convergence with negligible computational overhead. 
+
+C.3 Architectures 
+
+In our experiments, the value networks and policies across all methods are implemented as three-layer MLPs that take the concatenation of states and goals as input. For most hierarchical baselines, an additional subgoal encoder is used to map subgoals into a 10-dimensional latent space, which serves as the interface between the high-level planner and the low-level policy. In contrast, DSP directly operates in the original subgoal space and therefore does not introduce an explicit subgoal encoder. We also report results for HIQL w/o rep, which removes this subgoal encoding for comparison. Empirical results for HIQL w/o rep in Table 1 indicate that subgoal encoding can noticeably improve performance in high-dimensional state spaces, with the effect being particularly evident in challenging environments such as humanoidmaze . Although computational constraints prevent a systematic ablation of architectural choices, this observation is consistent with prior work on representation learning [58, 10, 46, 29], which suggests that appropriate dimensional compression can facilitate learning and planning in complex environments. 19 D Hyperparameters 
+
+To support reproducibility, 3 reports the shared hyperparameters, while 4 lists environment-specific settings for the guidance scale ω, policy temperature α, and subgoal interval k. We select ω via a coarse sweep on representative tasks and then fix it across all tasks and seeds within each environment family; k is likewise shared within each family. The number of flow integration steps is fixed globally at N = 20 .Table 3: Common hyperparameters for DSP in our experiments. 
+
+Hyperparameter Value 
+
+Learning rate 0.0003 
+
+Optimizer Adam Batch size 1024 
+
+Total gradient steps 1000000 
+
+MLP dimensions [512 , 512 , 512] 
+
+Activation function GELU Target network smoothing coefficient κ 0.005 
+
+Discount factor γ 0.995 (humanoidmaze), 0.99 (others) Expectile ε 0.7
+
+Diffusion time sampling distribution U(0 , 1) 
+
+Diffusion step N 20 
+
+Dropout probability punc 0.1
+
+Value goal mix ratio (pcur , p traj , p rand ) (0 .2, 0.5, 0.3) 
+
+Policy goal mix ratio (pcur , p traj , p rand ) (0 , 1.0, 0) 
+
+Table 4: Task specific hyperparameters for DSP in our experiments. 
+
+Environment Datasets ω α k
+
+pointmaze pointmaze-medium-navigate-v0 3.0 3.0 25 
+
+pointmaze-large-navigate-v0 3.0 3.0 25 
+
+pointmaze-giant-navigate-v0 3.0 3.0 25 
+
+pointmaze-teleport-navigate-v0 3.0 3.0 25 
+
+pointmaze-medium-stitch-v0 3.0 3.0 25 
+
+pointmaze-large-stitch-v0 3.0 3.0 25 
+
+pointmaze-giant-stitch-v0 3.0 3.0 25 
+
+pointmaze-teleport-stitch-v0 3.0 3.0 25 
+
+antmaze antmaze-medium-navigate-v0 3.0 3.0 25 
+
+antmaze-large-navigate-v0 3.0 3.0 25 
+
+antmaze-giant-navigate-v0 3.0 3.0 25 
+
+antmaze-teleport-navigate-v0 3.0 3.0 25 
+
+antmaze-medium-stitch-v0 3.0 3.0 25 
+
+antmaze-large-stitch-v0 3.0 3.0 25 
+
+antmaze-giant-stitch-v0 3.0 3.0 25 
+
+antmaze-teleport-stitch-v0 3.0 3.0 25 
+
+humanoidmaze humanoidmaze-medium-navigate-v0 1.5 3.0 100 
+
+humanoidmaze-large-navigate-v0 1.5 3.0 100 
+
+humanoidmaze-giant-navigate-v0 1.5 3.0 100 
+
+humanoidmaze-medium-stitch-v0 1.5 3.0 100 
+
+humanoidmaze-large-stitch-v0 1.5 3.0 100 
+
+humanoidmaze-giant-stitch-v0 1.5 3.0 100 
+
+antsoccer antsoccer-arena-navigate-v0 3.0 3.0 25 
+
+antsoccer-medium-navigate-v0 3.0 3.0 25 
+
+antsoccer-arena-stitch-v0 3.0 3.0 25 
+
+antsoccer-medium-stitch-v0 3.0 3.0 25 
+
+cube cube-single-play-v0 5.0 3.0 20 
+
+cube-double-play-v0 5.0 3.0 20 
+
+scene scene-play-v0 5.0 3.0 20 
+
+puzzle puzzle-3x3-play-v0 5.0 3.0 20 
+
+puzzle-4x4-play-v0 5.0 3.0 20 
+
+D4RL-antmaze antmaze-umaze-v2 3.0 3.0 25 
+
+antmaze-umaze-diverse-v2 3.0 3.0 25 
+
+antmaze-medium-play-v2 3.0 3.0 25 
+
+antmaze-medium-diverse-v2 3.0 3.0 25 
+
+antmaze-large-play-v2 3.0 3.0 25 
+
+antmaze-large-diverse-v2 3.0 3.0 25 
+
+20 Figure 4: Illustration of the OGBench environments, covering diverse locomotion and manipulation tasks used for evaluation. 
+
+E Computational Resources 
+
+All experiments were conducted on two compute servers, each equipped with four NVIDIA GeForce RTX 4090 GPUs (24 GB of VRAM per GPU). Unless otherwise specified, all reported training times correspond to runs executed on a single GPU. For locomotion tasks, training DSP on the largest environment ( humanoidmaze-giant-navigate-v0 ) requires approximately one hour on a single GPU. For manipulation tasks, the corresponding training time is around 40 minutes. 
+
+F Environments and Datasets 
+
+This section provides a detailed description of each task. Visualizations of the environments are presented in Figure 4. For further technical specifications, we refer readers to the OGBench white paper. 
+
+Maze. Maze is a challenging sparse-reward, long-horizon locomotion task requiring the agent to navigate from an arbitrary starting position to a specified goal. The environments vary by agent complexity: the 2-DoF point , the 8-DoF ant , and the 21-DoF humanoid . Each maze is categorized by size: medium , large , and giant . Additionally, the teleport configuration mirrors the large layout but incorporates random teleporters—some leading to dead ends—to test robustness against environmental stochasticity. The datasets are distinct based on collection methods; specifically, the navigate datasets consist of full trajectories collected by a noisy expert policy attempting to reach randomly sampled goals. In contrast, the stitch datasets are composed of short goal-reaching trajectories with a maximum length of four cell units, requiring the agent to stitch together multiple trajectory segments to solve long-horizon tasks. 
+
+AntSoccer. Antsoccer is introduced to further evaluate multi-goal generalization. In this environ-ment, a quadrupedal Ant robot must dribble a ball to a target location. This task exceeds the difficulty of antmaze , as it requires simultaneous navigation and precise ball manipulation. The environment includes two layouts: arena , an open space without walls, and medium , which corresponds to the layout in antmaze .
+
+Cube. Cube involves complex robotic manipulation focused on pick-and-place operations, where a robotic arm must arrange cubes into a specific configuration. The training dataset consists of play -style data generated by a scripted policy that randomly moves and stacks cubes. During evaluation, the agent is tasked with moving, stacking, swapping, or arranging cubes to match a goal configuration. Success requires learning generalizable multi-object behaviors and long-horizon reasoning from unstructured, stochastic trajectories. 
+
+Scene. The scene task evaluates sequential reasoning and long-horizon planning involving everyday objects such as cubes, windows, drawers, and button locks. Pressing a button toggles the locking state of a corresponding object (e.g., a drawer or window). Similar to cube , the dataset is collected via a play -style scripted policy. At test time, the agent must complete a sequence of sub-tasks to achieve the final goal, necessitating the ability to compose skills temporally. 21 Puzzle. Puzzle requires a robotic arm to solve a "Lights Out" style problem. The workspace contains a 2D array of buttons (e.g., a 3x3 grid); pressing a button toggles its color and that of its orthogonal neighbors. The objective is to achieve a specific color configuration through a sequence of presses. This task demands both precise low-level continuous control and high-level combinatorial generalization, posing a significant challenge to the agent’s long-term reasoning capabilities. 
+
+G Offline GCRL Baseline Algorithms 
+
+A brief overview of the baseline algorithms compared in this study is provided below: 
+
+Goal-conditioned behavioral cloning (GCBC). [14] GCBC is a standard imitation learning approach that clones behaviors by utilizing hindsight goal relabeling with future states observed within the same trajectory. 
+
+Classifier-free guidance reinforcement learning (CFGRL). [12] CFGRL employs a diffusion model as the policy network and executes action inference through classifier-free guidance sampling, enhancing the generation of high-fidelity actions. 
+
+Goal-conditioned implicit V learning (GCIVL). [47] GCIVL introduces a V-only objective to regress the optimal state-value function. By omitting Q-value learning, it does not explicitly marginal-ize over non-causal factors, which can introduce optimistic bias in stochastic environments. 
+
+Option-aware temporally abstracted V learning (OTA). [1] OTA incorporates an auxiliary high-level value function to facilitate high-level policy extraction. Its core contribution involves leveraging option-aware temporal abstraction to derive this value function, thereby providing more precise guidance for the high-level policy. 
+
+Physics-informed value learner (Pi-HIQL). [15] Drawing inspiration from the Eikonal equation, Pi-HIQL incorporates an Eikonal regularizer into implicit V-learning to encourage geometric structure in the learned value function. This method aims to induce geometric inductive biases within the value function by leveraging ground-truth physical constraints. 
+
+Hierarchical implicit Q learning (HIQL). [45] The theoretical framework of HIQL is detailed in Section 3. Regarding implementation, standard HIQL employs a latent subgoal representation for policy extraction. Specifically, the high-level and low-level policies are parameterized as πh :
+
+S × S → ∆ ( Z) and πℓ : S × Z → ∆ ( A), respectively, where Z denotes the latent subgoal space. 
+
+HIQL without subgoal representation (HIQL w/o). This variant removes the latent subgoal representation mechanism used in the standard HIQL implementation. Instead, it adheres strictly to the objectives defined in Equation 3 and Equation 4 of Section 3 for policy learning, operating without the auxiliary latent mapping. 
+
+H Subgoal Support and Executor Reachability 
+
+Neither DSP nor HIQL provides a hard feasibility guarantee for generated subgoals. To quantify how classifier-free guidance affects data support and low-level execution, we hold the trained checkpoints and all other settings fixed and vary the guidance scale ω.For M generated subgoals {wi}Mi=1 , we define the standardized training-support distance as 
+
+D = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+min 
+
+> x∈S D
+
+wi − xσD 2
+
+, (68) where SD denotes the states contained in the offline dataset and σD is their coordinate-wise standard deviation. A smaller D indicates that generated subgoals remain closer to the training support. We further measure the state-validity rate 
+
+V = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+1 [Valid( wi)] , (69) 22 and the valid-and-reached rate 
+
+R = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+1 [Valid( wi)] 1 [d(si,k , w i) ≤ δ] , (70) where si,k is the state reached after executing the low-level policy toward wi for at most k steps. The environment-specific validity predicate, distance metric d, and threshold δ are described below. Both 
+
+V and R are reported as percentages. As shown in Table 2, the family-default guidance scales improve task success relative to ω = 1 , while moderately reducing the valid-and-reached rate. With excessive guidance ( ω = 10 ), support distance increases and validity, reachability, and success all deteriorate. Thus, moderate guidance balances goal direction and executability, whereas excessive guidance constitutes a practical failure mode. 
+
+I Hyperparameter Sensitivity 
+
+I.1 Guidance Scale 0.1 1.0 3.0 5.0 10.0  
+
+> Guidance Scale ω
+> 020 40 60 80 100
+> Success Rate (%)
+> PointMaze-Giant AntMaze-Giant Cube-Single Scene-Play
+
+(a) Guidance Scale ω1 5 10 20 50   
+
+> Diffusion Step N
+> 020 40 60 80 100
+> Success Rate (%)
+> PointMaze-Giant AntMaze-Giant Cube-Single Scene-Play
+> 0510 15 20 25 30 35
+> Inference Time (s)
+
+(b) Diffusion Step N5 10 20 25 50   
+
+> Subgoal Steps k
+> 020 40 60 80 100
+> Success Rate (%)
+> PointMaze-Giant AntMaze-Giant Cube-Single Scene-Play
+
+(c) Subgoal Steps k
+
+Figure 5: Hyperparameter sensitivity analysis of DSP. (a): sensitivity to the guidance scale ω under classifier-free guidance, showing a consistent inverted-U trend across representative tasks. (b): sensitivity to the number of diffusion steps N , illustrating the trade-off between performance gains and inference cost. (c): sensitivity to the subgoal steps k, showing a broad performance plateau with degradation for overly large k. Shaded regions indicate one standard deviation over 5 random seeds. Figure 5(a) presents a sensitivity analysis of the guidance scale ω across four representative tasks. The results exhibit a consistent inverted-U trend, from which we draw three key observations. First, increasing ω from the baseline value of 1.0 (which approximates standard conditional sampling) to the range of 3.0 to 5.0 yields substantial performance gains across all tasks. For instance, in 
+
+pointmaze-giant-navigate-v0 , the success rate increases from 11 .0% to 43 .4% . This is consis-tent with the implicit advantage-weighted interpretation of CFG in DSP, where stronger guidance increases preference for goal-relevant subgoals. Second, we observe clear task-dependent preferences for the guidance strength. Locomotion tasks tend to peak around ω = 3 .0, whereas manipulation tasks benefit from stronger guidance and achieve their best performance at ω = 5 .0. We hypothesize that manipulation tasks involve complex contact dynamics and narrow optimal regions, requiring stronger directional signals to steer generation toward effective subgoals. In contrast, navigation tasks span larger spatial scales, where overly strong guidance may overly constrain subgoal diversity and hinder exploration of feasible paths. Finally, performance often degrades when ω becomes excessively large. This behavior aligns with prior findings on CFG [19]: excessive guidance pushes samples toward low-density regions of the data distribution, increasing the likelihood of generating unreachable subgoals and ultimately impairing low-level execution. 
+
+I.2 Diffusion Step 
+
+We further study the effect of the number of diffusion steps N on both the performance and inference efficiency of DSP. Figure 5(b) reports the average success rates and standard deviations for N ∈{1, 5, 10 , 20 , 50 }. Across all tasks, DSP exhibits a clear pattern in which performance improves substantially as N increases, followed by saturation and occasional mild degradation. Increasing the number of diffusion steps from N = 1 to N = 10 or N = 20 consistently leads to performance gains across all tasks, indicating that additional diffusion steps allow the conditional generative model to better capture the structural information required for long-horizon subgoal generation. This effect 23 is particularly pronounced on more challenging tasks such as pointmaze-giant and scene-play .In contrast, further increasing the number of diffusion steps to N = 50 does not yield consistent improvements, and even results in slight performance drops on some tasks (e.g., antmaze-giant 
+
+and scene-play ), suggesting diminishing returns and potential instability introduced by excessive sampling. At the same time, inference time increases approximately linearly with the number of diffusion steps, rising from about 1 second at N = 1 to over 35 seconds at N = 50 , leading to a substantial computational overhead. Here, the reported inference time is measured during evaluation over 10000 repeated inferences, where each inference generates one subgoal and one action. Considering the trade-off between performance and efficiency, N = 20 achieves near-optimal or optimal performance on most tasks while maintaining a reasonable inference cost. We therefore adopt N = 20 as the default number of diffusion steps in all experiments unless otherwise specified. 
+
+I.3 Subgoal Steps 
+
+We study the sensitivity of DSP to the subgoal steps k, which controls the temporal distance of high-level subgoals. As shown in Figure 5(c), performance consistently improves as k increases from very small values, indicating that short-horizon subgoals are insufficient for effective long-range planning. As k increases further, performance reaches a broad plateau (e.g., k = 20 –25 ), suggesting that DSP is not highly sensitive to the exact choice of k once it exceeds a reasonable scale. However, when k becomes overly large, performance may degrade. This is because distant subgoals are harder for the low-level policy to reliably reach, and such long-range transitions are less supported in the offline dataset, leading to increased uncertainty in subgoal generation. In practice, we adopt a simple and consistent heuristic across domains: larger k for long-horizon navigation tasks and smaller k for manipulation tasks requiring fine-grained control. This choice is consistent with common practices in hierarchical reinforcement learning and does not require per-task tuning. 
+
+J High-Level Subgoal Generation: Ablations and Comparisons 
+
+J.1 Controlled Comparison of High-Level Mechanisms 
+
+In DSP, training subgoals are constructed from k-step future states in the offline dataset and are not assumed to be optimal. CFG therefore does not provide optimal labels during training; instead, it introduces an inference-time goal-directed bias in the learned generative subgoal policy. To isolate this effect, we conduct a controlled ablation on the high-level planner while keeping the low-level policy training objective fixed as HIQL-style AWR. Table 5: Ablation on high-level subgoal generation. The table reports average binary success rate (%) over 5 seeds. MLE and diffusion variants are trained on the same k-step future-state subgoal targets.                                                                               
+
+> Datasets MLE Diffusion (ω= 1) HIQL DSP
+> antmaze-medium-navigate-v0 75 .8±2.577 .0±7.593 .2±1.398 .4±0.5
+> antmaze-large-navigate-v0 58 .0±5.158 .2±7.687 .8±1.592 .0±4.1
+> antmaze-giant-navigate-v0 14 .8±4.443 .8±4.058 .2±4.769 .2±2.9
+> cube-single-play-v0 15 .0±3.719 .2±3.811 .8±2.341 .0±6.1
+> cube-double-play-v0 1.2±1.14.8±0.83.6±2.230 .8±8.4
+> scene-play-v0 6.8±1.825 .6±4.237 .2±4.262 .6±5.9
+
+We compare four high-level planning mechanisms: (i) an MLE-based subgoal generator trained to imitate k-step future states, (ii) diffusion-based conditional sampling with ω = 1 , (iii) HIQL-style value-based high-level planning, and (iv) DSP with CFG-guided subgoal generation. All methods use the same type of low-level AWR executor. The results are reported in Table 5. The MLE-based subgoal generator performs substantially worse than HIQL and DSP, especially on long-horizon navigation tasks, indicating that directly imitating k-step future states is insuffi-cient. Diffusion-based conditional sampling improves over MLE in several settings, suggesting that modeling a richer subgoal distribution is beneficial. However, the gap between diffusion with 24 ω = 1 and DSP shows that standard conditional generation does not explain the full performance gains. CFG-guided sampling further biases generation toward goal-relevant subgoals and achieves the strongest performance across all evaluated tasks. These results suggest that DSP is not merely a k-step subgoal imitation method. Rather, its per-formance comes from combining data-supported generative subgoal modeling with inference-time goal-directed guidance, consistent with the advantage-like interpretation of CFG discussed in Sec-tion 5.3. 
+
+J.2 Comparison with Diffusion-Based Hierarchical Planners 
+
+Table 6: Success rates (%) under the matched OGBench protocol, reported as mean ± standard deviation over five seeds. Bold indicates the highest mean in each setting.                                                                                      
+
+> Datasets Representation Merlin HDMI HD DSP
+> PointMaze-Large Full =XY 43 .2±8.161 .2±4.173 .6±6.893 .6±2.9
+> PointMaze-Giant Full =XY 0.4±0.526 .4±5.412 .6±6.943 .4±7.2
+> AntMaze-Large Full 22 .6±5.253 .4±5.664 .0±8.292 .0±4.1
+> XY 34 .2±5.865 .0±3.774 .4±5.596 .0±2.0
+> AntMaze-Giant Full 0.0±0.00.0±0.00.2±0.469 .2±2.9
+> XY 0.0±0.022 .8±3.58.6±3.777 .2±2.7
+
+We compare DSP with Merlin [23], HDMI [33], and HD [6]. All methods use the same OGBench datasets, 1M training updates, five seeds, and the same five-goal evaluation protocol. We reimplement the three baselines in JAX while retaining their method-specific architectures and tuning their key hyperparameters. Because these methods originally use different goal representations, we evaluate two interfaces on AntMaze: Full uses full OGBench goal observations and full-state subgoals, while XY uses only two-dimensional positions for both goals and subgoals. PointMaze states are already two-dimensional, so Full and XY are equivalent. As shown in Table 6, DSP achieves the highest mean success in all six evaluated task–representation settings. HDMI and HD generally improve under the lower-dimensional XY interface, confirming that goal representation affects high-level modeling difficulty. DSP remains strongest under both Full 
+
+and XY representations in this matched evaluation protocol. 
+
+K Inference-Time Analysis 
+
+We analyze the inference-time efficiency of DSP and compare it with hierarchical baselines under matched budgets. In addition to the performance–latency trade-off of DSP shown in Appendix I.2, we provide a direct comparison across methods. GCIVL OTA Pi-HIQL HIQL DSP (N = 1)  
+
+> DSP (N= 20)
+> 020 40 60 80 100
+> Success Rate (%)
+> AntMaze-Giant Scene-Play Inference Time
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> Inference Time (s)
+
+Figure 6: Comparison of success rate and inference time across methods. The left axis shows success rates on antmaze-giant and scene-play , while the right axis shows inference time. DSP with 
+
+N = 1 corresponds to the closest matched-budget setting, while increasing the number of diffusion steps (e.g., N = 20 ) leads to improved performance at higher inference cost. 25 Table 7: Training time comparison of different methods measured on the same hardware. 
+
+Method GCIVL OTA Pi-HIQL HIQL DSP 
+
+Training Time (min) 24 56 53 42 57 As shown in Fig. 6, DSP with N = 1 achieves performance comparable to HIQL under similar inference time, indicating that DSP does not rely on increased computation to be effective. Increasing the number of diffusion steps further improves performance (e.g., +11 on antmaze-giant and +25 
+
+on scene-play for N = 20 ), demonstrating a favorable performance–latency trade-off. We note that inference time is measured during evaluation over 10,000 repeated inferences, where each inference consists of generating one subgoal and one action. We also report the training time of different methods on the same hardware for reference, as shown in Table 7. 
+
+L Stitching Experiments 
+
+We evaluate the stitching capability of DSP on the OGBench stitch datasets, which test whether an algorithm can solve long-horizon tasks by composing shorter offline trajectory fragments [47, 59]. Table 8 compares DSP with flat and hierarchical offline GCRL baselines. We include several DSP variants to isolate the effects of goal sampling and guidance strength. The superscript “mix” denotes the variant trained with the OGBench actor goal mixing strategy for stitching tasks, i.e., 
+
+(pcur , p traj , p rand ) = (0 , 0.5, 0.5) . The subscript 1 denotes standard conditional sampling with guidance scale ω = 1 . DSP without a subscript uses the task-specific guidance scale reported in Appendix D. Table 8: Complete comparison between DSP and the offline GCRL baselines. The table reports the average binary success rate (%) across five test-time goals for each task, averaged over 5 seeds. Standard deviations are indicated by the ± symbol. Entries within 95% of the best-performing value in each row are highlighted in bold .                                                                                                                                                                                                                                                                                                                                                                         
+
+> Datasets Flat Policies Hierarchical Policies GCBC CFGRL GCIVL HIQL HIQL w/oDSP mix 1DSP 1DSP mix DSP
+> pointmaze-medium-stitch-v0 23 .2±16 .724 .6±8.320 .8±4.062 .0±6.869 .4±13 .62.4±0.954 .6±3.05.0±2.065 .8±5.8
+> pointmaze-large-stitch-v0 4.4±8.313 .0±3.98.0±11 .022 .0±7.58.2±7.70.0±0.038 .0±1.93.6±1.144 .2±4.3
+> pointmaze-giant-stitch-v0 0.0±0.00.0±0.00.0±0.00.0±0.00.0±0.00.0±0.00.0±0.00.0±0.01.2±0.8
+> pointmaze-teleport-stitch-v0 26 .8±8.713 .8±8.928 .6±5.033 .2±2.58.4±4.919 .6±4.243 .4±7.514 .0±5.751 .8±4.9
+> antmaze-medium-stitch-v0 52 .6±5.744 .4±5.332 .6±10 .489 .8±3.889 .6±3.466 .6±9.275 .8±6.665 .8±5.585 .8±3.3
+> antmaze-large-stitch-v0 1.8±2.54.4±4.75.0±4.963 .6±8.666 .4±3.819 .6±5.322 .0±6.948 .2±2.951 .8±4.9
+> antmaze-giant-stitch-v0 0.0±0.00.0±0.00.0±0.00.0±0.00.8±0.81.8±2.02.6±1.39.0±4.08.6±2.6
+> antmaze-teleport-stitch-v0 31 .4±7.713 .0±6.027 .2±5.434 .0±3.233 .8±3.426 .8±6.645 .2±6.026 .8±4.739 .2±6.1
+> humanoidmaze-medium-stitch-v0 26 .2±5.418 .6±6.831 .8±6.174 .8±3.062 .4±3.053 .2±3.358 .6±4.050 .8±6.373 .2±4.3
+> humanoidmaze-large-stitch-v0 4.2±1.74.0±2.15.0±3.823 .6±2.98.2±1.92.4±1.34.0±2.18.2±3.619 .8±4.4
+> humanoidmaze-giant-stitch-v0 0.0±0.00.0±0.00.0±0.05.0±1.60.0±0.00.2±0.40.0±0.017 .6±7.035 .2±5.9
+> antsoccer-arena-stitch-v0 21 .6±3.912 .6±6.43.8±1.814 .2±2.835 .6±3.415 .6±3.816 .6±4.724 .4±5.740 .2±5.2
+> antsoccer-medium-stitch-v0 3.8±2.81.2±1.10.4±0.94.0±1.26.0±1.22.6±1.56.8±2.35.2±1.810 .6±3.3
+
+Overall, DSP performs competitively on stitching tasks and substantially improves over flat pol-icy baselines on most environments. With task-specific guidance, DSP achieves the best or near-best performance in several settings, including pointmaze-large , pointmaze-teleport ,
+
+antmaze-giant , humanoidmaze-giant , and both antsoccer stitching tasks. These results sug-gest that guided generative subgoal planning can support trajectory composition when the learned subgoal distribution captures sufficient local connectivity. The comparison between DSP 1 and DSP shows that guidance strength is important in stitching regimes. In many larger or more dynamically complex environments, using the task-specific guidance scale improves performance over standard conditional sampling, suggesting that properly tuned goal-directed guidance helps select more useful subgoals from the learned conditional distribution. This is consistent with prior diffusion-based decision-making work suggesting that conditional generative models can exhibit implicit dynamic-programming-like behavior through trajectory or subtrajectory generation [2, 28]. In DSP, this effect appears at the subgoal level: CFG amplifies the goal-conditioned component of the learned subgoal distribution, helping compose locally supported transitions into longer-horizon behavior. 26 At the same time, DSP does not uniformly dominate Bellman-backup-based hierarchical methods. HIQL and HIQL w/o remain stronger on some antmaze and humanoidmaze stitch tasks, likely because value-based methods can propagate goal information across trajectory fragments through Bellman backups. By contrast, DSP relies more directly on the transition structure captured by its generative subgoal model. Thus, the stitching results show that DSP can perform effective trajectory composition in several regimes, rather than replacing Bellman-backup-based stitching in all settings. Finally, the DSP mix variants indicate that the default OGBench actor goal mixing strategy is not always suitable for generative high-level planning. While random goal relabeling can benefit value-based policy extraction, excessive random goals may shift the learned conditional distribution toward broad connectivity rather than directional, goal-relevant subgoals. The structured goal sampling used by DSP better preserves the goal-directed signal amplified by CFG, highlighting the interaction between goal sampling and inference-time guidance. 
+
+M Data Coverage and Behavior Quality 
+
+M.1 Reduced-Data Coverage 
+
+Using a fixed subset seed, we construct nested datasets by randomly ordering complete trajectories and retaining them until reaching each target data fraction. This preserves trajectory boundaries and future-state relabeling, and all methods use identical subsets. OGBench evaluates AntMaze and HumanoidMaze success using XY position with a tolerance of 0.5.We therefore define 0.5-unit bins as b0.5(x, y ) = ( ⌊x/ 0.5⌋, ⌊y/ 0.5⌋) and measure 
+
+CXY (Dr ) = |{ b0.5(xt, y t) : ( xt, y t) ∈ D r }| |{ b0.5(xt, y t) : ( xt, y t) ∈ D 100 }| . (71) 
+
+CXY measures relative spatial occupancy, not full-state coverage. Data fraction additionally affects visitation density, local transitions, and same-trajectory future-state pairs. Table 9: Success rates (%) under nested complete-trajectory subsets. Results are mean ± standard deviation over five seeds. CXY denotes relative XY-bin coverage.                                                                            
+
+> Datasets Fraction CXY HIQL HIQL w/oDSP
+> AntMaze-Large
+> 1.00 1.00 87 .8±1.588 .6±2.192 .0±4.1
+> 0.50 0.96 87 .0±4.381 .4±3.290 .2±1.9
+> 0.25 0.91 79 .8±2.770 .2±5.183 .0±2.1
+> 0.10 0.85 19 .4±4.739 .6±5.652 .8±6.6
+> HumanoidMaze-Giant
+> 1.00 1.00 5.0±1.60.0±0.066 .0±3.4
+> 0.10 0.94 1.0±0.70.0±0.044 .4±4.2
+> 0.01 0.50 0.0±0.00.0±0.05.6±3.0
+
+DSP achieves the highest mean at every evaluated fraction. However, it drops from 92 .0 to 52 .8 on AntMaze-Large and from 66 .0 to 5.6 on HumanoidMaze-Giant, confirming that severe loss of data support remains a failure condition. These results support DSP’s relative competitiveness under the evaluated reduced-data settings, rather than coverage independence. 
+
+M.2 Official Explore Datasets 
+
+The official OGBench Explore datasets contain non-goal-directed trajectories: the locomotion direc-tion is randomly resampled every 10 steps, while actions are produced by a pretrained Ant controller and perturbed with action noise of magnitude 1.0 [47]. They therefore test poor global trajectory quality while retaining locally executable transitions. DSP achieves the highest mean on Medium and Large, but not on Teleport. Teleport randomly sends the agent to one of multiple exits, including a dead end; hence, a future state observed in the data is not necessarily an outcome the policy can reliably select. Future-state relabeling may therefore include favorable but uncontrollable outcomes, while replanning can only respond after the realized 27 Table 10: Success rates (%) on the official AntMaze Explore datasets, reported as mean ± standard deviation over five seeds.                               
+
+> Datasets HIQL HIQL w/oDSP
+> antmaze-medium-explore-v0 32 .4±10 .033 .4±9.760 .4±9.3
+> antmaze-large-explore-v0 1.6±3.66.0±6.716 .4±7.5
+> antmaze-teleport-explore-v0 26 .8±16 .630 .4±7.321 .4±4.6
+
+exit is observed. The result identifies stochastic, action-uncontrollable transitions as a limitation, rather than establishing uniform robustness across all Explore settings. 
+
+N Evaluation with Visual Observations 
+
+We evaluate DSP on four visual OGBench tasks using only 64 × 64 × 3 RGB observations. Following the OGBench visual protocol, HIQL and DSP use the same IMPALA encoder architecture. DSP does not perform diffusion directly in pixel space; instead, it generates subgoals in the IMPALA latent space. HIQL additionally maps encoded state–subgoal pairs to its fixed 10-dimensional subgoal representation. Table 11: Success rates (%) on visual OGBench tasks, reported as mean ± standard deviation over five seeds. Bold indicates the highest mean in each row.                           
+
+> Datasets HIQL DSP
+> visual-antmaze-medium-navigate 92 .0±2.196 .2±2.5
+> visual-antmaze-large-navigate 51 .8±5.568 .4±6.2
+> visual-antmaze-giant-navigate 4.4±2.813 .8±4.4
+> visual-scene-play 43 .8±3.948 .6±1.5
+
+As shown in Table 11, DSP achieves higher mean success on all four tasks, including improvements of 16 .6 and 9.4 percentage points on Visual AntMaze-Large and AntMaze-Giant, respectively. These results show that DSP can be applied to visual observations through a shared latent encoder, without requiring diffusion directly in pixel space. 
+
+O Visualization of Subgoal Trajectories in Maze Environments 
+
+In this section, we present additional visualizations comparing the subgoal trajectories of HIQL w/o
+
+and DSP across the maze environments. Specifically, we display the planning behaviors for all five evaluation tasks, followed by a detailed analysis. 
+
+O.1 Medium Maze 
+
+We first visualize the results in the medium -sized maze. As shown in Figure 7, while both methods generally reach the goals, we observe distinct behavioral differences. HIQL w/o occasionally exhibits artifacts characteristic of value-based planning, such as suboptimal detours or subgoals projected into unreachable areas (e.g., walls). In contrast, DSP produces trajectories that are geometrically consistent and better follow the maze topology, generating smooth paths even in this shorter-horizon setting. 
+
+O.2 Large Maze 
+
+Next, we examine the large -sized maze, where the planning horizon increases. As illustrated in Figure 8, the impact of the horizon becomes visible. HIQL w/o begins to manifest noticeable detours and inefficient paths, showing less consistent planning as the scale increases. Although the value function eventually corrects the agent’s direction, the guidance is noisy. DSP, however, maintains its planning stability, producing topologically coherent and smooth trajectories without the jaggedness observed in the baseline. 28 Goal-Conditioned Value Function 
+
+Start Goal 
+
+01234567 8910 11 12 13 14 15 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 12345678910 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (a) Task 1 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345 678910 11 12 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0123 4 5678 9
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (b) Task 2 Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 1 2345678910 11 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (c) Task 3 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678910 11 12 13 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0123456789
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (d) Task 4 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678910 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (e) Task 5 
+
+Figure 7: Visualization in the medium maze. Top: HIQL w/o, Bottom: DSP. DSP generates smoother trajectories that better follow the topology. Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0123 4 5 6 789 10 11 12 13 14 15 16 17 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value 
+
+(a) Task 1 Goal-Conditioned Value Function 
+
+Start Goal 
+
+01234 56 78 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012 3 45678910 11 12 13 14 15 16 17 18 19 20 21 22 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (b) Task 2 Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 123456789 10 11 12 13 14 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 1234 5 6 78910 11 12 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (c) Task 3 Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 12345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+01 2 345678910 11 12 13 14 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (d) Task 4 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012 3 4 5 6 7 8910 11 12 13 14 15 16 17 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (e) Task 5 
+
+Figure 8: Visualization in the large maze. Top: HIQL w/o, Bottom: DSP. As the scale increases, HIQL begins to show significant detours, whereas DSP maintains efficient planning. 
+
+O.3 Giant Maze Goal-Conditioned Value Function 
+
+Start Goal 
+
+0123456 7 8 910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 4546 47 48 49 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345 678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value 
+
+(a) Task 1 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (b) Task 2 Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345 678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (c) Task 3 Goal-Conditioned Value Function 
+
+Start Goal 
+
+0123456 78 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+012345 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (d) Task 4 Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 12 345678910 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value Goal-Conditioned Value Function 
+
+Start Goal 
+
+0 1 2345 678910 11 12 13 14 15 16 17 
+
+100 
+
+80 
+
+60 
+
+40 
+
+20 
+
+0Value (e) Task 5 
+
+Figure 9: Visualization in the giant maze. Top: HIQL w/o, Bottom: DSP. In this extreme setting, HIQL often produces less reliable plans, while DSP more consistently reaches the target. Finally, we extend our visualization to the giant -sized maze, where the curse of horizon is most acute. Here, HIQL w/o exhibits severe performance degradation. The high-level policy, struggling with the immense scale, often fails to generate valid subgoals, leading to task failure. Even in successful trials, the attenuation of the value signal results in subgoals that linger in local optima; although the agent may eventually escape, the traversal is far from time-optimal. 29 In sharp contrast, DSP shows more consistent navigation behavior. However, in this extreme setting, we observe a phenomenon of subgoal clustering , where consecutive high-level subgoals are repeatedly generated in a local region. Empirically, this behavior is not indicative of high-level planning failure, as the generated subgoals remain topologically valid and goal-directed. Instead, the clustering pattern demonstrates the planner’s robustness to local execution stochasticity. Since the low-level policy is trained via AWR, it may exhibit minor deviations due to local value approximations. Crucially, unlike the larger global planning errors seen in baselines, these deviations are bounded within short horizons. As a result, the high-level planner successfully re-issues corrective subgoals in the same vicinity to compensate for these local execution errors, ensuring eventual task completion. 
+
+P Comparison Experiments on D4RL Antmaze 
+
+To further position DSP with respect to conceptually related diffusion-based hierarchical planning methods, we additionally evaluate DSP on the D4RL AntMaze benchmark. Our main experiments are conducted on OGBench, which is specifically designed for offline goal-conditioned RL and provides broader coverage of long-horizon reasoning, stitching, and stochasticity. By contrast, D4RL AntMaze is more limited for evaluating offline GCRL since it mainly uses a single fixed goal. Nevertheless, D4RL AntMaze is the benchmark on which several prior diffusion-based hierarchical planning methods were originally reported, and therefore provides the most direct setting for comparison. Table 12: Comparison with diffusion-based hierarchical planning methods on D4RL AntMaze. We report mean ± standard deviation over 5 random seeds, with each seed evaluated on 100 episodes. Baseline numbers are taken from the corresponding original papers when reported under the same D4RL AntMaze setting. The best-performing entry in each row is highlighted in bold .                                                                         
+
+> Datasets HDMI DTAMP HD SIHD DSP
+> antmaze-umaze-v2 86 .1±2.4−−−98 .6±2.1
+> antmaze-umaze-diverse-v2 73 .7±1.1−94 .0±4.996 .5±2.896 .8±2.6
+> antmaze-medium-play-v2 −89 .3±3.9−−87 .0±3.3
+> antmaze-medium-diverse-v2 −76 .7±4.588 .7±8.192 .2±5.092 .4±4.4
+> antmaze-large-play-v2 −62 .0±2.9−−88 .8±4.1
+> antmaze-large-diverse-v2 71 .5±3.553 .3±9.783 .6±5.889 .4±4.295 .4±2.9
+
+Table 12 compares DSP with representative diffusion-based hierarchical planning baselines, including HDMI [33], DTAMP [21], HD [6], and SIHD [64]. We report mean and standard deviation over 5 random seeds, with each seed evaluated on 100 episodes. Baseline numbers are taken from the corresponding original papers when reported on the same D4RL AntMaze setting. The best-performing entry in each row is highlighted in bold. Overall, DSP is highly competitive and outperforms prior diffusion-based hierarchical planning methods on most reported tasks. The gains are particularly pronounced on larger and more challenging tasks such as antmaze-large-play-v2 and antmaze-large-diverse-v2 , where long-horizon decision errors are more likely to accumulate. On averages over overlapping tasks, DSP substantially outperforms DTAMP (90.9 vs. 70.3) and HDMI (96.9 vs. 77.1), and also improves over HD (94.9 vs. 88.8) and SIHD (94.9 vs. 92.7). These results are consistent with the key design of DSP. Unlike prior diffusion-based hierarchical planning methods, DSP does not use diffusion as a trajectory- or sequence-level planner. Instead, it models high-level decision making as a goal-conditioned generative subgoal policy. This is consistent with the reduced high-level value-noise path analyzed in Proposition 4.2. At the same time, classifier-free guidance enables direct and controllable goal-directed subgoal selection at inference time, while Proposition 5.1 explains the implicit advantage-weighted bias induced by this guidance. 
+
+Q Dexterous Manipulation Evaluation 
+
+We evaluate DSP and HIQL on two bimanual dexterous-manipulation tasks from Bi-DexHands [8]: 
+
+ShadowHandOver and ShadowHandCatchUnderarm . Using the official collection interface, we construct a fixed offline dataset of 10 6 transitions per task with PPO. Both methods are trained on identical datasets under the same OGBench-style GCRL protocol. HIQL and DSP results are 30 success rates (%) reported as means ± standard deviations over five seeds. PPO is shown only as a data-collection reference, not as an offline or compute-matched baseline. The tuples in Table 13 report (ds, d a, d w, d g ). The 7D goal g is derived directly from the task-specified target-object pose, while the original 7D waypoint w is a future achieved object pose. To isolate the effect of waypoint dimensionality without changing the final task, we keep the 7D goal fixed and replace the task-space waypoint with a 55/67D task-relevant configuration-space waypoint containing bimanual configuration and object-pose information. Here, dw denotes the waypoint dimension before method-specific processing: HIQL retains its learned subgoal representation, whereas DSP directly generates in the selected waypoint space. Table 13: Success rates (%) on Bi-DexHands. PPO denotes the data collector. Dimensions are reported as (ds, d a, d w, d g ).                                                  
+
+> Datasets (ds, d a, d w, d g)PPO HIQL DSP
+> ShadowHandOver (387 ,40 ,7,7) 46.5 56 .6±4.274 .2±2.9
+> ShadowHandCatchUnderarm (411 ,52 ,7,7) 37.2 46 .0±4.154 .6±3.3
+> ShadowHandOver (387 ,40 ,55 ,7) 46.5 54 .2±5.967 .6±2.4
+> ShadowHandCatchUnderarm (411 ,52 ,67 ,7) 37.2 41 .2±3.446 .4±3.9
+
+With 7D task-space waypoints, DSP achieves higher mean success than HIQL by 17.6 and 8.6 percentage points on ShadowHandOver and ShadowHandCatchUnderarm , respectively. Moving to 55/67D configuration-space waypoints reduces DSP’s mean success by 6.6/8.2 points, compared with 2.4/4.8 points for HIQL. Nevertheless, DSP retains higher mean success by 13.4/5.2 points in the two higher-dimensional waypoint settings. These results show that waypoint dimensionality is a genuine challenge for direct DSP generation, while providing initial task-specific evidence that its advantage is not solely attributable to the 7D waypoint representation. The collected datasets contain executable local behaviors. Accordingly, these experiments com-pare how DSP and HIQL plan and execute bimanual behavior under identical offline data support, rather than testing whether either method can acquire skills absent from the dataset. The results provide initial evidence beyond OGBench’s parallel-jaw manipulation setting, without constituting a comprehensive evaluation of dexterous manipulation. 31

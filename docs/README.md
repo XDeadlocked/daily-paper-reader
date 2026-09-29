@@ -44,14 +44,14 @@
       <span class="dpr-home-dashboard-kicker">2026-09-29</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 45 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>30</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>15</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-29 00:30:25 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-29 23:10:15 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-29日报：筛完17篇，精读6篇、速读11篇，其中两篇9.0分精读聚焦VLA“规划—执行”闭环与用世界模型精炼VLA行为。</p>
-<p>最值得看的方向是VLA如何补上规划到执行的落差，以及世界模型/仿真RL如何接入VLA；速读里的NavGen、VLaRL和线性表示假设都在这条主线上。</p>
-<p>普通读者可先读两篇9.0精读，再按兴趣挑8.0速读，重点判断方法是否真能落地。</p>
+<p>2026-09-29 日报完成 45 篇论文筛选，精读 30 篇、速读 15 篇，重点聚焦视觉-语言-动作模型。最值得看的是两篇 9 分精读：Fast Plans, Faithful Actions 试图弥合分层 VLA 的规划-执行鸿沟，VLaRL 则用仿真训练的潜在条件残差 RL 增强 VLA。普通读者可先读这两篇精读，再按兴趣浏览 MVAgent、流式虚拟人强制路由与 FRAM 等速读方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">30 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models">Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Towards VLA-Dreamer: Refining VLA Behavior Using World Models">Towards VLA-Dreamer: Refining VLA Behavior Using World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models">DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models">Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL">VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL</span></li><li><span class="dpr-home-dashboard-paper-title" title="MA-WAM: Multi-Agent World-Action Model for Test-Time Planning">MA-WAM: Multi-Agent World-Action Model for Test-Time Planning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>30</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">15 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation">NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL">VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Linear Representation Hypothesis for Vision-Language-Action Models">The Linear Representation Hypothesis for Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="MVAgent: Multi-Agent Video Generation via Consistent Condition Construction and Shot-Level Policy Optimization">MVAgent: Multi-Agent Video Generation via Consistent Condition Construction and Shot-Level Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Where and When to Force: Routed Forcing for Streaming Avatars">Where and When to Force: Routed Forcing for Streaming Avatars</span></li><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>15</strong></span></div>
 </section>
 </div>
 

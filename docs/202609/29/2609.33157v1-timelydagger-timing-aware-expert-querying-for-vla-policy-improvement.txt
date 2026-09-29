@@ -1,0 +1,525 @@
+Title: TimelyDAgger: Timing-Aware Expert Querying for VLA Policy Improvement
+
+URL Source: https://arxiv.org/pdf/2609.33157v1
+
+Published Time: Tue, 29 Sep 2026 01:41:54 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# TimelyDAgger: Timing-Aware Expert Querying for VLA Policy Improvement 
+
+Zhixuan Zhao 1,6,†, Peiyan Li 1,6,†, Enhao Zhang 2,6, Yueran Tao 1,6,Hao Wang 3,6, Chenghao Yue 1,6, Lei Lv 4,6, Wentao Zhao 1,6, Jiahao Chen 5,6,Xin Liu 1,6, Kangyao Huang 1,6, Yu Luo 1,6,∗, Huaping Liu 1,6,∗
+
+Abstract — DAgger improves robot policies by aggregating expert supervision from states visited during policy execution. Robot-gated DAgger automates expert queries, allowing the robot to decide when to request expert takeover. While existing gates emphasize detecting the need for assistance, takeover timing also shapes the content of these demonstrations and their value for policy learning. We propose TimelyDAgger, combin-ing Bridge-PCA monitoring of internal vision-language-action (VLA) features with Feedback-guided Threshold Adaptation based on expert behavior to improve takeover timing. We introduce an evaluation framework linking failure detection, takeover timing, and policy improvement, including Target-Aligned Supervision Ratio (TASR) for assessing supervision quality without retraining. Experiments show that takeover timing affects policy learning, with TimelyDAgger achieving competitive failure detection and higher post-training success in most evaluated settings under matched expert-action budgets. 
+
+I. I NTRODUCTION 
+
+Recent advances in robot learning have produced policies capable of performing a wide range of manipulation tasks. Post-training with expert demonstrations plays an important role in adapting these policies to specific tasks and de-ployment conditions, but acquiring suitable demonstrations requires substantial expert effort. An important challenge is therefore to collect additional supervision that addresses the policy’s remaining weaknesses while keeping expert effort low. DAgger provides a foundation for acquiring such supervi-sion during the robot’s own execution: it queries an expert at states visited by the policy and aggregates the resulting action labels with existing demonstrations to improve the policy [1]. Human-gated DAgger makes this process selective by allowing a human supervisor to take control when correction is needed [2], [3]. Although this reduces unnecessary inter-vention, the supervisor must still continuously monitor the robot. Robot-gated DAgger automates the takeover decision using uncertainty or failure signals, allowing the robot to re-quest expert assistance and collect corrective demonstrations without continuous human monitoring [4], [5], [6]. Existing robot gates primarily focus on detecting potential policy failures and requesting expert help [4], [5]. Reliable failure detection is an important component of robot-gated DAgger, but detection metrics alone do not fully characterize 
+
+> 1
+
+Tsinghua University. 2Imperial College London. 3Dalian University of Technology. 4Tongji University. 5Peking University. 6SEEN·E Robotic. 
+
+> †
+
+Zhixuan Zhao and Peiyan Li contributed equally and are co-first authors. 
+
+> ∗
+
+Yu Luo and Huaping Liu are co-corresponding authors. OOD condition Expert Control       
+
+> Expert Data Policy Update
+> I might fail 🤔
+> Help me
+> 🆘
+> Potential Failure Complete !
+> Request Help I can do it now! Improved Policy Early Timely Late
+> Policy Improvement
+> （Fixed B ）
+> Capability gap Expert Data
+> (Fixed Budget B)
+
+Early 
+
+> Redundant Data
+> SFT
+
+Timely 
+
+> Target Data
+> SFT
+
+Late 
+
+> Deviating Data
+> SFT
+> Policy Trajectory Expert Trajectory Reference Trajectory Redundant Actions Target Actions Deviating Actions
+
+(A) (B) 
+
+Fig. 1. (A) Robot-gated DAgger. The robot requests expert assistance and uses the resulting demonstrations to update its policy. (B) Takeover timing affects policy improvement. Early takeover can collect redundant behavior, while late takeover may miss part of the behavior the policy needs to learn. Timely takeover concentrates supervision on the target behavior, supporting more effective policy learning. 
+
+the learning value of the demonstrations collected after takeover. We ask how takeover timing affects the policy improvement obtained from a given amount of expert su-pervision. As illustrated in Fig. 1, an unnecessarily early takeover can still capture the behavior requiring improve-ment, but may also include a long prefix of behavior the policy already performs reliably. Conversely, a late takeover may miss part of the behavior the policy needs to learn, as the collected expert demonstration begins only after execution has deviated from the intended task trajectory. Both interven-tions can complete the task successfully, yet devote different proportions of expert supervision to the policy’s remaining capability gap. Timely takeover can increase this proportion, potentially supporting greater policy improvement from the arXiv:2609.33157v1 [cs.RO] 27 Sep 2026 same amount of expert data. This distinction motivates treating takeover timing as a data acquisition decision and evaluating its effect on the data efficiency of policy learning. Building on this idea, we propose TimelyDAgger, a robot-gated DAgger method that combines monitoring of internal policy features with expert feedback to improve takeover tim-ing. For vision-language-action (VLA) policies, its Bridge-PCA component monitors the features passed from the vision-language model to the action generation module. A PCA subspace fitted to successful demonstrations serves as a reference, and the robot requests help when the feature re-construction error exceeds a calibrated threshold. Feedback-guided Threshold Adaptation (FTA) then uses feedback from completed interventions to adjust the takeover threshold for better timing in subsequent episodes. The expert controls the remainder of the episode after takeover, and successful expert recordings are combined with the original demonstrations to fine-tune the policy. To evaluate how these takeover decisions affect learning, we introduce a dedicated framework for robot-gated DAgger that connects failure detection, takeover timing, and down-stream policy improvement. We further propose the Target-Aligned Supervision Ratio (TASR), a metric for assessing the quality of collected expert supervision without policy retraining. Experiments covering 11 manipulation tasks show that takeover timing substantially affects policy improve-ment, with TimelyDAgger achieving competitive failure de-tection and higher downstream success than the alternatives evaluated in most reported settings. Our contributions are threefold:  
+
+> •
+
+Formulation. We formulate expert takeover timing as a central problem in robot-gated DAgger. We demonstrate that takeover timing substantially affects the content of collected demonstrations and subsequent policy im-provement.  
+
+> •
+
+Method. We propose TimelyDAgger, a robot-gated DAgger method with two components. Bridge-PCA monitors deviations in internal VLA features to trigger expert takeover. Feedback-guided Threshold Adaptation (FTA) uses expert behavior during completed interven-tions to adjust takeover thresholds for better takeover timing.  
+
+> •
+
+Evaluation. We introduce a dedicated evaluation frame-work for robot-gated DAgger, covering failure detec-tion, expert data collection, and downstream policy learning. We further propose TASR, a simple but effec-tive metric for assessing the quality of collected expert supervision without policy retraining. II. R ELATED WORK 
+
+A. Active Imitation Learning and Robot-Gated DAgger 
+
+Imitation learning trains policies from expert demonstra-tions but remains vulnerable to distribution shifts during de-ployment. Active imitation learning addresses this limitation by selectively acquiring expert supervision on states visited by the learned policy [7], [8]. DAgger is a foundational approach that iteratively queries expert actions on learner-induced states and aggregates the resulting supervision into the training set [1]. Human-gated DAgger allows a supervisor to intervene only when correction is needed, but still requires continuous human monitoring and timely control [2]. Robot-gated DAgger instead automates the intervention decision using a learned or uncertainty-based gate. Existing robot-gated DAgger methods construct gates from safety classifiers [9], disagreement among policy ensembles [6], or combined novelty and risk estimates [4]. More recent approaches exploit signals from generative action policies: Diff-DAgger uses diffusion training loss to trigger expert intervention [5], while Uncertainty Comes for Free derives an uncertainty signal from the diffusion denoising process [10]. AutoIntervene combines visual support with action consistency to calibrate control transfer for action-chunking policies [11]. These methods primarily focus on reliably de-termining whether expert intervention is needed, while rarely examining takeover timing as a separate factor. We instead treat timing as a data-acquisition decision that determines where corrective demonstrations begin, and examine how these demonstrations improve policy performance after fine-tuning. 
+
+B. Runtime Monitoring as Robot-Gating Signals 
+
+Robot-gated DAgger requires a monitoring signal to de-cide when to request expert assistance. Methods from the broader literature on runtime failure and OOD detection provide several sources of such signals. Observation-based approaches detect departures from nominal inputs using feature distances or learned density models [12], [13], [14], [15]. Internal-feature approaches learn failure predictors from representations computed within the VLA [16], [17]. Action-based approaches estimate uncertainty or inconsis-tency through policy ensembles, repeated action sampling, generative-model losses, or overlapping action chunks [5], [6], [10], [18], [19], [20]. Semantic approaches use VLMs to assess task failure or progress, either directly or together with visual anomaly detection [21], [22]. However, the computational and supervision costs of these approaches can limit their suitability for robot-gated DAgger. External reasoning models [23] and repeated action sam-pling [18] add runtime computation, while learned failure detectors require additional training [19] and, in some cases, labeled failure rollouts [16]. When obtaining these labels requires expert input, the added supervision cost can par-tially offset the expert-effort savings sought by robot-gated DAgger. Our approach instead reuses existing VLA features, training demonstrations, and feedback from interventions collected for policy learning, requiring neither additional predictor training nor dedicated data collection for the gate. 
+
+C. Takeover Timing and Supervision Quality 
+
+Prior work has recognized that intervention timing af-fects the value of expert supervision. Intervention Weighted Regression observes that human interventions concentrate around task bottlenecks and prioritizes these segments during ID Data           
+
+> VLM AE
+> ID Features
+> PCA Reference
+> Online Rollout
+> VLM AE
+> Bridge
+> Policy Expert
+> Too Late Timely Too Early
+> Advance γ Keep γ Postpone γ
+> hPCA Residual rₜ
+
+rₜ > γ ?         
+
+> Update γ
+> Human Takeover Robot Execution
+> Yes No
+> Expert Data
+> ID Data
+> +
+> SFT
+> Updated Policy
+> (a) Offline Construction (b) Online Collection (c) Policy Update
+> Threshold Adaptation (FTA)
+> Bridge Fig. 2. Overview of TimelyDAgger. (a) Offline construction: Bridge-PCA fits a principal subspace to ID bridge features and calibrates an initial takeover threshold. (b) Online collection: Bridge-PCA monitors policy execution and requests expert takeover, while FTA uses intervention feedback to adjust the threshold for better timing in subsequent episodes. (c) Policy update: The collected expert suffixes are combined with the original ID demonstrations to fine-tune the policy.
+
+training [3]. LazyDAgger and ThriftyDAgger regulate inter-vention timing and duration to balance task performance with supervisor burden [4], [24]. AutoIntervene further argues that unnecessarily prolonged interventions introduce already-supported behavior and dilute corrective updates [11]. How-ever, intervention accuracy and supervisor burden alone do not reveal whether takeover occurs at a useful point for collecting training data. They provide limited insight into whether the collected demonstrations adequately cover the behavior needed to address the policy’s capability gap. We explicitly formulate expert takeover timing as a data acqui-sition problem and design TimelyDAgger to refine takeover decisions using feedback from completed expert interven-tions. We also introduce a dedicated evaluation framework and TASR to examine how takeover timing shapes expert supervision and subsequent policy improvement. III. P ROBLEM FORMULATION 
+
+Let πθ be a robot policy trained on demonstrations DID ,and let π∗ be an expert. During a rollout τ , a robot gate 
+
+g decides whether to request expert assistance. We write 
+
+Qg (τ ) = 1 when assistance is requested and Qg (τ ) = 0 
+
+when the rollout remains autonomous. For an assisted rollout, 
+
+Tg (τ ) denotes the time at which control transfers from the policy to the expert: 
+
+at ∼
+
+(
+
+πθ (· | ot), t < T g (τ ),π∗(· | ot), t ≥ Tg (τ ). (1) The expert completes the episode, and its observation-action pairs from Tg (τ ) onward form the corrective demonstration. Thus, Qg determines which executions contribute expert data, while Tg determines where each demonstration begins. Let DE (Q, T ; B) denote the expert data collected under selection rule Q and timing rule T , with B expert actions retained for training. We define their learning utility as 
+
+πθ′ = Update ( πθ , DID ∪ D E (Q, T ; B)) ,UB (Q, T ) = J(πθ′ ), (2) Input  
+
+> Bridge
+> Action
+> Alarm time
+> Fig. 3. Comparison of alarm timing across monitoring locations. A larger proportion of bridge alarms falls within the shaded preferred takeover window than is observed for input and action alarm, indicating closer alignment with the desired intervention timing.
+
+where J measures the updated policy’s performance. With the selection rule Q, base policy, expert action budget, and training procedure fixed, we prefer timing rule 
+
+T1 to T2 when its demonstrations produce higher success after fine-tuning: 
+
+T1 ≻B,Q T2 ⇐⇒ UB (Q, T 1) > U B (Q, T 2). (3) For a complete robot gate, we evaluate the combined effect of execution selection and takeover timing through UB (Qg , T g ).IV. M ETHOD 
+
+TimelyDAgger combines Bridge-PCA and Feedback-guided Threshold Adaptation (FTA) in three stages (Fig. 2): 
+
+(1) Offline gate construction: fit a PCA subspace to ID bridge features and calibrate a takeover threshold; (2) Online expert data collection: trigger takeover when the residual exceeds the threshold and adapt the threshold using interven-tion feedback for subsequent episodes; (3) Policy update: 
+
+fine-tune the policy on retained expert suffixes and original ID demonstrations. Algorithm 1 summarizes the complete procedure. 
+
+A. Offline Gate Construction a) ID Reference Features: We monitor the bridge rep-resentation passed from the VLM to the action generation module, where visual observations have been processed in the context of the task instruction. This makes the bridge a useful candidate for detecting changes relevant to the Training Success Fail Fitted PCA subspace Fig. 4. Bridge-feature geometry. Gray points denote ID reference features; blue and orange points denote features from successful and failed policy executions. The dark line illustrates the fitted PCA subspace in the visual-ization. The separation relative to this reference motivates the residual used by Bridge-PCA. 
+
+required behavior: input novelty can appear before assistance is needed, while action inconsistency can emerge after an incorrect action has been produced. Fig. 3 illustrates this timing motivation. Let zB 
+
+> t
+
+= f B 
+
+> θ
+
+(ot) ∈ Rd denote the bridge feature at policy-query time t. Using the frozen policy, we extract these features from observations in DID to construct the reference set ZBID = {zB 
+
+> i
+
+}Ni=1 , where each sample corresponds to one observation. 
+
+b) Principal-Subspace Residual: Fig. 4 shows that fea-tures from successful executions concentrate near the ID reference structure, whereas features from failed executions exhibit larger deviations. Motivated by this geometry, we fit PCA to capture the dominant variation of the reference features and measure departures from the resulting subspace. The empirical mean and covariance are 
+
+μB = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+zB 
+
+> i
+
+,
+
+ΣB = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+(zB 
+
+> i
+
+− μB)( zB 
+
+> i
+
+− μB)⊤.
+
+(4) Let VB,r ∈ Rd×r contain the orthonormal eigenvectors associated with the r largest eigenvalues of ΣB, and define 
+
+PB = VB,r V ⊤ 
+
+> B,r
+
+. The affine subspace μB +span( VB,r ) serves as the ID reference, with rank r < d fixed before evaluation. We define the monitoring score as 
+
+sBPCA (ot) = (I − PB)( zB 
+
+> t
+
+− μB) 2 . (5) The residual measures the component of the current feature that cannot be reconstructed from the ID principal directions. A larger residual therefore indicates a greater departure from the reference subspace and provides the monitoring score used for threshold calibration. 
+
+c) Threshold Calibration: To turn the residual into an intervention decision, we calibrate a threshold on successful ID data Dcal . For each calibration rollout, we compute its maximum residual m(τ ) = max t sBPCA (ot) and set 
+
+γB = Quantile 1−α ({m(τ ) : τ ∈ D cal }) , (6) where α specifies the upper-tail calibration level. The result-ing γB provides the baseline threshold for online collection. 
+
+Algorithm 1 TimelyDAgger 
+
+Require: Base policy πθ , expert π∗, ID demonstrations DID ,ID calibration data Dcal ; execution block length ∆, FTA step size β 
+
+> 1:
+
+Extract bridge features from DID using πθ 
+
+> 2:
+
+Fit Bridge-PCA to obtain sBPCA  
+
+> 3:
+
+Calibrate γ on Dcal  
+
+> 4:
+
+Initialize expert dataset Dcorr ← ∅  
+
+> 5:
+
+for each collection episode do  
+
+> 6:
+
+Reset environment  
+
+> 7:
+
+while episode not terminated do  
+
+> 8:
+
+Observe o 
+
+> 9:
+
+if sBPCA (o) > γ then  
+
+> 10:
+
+Execute π∗ to episode end; record suffix ξ 
+
+> 11:
+
+Compute timing cue y using Eq. (7)  
+
+> 12:
+
+γ ← γ exp( −βy ) 
+
+> 13:
+
+Dcorr ← D corr ∪ { ξ} 
+
+> 14:
+
+break  
+
+> 15:
+
+else  
+
+> 16:
+
+Execute the next ∆ actions from πθ 
+
+> 17:
+
+end if  
+
+> 18:
+
+end while  
+
+> 19:
+
+end for  
+
+> 20:
+
+Fine-tune πθ on DID and Dcorr  
+
+> 21:
+
+return πθ
+
+B. Online Expert Data Collection 
+
+Bridge-PCA provides the initial takeover threshold. Dur-ing data collection, Feedback-guided Threshold Adaptation (FTA) uses completed expert interventions to adjust this threshold for subsequent episodes to optimize takeover tim-ing of the gate. 
+
+1) Expert Takeover: We initialize the threshold to γ1 =
+
+γB. At each policy query, the robot computes sBPCA (ot).If the score exceeds the current threshold, the expert takes control and completes the episode. Otherwise, the robot executes the next ∆ policy actions before checking again. Successful expert suffixes are retained in Dcorr for policy updating. 
+
+2) Feedback-guided Threshold Adaptation (FTA): a) Timing Feedback: FTA uses the first ∆ expert ac-tions after takeover to assess whether assistance was re-quested too early or too late. During this interval, the frozen policy also predicts actions from the same observations, while only the expert actions are executed. We extract two feedback signals. 
+
+(1) Corrective reversal. We compare the robot’s motion immediately before takeover with the expert’s initial motion afterward. For example, if the robot moves forward and the expert immediately moves it back, the intervention begins by undoing the preceding motion. We set ci = 1 when this reversal exceeds the correction tolerance, and ci = 0 
+
+otherwise. A substantial reversal suggests that execution had deviated before takeover and provides a heuristic cue for requesting assistance earlier. 
+
+(2) Policy-expert agreement. At each observation during the initial expert block, we compare the policy’s predicted action with the action executed by the expert. We set ui = 1 
+
+if their differences remain within the agreement tolerance throughout the block, and ui = 0 otherwise. Agreement indicates that the policy would have chosen similar actions at these observations, suggesting that takeover could be postponed when no substantial correction is observed. For completed intervention i, we combine these signals into 
+
+yi =
+
+
+
++1 , ci = 1 (advance) ,
+
+−1, ci = 0 and ui = 1 (postpone) ,
+
+0, otherwise (keep) .
+
+(7) Correction takes priority: agreement after takeover does not cancel evidence that the expert first had to undo the robot’s motion. The resulting cue adjusts the threshold for subsequent episodes. 
+
+b) Threshold Update: After the intervention ends, we update the threshold as 
+
+γi+1 = γi exp( −βy i), β > 0, (8) where β controls the adjustment size. An advance cue lowers the threshold, making assistance easier to trigger; a postpone cue raises it, allowing more autonomous execution. The updated threshold applies to all states in the current task until another completed intervention supplies feedback. Episodes without intervention leave it unchanged. A real-world example in Fig. 7 illustrates how FTA lowers the threshold in response to expert correction, enabling earlier takeover in a subsequent rollout. 
+
+C. Policy Update 
+
+After data collection, we fine-tune the base policy using the retained expert demonstrations Dcorr together with the original ID demonstrations DID . Each mini-batch samples from both datasets at a fixed ratio. The updated policy can then serve as the base policy for the next round, repeating gate construction, expert data collection, and policy updating. V. E XPERIMENTS 
+
+Our experiments test three hypotheses: 
+
+H1: Takeover Timing. Different takeover times change the composition of expert demonstrations and the resulting policy improvement. 
+
+H2: TimelyDAgger Effectiveness. TimelyDAgger reli-ably identifies executions requiring expert assistance and col-lects demonstrations that lead to greater policy improvement than the evaluated alternatives. 
+
+H3: Supervision Quality. TASR serves as a simple but effective metric for assessing the quality of expert supervi-sion without policy retraining, with higher TASR indicating greater downstream policy improvement. The remainder of this section contains three parts. (1) Simulation Evaluation Framework introduces the tasks, evaluation metrics, baselines, and experimental protocol. (2) Simulation Results presents the experimental findings. (3) Real-World Validation evaluates the method on a physical robot. (a) OOD across tasks (b) Stage-specific OOD              
+
+> ID OOD ID OOD
+> StackCube Position OOD Stage 1: Open Handle-position OOD
+> PickPlane Pose OOD Stage 2: Grasp Grasp-pose OOD
+> PickBox Object OOD Stage 3: Place Target-position OOD
+> Fig. 5. ID-to-OOD task design. (a) Representative position, pose, and object variations across tasks. (b) Variations affecting different stages of OpenDrawer: handle position for opening, object pose for grasping, and target position for placement. Each pair contrasts the ID configuration with its corresponding OOD variation.
+
+A. Simulation Evaluation Framework 1) ID-to-OOD Task Design: We construct 11 manipula-tion task variants in ManiSkill [25]. Each base policy is trained on a restricted ID distribution and deployed under OOD conditions that change (1) object position , (2) object pose , or (3) object identity , while preserving the task objective and robot interface. Fig. 5(a) shows representative variations. We also vary the stage at which these changes affect the required behavior, so that the need for expert assistance arises at different times across tasks. For example, changes to the handle position, grasp pose, and placement target in OpenDrawer affect opening, grasping, and place-ment, respectively (Fig. 5(b)). This temporal variation allows us to evaluate whether a gate selects appropriate takeover times when assistance is needed early, midway through, or late in an execution. Table I lists all tasks. 
+
+2) Evaluation Metrics: (1) Failure detection. We eval-uate monitoring reliability using AUPRC [26] on shared autonomous rollouts. 
+
+(2) Policy improvement. We measure downstream learning performance by the updated policy’s success rate on OOD conditions. 
+
+(3) Supervision quality. We propose the Target-Aligned Supervision Ratio (TASR), a metric for evaluating expert takeover timing and the quality of collected demonstrations without policy retraining. 
+
+Reference construction. For each condition c, the con-trolled ID-to-OOD design identifies the task operation af-fected by the distribution shift. We use successful OOD expert trajectories under the same condition as references and manually annotate the interval corresponding to this operation. Let Ic denote this target interval in the reference trajectory used for comparison. TABLE I SIMULATION RESULTS ACROSS TASKS AND VLA BACKBONES .VLA Task AUPRC (%) ↑ TASR (%) ↑ Success Rate (%) ↑
+
+FID CRS Diff ACC STAC Ours BC HG Diff Ours BC HG Diff Ours 
+
+π0.5
+
+SC–Green 96.74 94.67 80.88 72.11 63.82 99.72 49.24 24.22 22.20 87.82 49 29 34 81 
+
+SC–Red 98.36 99.57 82.94 71.13 65.87 99.30 35.01 35.36 31.66 46.25 48 39 55 76 
+
+OD–Handle 96.82 98.70 83.32 54.31 60.69 98.80 18.45 19.85 20.59 24.71 46 41 55 68 
+
+OD–Place 96.66 98.30 87.79 68.77 63.94 97.73 17.46 18.89 26.41 28.50 43 37 52 64 
+
+SP–Green 93.25 94.33 89.94 64.25 73.67 97.35 28.24 25.85 26.52 33.49 50 47 46 53 
+
+SP–Red 84.64 91.46 80.20 76.03 55.62 92.70 27.54 24.31 26.47 45.66 60 57 45 79 
+
+SP–Blue 98.87 96.01 90.22 79.63 69.31 98.94 24.13 17.26 20.91 30.88 75 67 54 80 
+
+PickPlane 89.77 88.51 86.99 73.11 78.54 96.35 26.52 59.87 68.52 72.24 0 63 84 81 OD–Pose 90.89 91.89 86.70 78.29 65.98 98.78 25.04 12.78 29.36 37.28 42 35 51 66 
+
+YCB–Object 97.73 99.27 97.96 88.77 65.06 99.69 49.27 72.08 63.89 91.84 48 49 42 52 
+
+Eggplant 74.48 78.63 71.47 62.35 59.72 86.90 49.36 43.20 78.35 76.20 47 40 55 69 
+
+OpenVLA PickPlane 88.00 88.42 – – – 90.73 50.56 36.20 38.01 58.25 30 26 14 50 
+
+SC-Green 96.56 93.32 – – – 98.36 45.39 35.06 41.69 52.88 71 63 64 82 
+
+X-VLA PickPlane 53.42 55.30 55.81 29.41 27.21 61.30 56.21 30.58 32.89 59.82 72 35 58 84 
+
+SC-Green 97.75 99.66 95.03 67.37 55.25 100.00 54.68 53.69 46.73 53.90 58 76 64 67            
+
+> FID: FIDeL; CRS: CRSAIL; Diff: Diff-DAgger; BC: Offline BC; HG: Human-Gated DAgger. SC, OD, and SP denote StackCube, OpenDrawer, and StackPyramid. (a) Stage-2 OOD: Grasp pose
+> (b) Stage-3 OOD: Target position
+> Expert control
+> 050 100 150 200 250 300 050 100 150 200
+> Takeover
+> Expert control
+> Takeover Capability Gap Capability Gap
+
+Fig. 6. Qualitative illustrations and recorded monitoring scores for OpenDrawer under (a) grasp-pose OOD and (b) target-position OOD. These examples illustrate the goal of requesting expert assistance before the task stage associated with the capability gap, so that the collected demonstrations better support learning the target behavior. 
+
+Alignment and scoring. Each collected expert suffix ξi
+
+is aligned with a reference trajectory in execution order, allowing different execution speeds. We set χi(t) = 1 when the matched reference point belongs to Ic and the recorded state falls within a calibrated tolerance of the reference state; otherwise, χi(t) = 0. For the retained successful expert suffixes Dsucc  
+
+> g
+
+, TASR is 
+
+QTASR (g) = 
+
+P
+
+> ξi∈D succ
+> g
+
+P|ξi| 
+
+> t=1
+
+χi(t)
+
+P 
+
+> ξi∈D succ
+> g
+
+|ξi| , (9) where |ξi| is the number of retained expert actions in suffix 
+
+ξi, and t indexes actions within the suffix. The denomina-tor counts all retained expert actions, while the numerator excludes redundant actions outside the target interval and deviations beyond the reference tolerance. TASR thus char-acterizes the collected supervision without policy retraining. 
+
+3) Baselines: We compare the Bridge-PCA monitor with FIDeL [27], CRSAIL [28], Diff-DAgger [5], ACC [29], and STAC [18] using AUPRC. For expert data collection and policy learning, we compare TimelyDAgger with Offline BC, Human-Gated DAgger, and Diff-DAgger [5], reporting TASR and post-training OOD success. Offline BC records complete expert demonstrations, while the interactive meth-ods collect expert suffixes after takeover. 
+
+4) Evaluation Protocol: We evaluate π0.5 [30], OpenVLA [31], and X-VLA [32], with all methods starting from the same ID-trained checkpoint within each task and backbone. Monitors are calibrated on separate ID rollouts and evaluated on shared autonomous ID/OOD trajectories, treating failure as the positive class for AUPRC. We then collect expert data under each acquisition rule. A task-specific oracle replaces human control and is assumed to complete the task from the evaluated takeover states; a predefined failure-triggered rule approximates human takeover for Human-Gated DAgger. Successful expert recordings are retained and evaluated using TASR. For policy updating, we match the retained expert-action budget, the sampling ratio with original ID data, and the training settings. Updated policies are tested on OOD configurations without assistance. 
+
+B. Simulation Results 
+
+We first report the main results obtained using the pro-posed evaluation framework. We then present two additional experiments: a controlled study of takeover timing and an ablation of Feedback-guided Threshold Adaptation. Pick up cable Handover Insert into board 
+
+Reset Pick up Handover Approach Fail Re-align Re-insert 
+
+Takeover 
+
+> Policy
+> Late Takeover
+> Lower threshold
+
+Late 
+
+> Earlier
+> Expert Reverse
+> Update
+
+Timely           
+
+> Next Rollout
+> 02.5 5.0 7.5 10.0 PCA score 04.0 8.0 12.0 16.4
+> 0.0 s 4.1 s 8.6 s 12.1 s 16.4 s 21.0 s 25.6 s
+
+Fig. 7. Real-world task and an illustrative FTA case. Top: The task comprises cable pickup, handover, and precise connector insertion into the target board. Bottom: Expert correction following a late takeover provides feedback for FTA to lower the takeover threshold, enabling an earlier request for assistance in the next rollout. 0 50 80 120 160 220          
+
+> Takeover step
+> 050 100
+> Success rate (%)  Early Mid Late
+> SR TASR
+> 025 50
+> TASR (%)
+> TASR SR TASR SR
+> 050 100
+> TASR / SR (%)
+> SC-Green OD-Pose
+> w/o FTA w/ FTA
+> (a) Takeover timing (b) FTA ablation
+
+Fig. 8. (a) Takeover Timing Study. Post-training success rate and TASR across six fixed takeover steps on OpenDrawer (Grasp-OOD) with matched retained expert-action budgets and training settings. (b) FTA Ablation. 
+
+TASR and post-training success with and without FTA on StackCube–Green and OpenDrawer–Pose. ID OOD2 OOD1 90% 0% 0% 
+
+Fig. 9. Real-world ID and OOD configurations for cable insertion. The target board is fixed at its training position in ID and moved to two different positions in OOD1 and OOD2 for data collection and evaluation. The percentage at the upper right of each panel indicates the base policy’s success rate. 
+
+1) Main Evaluation of Robot-Gated DAgger: Across the 15 task–backbone settings in Table I, TimelyDAgger achieves the highest reported AUPRC, TASR, and post-training success in 13 settings for each metric. These re-sults support H2, demonstrating competitive detection per-formance and effective expert data collection for policy learning. Spearman correlations between TASR and success, computed across the four methods within each setting, av-erage ¯ρs = 0.72 and are positive in 14 of 15 settings, supporting H3. Qualitative examples of takeover behavior are shown in Fig. 6. 
+
+2) Controlled Study of Takeover Timing: We collect ex-pert suffixes at six fixed takeover steps on OpenDrawer (Grasp-OOD). Copies of the same base policy are fine-tuned 0 20 40 60 
+
+Success rate (%) OOD1 OOD2 Overall   
+
+> 20.0% 33.3% 60.0% 0.0% 13.3% 26.7% 10.0% 23.3% 43.3%
+> BC HG-DAgger TimelyDAgger
+
+Fig. 10. Real-world success rates under two OOD conditions. Overall combines both conditions. 
+
+on these datasets using matched expert action budgets and training settings. Fig. 8(a) shows that post-training success increases from 42% with immediate takeover to 78% at step 80 . These results support H1: takeover timing affects the downstream success achieved with the same amount of expert training data. The accompanying TASR trend is consistent with more efficient allocation of supervision to the behavior requiring improvement. 
+
+3) Ablation of Feedback-guided Threshold Adaptation: 
+
+We compare TimelyDAgger with and without FTA on StackCube–Green and OpenDrawer–Pose. Without FTA, the calibrated takeover threshold remains fixed during collection; the expert action budget and subsequent training settings are identical between variants. Fig. 8(b) shows higher TASR and downstream success with FTA on both tasks, supporting the use of expert feedback to improve the learning value of collected demonstrations. 
+
+C. Real-World Validation 
+
+We evaluate TimelyDAgger on a challenging manipulation task comprising three stages: (1) cable pickup , (2) handover between grippers , and (3) connector insertion into the target board (Fig. 7). The base policy is trained with the board at a fixed position, while OOD conditions introduce different displacements from this position (Fig. 9). The resulting capability gap lies primarily in the final insertion stage, which requires precise connector alignment at an unfamiliar target location. We compare Offline BC, Human-Gated DAgger, and TimelyDAgger under the same limited expert action budget at each OOD position. Fig. 10 reports results from selected sequences of 30 consecutive trials per method. TimelyDAg-ger achieves the highest success rate under both conditions, followed by Human-Gated DAgger and Offline BC. These differences are consistent with demonstration com-position. Offline BC allocates substantial supervision to pickup and handover, while late takeover in Human-Gated DAgger requires the expert to realign the connector and retry insertion after an error. TimelyDAgger aims to focus supervision on insertion through timely takeover. Fig. 7 illustrates how expert correction after a late takeover prompts FTA to lower the threshold, enabling earlier assistance in the next rollout. The higher success of TimelyDAgger under both OOD conditions supports the value of takeover timing for collecting useful supervision. VI. C ONCLUSION 
+
+We identify expert takeover timing as a key factor in robot-gated DAgger, shaping the quality of collected supervision and the resulting policy improvement. TimelyDAgger com-bines Bridge-PCA monitoring with expert feedback to refine takeover timing and collect more useful supervision. Our evaluation framework and TASR further provide tools for as-sessing takeover decisions and supervision quality. We hope this work inspires advances in timely expert supervision, data collection, and learning algorithms, enabling robots to make better use of limited demonstrations and acquire new capabilities more reliably and efficiently. REFERENCES [1] S. Ross, G. Gordon, and D. Bagnell, “A reduction of imitation learning and structured prediction to no-regret online learning,” in Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics , vol. 15, 2011, pp. 627–635. [2] M. Kelly, C. Sidrane, K. Driggs-Campbell, and M. J. Kochenderfer, “Hg-dagger: Interactive imitation learning with human experts,” in 
+
+Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2019, pp. 8077–8083. [3] A. Mandlekar, D. Xu, R. Mart´ ın-Mart´ ın, Y. Zhu, L. Fei-Fei, and S. Savarese, “Human-in-the-loop imitation learning using remote tele-operation,” 2020, arXiv:2012.06733. [4] R. Hoque, A. Balakrishna, E. Novoseller, A. Wilcox, D. S. Brown, and K. Goldberg, “ThriftyDAgger: Budget-aware novelty and risk gating for interactive imitation learning,” in Proceedings of the 5th Conference on Robot Learning , vol. 164, 2022, pp. 598–608. [5] S.-W. Lee, X. Kang, and Y.-L. Kuo, “Diff-DAgger: Uncertainty esti-mation with diffusion policy for robotic manipulation,” in International Conference on Robotics and Automation (ICRA) , 2025, pp. 4845– 4852. [6] K. Menda, K. Driggs-Campbell, and M. J. Kochenderfer, “Ensem-bleDAgger: A bayesian approach to safe imitation learning,” 2019, arXiv:1807.08364. [7] S. Chernova and M. Veloso, “Interactive policy learning through confidence-based autonomy,” Journal of Artificial Intelligence Re-search , vol. 34, pp. 1–25, 2009, doi: 10.1613/jair.2584. [8] K. Judah, A. P. Fern, T. G. Dietterich, and P. Tadepalli, “Active imitation learning: Formal and practical reductions to I.I.D. learning,” 
+
+Journal of Machine Learning Research , vol. 15, no. 120, pp. 4105– 4143, 2014. [9] J. Zhang and K. Cho, “Query-efficient imitation learning for end-to-end autonomous driving,” 2016, arXiv:1605.06450. [10] Z. He, Y. Cao, and M. Ciocarlie, “Uncertainty comes for free: Human-in-the-loop policies with diffusion models,” 2025, arXiv:2503.01876. [11] J. Tang and W. Zhi, “AutoIntervene: Calibrated intervention for action-chunking imitation learning policies,” 2026, arXiv:2608.07065. [12] K. Lee, K. Lee, H. Lee, and J. Shin, “A simple unified framework for detecting out-of-distribution samples and adversarial attacks,” in 
+
+Advances in Neural Information Processing Systems , vol. 31, 2018. [13] Y. Sun, Y. Ming, X. Zhu, and Y. Li, “Out-of-distribution detection with deep nearest neighbors,” in Proceedings of the 39th International Conference on Machine Learning , vol. 162, 2022, pp. 20 827–20 840. [14] C. Xu et al. , “Can We Detect Failures Without Failure Data? Uncertainty-Aware Runtime Failure Detection for Imitation Learning Policies,” in Proceedings of Robotics: Science and Systems , 2025, doi: 10.15607/RSS.2025.XXI.073. [15] S. Zhou, B. Zhu, J. Yang, X. Zhao, J. Chen, and Y.-G. Jiang, “RC-NF: Robot-conditioned normalizing flow for real-time anomaly detection in robotic manipulation,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2026, pp. 43 050– 43 060. [16] Q. Gu et al. , “SAFE: Multitask failure detection for vision-language-action models,” in Advances in Neural Information Processing Sys-tems , vol. 38, Main Conference, 2025, pp. 40 041–40 076. [17] S. Park et al. , “Hide-and-Seek in trajectories: Discovering failure signals for VLA runtime monitoring,” 2026, arXiv:2605.30834. [18] C. Agia et al. , “Unpacking failure modes of generative policies: Runtime monitoring of consistency and progress,” in Proceedings of The 8th Conference on Robot Learning , vol. 270, 2025, pp. 689–723. [19] R. R¨ omer, A. Kobras, L. Worbis, and A. Schoellig, “Failure prediction at runtime for generative robot policies,” in Advances in Neural Information Processing Systems , vol. 38, Main Conference, 2025, pp. 8509–8548, doi: 10.52202/085713-0260. [20] G. Zheng, S. Seenivasan, M. Johnson-Roberson, and W. Zhi, “Rewind-IL: Online failure detection and state respawning for imitation learn-ing,” 2026, arXiv:2604.16683. [21] Z. Lin et al. , “Failsafe: Reasoning and recovery from failures in vision-language-action models,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2026. [22] C. Ma et al. , “CycleVLA: Proactive self-correcting vision-language-action models via subtask backtracking and minimum bayes risk decoding,” 2026, arXiv:2601.02295. [23] J. Duan et al. , “AHA: A vision-language-model for detecting and reasoning over failures in robotic manipulation,” in International Conference on Learning Representations , vol. 2025, 2025, pp. 45 493– 45 517. [24] R. Hoque et al. , “Lazydagger: Reducing context switching in inter-active imitation learning,” in Proc. IEEE Int. Conf. Autom. Sci. Eng. (CASE) , 2021, pp. 502–509. [25] S. Tao et al. , “Demonstrating GPU parallelized robot simulation and rendering for generalizable embodied AI with ManiSkill3,” in 
+
+Proceedings of Robotics: Science and Systems , 2025. [26] J. Davis and M. Goadrich, “The relationship between precision-recall and ROC curves,” in Proceedings of the 23rd international conference on Machine learning - ICML ’06 , 2006, pp. 233–240. [27] Q. Rolland, F. Mayran de Chamisso, and J.-B. Mouret, “Failure iden-tification in imitation learning via statistical and semantic filtering,” in 
+
+IEEE International Conference on Robotics and Automation (ICRA) ,2026. [28] A. Firouzkouhi, O. Mirzaeedodangeh, and L. Lindemann, “Sample-efficient expert query control in active imitation learning via conformal prediction,” 2025, arXiv:2512.00453. [29] F. Seligmann, E. Gospodinov, E. U. Dincer, and G. Neumann, “VLA-FAIL: Efficient task failure detection for finetuned vision-language-action models,” 2026, arXiv:2606.21386. [30] Physical Intelligence et al. , “ π0.5: a vision-language-action model with open-world generalization,” 2025, arXiv:2504.16054. [31] M. J. Kim et al. , “OpenVLA: An open-source vision-language-action model,” 2024, arXiv:2406.09246. [32] J. Zheng et al. , “X-VLA: Soft-prompted transformer as scalable cross-embodiment vision-language-action model,” 2025, arXiv:2510.10274.
