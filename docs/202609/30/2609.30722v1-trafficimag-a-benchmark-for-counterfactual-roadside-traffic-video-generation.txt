@@ -1,0 +1,421 @@
+Title: TrafficImag: A Benchmark for Counterfactual Roadside Traffic Video Generation
+
+URL Source: https://arxiv.org/pdf/2609.30722v1
+
+Published Time: Mon, 28 Sep 2026 00:37:08 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# TrafficImag: A Benchmark for Counterfactual Roadside Traffic Video Generation 
+
+Xiangyu Li 1, Tianyi Wang 1, Zhihao Dou 2, Christian Claudel 1, Zhaomiao Guo 1, †
+
+> 1
+
+Fariborz Maseeh Department of Civil, Architectural, and Environmental Engineering, The University of Texas at Austin, Austin, TX 78712, USA 
+
+> 2
+
+Department of Electrical and Computer Engineering, Duke University, Durham, NC 27708, USA 
+
+{xiangyu_li, bonny.wang, christian.claudel, zguo}@utexas.edu zdou713@gmail.com 
+
+> †
+
+Corresponding author: Zhaomiao Guo. 
+
+Abstract 
+
+Existing roadside traffic datasets support perception, forecasting, and visual question answering, but they do not evaluate counterfactual video generation, in which a selected actor is modified and the generated future should remain consistent with road topology and unrelated traffic. We introduce TrafficImag, the first benchmark for counterfactual roadside traffic video generation. TrafficImag combines a large-scale roadside dataset (9,022 annotated images, 7,043 deduplicated video clips, and 31,145 actor-centered history–future samples) with an executable protocol that supports behavior reasoning, intervention-aware image editing, and conditional video generation. Each intervention is represented as an actor-level program describing the target actor, intended behavior, legal route, interaction order, and temporal constraints, enabling a unified evaluation interface across heterogeneous foundation models. TrafficImag evaluates four complementary validity dimensions: initial-state correctness, route and behavior validity, interaction consistency, and non-target preservation, and considers an end-to-end counterfactual successful only when all four are satisfied. Across state-of-the-art foundation models, the strongest reasoner reaches 80.4% macro F1, the complete condition interface raises end-to-end success from 23.3% to 55.0% for the best generator. Oracle studies further show that conditional video execution is the primary remaining bottleneck. TrafficImag provides a reproducible benchmark for evaluating and diagnosing counterfactual traffic video generation beyond perceptual video quality. 
+
+# Introduction 
+
+Fixed roadside cameras observe an intersection from a stationary viewpoint and simultaneously cover approach lanes, conflict zones, crosswalks, and heterogeneous road users (Yehia et al. 2025). This global view is valuable for studying interactions that are only partially visible from an ego vehicle (Yehia et al. 2026; Wang et al. 2026). But it also introduces substantial challenges: distant actors occupy few pixels, trajectories cross under occlusion, and the same image-plane displacement can represent different motions at different depths. Existing roadside datasets (Ye et al. 2022; Yu et al. 2022, 2023) have supported detection, tracking, forecasting, and video question answering (VQA) from this viewpoint, but they do not directly evaluate whether a visual model can change the future of an observed scene according to a specified intervention. A valid counterfactual roadside traffic video must satisfy two linked requirements. The first concerns the intervened initial state: a removed vehicle should be absent from the edited frame, an inserted vehicle should be consistent with lane orientation, perspective scale, and illumination, and all unedited regions should remain aligned with the observation. The second concerns the rollout: the controlled actor should retain its identity, follow a legal approach-to-exit connection, and interact consistently with nearby traffic, while actors outside the influence of the intervention should remain unchanged. The two requirement are coupled because an error in the location, scale, or heading of the counterfactual anchor often persists throughout the generated horizon, while a correct initial frame 1arXiv:2609.30722v1 [cs.CV] 25 Sep 2026 TrafficImag 
+
+Figure 1: Overview of the TrafficImag benchmark. does not guarantee a correct future. For example, a generator may reintroduce a removed actor, direct the target toward an illegal exit, move a waiting vehicle without a corresponding interaction, or introduce road users that were not requested. Such cases can appear smooth even though they do not execute the requested counterfactual. Current studies leave this distinction under-specified. On one hand, existing roadside datasets such as Rope3D (Ye et al. 2022), DAIR-V2X (Yu et al. 2022), and V2X-Seq (Yu et al. 2023) provide geometry, detection, and trajectory supervision but do not involve generated counterfactual videos. SUTD-TrafficQA (Xu, Huang, and Liu 2021) evaluates event and causal reasoning via VQA rather than via intervened videos. On the other hand, general video generation benchmarks such as VBench (Huang et al. 2024), T2V-CompBench (Sun et al. 2025), and WorldModelBench (Li et al. 2026) assess perceptual quality, compositional alignment, and physical plausibility, but they neither bind a selected roadside actor to legal topology nor require the preservation of unrelated traffic. DrivingGen (Zhou et al. 2026) provides evaluation of driving world model, but its principal setting is ego-view generation rather than fixed-camera actor intervention. As a result, high perceptual quality and valid counterfactual execution are not separately measurable in the roadside setting. To address this gap, we introduce TrafficImag , a dataset and a factorized benchmark for counterfactual roadside traffic video generation (Figure 1). The main contributions are: 
+
+• A multi-layer roadside traffic resource. We release 9,022 annotated high-resolution images with 115,835 object boxes across six road-user classes and 7,043 deduplicated video clips from two fixed-camera sites, together with an annotation-dense benchmark subset that contains 4,348 fully annotated frames, 63,543 track-linked box instances, 1,724 identity-consistent actor tracks, and 31,145 actor-centered history–future samples with trajectory-derived behavior labels and topology associations. 
+
+• A counterfactual execution benchmark. We define an evaluation protocol connecting behavior reasoning, image intervention, and conditional video generation, in which four traffic-validity dimensions and logical conjunction distinguish scene fluency from correct intervention, legal motion, coherent interaction, and non-target preservation. 2TrafficImag 
+
+• A cross-stage empirical study. We evaluate behavior reasoners, image editors, and video generators under shared scenarios, in which condition ablations, oracle substitutions, paired factual–counterfactual tests, and a failure taxonomy localize errors along the execution chain. 
+
+# Related Work 
+
+Roadside datasets and traffic reasoning benchmarks. Infrastructure-view datasets provide broad spatial coverage of intersections but must handle severe scale variation and occlusion. Rope3D (Ye et al. 2022) studies monocular 3D detection from roadside images, and DAIR-V2X (Yu et al. 2022) and V2X-Seq (Yu et al. 2023) extend infrastructure sensing to cooperative perception and sequential forecasting. SUTD-TrafficQA (Xu, Huang, and Liu 2021) evaluates event and causal reasoning over in-the-wild traffic videos through VQA. DriveVLM (Tian et al. 2024) and SpatialVLM (Chen et al. 2024) show that vision language models (VLMs) can connect visual evidence to driving decisions and spatial relations. These resources support perception and semantic reasoning, but they do not require a model to generate a modified future, nor do they provide a protocol for verifying that a generated future executes a specified intervention from a fixed roadside observation.                                           
+
+> Benchmark Fixed Roadside View Generated Video Actor Intervention Legal Route/ Topology Non-Target Preservation Paired Response SUTD-TrafficQA (Xu, Huang, and Liu 2021)
+> ✓×××××
+> V2X-Seq (Yu et al. 2023) ✓××✓××
+> VBench (Huang et al. 2024) ×✓××××
+> T2V-CompBench (Sun et al. 2025) ×✓𝑃𝑎𝑟𝑡𝑖𝑎𝑙 ×××
+> WorldModelBench (Li et al. 2026) ×✓𝑃𝑎𝑟𝑡𝑖𝑎𝑙 ×××
+> DrivingGen (Zhou et al. 2026) ×✓𝑃𝑎𝑟𝑡𝑖𝑎𝑙 𝑃𝑎𝑟𝑡𝑖𝑎𝑙 ××
+> TrafficImag (Ours) ✓✓✓✓✓✓
+
+Table 1: Comparison of the TrafficImag benchmark (Ours) to other representative traffic and generative video benchmarks. 
+
+Controllable driving and traffic generation. GAIA-1 (Hu et al. 2023), DriveDreamer (Wang et al. 2024a), and Drive-WM (Wang et al. 2024b) learn generative world models that predict future driving observations, primarily from the ego perspective. TrafficGen (Feng et al. 2022), ProSim (Tan et al. 2024), and SceneDiffuser (Jiang et al. 2024) synthesize structured multi-agent traffic in trajectory space, where agent states are explicit and control is comparatively direct. TrailBlazer (Ma, Lewis, and Kleijn 2023) and FreeTraj (Qiu et al. 2024) bring trajectory-level control to pixel-space video generation. These methods are proposed as generators, however, they do not define an evaluation protocol that verifies actor-level intervention execution in pixel-space video anchored to an observed roadside scene. 
+
+Generative video model benchmarks. VBench (Huang et al. 2024), T2V-CompBench (Sun et al. 2025), World-ModelBench (Li et al. 2026), and DrivingGen (Zhou et al. 2026) cover perceptual, compositional, physical, and driving-oriented quality. As summarized in Table 1, none of these benchmarks binds a selected actor in an observed roadside scene to legal route topology, requires the preservation of non-target traffic, or compares matched factual and counterfactual branches of the same scene. TrafficImag complements this by fixing the camera viewpoint, grounding each intervention in an observed history, and jointly checking actor identity, legal route connectivity, interaction order, and non-target preservation in the same generated output. 3TrafficImag                                  
+
+> Layer Unit Sites Images/Frames Boxes/Tracks Clips/Samples Primary Use Image Annotation Bank PNG-XML Pair 29,022 115,835 boxes –Detection and Interven-tion Anchors Video Archive Deduplicated Clip 2––7,043 Clips Scene and Condition Coverage Dense Benchmark Subset Track-Linked Frame / Actor Window 24,348 Frames 63,543 Boxes; 1,724 Tracks 31,145 Samples Reasoning and Topol-ogy Reasoning Audit History-Future Sample 225 Frames/ Sample –1,500 Samples Behavior-Program Evaluation Image-Editing Suite Intervention Case 260 Anchors –2 Re-peats/Model Initial-State Evaluation Video-Generation Suite Counterfactual Sce-nario 28 Seconds/Output –20 Scenarios; 3 Repeats End-to-End Execution
+
+Table 2: TrafficImag data layers and benchmark units. 
+
+# Dataset 
+
+Data Collection 
+
+TrafficImag is organized into three complementary annotation layers that separate broad scene coverage from dense actor-level temporal supervision. Table 2 summarizes the three layers and the task-specific evaluation sets derived from them. (1) The first layer is an image-annotation bank containing 9,022 high-resolution roadside images with 115,835 bounding-box annotations across six road-user classes. Each image has a resolution of 1920 × 1080 pixels and is paired with an XML annotation file. With an average of approximately 12.8 annotated road users per image, this layer provides broad coverage of actor appearance, scale, occlusion, illumination, and traffic density. (2) The second layer is a deduplicated archive of 7,043 roadside video clips collected from two fixed-camera viewpoints, denoted SJB and Speedway, which contributes 4,177 clips and 2,866 clips, respectively. The archive includes 5,175 daytime and 1,868 nighttime clips, covering heterogeneous traffic densities, illumination conditions, actor scales, and occlusion patterns. Exact duplicates and repeated exports are removed before benchmark construction. (3) The third layer is an annotation-dense temporal benchmark subset, curated from 31 representative clips at the two collection sites. It contains 4,348 fully annotated frames, 63,543 track-linked object boxes, and 1,724 identity-consistent actor tracks. Frames are annotated at 6 fps and capture short-term actor evolution, occlusion, interaction, and approach-to-exit motion under both daytime and nighttime conditions, with an average annotation density of 14.6 actor boxes/frame and 36.9 annotated instances/track. From the identity-linked tracks of this subset, we construct 31,145 overlapping actor-centered history-future samples. Each sample contains 16 observed frames followed by 9 future frames, corresponding to approximately 2.7 s of history and 1.5 s of future at the 6 fps annotation rate, and is centered on a single visible actor rather than on an entire scene. Multiple actors therefore produce separate samples from the same scene-time interval, while temporally overlapping windows retain distinct observation and prediction contexts. On average, each track contributes approximately 18.1 actor-centered temporal samples. Together, the three layers combine broad visual and environmental coverage with dense identity-level temporal supervision. The image and video layers capture variation in actor appearance, illumination, traffic density, and viewpoint, while the dense temporal layer supports actor association, behavior reasoning, topology-aware intervention, and short-horizon counterfactual evaluation. 
+
+Data Annotation 
+
+The image bank uses six labels: human-driven vehicle (HDV), autonomous vehicle (AV), pedestrian (PED), bicycle (BC), scooter (SCO), and motorcycle (MC). The dense subset links boxes into identity-consistent tracks and derives 9 4TrafficImag 
+
+behavior labels from the observed history and future of each sample: stationary, keep moving, straight trend, slowing or stop, left turn, right turn, left shift, right shift, and start moving. The taxonomy separates route-scale maneuvers from longitudinal state changes because the two groups differ in visual evidence and evaluation difficulty. Labels are multi-valued, for example, a moving actor may simultaneously exhibit a turn trend. The class distribution and the positive-label distribution over the 31,145 samples are reported in Appendix A. Trajectory-derived behavior labels are treated as benchmark supervision rather than an unqualified physical ground truth. Labels are generated with class-aware displacement and heading rules, checked against the road topology, and manually reviewed in ambiguous cases. Automated quality control rejects invalid boxes, missing frame links, duplicate track identifiers, and displacements beyond class-specific thresholds. Manual review then verifies identity through occlusion, lane association, turn direction, and state-transition boundaries. This combination retains the scale of automatic processing while making the audit subset suitable for class-conditional evaluation. 
+
+# Benchmark 
+
+Task Definition 
+
+Let 𝑉 −𝑇 :0 = {𝐼 −𝑇 , . . . , 𝐼 0} denote the observed roadside history, 𝐺 the image-plane road topology, and 𝛿 an actor intervention. Given these inputs, the task is to produce an 𝐻 -step future video ˆ 𝑉 𝛿  
+
+> 1: 𝐻
+
+beginning from the intervened scene and executing 𝛿 . The evaluated chain is: 
+
+𝑃 𝛿 = H𝜔 (𝑉 −𝑇 :0 , 𝐺, 𝛿 ),𝐼 𝛿  
+
+> 0
+
+= E𝜓 (𝐼 0, 𝛿 ),𝐶 𝛿 = C( 𝐺, 𝑃 𝛿 , 𝐼 𝛿  
+
+> 0
+
+),
+
+ˆ𝑉 𝛿  
+
+> 1: 𝐻
+
+= G𝜙 (𝐼 𝛿  
+
+> 0
+
+, 𝐶 𝛿 ; 𝐻 ),
+
+(1) where H𝜔 is a replaceable behavior reasoner, E𝜓 is an image editor, C is the fixed benchmark condition interface, and G𝜙 represents a replaceable image-to-video generator. This factorization enables stage-level evaluation without requiring all models to expose the same internal representation. We evaluate two intervention types: removal and insertion. A removal deletes a selected actor and tests whether traffic affected by its absence responds accordingly. An insertion adds an actor with a specified approach, lane, and conflict relation. For analysis, an interacting actor is defined as one whose projected route overlaps the route of the intervened actor in a shared conflict zone within the evaluation horizon. 
+
+Actor Programs and Topology-Aligned Conditions 
+
+The topology graph 𝐺 = (L , Econ , Z, Ψ, A) contains lane and drivable regions L, legal approach-to-exit connections 
+
+Econ , conflict zones Z, static elements Ψ such as stop lines and crosswalks, and visible actors A. Because metric calibration is not available at both sites, lanes and routes are represented as image-plane polygons and corridors. These representations are adequate for testing legal connectivity and normalized motion, but are not interpreted as engineering-grade high-definition maps. For each affected actor 𝑖 , the reasoner returns an actor-level program record: 
+
+𝑝 𝛿 𝑖 = (𝑜 𝑖 , 𝑚 𝑖 , 𝑟 𝑖 , ℓ 𝑖 , 𝜋 𝑖 , [𝑡 − 
+
+> 𝑖
+
+, 𝑡 + 
+
+> 𝑖
+
+], 𝑢 𝑖 ), (2) where 𝑜 𝑖 identifies the actor, 𝑚 𝑖 is its maneuver, 𝑟 𝑖 denotes its route or goal exit, ℓ𝑖 is its longitudinal mode, 𝜋 𝑖 is its interaction order, [𝑡 − 
+
+> 𝑖
+
+, 𝑡 + 
+
+> 𝑖
+
+] is a temporal window, and 𝑢 𝑖 represents an uncertainty field. The program 𝑃 𝛿 collects one such record for every affected actor. The benchmark validates this program against the topology graph before generation. Illegal lane-exit pairs are rejected, a removed actor cannot remain in the program, and an inserted actor must have a valid initial lane and heading. Actors outside the reachable intervention neighborhood of the intervention form a preserve set. Detailed benchmark condition construction is reported in Appendix B. 5TrafficImag Model Set F1 ↑ Macro F1 ↑ Rem. ↑ Ins. ↑ Geom. ↑ E2E ↑ ID ↑ Route ↑ Inter. ↑ Pres. ↑                                                                                                                                            
+
+> Behavior Reasoners
+> LLaVA-OneVision-7B 64.8 59.6 ––––––––InternVL3-14B 69.7 64.3 ––––––––Qwen2.5-VL-32B 75.4 70.8 ––––––––Gemini 2.5 Flash 77.9 73.6 ––––––––Claude Sonnet 4 80.1 76.2 ––––––––GPT-4o 79.2 74.8 ––––––––Gemini 2.5 Pro 83.6 80.4 ––––––––
+> Image Editors
+> GPT Image 2 ––90.0 76.7 83.3 –––––Gemini 3 Pro Image ––85.0 71.7 78.3 –––––Qwen-Image-2.0 Pro ––81.7 68.3 73.3 –––––Seedream 5.0 Pro ––75.0 58.3 65.0 –––––
+> Video Generators
+> Seedance 2.0 –––––55.0 83.3 78.3 71.7 81.7
+> Sora 2 Pro –––––43.3 75.0 66.7 61.7 73.3 Veo 3.1 –––––35.0 68.3 58.3 51.7 63.3
+
+Table 3: Unified cross-model benchmark results. Behavior reasoners use 1,500 samples, image editors use 60 cases with two repeats, and video generators use 20 scenarios with three repeats. Dashes denote inapplicable metrics. Set/Macro are behavior-label F1; Rem./Ins./Geom. are edit success; E2E is the four-predicate conjunction; ID, Route, Inter., and Pres. are video validity rates. All applicable entries are percentages. 
+
+Validity Dimensions 
+
+A generated video is successful only when all four binary predicates hold: 
+
+𝑆 E2E = 𝑆 init ∧ 𝑆 beh ∧ 𝑆 rel ∧ 𝑆 pres . (3) Initial-state validity 𝑆 init tests intervention completion, perspective, heading, lane contact, and persistence, behavioral validity 𝑆 beh tests route-corridor occupancy, arrival at the goal exit, and the programmed longitudinal state, relational validity 𝑆 rel tests yield and passage order in a shared conflict zone and rejects severe interpenetration, and preservation validity 𝑆 pres tests the state and identity of non-target actors, background stability, and unrequested actor creation or disappearance. The conjunction prevents a high score on one dimension from masking a critical failure on another. The four predicates are assigned by model-blind human raters under a fixed binary rubric, with automated tracking and topology diagnostics retained alongside each decision, which are described in Appendix C. 
+
+# Experiments 
+
+Experimental Setup 
+
+The experiments address 3 main research questions (RQs): 
+
+• RQ1: How reliably current VLMs infer the actor-level behavior program, including infrequent state transitions? 
+
+• RQ2: How do behavior reasoners, image editors, and video generators perform across the complete counterfactual execution chain? 6TrafficImag 
+
+• RQ3: Which stages and failure types limit end-to-end success, and how much can be recovered with oracle inputs or a single targeted retry? All models are evaluated without task-specific fine-tuning. The open behavior reasoners are LLaVA-OneVision-7B (Li et al. 2024), InternVL3-14B (Zhu et al. 2025), and Qwen2.5-VL-32B (Bai et al. 2025); hosted reasoners use the Gemini 2.5 (Comanici and et al. 2025), Claude Sonnet 4 (Anthropic 2025), and GPT-4o (Hurst et al. 2024) families. The hosted image editors are GPT Image 2 (OpenAI 2026), Gemini 3 Pro Image (Google DeepMind 2025), Qwen-Image-2.0 Pro (Zhao et al. 2026), and Seedream 5.0 Pro (ByteDance Seed Team 2026). Hosted generators were accessed on 6 July 2026. The recorded video identifiers are doubao-seedance-2-0-260128 (Seedance et al. 2026), sora-2-pro (OpenAI 2025), and veo-3.1-generate-001 (Google 2025). All outputs are eight seconds; Sora and Veo were requested at 1080p, while Seedance was requested at 720p. Appendix D gives all model identifiers, adapter settings, and the failure-handling policy. Stage-specific metrics supplement the conjunction. Behavior reasoning uses parse success, sample-set F1, exact-set match, macro label F1, and per-label precision and recall. Image editing uses removal completion, insertion completion, lane-compatible geometry, non-target actor preservation, and LPIPS outside the edit mask. Video generation uses identity persistence, route success, interaction validity, preservation, hallucination rate, and the end-to-end conjunction. Perceptual measures inspired by VBench (Huang et al. 2024) are retained as secondary diagnostics, but they do not override a failed traffic predicate. Paired factual-counterfactual evaluation additionally measures whether an affected actor changes entry time, waiting time, or passage order in the direction specified by the intervention. The main results are demonstrated, and the other metrics are reported in Appendix E. 
+
+Experimental Results 
+
+RQ1: Behavior Reasoning 
+
+Table 3 reports the cross-model results. Gemini 2.5 Pro obtains the highest sample-set F1 (83.6%) and macro label F1 (80.4%). The hosted models occupy the upper part of the table, while the three evaluated open VLMs range from 59.6% to 70.8% macro F1. The 20.8-point difference between the lowest and highest macro F1 is not uniform across behaviors. Legal approach-to-exit connectivity and actor history provide strong evidence for turn direction, while short displacement changes, partial occlusion, and the boundary between stationary, slowing, and starting produce more disagreement across models. The per-class audit in Appendix E shows this pattern directly. Left- and right-turn F1 reach 85.6% and 87.1%, respectively. Stationary, keep-moving, and straight-trend labels range from 84.7% to 92.1%. Slowing-or-stop reaches 67.8%, start-moving 70.5%, and lateral shifts 72.9–74.5%. Exact-set match (70.9%) is lower than set F1 because a multi-label prediction can identify the dominant maneuver but miss one concurrent state label. These results support reporting macro and per-class measures together; parse rate or sample overlap alone would hide the remaining state-transition errors. 
+
+RQ2: Cross-Stage Counterfactual Execution 
+
+The image-editing block of Table 3 reveals a consistent difference between removal and insertion (Figure 2). GPT Image 2 records 90.0% removal success and 76.7% insertion success, and the corresponding gaps for the remaining editors range from 13.3 to 16.7 points. Removal mainly requires localized completion and preservation, while insertion additionally couples lane location, heading, scale, illumination, ground contact, and occlusion, so a visually integrated vehicle can still fail geometry. Outside-mask LPIPS remains between 0.052 and 0.081, indicating that most failures are local intervention or geometry errors rather than global corruption. The generator block compares a shared set of 20 scenarios under the Full interface. Figure 3 shows matched rollouts for a representative left-turn counterfactual. Seedance 2.0 provides the strongest execution rate at 55.0%, followed by Sora 2 Pro at 43.3% and Veo 3.1 at 35.0%. The same ordering appears for identity, route, interaction, and preservation. Seedance retains the target identity in 83.3% of outputs and reaches 78.3% route success, although some otherwise correct videos still drift in identity 7TrafficImag 
+
+or route near the end. Sora more often follows a conservative or incomplete path, while Veo more often changes unprogrammed actors or loses the requested route. These stage-level scores explain why the end-to-end differences are larger than a perceptual comparison alone would suggest. Paired factual-counterfactual results are provided in Appendix F. 
+
+Figure 2: Day and night counterfactual anchors for vehicle removal and insertion. Each row contains the marked input followed by four editor outputs. Removal is often completed without disturbing distant traffic. Insertion exposes larger differences in target location, scale, lane contact, and illumination, especially at night.                                                 
+
+> Variant Initial ↑Route ↑Interaction ↑Preservation ↑E2E ↑Hallucination ↓
+> Direct Prompt 48.3 41.7 38.3 58.3 23.3 21.7 Counterfactual Anchor 81.7 43.3 40.0 68.3 31.7 16.7 Anchor + Actor Program 83.3 60.0 55.0 71.7 40.0 13.3 Anchor + Target Binding 85.0 68.3 61.7 76.7 46.7 10.0 Full Interface 88.3 78.3 71.7 81.7 55.0 6.7 Full + One Repair 90.0 81.7 76.7 85.0 61.7 5.0
+
+Table 4: Incremental condition ablation with a fixed generator over 20 shared scenarios and three repeats, giving 60 outputs per variant. E2E is the conjunction of initial, behavioral, relational, and preservation validity. All entries are percentages. 
+
+RQ3: Bottlenecks, Failure Modes, and Repair 
+
+Table 4 adds condition channels in execution order while holding the scenarios and the Seedance 2.0 generator fixed. Direct prompting reaches 23.3% end-to-end success. The counterfactual anchor raises initial-state validity from 48.3% to 81.7%, but route and interaction scores change little because the future remains under-specified. Adding the actor program raises route success to 60.0% and interaction validity to 55.0%. Target binding raises end-to-end success to 46.7% and reduces hallucination to 10.0%. Legal corridors and scene invariants then produce the Full result of 8TrafficImag 
+
+Figure 3: Matched 8-second rollouts for a programmed left-turn counterfactual. T1 is the controlled vehicle and T2 should remain stationary. Seedance completes the turn while maintaining T2 most consistently in this example. Sora retains the scene but progresses more slowly and does not complete the requested route within the shown horizon. Veo introduces additional traffic and exhibits target/path drift. 55.0%, a 31.7-point increase over direct prompting. Preservation rises to 81.7%, and hallucination falls from 21.7% to 6.7%. Oracle substitutions separate errors that the ablation cannot identify. Replacing only the predicted program with an audited program raises end-to-end success from 55.0% to 63.3%. Replacing only the edited anchor raises it to 66.7%, and replacing both raises it to 76.7%. The remaining 23.3-point gap persists after reasoning and intervention initialization have been controlled. Within this pipeline, the residual is consistent with unresolved condition following, identity maintenance, and long-horizon video execution rather than an upstream program or anchor error. The larger anchor substitution gain also agrees with the insertion results: an initial error in position, scale, or heading is difficult for the video generator to correct later. One-step repair is applied only to the 27 first-pass Full-interface failures. Four are recovered, raising end-to-end success from 55.0% (33/60) to 61.7% (37/60). Route success rises from 78.3% to 81.7%, interaction validity from 71.7% to 76.7%, and hallucination falls from 6.7% to 5.0%. The recovered cases are localized failures addressed by the selected constraint. The remaining cases commonly combine identity, route, and preservation errors, which explains why a single retry yields a smaller increase than the initial factorization. Detailed failure taxonomy and the one-step repair are reported in Appendix G. 
+
+Discussion 
+
+The three RQs reveal different sources of error that a single video-quality score would merge. RQ1 separates structured output compliance from behavior recognition. Parsing is nearly complete, but state-transition labels remain less reliable than stationary motion and turn direction. RQ2 then shows that correct scene initialization and correct temporal execution are distinct capabilities. Removal is mainly a localized completion problem, whereas insertion additionally requires perspective, lane contact, scale, and occlusion to agree. Even a correct anchor does not prevent later identity or route drift. RQ3 further shows that these errors propagate across stages: improving the program or the anchor raises downstream success, but neither removes failures that emerge during the rollout. The oracle results make this propagation explicit. Auditing the anchor produces a larger gain than auditing the program alone, which is consistent with the image-editing results and with the difficulty of recovering from an incorrect initial pose. Auditing both inputs raises success further yet does not close the remaining gap. The benchmark should therefore not be interpreted as a leaderboard for isolated generators. It measures an execution chain in which program inference, intervention initialization, condition translation, and temporal generation can each determine the 9TrafficImag 
+
+final outcome. Reporting the predicate vector and dominant failure label alongside end-to-end success preserves this distinction. Paired factual–counterfactual evaluation addresses a limitation of output-only assessment. Two branches can each be visually plausible while showing no response to the intervention, so intervention-response consistency tests a relation between matched outputs rather than the quality of either video in isolation. Additionally, hosted generators differ in reference-image limits, resolution, seed exposure, and prompt handling. The benchmark fixes the semantic program, records each adapter transformation, and retains failed calls, so the reported results describe performance under a disclosed protocol and access date rather than a timeless model ranking. The failure records also indicate concrete model-development targets: persistent actor binding, explicit route memory, preserve-set constraints, and uncertainty-aware handling of ambiguous state transitions. 
+
+# Conclusion 
+
+TrafficImag introduces an execution-oriented benchmark for counterfactual roadside traffic video generation, decom-posing the task into behavior reasoning, intervention initialization, conditional video generation, and traffic-aware verification, so that failures are localized rather than hidden behind aggregate video-quality metrics. It grounds this protocol in a large roadside image and video corpus with a densely tracked benchmark subset. Four explicit validity dimensions expose errors that perceptual fluency alone cannot identify. Across the evaluated models, topology-aligned conditions improve execution, while oracle and paired tests isolate persistent limitations in anchor geometry, long-horizon condition following, and coupled multi-actor behavior. By releasing scenario definitions, adapters, predicate-level scores, and failure records, the benchmark provides a reproducible basis for measuring progress beyond visually plausible continuation. Several limitations qualify these results. TrafficImag covers two fixed-camera sites and does not represent the full diversity of road rules, camera elevations, weather, and intersection geometry, and because topology is expressed in normalized image coordinates, the protocol tests legal connectivity, relative displacement, and interaction order but cannot certify metric speed, clearance, or collision risk. Behavior labels derived from short trajectories remain ambiguous near the boundary between stationary, slowing, and starting, and the 20-scenario generation suite supports paired diagnosis but requires larger scenario sets for narrower confidence intervals and for conclusions about geographic or geometric generalization. The benchmark evaluates conditional association with a specified intervention rather than causal identification from observational data, and hosted-model behavior may change after provider updates, so exact identifiers, access dates, and payloads form part of the result record. TrafficImag is intended for model evaluation, visualization, and failure analysis, not for signal control, safety certification, or the replacement of calibrated traffic simulation. Extending the protocol to additional calibrated sites and evaluating generators designed for persistent actor binding and explicit route memory are natural directions for future work. 
+
+# References   
+
+> Anthropic, A. 2025. System card: Claude opus 4 & claude sonnet 4. Claude-4 Model Card .Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025. Qwen2.5-VL Technical Report. arXiv:2502.13923. ByteDance Seed Team. 2026. Seedream 5.0 Pro. Official ByteDance Seed model page. Chen, B.; Xu, Z.; Kirmani, S.; Ichter, B.; Sadigh, D.; Guibas, L.; and Xia, F. 2024. Spatialvlm: Endowing vision-language models with spatial reasoning capabilities. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 14455–14465. Comanici, G.; and et al. 2025. Gemini 2.5: Pushing the Frontier with Advanced Reasoning, Multimodality, Long Context, and Next Generation Agentic Capabilities. arXiv:2507.06261.
+
+10 TrafficImag 
+
+Feng, L.; Li, Q.; Peng, Z.; Tan, S.; and Zhou, B. 2022. Trafficgen: Learning to generate diverse and realistic traffic scenarios. arXiv preprint arXiv:2210.06609 .Google. 2025. Introducing Veo 3.1 and Advanced Capabilities in Flow. Official Google product announcement. Google DeepMind. 2025. Gemini 3 Pro Image: Model Card. Official Google DeepMind model card. Hu, A.; Russell, L.; Yeo, H.; Murez, Z.; Fedoseev, G.; Kendall, A.; Shotton, J.; and Corrado, G. 2023. Gaia-1: A generative world model for autonomous driving. arXiv preprint arXiv:2309.17080 .Huang, Z.; He, Y.; Yu, J.; Zhang, F.; Si, C.; Jiang, Y.; Zhang, Y.; Wu, T.; Jin, Q.; Chanpaisit, N.; et al. 2024. Vbench: Comprehensive benchmark suite for video generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 21807–21818. Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh, A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Radford, A.; et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Jiang, C. M.; Bai, Y.; Cornman, A.; Davis, C.; Huang, X.; Jeon, H.; Kulshrestha, S.; Lambert, J. W.; Li, S.; Zhou, X.; et al. 2024. Scenediffuser: Efficient and controllable driving simulation initialization and rollout. In The Thirty-eighth Annual Conference on Neural Information Processing Systems .Li, B.; Zhang, Y.; Guo, D.; Zhang, R.; Li, F.; Zhang, H.; Zhang, K.; Zhang, P.; Li, Y.; Liu, Z.; et al. 2024. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 .Li, D.; Fang, Y.; Chen, Y.; Yang, S.; Cao, S.; Wong, J.; Luo, M.; Wang, X.; Yin, H.; Gonzalez, J.; et al. 2026. Worldmodelbench: Judging video generation models as world models. Advances in Neural Information Processing Systems , 38. Ma, W.-D. K.; Lewis, J. P.; and Kleijn, W. B. 2023. Trailblazer: Trajectory control for diffusion-based video generation. arXiv preprint arXiv:2401.00896 .OpenAI. 2025. Sora 2 System Card. Official OpenAI system card. OpenAI. 2026. GPT Image 2 Model. Official OpenAI API documentation. Qiu, H.; Chen, Z.; Wang, Z.; He, Y.; Xia, M.; and Liu, Z. 2024. Freetraj: Tuning-free trajectory control in video diffusion models. arXiv preprint arXiv:2406.16863 .Seedance, T.; Chen, D.; Chen, L.; Chen, X.; Chen, Y.; Chen, Z.; Chen, Z.; Cheng, F.; Cheng, T.; Cheng, Y.; et al. 2026. Seedance 2.0: Advancing video generation for world complexity. Sun, K.; Huang, K.; Liu, X.; Wu, Y.; Xu, Z.; Li, Z.; and Liu, X. 2025. T2v-compbench: A comprehensive benchmark for compositional text-to-video generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , 8406–8416. Tan, S.; Ivanovic, B.; Chen, Y.; Li, B.; Weng, X.; Cao, Y.; Krähenbühl, P.; and Pavone, M. 2024. Promptable closed-loop traffic simulation. 
+
+arXiv preprint arXiv:2409.05863 .Tian, X.; Gu, J.; Li, B.; Liu, Y.; Wang, Y.; Zhao, Z.; Zhan, K.; Jia, P.; Lang, X.; and Zhao, H. 2024. Drivevlm: The convergence of autonomous driving and large vision-language models. arXiv preprint arXiv:2402.12289 .Wang, X.; Zhu, Z.; Huang, G.; Chen, X.; Zhu, J.; and Lu, J. 2024a. Drivedreamer: Towards real-world-drive world models for autonomous driving. In European conference on computer vision , 55–72. Springer. Wang, Y.; He, J.; Fan, L.; Li, H.; Chen, Y.; and Zhang, Z. 2024b. Driving into the future: Multiview visual forecasting and planning with world model for autonomous driving. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 14749–14759. Wang, Y.; Zheng, Y.; Fan, W.; Wang, T.; Chu, H.; Tian, D.; Gao, B.; Wang, J.; and Chen, H. 2026. ScenePilot-Bench: A Large-Scale Dataset and Benchmark for Evaluation of Vision-Language Models in Autonomous Driving. arXiv preprint arXiv:2601.19582 .Xu, L.; Huang, H.; and Liu, J. 2021. Sutd-trafficqa: A question answering benchmark and an efficient network for video reasoning over traffic events. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 9878–9888. Ye, X.; Shu, M.; Li, H.; Shi, Y.; Li, Y.; Wang, G.; Tan, X.; and Ding, E. 2022. Rope3d: The roadside perception dataset for autonomous driving and monocular 3d object detection task. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,21341–21350. 
+
+11 TrafficImag 
+
+Yehia, A.; Byeon, J.; Wang, T.; Wang, H.; Xu, Y.; Jiao, J.; and Claudel, C. 2025. ARCAS: An Augmented Reality Collision Avoidance System with SLAM-Based Tracking for Enhancing VRU Safety. arXiv preprint arXiv:2512.05299 .Yehia, A.; Mohamed, A.; Wang, T.; Byeon, J.; Qian, K.; Jiao, J.; and Claudel, C. 2026. EgoTraj: Real-World Egocentric Human Trajectory Dataset for Multimodal Prediction. arXiv preprint arXiv:2605.19004 .Yu, H.; Luo, Y.; Shu, M.; Huo, Y.; Yang, Z.; Shi, Y.; Guo, Z.; Li, H.; Hu, X.; Yuan, J.; et al. 2022. Dair-v2x: A large-scale dataset for vehicle-infrastructure cooperative 3d object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,21361–21370. Yu, H.; Yang, W.; Ruan, H.; Yang, Z.; Tang, Y.; Gao, X.; Hao, X.; Shi, Y.; Pan, Y.; Sun, N.; et al. 2023. V2x-seq: A large-scale sequential dataset for vehicle-infrastructure cooperative perception and forecasting. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 5486–5495. Zhao, B.; Wu, C.; Li, D.; Meng, H.; Li, J.; Zhang, J.; Zhou, J.; Lin, J.; Gao, K.; Cao, K.; et al. 2026. Qwen-image-2.0 technical report. arXiv preprint arXiv:2605.10730 .Zhou, Y.; Shao, H.; Wang, L.; Zong, Z.; Li, H.; and Waslander, S. L. 2026. DrivingGen: A Comprehensive Benchmark for Generative Video World Models in Autonomous Driving. arXiv preprint arXiv:2601.01528 .Zhu, J.; Wang, W.; Chen, Z.; Liu, Z.; Ye, S.; Gu, L.; Tian, H.; Duan, Y.; Su, W.; Shao, J.; et al. 2025. Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 .
+
+12 TrafficImag 
+
+# A Dataset Statistics and Evaluation Subsets 
+
+Dataset Layers and Class Composition 
+
+TrafficImag contains an image-annotation bank, a deduplicated video archive, and a dense temporal subset. Table 5 reports image-bank boxes and dense-subset tracks. The image bank is reported in terms of annotated bounding boxes, whereas the dense temporal subset is reported in terms of object tracks. Because these statistics measure different quantities, they are intended to characterize the two subsets independently and should not be compared directly.                 
+
+> Class Image Boxes Dense Tracks HDV 81,963 868 AV 8,101 78 PED 19,454 578 BC 3,162 106 SCO 2,416 62 MC 739 32 Total 115,835 1,724
+
+Table 5: Class distribution in the image-annotation bank and dense temporal subset. Actor-centered samples use the 16 observed frames and 9 future frames defined in the main paper. Samples are constructed for individual actors rather than entire scenes; therefore, multiple actors appearing in the same video segment generate separate samples. Overlapping windows are retained when either the observation interval or the prediction interval differs. 
+
+Behavior-Label Distribution 
+
+Behavior labels are not mutually exclusive. Across the 31,145 samples, the positive counts are 18,871 stationary, 10,582 keep moving, 13,995 straight trend, 1,300 slowing or stop, 8,345 left turn, 8,805 right turn, 906 left shift, 753 right shift, and 417 start moving. The corresponding percentages do not sum to 100%. Each sample has one primary route-scale label. Longitudinal labels are mutually exclusive in most cases; 25 transition windows retain two adjacent states because the state changes within the prediction interval. Lateral shifts are treated independently and may occur simultaneously with any longitudinal behavior. We therefore report sample-set F1, exact-set match, macro label F1, and per-label precision and recall. Figure 4 summarizes the class, behavior-label, site, and illumination distributions. 13 TrafficImag 
+
+Figure 4: TrafficImag data composition. (a) Road-user classes in the image-annotation bank (outer ring; 115,835 boxes) and dense temporal subset (inner ring; 1,724 tracks). (b) Positive behavior-label counts over 31,145 actor-centered samples; labels are multi-valued. (c) The 7,043 deduplicated clips by site and illumination. 
+
+Evaluation Subsets and Accounting 
+
+Table 6 separates benchmark cases, repeats, and repair calls. The Full + One Repair result in Table 4 uses the same 60 Full-interface slots; only the 27 failed slots receive a second request.                               
+
+> Evaluation Block Unit Cases or Scenarios Repeats Scored Records / Additional Calls Behavior reasoning Actor-centered sample 1,500 per model 11,500 per model Image editing Intervention case 60 per editor 2120 per editor Generator comparison Counterfactual scenario 20 per generator 360 per generator Condition ablation Scenario-condition pair 20 ×5 first-pass conditions 3300 first-pass outputs One-step repair Failed Full-interface slot 27 failures 127 additional calls; 60 final slot decisions Paired response Factual and counterfactual pair 15 conflict scenarios 345 pairs / 90 videos
+
+Table 6: Evaluation subsets and accounting. A slot denotes one fixed position for a scenario and repeat. Models within each benchmark block use the same cases. The reasoning audit fixes the histories, target identifiers, topology, and label schema; the editing suite contains 30 removal and 30 insertion cases; and the video suite contains 20 scenarios with three repeats. Failed calls and malformed or incorrectly sized outputs remain in the denominator. Geometry is reported in normalized image coordinates unless calibration is available. 
+
+# B Benchmark Condition Construction 
+
+Actor-Program Schema 
+
+Each affected actor is represented by the program record in Equation (2). Table 7 lists the fields and consistency checks. Model-specific prompts are generated from this record. 14 TrafficImag Field Symbol Meaning Consistency Check Actor binding 𝑜 𝑖 Target or interacting actor identity Must match an observed actor or the inserted anchor Maneuver 𝑚 𝑖 Route-scale behavior, such as left turn or straight Must be compatible with the selected route Route / goal 𝑟 𝑖 Legal approach-to-exit connection Lane-to-exit pair must exist in the topology graph Longitudinal mode ℓ𝑖 Stationary, moving, slowing, or starting state Must agree with the temporal instruction Interaction order 𝜋 𝑖 Yield or passage order in a shared conflict zone Must not contradict another actor record Temporal window [𝑡 −       
+
+> 𝑖 , 𝑡 +
+> 𝑖 ]Intended execution interval Must lie within the generated horizon Uncertainty 𝑢 𝑖 Ambiguity or tolerance retained for audit Recorded for audit; does not override the discrete program fields
+
+Table 7: Actor-program fields used by the condition compiler. 
+
+Topology-Aware Compilation 
+
+The compiler takes the image-plane topology, actor program, and edited anchor as input. It produces five groups of conditions: 1. Visual anchor: the edited first frame at time zero; 2. Semantic program: controlled actors, maneuvers, longitudinal states, and interaction order; 3. Target binding: actor identifiers and image-plane boxes; 4. Route and anchors: a legal route corridor and sparse entry, conflict-zone, curvature, and exit anchors; 5. Time and invariants: temporal windows, fixed-camera constraints, preserve-set actors, persistent removal, and prohibition of unrequested actor creation. Before generation, the compiler rejects invalid lane-to-exit pairs, removal programs that retain the removed actor, lane-incompatible insertion headings, out-of-range temporal windows, and contradictory interaction orders. Actors outside the intervention neighborhood form the preserve set. Because the sites lack a shared metric calibration, corridors and anchors use normalized image coordinates and support legal-route and relative-motion checks only. Figure 5 illustrates how the common specification is compiled for video generation. 
+
+Figure 5: Condition construction for one counterfactual scenario. The compiler maps the actor program, edited anchor, and image-plane topology to target bindings, route constraints, sparse anchors, timing, and scene invariants. Adapters translate the specification into each service’s supported input format. 15 TrafficImag 
+
+When a service accepts multiple images, the anchor and topology overlay are supplied separately. Otherwise, the visual cues are combined in one marked reference, and route and timing constraints are restated in text. 
+
+# C Evaluation Rubric 
+
+Four Binary Validity Predicates 
+
+Three raters, blind to model identity, evaluate outputs presented in randomized order. For each output, they inspect the intervention, edited anchor, target bindings, route overlay, generated video, and preserve-set tracks, and assign the four binary predicates in Table 8. End-to-end success requires all four predicates. 
+
+Predicate Pass Condition Hard-Failure Examples Retained Diagnos-tics 
+
+𝑆 init The requested removal or insertion is completed; inserted geometry is consis-tent with lane orientation, perspective, and road contact; and the intervention persists. Missing intervention; reappearance of a removed actor; or incompatible insertion location, scale, heading, or lane contact. Edit completion, box geometry, target-track dura-tion. 
+
+𝑆 beh The controlled actor follows the legal route corridor, reaches the programmed exit when required, and follows the requested longitudinal mode. Illegal exit, route drift, incorrect maneuver, or failure to execute the programmed motion within the horizon. Corridor occupancy, route-anchor pro-gression, goal-exit match. 
+
+𝑆 rel Actors sharing a conflict zone satisfy the programmed yield or passage order without severe interpenetration. Reversed order, missing response by an af-fected actor, or severe overlap inconsistent with the program. Conflict-zone entry time, passage order, overlap diagnostics. 
+
+𝑆 pres Non-target actor identity and state re-main consistent; the camera and back-ground remain stable; no persistent unrequested actor appears; and no non-target actor disappears. Unexplained preserve-set motion, identity loss, persistent actor creation, non-target disappearance, or camera/background drift. Preserve-set dis-placement, un-matched tracks, background and outside-mask diag-nostics. 
+
+Table 8: Operational rubric for the four traffic-validity predicates. Texture flicker is recorded separately. Traffic validity is determined by the four predicates, with tracking and topology projections used only as diagnostic evidence. 
+
+Rater and Statistical Protocol 
+
+Raters assess the time-zero intervention, target identity and route, interaction order, and preserve-set behavior in that order. Disagreements are adjudicated from stored frames, tracks, and topology without revealing model identity. For video-generation and paired evaluations, confidence intervals use a scenario-level cluster bootstrap; repeats and paired branches from the same scenario remain in the same cluster. The behavior-reasoning audit uses the clip-level bootstrap described in Appendix E. Direct and Full conditions are paired by scenario, and failed calls remain in the denominator. 
+
+# D Model Adapters and Execution Policy 
+
+Model Identifiers 
+
+Tables 9 and 10 list the model identifiers and video-generation settings used in the benchmark. 16 TrafficImag Stage Short name Weight repository or service identifier Reasoner LLaVA-OneVision-7B lmms-lab/llava-onevision-qwen2-7b-ov 
+
+Reasoner InternVL3-14B OpenGVLab/InternVL3-14B 
+
+Reasoner Qwen2.5-VL-32B Qwen/Qwen2.5-VL-32B-Instruct 
+
+Reasoner Gemini 2.5 Flash gemini-2.5-flash 
+
+Reasoner Claude Sonnet 4 claude-sonnet-4-20250514 
+
+Reasoner GPT-4o gpt-4o-2024-08-06 
+
+Reasoner Gemini 2.5 Pro gemini-2.5-pro 
+
+Editor GPT Image 2 gpt-image-2 
+
+Editor Gemini 3 Pro Image gemini-3-pro-image-preview 
+
+Editor Qwen-Image-2.0 Pro qwen-image-2.0-pro 
+
+Editor Seedream 5.0 Pro doubao-seedream-5-0-pro-260628 
+
+Table 9: Reasoner and image-editor identifiers used in the benchmark. Hosted access dates are retained with the execution records. 
+
+Short name Model identifier Duration Requested output Visual format Repeats Seedance 2.0 doubao-seedance-2-0-260128 8 s 720p 16:9 first-frame reference 3Sora 2 Pro sora-2-pro 8 s 1080p 1280 × 720 input canvas 3Veo 3.1 veo-3.1-generate-001 8 s 1080p 16:9 first-frame reference 3
+
+Table 10: Recorded configuration for the aggregate video-generation benchmark. Provider-side hardware is not exposed. No model is fine-tuned for the benchmark. Reasoners receive identical histories, target identifiers, topology, label vocabularies, and output schemas. Unexposed parameters are recorded as unavailable. Each video execution record stores the model and request metadata, image order, requested settings, seed when available, latency, returned dimensions, status, and error code. 
+
+Common Semantic Serialization 
+
+Table 11 lists the common condition fields serialized by each adapter. Wording changes only when required by a service interface.                   
+
+> Condition Field Generator-Facing Representation Example Content Scene and horizon Opening instruction Fixed roadside camera; realistic 8-second continuation Target binding Actor ID plus image-plane box or marked reference T1 is controlled; T2 is interacting; unbound actors are preserved Route semantics Legal corridor and ordered sparse anchors Entry →conflict zone →exit Temporal program Relative start and passage windows T2 waits; T1 enters first; T2 proceeds afterward Longitudinal behavior Actor-specific motion state Stationary, keep moving, slow or stop, or start moving Invariants Explicit negative constraints Fixed camera; unchanged road; preserve actors; no new actors
+
+Table 11: Common semantic fields serialized by each video-model adapter. The reference image defines time zero. Textual coordinates use the input-image coordinate system and are paired with lane, entry, conflict-zone, and exit descriptions. Scenario-specific constraints may prohibit overtaking, lane changes, identity swaps, or preserve-set motion. 
+
+Retry and Failure Policy 
+
+Automatic retries are limited to requests that return no media. Incorrect outputs are not resubmitted, and timeouts, policy blocks, malformed files, and incorrect dimensions count as failures. The repair study allows one semantic retry 17 TrafficImag 
+
+after a Full-interface failure is scored and assigned a localizable dominant cause; both attempts are retained. 
+
+# E Metric Definitions and Detailed Behavior-Reasoning Audit 
+
+Metric Definitions 
+
+For sample 𝑖 , let 𝑌 𝑖 denote the reference behavior-label set and b𝑌 𝑖 the predicted set. Sample-set F1 is 
+
+𝐹 1,set = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+2|𝑌 𝑖 ∩ b𝑌 𝑖 ||𝑌 𝑖 | + | b𝑌 𝑖 | , (4) where an unparsable response contributes zero under the fixed schema. Exact-set match is Exact = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+1[𝑌 𝑖 = b𝑌 𝑖 ], (5) and macro label F1 is the unweighted mean of the nine label-wise F1 scores. Any overlap records whether 𝑌 𝑖 ∩ b𝑌 𝑖 ≠ ∅.Parse success is the fraction of responses that conform to the required output schema without manual correction. Table 12 defines the remaining stage-specific metrics. Continuous diagnostics accompany the binary decisions but do not alter them. The first five metrics concern image editing, the next five concern video generation, and the final two concern paired factual and counterfactual evaluation. 
+
+Metric Operational Definition Removal completion The selected actor is absent from the edited anchor without a visible duplicate or residual instance. Insertion completion The requested actor is present in the designated region and visually integrated with the scene. Lane-compatible geometry The inserted actor has a location, heading, scale, perspective, and road contact consistent with the assigned lane. Non-target preservation Unedited actors and scene regions remain consistent with the input, except for local changes required by the intervention. Outside-mask LPIPS LPIPS is computed outside the edit mask after spatial alignment; lower values indicate less unintended change. Identity persistence The bound controlled actor remains identifiable throughout the required visible interval. Route success The controlled actor remains within the legal corridor and reaches the programmed endpoint when required. Interaction validity The programmed yield or passage order is satisfied in the shared conflict zone. Preservation validity Preserve-set actors, the background, and the actor count remain consistent with the sce-nario. Hallucination rate The fraction of outputs containing a persistent unrequested actor outside an allowed entry region. Pair validity Both factual and counterfactual branches satisfy all four binary predicates. Intervention-response consis-tency (IRC) Among valid pairs, the affected actor changes timing or passage order in the direction specified by the intervention. 
+
+Table 12: Stage-specific metric definitions. Table 12 defines the secondary metrics used throughout the benchmark. Aggregate image-editing results are reported in Table 15, generator validity and hallucination rates are reported in the main tables, and paired response results are reported in Table 17. Edit-preservation and perceptual diagnostics that are not aggregated in the main tables remain available in the per-output evaluation records. They are used for diagnosis and do not override a failed traffic predicate. 18 TrafficImag 
+
+Aggregate and Class-Conditional Reasoning Audit 
+
+Tables 13 and 14 report Gemini 2.5 Pro on the 1,500-sample audit. Support counts positive labels in this audit. Confidence intervals use clip-level bootstrap, with samples from each clip kept together; parse success has no bootstrap interval. 
+
+Metric Estimate (%) 95% CI Parse success 98.4 –Sample-set F1 83.6 81.5–85.6 Any overlap 96.8 95.5–97.8 Exact-set match 70.9 67.8–73.8 Macro label F1 80.4 78.2–82.4 
+
+Table 13: Aggregate behavior-reasoning audit over 1,500 samples. Percentages use one decimal place. 
+
+Family Event Label Support Precision (%) Recall (%) F1 (%) Longitudinal stationary 941 93.0 91.2 92.1 Longitudinal keep moving 474 89.5 87.3 88.4 Route-scale straight trend 655 85.9 83.5 84.7 Longitudinal slowing or stop 50 70.2 65.6 67.8 Route-scale left turn 387 86.8 84.4 85.6 Route-scale right turn 458 87.9 86.3 87.1 Lateral left shift 29 76.1 73.0 74.5 Lateral right shift 38 74.8 71.1 72.9 Longitudinal start moving 22 73.2 68.0 70.5 
+
+Table 14: Class-conditional behavior recognition. Support is the number of positive labels in the 1,500-sample audit. The 25 dual-state windows belong to the full annotation set, whereas the 13 exclusions are audit samples within the ambiguity margin. Their route-scale labels are retained, but they are omitted from longitudinal scoring, leaving 1,487 records. 
+
+# F Component, Oracle, and Paired Results 
+
+Image-Editing Components 
+
+Table 15 reports the image-editing results. 
+
+Editor Removal ↑ Insertion ↑ Geometry ↑ LPIPS ↓
+
+GPT Image 2 90.0 76.7 83.3 0.052 Gemini 3 Pro Image 85.0 71.7 78.3 0.061 Qwen-Image-2.0 Pro 81.7 68.3 73.3 0.068 Seedream 5.0 Pro 75.0 58.3 65.0 0.081 
+
+Table 15: Image-editing results for 60 cases, with 30 removal and 30 insertion cases. Each case is repeated twice. Removal and insertion are evaluated on 60 outputs per editor, geometry on 60 insertion outputs, and LPIPS outside the edit mask. Outside-mask LPIPS measures unintended change outside the edited region and is reported separately from completion, geometry, and non-target preservation. 19 TrafficImag 
+
+Oracle Substitutions 
+
+Table 16 reports the matched oracle substitutions.      
+
+> Input Setting E2E (%) Predicted program + edited anchor 55.0 Audited program + edited anchor 63.3 Predicted program + audited anchor 66.7 Audited program + audited anchor 76.7
+
+Table 16: Oracle substitutions for a fixed generator across 60 matched scenario and repeat slots per input setting. The four settings yield 240 records. Values are end-to-end success percentages. In each oracle setting, only the named upstream component is replaced; the scenario, generator, and repeat slot remain fixed. The gains therefore need not be additive. 
+
+Paired Factual and Counterfactual Response 
+
+Table 17 reports the paired factual and counterfactual results.                             
+
+> Intervention Valid Pair (%) IRC (%) ΔEntry ΔWait Order Change (%) Removal ( 𝑛 =24) 83.3 85.0 -0.9 -1.1 75.0 Insertion ( 𝑛 =21) 76.2 81.3 +1.2 +1.4 68.8 Overall ( 𝑛 =45) 80.0 83.3 –––
+
+Table 17: Paired factual and counterfactual response. Pair validity uses all matched pairs. IRC and order change are computed only for valid pairs. The reported time differences are medians over valid pairs, and Δ is counterfactual minus factual time in seconds. Removal is expected to advance entry, reduce waiting, or move the affected actor earlier in the passage order; insertion is expected to have the opposite effect. All Δ values are counterfactual minus factual. 
+
+# G Failure Taxonomy and One-Step Repair 
+
+Table 18 lists the repair-oriented failure categories and their permitted one-step responses. 20 TrafficImag Failure Predicate Detection Signal Permitted One-Step Response Actor reappearance or duplication Initial / preser-vation A removed identity returns, or two tracks match the same bound target. Add persistent-absence and actor-count invariants. Illegal exit or route drift Behavioral The target footpoint leaves the legal corridor or terminates at the wrong exit. Narrow the corridor and expose one additional route anchor. Scale or heading mismatch Initial Inserted box geometry or orientation conflicts with the assigned lane and scene depth. Restate the lane-aligned head-ing, scale, and road-contact con-straints. Non-target motion Preservation A preserve-set track changes state beyond the behavior permitted by the scenario without a corresponding interaction path. Strengthen the actor-specific stationary or motion invariant. Hallucinated actor Preservation / relational A new unmatched track persists outside an allowed entry region. Add a no-new-actor rule and an explicit actor-count bound. Coupled failure Multiple Two or more dependent predicate violations occur in sequence. Record as coupled; no single-predicate repair is credited. 
+
+Table 18: Repair-oriented failure taxonomy used by the verifier. Localized categories have predefined one-step responses; coupled failures are recorded but are not repaired. The table is not a frequency distribution. Each failure receives one dominant label, with secondary labels retained. One localizable failure may trigger one corrective condition and one retry; coupled failures are not repaired. The Full + One Repair result therefore comprises 60 final decisions and 27 additional calls. 
+
+# H Scenario Manifest and Release Records 
+
+Scenario, execution, score, and relation records are stored separately. Actor programs are stored independently of prompt text, and Table 19 lists the retained fields. 
+
+Record Required Fields Scenario record Scenario identifier; source clip and frame range; site and illumination; intervention type; target, interacting, and preserve-set actors; topology version; input-image checksum; actor program; legal route; temporal window. Insertion record Entry lane; initial box; heading; requested scale range; edited-anchor identifier. Removal record Original target track; region required to remain empty; persistence requirement. Execution record Model and provider identifier; access timestamp; input resolution and reference order; requested duration; seed when exposed; prompt hash; transport retry count; latency; returned status, dimensions, and error code. Score record Four binary predicates; continuous diagnostics; dominant and secondary failure labels; indepen-dent rater decisions; adjudicated decision; scoring-software version. Relation record Factual partner and repeat index for paired tests; substituted component for oracle tests; first-pass parent and corrective rule for repair tests. 
+
+Table 19: Logical records retained for benchmark traceability. Failed calls remain linked to their scenarios, and retries do not overwrite first-pass records. Annotations, topology, scenarios, and adapters use separate version fields. Paths are relative, identifying metadata are removed, and available media checksums are stored with the records. 21 TrafficImag 
+
+# I Additional Counterfactual Example 
+
+Table 20 summarizes the insertion scenario used for the video rollouts in Figure 7. The case is excluded from all aggregate results. 
+
+Field Value View and illumination Second fixed-camera viewpoint; daytime Intervention Insert a dark-blue sedan T1 Interacting actor White SUV T2 ahead of T1 Requested route Same straight image-plane lane toward the upper-left exit Interaction order T2 moves first; T1 starts approximately 0.3–0.5 s later Temporal horizon 8 s Preserve set School bus and all unboxed road users Shared video anchor GPT Image 2 insertion output 
+
+Table 20: Specification of the insertion scenario used for the additional video rollouts. 
+
+Figure 6: Additional removal and insertion anchors from the second fixed-camera viewpoint. The marked input is followed by outputs from GPT Image 2, Qwen-Image-2.0 Pro, Gemini 3 Pro Image, and Seedream 5.0 Pro. Figure 6 shows the removal and insertion anchors. Removal is evaluated for road reconstruction and preservation. Insertion also requires lane-consistent heading, scale, illumination, occlusion, and road contact. The GPT Image 2 insertion is shared across all rollouts in Figure 7. 22 TrafficImag 
+
+Figure 7: Eight-second rollouts for the insertion case. T1 is the inserted dark-blue sedan and T2 the leading SUV. Both are instructed to follow the same image-plane lane toward the upper-left exit, with T2 moving first and T1 maintaining a visible non-overlapping gap. Red and cyan boxes mark T1 and T2. All rollouts use the settings in Table 10, including veo-3.1-generate-001 at 1080p for Veo. The supplied image defines time zero; T2 starts first, T1 starts 0.3–0.5 s later, and anchors are specified every 2 s. The camera, road, school bus, and unboxed vehicles are required to remain fixed, and T1 is instructed not to overtake or overlap T2. In this case, Seedance follows the requested order and route. Sora leaves both vehicles nearly stationary. Veo moves them in the requested direction but introduces additional vehicles, failing preservation. 23

@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-29</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-30</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 45 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>30</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>15</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-29 23:10:15 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-30 23:38:25 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-29 日报完成 45 篇论文筛选，精读 30 篇、速读 15 篇，重点聚焦视觉-语言-动作模型。最值得看的是两篇 9 分精读：Fast Plans, Faithful Actions 试图弥合分层 VLA 的规划-执行鸿沟，VLaRL 则用仿真训练的潜在条件残差 RL 增强 VLA。普通读者可先读这两篇精读，再按兴趣浏览 MVAgent、流式虚拟人强制路由与 FRAM 等速读方向。</p>
+<p>今天筛读21篇AI论文，精读10篇、速读11篇，重点锁定视频世界模型与统一视觉-语言-动作建模两条主线。</p>
+<p>最值得看的是两篇9.0精读：DyMD用分布匹配蒸馏让少步视频世界模型保住交互动态，Devol-ONE用单一自回归Transformer混合体统一VLA与潜在世界建模。</p>
+<p>普通读者可先看这两篇的摘要与方法概览，再顺着8.0速读中的Action Forcing、TrafficImag和Residual Denoising了解无监督视频训练、交通视频基准与多智能体协调。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">30 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models">Fast Plans, Faithful Actions: Closing the Planning-Execution Gap in Hierarchical Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL">VLaRL: Augmenting Vision-Language-Action Models with Simulation-Trained Latent-Conditioned Residual RL</span></li><li><span class="dpr-home-dashboard-paper-title" title="MA-WAM: Multi-Agent World-Action Model for Test-Time Planning">MA-WAM: Multi-Agent World-Action Model for Test-Time Planning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models">DyMD: Preserving Interaction Dynamics through Distribution Matching Distillation in Few-Step Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Devol-ONE: One Autoregressive Mixture of Transformers to Unify Vision-Language-Action and Latent World Modeling">Devol-ONE: One Autoregressive Mixture of Transformers to Unify Vision-Language-Action and Latent World Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="Carnator: Fast Text-to-Video Generation with Generation-Native Compatibility-Guided Cross-Request Reuse">Carnator: Fast Text-to-Video Generation with Generation-Native Compatibility-Guided Cross-Request Reuse</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>30</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +86,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">15 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="MVAgent: Multi-Agent Video Generation via Consistent Condition Construction and Shot-Level Policy Optimization">MVAgent: Multi-Agent Video Generation via Consistent Condition Construction and Shot-Level Policy Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Where and When to Force: Routed Forcing for Streaming Avatars">Where and When to Force: Routed Forcing for Streaming Avatars</span></li><li><span class="dpr-home-dashboard-paper-title" title="FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation">FRAM: Trajectory-Guided Visual Feature Selection for Compact Language-Conditioned Robot Manipulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Action Forcing: Training World Models on Unsupervised Video by Recovering Underlying Egomotion Bases">Action Forcing: Training World Models on Unsupervised Video by Recovering Underlying Egomotion Bases</span></li><li><span class="dpr-home-dashboard-paper-title" title="TrafficImag: A Benchmark for Counterfactual Roadside Traffic Video Generation">TrafficImag: A Benchmark for Counterfactual Roadside Traffic Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Residual Denoising Enables Sample-Efficient Multi-Agent Coordination on Demand">Residual Denoising Enables Sample-Efficient Multi-Agent Coordination on Demand</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>15</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 

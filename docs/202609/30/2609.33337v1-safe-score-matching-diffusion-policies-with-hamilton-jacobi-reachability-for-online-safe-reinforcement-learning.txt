@@ -1,0 +1,1230 @@
+Title: Safe Score Matching: Diffusion Policies with Hamilton-Jacobi Reachability for Online Safe Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2609.33337v1
+
+Published Time: Tue, 29 Sep 2026 01:54:50 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Safe Score Matching: Diffusion Policies with Hamilton-Jacobi Reachability for Online Safe Reinforcement Learning 
+
+Boyang Li ∗
+
+University of California San Diego 
+
+bol025@ucsd.edu 
+
+Matthew Kim ∗
+
+University of California San Diego 
+
+mak009@ucsd.edu 
+
+Sylvia Lee Herbert 
+
+University of California San Diego 
+
+sherbert@ucsd.edu 
+
+# Abstract 
+
+Online safe reinforcement learning (RL) seeks policies that maximize reward while satisfying safety constraints. A popular line of research in safe RL relaxes safety to a soft expected-cost constraint and solves the resulting Constrained Markov Decision Process (CMDP) via primal-dual Lagrangian updates that only enforce safety on average. To address this limitation, hard, state-wise constraints are introduced and often imposed through Hamilton-Jacobi (HJ) reachability. Yet such constraints require solving different objectives in the feasible and infeasible regions of the state space: reward maximization in the former, recovery toward the feasible regions in the latter. The resulting target action distributions are inherently multimodal, and this structure poses a fundamental challenge for the Gaussian or deterministic actors used in existing HJ-based safe RL, which often collapse onto suboptimal modes. Diffusion policies provide the expressiveness needed to represent such distributions, and recent work on Q-score matching offers a route to training them for online RL by score regression—but has been applied only to reward maximization. Building on this framework, we propose Safe Score Matching (SSM), an off-policy actor-critic method that adapts Q-score matching to hard-constrained safe RL by gating a two-branch score target with HJ reachability: inside the feasible set, the denoising process degenerates to Q-score matching on actions classified as viable by the HJ critic, encouraging reward maximization; outside, a recovery branch biases denoising toward regions with lower worst-case violation, guided by the negative action gradient of the HJ safety value. On quadrotor and fixed-wing trajectory-tracking and stabilize-and-avoid benchmarks, SSM attains the best or near-best task performance with low false-safe rates, whereas the primal-dual baseline admits more unsafe behavior and reachability-based baselines tend to be more conservative; on Safety-Gymnasium velocity tasks, SSM attains the lowest cost with competitive reward. Code is available at https://github.com/byli888/safe-score-matching .
+
+# 1 Introduction 
+
+Reinforcement learning policies that operate in physical systems must respect safety requirements whose violation has no statistical remedy (Garcıa and Fernández, 2015; Gu et al., 2024). The standard 
+
+> ∗Equal contribution. 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2609.33337v1 [cs.LG] 27 Sep 2026
+
+formulation is the constrained Markov decision process (CMDP), in which the agent maximizes a reward objective subject to a constraint on safety violations (Altman, 2021; Achiam et al., 2017). Two families of solvers dominate the online setting; each leaves a gap that motivates the present work. Primal–dual methods relax the constraint to an expected cumulative-cost budget and solve the resulting Lagrangian saddle point through alternating updates (Tessler et al., 2019; Ray et al., 2019; Stooke et al., 2020; Wu et al., 2024). The relaxation is convenient but loses the state-wise guarantee: even at the optimum, individual trajectories can violate the constraint (Yu et al., 2022; Zheng et al., 2024). A second family takes the opposite stance. Hamilton–Jacobi (HJ) reachability characterizes the largest control-invariant set S⋆f = {s : V ⋆h (s) ≤ 0} on which the hard constraint h ≤ 0 is enforceable, and it carries a built-in recovery target on the complement (Fisac et al., 2019; Hsu et al., 2021; Yu et al., 2022; Ma et al., 2021b; Ganai et al., 2023). HJ delivers a hard, state-wise formulation, but the geometry of its feasible action set A⋆f (s) = {a : Q⋆h(s, a ) ≤ 0} is non-convex and in general disconnected, and the policies extracted in prior work are Gaussian or deterministic. A unimodal actor cannot place mass on several disconnected viable components without leaking into the unsafe region between them, and even on a single connected component it is prone to collapsing onto an early-discovered local optimum of the reward Q-function (Li et al., 2024; Dong et al., 2025; Ding et al., 2024; Cheng et al., 2026). A separate line of work has shown that diffusion policies are expressive enough to represent mul-timodal action distributions in online RL. Q-score matching (QSM) (Psenka et al., 2024) aligns a DDPM denoiser to the action gradient of the reward Q-function; subsequent score- and flow-matching methods follow the same template (Ma et al., 2025; Lv et al., 2025; Zhang et al., 2026; McAllister et al., 2026). These methods are reward-driven and provide no mechanism for hard, state-wise safety. Table 1: Positioning of SSM by design properties. SSM combines online actor–critic training, state-wise HJ safety, a diffusion-policy class, and an HJ-gated score-matching actor update.                         
+
+> Method family Online Safety semantics Policy class Actor update Primal–dual safe RL ✓Expected cost Gaussian / deterministic Primal–dual PG HJ / reachability safe RL ✓State-wise / HJ Gaussian / deterministic Actor–critic / shielded Reward-only diffusion RL ✓Reward only Diffusion / flow Score / flow matching Offline safe diffusion —State-wise / HJ Diffusion Offline guided regression
+> SSM (Ours) ✓State-wise / HJ Diffusion HJ-gated score matching
+
+We close the gap between these two lines. Starting from the reachability-constrained formulation of safe RL (Yu et al., 2022; Zheng et al., 2024), we route an action-level target distribution by HJ feasibility: on feasible states with viable actions the target follows the reward gradient, and on infeasible states it follows the recovery direction that minimizes the worst-case safety violation. The routing depends only on the learned safety critic, and the resulting score field is a function of the learned reward and safety critics alone. The diffusion policy is trained to match this score field. We call the resulting algorithm Safe Score Matching (SSM); Table 1 positions it relative to existing safe RL families. The constraint is hard at the level of the formulation. Because SSM learns its critics from data, we evaluate the safety of the trained policy empirically, and Proposition 3 states how a bounded critic error affects the routing. Our contributions are threefold: • Unified framework for safe online diffusion policy learning. We introduce Safe Score Matching (SSM), which, to the best of our knowledge, is the first online actor-critic method that combines HJ reachability-based state-wise feasibility with diffusion-policy score regression for hard-constrained safe RL. • HJ-gated score regression target. We derive a closed-form, action-level score regression target whose support and energy are routed by an HJ feasibility gate. On feasible states with viable actions, the target tracks the action gradient of the reward critic; on infeasible states, the recovery direction. The gate is determined by the learned safety critic, and the entire target depends only on standard off-policy critics, separating the safety routing from the policy class. • Empirical validation. On Quad2D trajectory tracking, Quad3D regulation, and F16 stabilize-and-avoid, SSM attains the best or near-best task metric on each benchmark with low false-safe rates. On two Safety-Gymnasium velocity tasks, it attains the lowest cost of all compared methods with competitive reward. 22 Related Work 
+
+SSM sits at the intersection of three lines of work in safe RL: (i) online safe RL methods that enforce safety as an expected cumulative-cost budget through primal–dual or Lagrangian updates (Achiam et al., 2017; Ray et al., 2019; Stooke et al., 2020; Wu et al., 2024), which include both on-policy CPO/PPO-Lag/PID-Lag and off-policy SAC-Lag/CVPO/CAL variants but enforce safety only on average; (ii) state-wise / reachability-based methods that constrain the policy to a control-invariant set, including Lyapunov-based methods (Chow et al., 2018), control barrier functions (Qin et al., 2022; Ma et al., 2021a), and Hamilton–Jacobi reachability analysis (Fisac et al., 2019; Hsu et al., 2021; Yu et al., 2022; Ma et al., 2021b; Ganai et al., 2023; Qin et al., 2024; Sharpless et al., 2026), which target hard, state-wise safety but rely on Gaussian or deterministic actors; and (iii) generative-policy methods, which include offline diffusion / flow policies (Janner et al., 2022; Wang et al., 2023; Kang et al., 2023; Ren et al., 2025) and online score- and flow-matching methods (Psenka et al., 2024; Ma et al., 2025; Lv et al., 2025; Zhang et al., 2026; McAllister et al., 2026), all reward-only. The closest prior work is FISOR (Zheng et al., 2024), which combines hard safety, HJ-style feasibility, and a diffusion policy in the offline setting. SSM studies the corresponding online actor–critic setting, where the diffusion policy must be updated from newly collected data and the HJ-derived signal must be converted into a denoising score target. An extended discussion on related works appears in Appendix A. 
+
+# 3 Problem Formulation 
+
+Consider a Markov decision process (S, A, F, r, h, c, γ r , γ h) with state space S, action space A,deterministic dynamics F : S × A → S (st+1 = F (st, a t)), reward r : S × A → R, constraint function h : S → R (h(s) > 0 indicates violation), cost c(s) ≜ max( h(s), 0) ∈ [0 , C max ], and discount factors γr , γ h ∈ (0 , 1) . Given a stationary policy π, we write {sπt }t≥0 for the trajectory induced by π from sπ 
+
+> 0
+
+= s0. The reward value and action-value functions are 
+
+V πr (s) = Eπ
+
+hP∞ 
+
+> t=0
+
+γtr r(sπt , a t) s0 = s
+
+i
+
+,Qπr (s, a ) = Eπ
+
+hP∞ 
+
+> t=0
+
+γtr r(sπt , a t) s0 = s, a 0 = a
+
+i
+
+, (1) and the standard value function for cost is V πc (s) = Eπ [P∞ 
+
+> t=0
+
+γthc(sπt ) | s0 = s].
+
+Soft cumulative-cost formulation and its limitations. Most online safe RL methods solve the CMDP relaxation 
+
+max  
+
+> π
+
+Es0∼ρ0 [V πr (s0)] s.t. Es0∼ρ0 [V πc (s0)] ≤ l, (2) typically by primal–dual Lagrangian updates (Chow et al., 2018; Tessler et al., 2019; Ray et al., 2019; Stooke et al., 2020). The constraint is aggregate over initial states and trajectories, so even at the optimum it can be satisfied while individual trajectories violate the pointwise condition h ≤ 0 (Yu et al., 2022; Zheng et al., 2024); the optimal l also varies across tasks (Ji et al., 2023). 
+
+Hard state-wise constraint. To remove these limitations at the formulation level, we replace (2) by its pointwise hard-constraint version, in which h must be non-positive at every step, and define the following problem that our Safe Score Matching (SSM) aims to solve: 
+
+Problem 1 (Hard-constrained state-wise problem) .
+
+max  
+
+> π
+
+Es0∼ρ0 [V πr (s0)] (3) 
+
+s.t. h(sπt ) ≤ 0, ∀ t ≥ 0, ρ0-a.s. s0.
+
+3.1 Reachability Reformulation 
+
+Problem 1 is strictly stronger than (2), but its trajectory-level quantifier ∀ t ≥ 0 is not directly amenable to temporal-difference learning, and infeasible initial states leave it unsatisfiable. Hamilton– Jacobi (HJ) reachability analysis (Fisac et al., 2019; Hsu et al., 2021; Yu et al., 2022) addresses both: it produces value functions that reason only about initial states, and naturally separates reward maximization on the feasible region from recovery on its complement. 3Consider the following (optimal) value function that captures the worst-case violation along a trajectory. 
+
+Definition 1 (HJ Safety Value Functions) . For a stationary policy π, the HJ safety value function V πh
+
+for π and the optimal HJ safety value function V ⋆h are 
+
+V πh (s0) ≜ max  
+
+> t≥0
+
+h(sπt ), V ⋆h (s0) ≜ min  
+
+> π
+
+V πh (s0), sπ 
+
+> 0
+
+= s0. (4) By construction, V πh (s0) ≤ 0 holds if and only if h(sπt ) ≤ 0 for all t ≥ 0, so Vh collapses the infinite-horizon trajectory constraint of Problem 1 into a constraint on the initial state. Similarly, 
+
+V ⋆h (s0) ≤ 0 holds if and only if there exists an optimal policy π that enforces hard constraints. We next define the following (optimal) feasible region: 
+
+Definition 2 (Feasible regions) . The feasible region of π and the optimal feasible region are Sπf ≜
+
+{s ∈ S : V πh (s) ≤ 0} and S⋆f ≜ {s ∈ S : V ⋆h (s) ≤ 0}.
+
+We also need the corresponding state-action quantities, which capture the worst-case violation along the trajectory rolled out from an initial state–action pair. 
+
+Definition 3 (HJ Avoid State-Action Value Functions) . For a stationary policy π, the HJ avoid state-action value function Qπh for π and the optimal HJ avoid state-action value function Q⋆h are 
+
+Qπh (s, a ) ≜ max  
+
+> t≥0
+
+h(sπt ), Q⋆h(s, a ) ≜ min  
+
+> π
+
+Qπh (s, a ), (5) 
+
+where {sπt }t≥0 is the trajectory rolled out from (sπ 
+
+> 0
+
+, a 0) = ( s, a ) under π.
+
+Under the deterministic dynamics and attainment assumptions stated above, Q⋆h satisfies the self-consistency relation 
+
+Q⋆h(s, a ) = max h(s), V ⋆h (F (s, a )) , V ⋆h (s) = min  
+
+> a∈A
+
+Q⋆h(s, a ). (6) 
+
+Definition 4 (Optimal Feasible Action Set) . At each state s, the optimal feasible action set is 
+
+A⋆f (s) ≜ {a ∈ A : Q⋆h(s, a ) ≤ 0}.
+
+By (6), any stochastic policy whose support lies in A⋆f (s) at every feasible state keeps S⋆f forward-invariant by induction (Yu et al., 2022; Zheng et al., 2024); the learned implementation in Section 4 approximates this support-restriction mechanism and is not by itself an oracle safety guarantee. 
+
+Practical V ⋆h approximation. For cost discount γh ∈ (0 , 1) , the discounted HJ Bellman operator 
+
+P⋆Qh(s, a ) ≜ (1 − γh) h(s) + γh max {h(s), V h(F (s, a )) } , Vh(s) = min  
+
+> a∈A
+
+Qh(s, a ), (7) is a contraction whose fixed point Q⋆h,γ h approaches the undiscounted optimum Q⋆h as γh → 1 (Fisac et al., 2019; So et al., 2024a; Sharpless et al., 2026). With V ⋆h characterized, we reformulate Problem 1 in feasibility-dependent form by combining Definitions 1–2 with an objective on S \ S ⋆f :
+
+Problem 2 (Reachability-value reformulation) .
+
+max  
+
+> π
+
+Es0∼ρ0
+
+V πr (s0) 1s0 ∈ S ⋆f − V πh (s0) 1s0 /∈ S ⋆f
+
+ (8) 
+
+s.t. V πh (s0) ≤ 0, ρ0-a.s. s0 ∈ S ⋆f .
+
+On feasible initial states, the equivalence in Definition 1 makes Problem 2 equivalent to Problem 1; on infeasible initial states, the objective switches to minimizing the worst-case future violation instead of leaving the constraint vacuously unsatisfiable. This is the reachability-constrained formulation of RCRL (Yu et al., 2022), which FISOR (Zheng et al., 2024) also adopts in the offline setting. 
+
+# 4 Method: Safe Score Matching 
+
+The formulation above gives the desired hard-safety semantics, but it does not yet specify a tractable actor update for a diffusion policy. The action distribution that solves Problem 2 at a given state can 4Figure 1: SSM on a planar-quadrotor stabilize-and-avoid task. Trajectory colors indicate the two route modes learned by the policy rather than safe and unsafe outcomes: green trajectories pass to the left of the obstacles, and orange trajectories pass to the right. (a) Rollouts from randomly sampled initial states. (b) Rollouts from the nominal, symmetric initial state (blue triangle), perturbed within the small neighborhood shown by the light-blue box; from nearly the same initial state, the policy takes either route to the goal. The green star marks the goal center, and the surrounding green disk is the goal region, whose entry counts as a successful episode. Red crosses mark collisions. The background is a two-dimensional slice of the learned HJ value Vh at fixed ˙z = −0.5, and the dashed contour around the gray regions is its zero level set Vh = 0 , the estimated boundary of the viable set 
+
+{s : Vh(s) ≤ 0}.be highly complicated: A⋆f (s) is in general non-convex and may be disconnected, and the reward landscape over its interior may admit multiple separated high-value basins. A deterministic actor commits to one such component; a unimodal Gaussian averages across components or places mass in low-value or unsafe regions between them. On the other hand, diffusion policies (Wang et al., 2023; Chi et al., 2025) are expressive enough to represent complex distributions and thus become a natural fit for parametrizing the policies that solve Problem 2. However, training a diffusion policy in online RL is non-trivial: a direct policy gradient through the multi-step reverse chain is expensive and high-variance. Q-Score Matching (QSM, Psenka et al., 2024) avoids this by exploiting the identity between ∇aQr and the score field of the maximum-entropy reward-optimal policy: it regresses ∇aQr as a time-independent target via a denoising loss, so the diffusion model learns this score directly without differentiating through the reverse chain. A primer on QSM and a discussion of its trade-offs are in Appendix B. The QSM target, however, encodes only reward maximization. Problem 2 adds two structural require-ments that this target does not capture: a feasibility-dependent split between reward improvement on 
+
+S⋆f and worst-case-violation descent on its complement, and a support restriction to HJ-viable actions in the feasible branch. SSM accommodates both inside the score-regression framework. Holding the critics fixed, we translate the reachability split into a one-step, action-level policy-improvement (PI) surrogate whose feasible branch encodes the support restriction (Section 4.1). Entropy-regularizing this surrogate yields a closed-form Boltzmann target, and SSM regresses its support-interior score with a QSM-style denoising loss (Section 4.2). 
+
+4.1 HJ-Gated Local Policy Improvement Local policy-improvement surrogate. Fix a state s. The state gate s ∈ S ⋆f determines which objective is active, and the viable-action set A⋆f (s) determines which actions are admissible in the 5feasible branch. With oracle critics, these yield 
+
+s ∈ S ⋆f : max  
+
+> μ(·| s)
+
+Ea∼μ
+
+Qπr (s, a ) (PI-feasible) s.t. supp μ(· | s) ⊆ A ⋆f (s),s / ∈ S ⋆f : max  
+
+> μ(·| s)
+
+Ea∼μ
+
+ − Q⋆h(s, a ). (PI-infeasible) The feasible subproblem is reward improvement restricted to actions that preserve the oracle feasible set. The infeasible subproblem is not a recovery guarantee: when s / ∈ S ⋆f , hard safety is generally unenforceable by definition, so the local objective biases actions toward smaller worst-case violation. We therefore interpret (PI-feasible)–(PI-infeasible) as fixed-critic actor targets rather than an exact decomposition of the trajectory-level control problem. The split mirrors the reachability-dependent objective used in RCRL and FISOR (Yu et al., 2022; Zheng et al., 2024), but our use differs: FISOR is an offline method that extracts a diffusion policy through feasibility-dependent weighted behavior cloning of a fixed dataset, whereas SSM trains an online diffusion actor by regressing the score field derived below. 
+
+Entropy-regularized target density. To obtain a density target amenable to score regression, we consider the entropy-regularized form of (PI-feasible)–(PI-infeasible): in feasible states we maximize 
+
+E[αr Qπr (s, a )]+ H(μ(· | s)) over densities supported on A⋆f (s), and in infeasible states we maximize 
+
+E[−βQ ⋆h(s, a )] + H(μ(· | s)) over A, with inverse temperatures αr , β > 0. Theorem 1 gives the closed-form target. Theorems 1 and 2 hold for fixed critics: they specify the target that a single actor update should match, and Section 5 approximates this target with learned critics and a finite reverse chain. 
+
+Theorem 1 (HJ-Gated Boltzmann Target) . The entropy-regularized local subproblem has the unique maximizer 
+
+π⋆(a | s) = 
+
+
+
+exp( αr Qπr (s, a )) 1{Q⋆h(s, a ) ≤ 0}
+
+Zf (s) , s ∈ S ⋆f ,
+
+exp( −β Q ⋆h(s, a )) 
+
+Zrec (s) , s / ∈ S ⋆f ,
+
+(9) 
+
+where Zf (s) and Zrec (s) are the corresponding partition functions. 
+
+We prove Theorem 1 in Appendix D.1 via the Gibbs / Donsker–Varadhan variational identity. Differentiating the log-density in (9) yields the score used by SSM. 
+
+Theorem 2 (Score of the HJ-Gated Boltzmann Target) . The score of π⋆ in (9) is 
+
+∇a log π⋆(a | s) = 
+
+(αr ∇aQπr (s, a ), s ∈ S ⋆f , Q ⋆h(s, a ) < 0,
+
+−β ∇aQ⋆h(s, a ), s / ∈ S ⋆f . (10) We prove this in Appendix D.2, where Proposition 5 also gives a complementary zero-temperature concentration result. On a viable state, the target is the maximum-entropy reward target of QSM restricted to the actions that the safety critic admits. On an infeasible state, it replaces the reward by the worst-case violation and favors actions predicted to reduce it. In the unconstrained limit S⋆f = S and 
+
+A⋆f (s) = A the gate is inactive, and (10) reduces to the QSM reward score αr ∇aQπr (s, a ) (Psenka et al., 2024). The closed-form target (9) also makes the multimodality of the feasible branch concrete: its modes may arise from peaks of Qπr (s, ·), from disconnected components of A⋆f (s), or from their intersection. An energy-based sampler matches the same target but requires iterative MCMC; a diffusion denoiser trained by score regression instead preserves the closed-form, the entropy regularization, and finite-step sampling at once. 
+
+4.2 SSM Denoising Target Diffusion parameterization. We parameterize the actor with a finite-step diffusion sampler over actions (Ho et al., 2020). Given a clean action a0 from the replay buffer and a variance-preserving 6schedule {βt}Tt=1 , unrelated to the recovery coefficient β of Theorem 1, with αt = 1 − βt, ¯αt =
+
+Qti=1 αi, and σ(t) = √1 − ¯αt, the forward noising process is 
+
+at = √¯αt a0 + σ(t) ϵ, ϵ ∼ N (0 , I ). (11) At evaluation time, the policy samples from aT ∼ N (0 , I ) by the projected reverse update 
+
+at−1 = Π A
+
+ 1√αt
+
+
+
+at − βt√1− ¯αt
+
+ϵθ (s, a t, t )
+
+
+
++ ˜ σt z
+
+
+
+, z ∼ N (0 , I ), (12) where ˜σt = √βt for t > 1, ˜σ1 = 0 , and ΠA is coordinate-wise projection onto A. We retain the symbol ϵθ to align with QSM (Psenka et al., 2024): the regression target below is a time-independent function of (s, a t) rather than the forward noise ϵ, so ϵθ functions at sampling time as a learned guidance vector field plugged into (12), not as a strict predictor of ϵ.
+
+HJ-gated guidance field. The clean-action score from Theorem 2 defines the guidance field 
+
+¯φ(s, a ) = 
+
+(αr ∇aQr (s, a ), Vh(s) ≤ 0, Q h(s, a ) ≤ 0 (reward branch) ,
+
+−β ∇aQh(s, a ), Vh(s) > 0 (recovery branch) , (13) with ¯φ(s, a ) = 0 otherwise. The zero case corresponds to actions classified as nonviable while the state is feasible; the target density has zero support there, so the classical score is not defined. Appendix E describes the guidance that our implementation assigns on this set and the normalization of the reward branch. SSM trains the reverse-chain vector field by the squared regression loss 
+
+ϵtarget (s, a t) = −Mq ¯φ(s, a t), (14) 
+
+LSSM (θ) = E(s,a 0)∼B , t, ϵ 
+
+h
+
+ϵθ (s, a t, t ) − ϵtarget (s, a t) 22
+
+i
+
+, (15) where Mq > 0 is a guidance-strength coefficient, t ∼ Unif {1, . . . , T }, at is generated by (11), and gradients do not propagate through ¯φ. At the population optimum, the learned vector field equals −Mq ¯φ under the training distribution; substituting this into (12) adds a positive-coefficient component in the direction of ¯φ, hence in the direction of the HJ-gated local policy-improvement target. 
+
+# 5 Practical Algorithm 
+
+Section 4 derived the score regression target (13) and loss (15) for given critics (Vh, Q h, Q r ). In the online algorithm these critics are learned from replay by off-policy temporal-difference regression and substituted into (13). The reward-critic and denoiser updates follow standard practice and are deferred, together with the full pseudocode, to Appendix E. This section describes the two implementation choices specific to SSM: training the HJ safety critic and approximating the state gate that routes the two score branches. 
+
+Safety critic and HJ gate. We train Qh by mean-squared regression toward the discounted HJ Bellman target (7), using an EMA target network for the bootstrap. The Bellman target requires the inner minimum Vh(s) = min a∈A Qh(s, a ), which we estimate by finite-candidate minimization, 
+
+cVh(s) = min   
+
+> a∈C K(s)
+
+Qh(s, a ), (16) where CK (s) contains a single sample aθ ∼ πθ (· | s) and K − 1 Gaussian perturbations of aθ, for 
+
+K candidates per evaluation. Since CK (s) ⊆ A , cVh(s) ≥ Vh(s) at fixed critic (Proposition 4); in the online loop the bootstrap itself uses cVh, so this conservatism is a gate-level property and does not extend to the learned critic. We use cVh(s) ≤ 0 as the feasibility indicator in (13). Candidate construction and an expectile-smoothed alternative used on Quad2D are in Appendices C and E. 7Figure 2: Benchmark environments. Renderings of the Quad2D, Quad3D, and F16 tasks. 
+
+Learned-critic error. A bound on the error of the learned critic becomes a margin for both gates. 
+
+Proposition 3 (Gate margin under bounded critic error) . Let V ⋆h (s) = min a∈A Q⋆h(s, a ), and suppose that |Qh(s, a ) − Q⋆h(s, a )| ≤ εQ for every state–action pair queried by the gates. Then 
+
+cVh(s) ≤ − εQ =⇒ V ⋆h (s) ≤ 0, Qh(s, a ) ≤ − εQ =⇒ Q⋆h(s, a ) ≤ 0. (17) 
+
+With zero thresholds, a state or an action is classified as feasible in error only if 0 < V ⋆h (s) ≤ εQ or 
+
+0 < Q ⋆h(s, a ) ≤ εQ, respectively. 
+
+Appendix C gives the proof. Replacing both zero thresholds by −εQ therefore keeps an optimistic critic error of size εQ from admitting an unsafe state or action to the reward branch, as in constraint tightening with approximate value functions (Chatzikiriakos et al., 2024). Our experiments keep zero thresholds (safety margin δ = 0 in Table 3), so under the bound such errors are confined to states and actions whose exact safety value lies in (0 , ε Q]. The proposition assumes εQ rather than establishing it, and Section 7 discusses why such a bound is hard to obtain. 
+
+Candidate-set ablation. We ablate the candidate set (20) on Quad3D. The task metric is the 
+
+terminal tracking ℓ1, the mean ℓ1 distance ∥sT − sref ∥1 between the final state and the target over evaluation episodes, including those that end in a crash. Local Gaussian proposals are essential: replacing them with independent reverse-chain samples substantially increases the terminal tracking 
+
+ℓ1, because samples from πθ cluster around its modes and miss low-Qh actions between them. The proposal scale has an interior optimum at ση = 0 .3. Increasing K from 8 to 32 at ση = 0 .3 eliminates the observed episode violations at a higher terminal tracking ℓ1, so K acts as a task–safety operating knob. Appendix F.5 reports the full K × ση grid and an expectile-V τh control (Table 5). 
+
+# 6 Experiments 
+
+We ask whether SSM improves task performance over primal–dual and reachability-based baselines without accepting more unsafe behavior, and whether this holds on a standard safe RL benchmark. 
+
+Benchmarks. The main suite contains three safety-critical control tasks of increasing complexity (Figure 2). Quad2D tracks a circular reference inside a narrow altitude band, Quad3D regulates a nine-state quadrotor to a target state, and F16 stabilizes a 16-state fixed-wing aircraft in a low-altitude band within flight-envelope and position bounds. We also evaluate on the HalfCheetah and Swimmer velocity tasks of Safety-Gymnasium (Ji et al., 2023) and use its CarGoal1 navigation task for two further studies. Appendix F.3 specifies the control tasks, and Appendix F.6 the Safety-Gymnasium setup. 
+
+Baselines. CAL (Wu et al., 2024) is an off-policy primal–dual method that enforces an expected-cost budget with a conservative augmented Lagrangian; on Safety-Gymnasium we add ALGD (Cheng et al., 2026), a primal–dual method with a diffusion actor. RAC (Yu et al., 2022) and RESPO (Ganai et al., 2023) instead optimize state-wise reachability objectives; RAC is off-policy, and RESPO is on-policy with substantially more environment steps. EFPPO (So and Fan, 2023) solves the stabilize-avoid problem in epigraph form and is evaluated on F16, the task on which it was introduced. Table 10 summarizes these properties. We rerun every baseline in our setup. On the control tasks, each baseline is trained for its recommended number of iterations or for at least three hours, and every method is evaluated at its best checkpoint. On Safety-Gymnasium, each method is trained with five seeds and evaluated at a fixed endpoint (Appendix F.6). 8Tracking error ↓             
+
+> 0.0 0.5 1.0 1.5
+> Squared error
+> Quad2D
+> Terminal tracking ℓ1↓
+> Final-50-step tracking ℓ1↓
+> 0.0 0.5 1.0 1.5
+> ℓ1 distance
+> Quad3D
+> Stabilization rate (%) ↑
+> 025 50 75 100 F16
+> Precision
+> ↑
+> Coverage
+> ↑
+> False-safe rate ↓
+> 025 50 75 100
+> Percent
+> Precision
+> ↑
+> Coverage
+> ↑
+> False-safe rate ↓
+> 025 50 75 100 Precision
+> ↑
+> Coverage
+> ↑
+> False-safe rate ↓
+> 025 50 75 100
+> SSM (ours) RAC CAL RESPO EFPPO (F16 only)
+
+Figure 3: Task performance (top) and safety prediction (bottom). Arrows mark the preferred direction, and a dark outline marks the best method for each metric. Precision and the false-safe rate are computed over the initial states that a method predicts safe, and coverage is the fraction of states it predicts safe (18). 
+
+Metrics. The task metrics are the Quad2D tracking error, the Quad3D terminal tracking ℓ1 (Sec-tion 5), and the F16 stabilization rate, the fraction of episodes that hold the target altitude band for 50 consecutive steps. On Quad3D we also report the final-50-step tracking ℓ1, which averages the same distance over the last 50 steps and thus measures whether the vehicle stays stabilized. For safety, each method classifies every evaluated initial state as safe or unsafe with its learned safety estimate. A rollout of its policy then decides whether the state is actually safe, that is, whether h(st) ≤ 0 at every step. With safe as the positive class, TP counts safe states predicted safe, FP unsafe states predicted safe, TN unsafe states predicted unsafe, and FN safe states predicted unsafe. The safety precision, safe coverage, and false-safe rate (FSR) are Precision = T P T P + F P , Coverage = T P + F P T P + T N + F P + F N , FSR = F P T P + F P . (18) The three metrics are read jointly: a method can lower its false-safe rate by predicting fewer states safe, which lowers coverage, and it can raise coverage by admitting more unsafe states, which lowers precision. Appendix F.4 details the evaluation protocol. 
+
+Results on the control benchmarks. SSM attains the lowest Quad2D tracking error, the lowest Quad3D terminal tracking ℓ1, and the highest F16 stabilization rate (Figure 3), while RESPO attains a slightly lower Quad3D final-50-step tracking ℓ1. On Quad3D and F16, SSM combines this task performance with the highest precision. On F16, RAC and EFPPO, the baselines closest to SSM in stabilization rate, accept more unsafe states. CAL, which constrains the cost only in expectation, accepts the most unsafe states on every task. Quad2D, whose reference repeatedly approaches the constraint boundary, is the exception: SSM predicts the fewest states safe, and RESPO attains higher precision and coverage. This pattern is consistent with the design of SSM. The gate restricts reward guidance to states and actions that the safety critic classifies as viable, and the diffusion actor keeps several viable routes (Figure 1) instead of committing to one. 
+
+Safety-Gymnasium. SSM has the lowest mean cost on both velocity tasks and the smallest spread in cost across seeds (Table 2). On HalfCheetah, it attains the highest reward among the entries within budget, whereas CAL, ALGD, and RAC exceed the budget. Two of the five RAC seeds violate the constraint at almost every step (Appendix F.6). On Swimmer, SSM keeps its cost at 0.5, more than ten times lower than that of any other method, while RAC and ALGD attain higher reward within 9Table 2: Safety-Gymnasium velocity tasks. Final episodic reward and cost (mean ± SD over five seeds). The cost counts the steps whose velocity exceeds the task threshold; a method is within budget on a task when its mean cost over the five seeds is at most d = 25 , the budget that CAL and ALGD train against. RESPO trains for 10M environment steps and the others for 1M. Red: mean cost above budget. Among entries within budget, bold blue and bold green mark the highest and second-highest reward. SSM uses the posterior-target implementation of Appendix F.6.                                                                          
+
+> Task Metric RESPO CAL RAC ALGD SSM (ours) Swimmer Reward 37 ±131 ±775 ±57 49 ±445 ±6
+> Cost 8.4±1.327 .9±21 .314 .5±28 .46.5±2.40.5±0.4
+> HalfCheetah Reward 2323 ±323 2631 ±107 5014 ±3781 2695 ±99 2754 ±13
+> Cost 8.4±3.928 .3±12 .5391 .7±536 .342 .0±39 .70.0±0.1
+> Tasks within budget 2/2 0/2 1/2 1/2 2/2
+
+budget and RAC has by far the largest spread in reward across seeds. This near-zero cost is consistent with the state-wise objective of SSM, which targets h(st) ≤ 0 at every step rather than an expected cost below the budget that CAL and ALGD train against. The cost of SSM peaks within the first 100k environment steps and remains low afterwards (Figure 4). 
+
+Additional studies. On CarGoal1, varying αr, β, or Mq from 0.25 × to 4× its default changes the reward and the fraction of violation-free episodes only slightly (Appendix F.6). Under the same expected-cost formulation, a diffusion actor trained by QSM attains higher reward and lower cost than a Gaussian SAC actor, so the policy class affects the reward–cost trade-off even without HJ routing. 
+
+Computation. On Quad3D, SSM reaches its reported performance with 4 to 6 times fewer environ-ment steps than RAC and RESPO. It trains in about one hour, compared with about 2.5 hours for RESPO, the fastest baseline in wall-clock time. At deployment, SSM runs one five-step reverse chain per action. 
+
+# 7 Conclusion and Limitations 
+
+We presented Safe Score Matching (SSM), an online actor–critic method that trains a diffusion policy under a state-wise HJ reachability formulation. Its actor target sends reward guidance to states and actions that the safety critic classifies as viable and recovery guidance to infeasible states. A QSM-style denoising loss regresses this target without backpropagating through the reverse chain. On quadrotor and fixed-wing benchmarks, SSM attains the best or near-best task metric with low false-safe rates, and on Safety-Gymnasium velocity tasks it attains the lowest cost with competitive reward. The main limitation is the reliance of SSM on a learned safety critic. Theorems 1–2 characterize the actor target for fixed critics, and Proposition 3 turns a critic-error bound εQ into a gate margin without establishing that bound. Learning an accurate HJ safety critic online from nonstationary replay data remains an open challenge for safe RL, and it is hard to know in general when such a bound holds. Progress on this problem would directly strengthen methods such as SSM. The analysis also assumes deterministic dynamics. Extending the safety value to probabilistic or robust (HJ–Isaacs) reachability, and validating the resulting policies on real robots, are important next steps. 
+
+# References 
+
+Joshua Achiam, David Held, Aviv Tamar, and Pieter Abbeel. Constrained policy optimization. In 
+
+International conference on machine learning , pages 22–31. PMLR, 2017. Eitan Altman. Constrained Markov decision processes . Routledge, 2021. Stephen P Boyd and Lieven Vandenberghe. Convex optimization . Cambridge university press, 2004. Haim Brézis. Functional analysis, Sobolev spaces and partial differential equations , volume 2. Springer, 2011. 10 Nicolas Chatzikiriakos, Kim Peter Wabersich, Felix Berkel, Patricia Pauli, and Andrea Iannelli. Learning soft constrained MPC value functions: Efficient MPC design and implementation provid-ing stability and safety guarantees. In Proceedings of the 6th Annual Learning for Dynamics & Control Conference , volume 242 of Proceedings of Machine Learning Research , pages 387–398. PMLR, 2024. URL https://proceedings.mlr.press/v242/chatzikiriakos24a.html .Xiaoyuan Cheng, Xiaohang Tang, and Yiming Yang. Safe and stable control via lyapunov-guided diffusion models. arXiv preprint arXiv:2509.25375 , 2025. Xiaoyuan Cheng, Wenxuan Yuan, Boyang Li, Yuanchao Xu, Yiming Yang, Hao Liang, Bei Peng, Robert Loftin, Zhuo Sun, and Yukun Hu. How does the lagrangian guide safe reinforcement learning through diffusion models? In Proceedings of the 43rd International Conference on Machine Learning , 2026. URL https://openreview.net/forum?id=mK3xWE7p2T .Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. Jason J Choi, Christopher A Strong, Koushil Sreenath, Namhoon Cho, and Claire J Tomlin. Data-driven hamiltonian for direct construction of safe set from trajectory data. arXiv preprint arXiv:2504.03233 , 2025. Yinlam Chow, Ofir Nachum, Edgar Duenez-Guzman, and Mohammad Ghavamzadeh. A lyapunov-based approach to safe reinforcement learning. Advances in neural information processing systems ,31, 2018. Shutong Ding, Ke Hu, Zhenhao Zhang, Kan Ren, Weinan Zhang, Jingyi Yu, Jingya Wang, and Ye Shi. Diffusion-based reinforcement learning via q-weighted variational policy optimization. Advances in Neural Information Processing Systems , 37:53945–53968, 2024. Xiaoyi Dong, Jian Cheng, and Xi Sheryl Zhang. Maximum entropy reinforcement learning with diffusion policy. arXiv preprint arXiv:2502.11612 , 2025. Jaime F Fisac, Neil F Lugovoy, Vicenç Rubies-Royo, Shromona Ghosh, and Claire J Tomlin. Bridging hamilton-jacobi safety analysis and reinforcement learning. In 2019 International Conference on Robotics and Automation (ICRA) , pages 8550–8556. IEEE, 2019. Scott Fujimoto, Herke van Hoof, and David Meger. Addressing function approximation error in actor-critic methods. In Proceedings of the 35th International Conference on Machine Learning ,volume 80 of Proceedings of Machine Learning Research , pages 1587–1596. PMLR, 2018. Milan Ganai, Zheng Gong, Chenning Yu, Sylvia Herbert, and Sicun Gao. Iterative reachability estimation for safe reinforcement learning. Advances in Neural Information Processing Systems ,36:69764–69797, 2023. Milan Ganai, Sicun Gao, and Sylvia L Herbert. Hamilton-jacobi reachability in reinforcement learning: A survey. IEEE Open Journal of Control Systems , 3:310–324, 2024. Javier Garcıa and Fernando Fernández. A comprehensive survey on safe reinforcement learning. 
+
+Journal of Machine Learning Research , 16(1):1437–1480, 2015. Shangding Gu, Long Yang, Yali Du, Guang Chen, Florian Walter, Jun Wang, and Alois Knoll. A review of safe reinforcement learning: Methods, theories and applications. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2024. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International Conference on Machine Learning , pages 1861–1870. PMLR, 2018. Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. Kai-Chieh Hsu, Vicenç Rubies-Royo, Claire J. Tomlin, and Jaime F. Fisac. Safety and liveness guarantees through reach-avoid reinforcement learning. In Proceedings of Robotics: Science and Systems , Held Virtually, July 2021. doi: 10.15607/RSS.2021.XVII.077. 11 Michael Janner, Yilun Du, Joshua B. Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , 2022. Jiaming Ji, Borong Zhang, Jiayi Zhou, Xuehai Pan, Weidong Huang, Ruiyang Sun, Yiran Geng, Yifan Zhong, Josef Dai, and Yaodong Yang. Safety gymnasium: A unified safe reinforcement learning benchmark. Advances in Neural Information Processing Systems , 36:18964–18993, 2023. Bingyi Kang, Xiao Ma, Chao Du, Tianyu Pang, and Shuicheng Yan. Efficient diffusion policies for offline reinforcement learning. Advances in Neural Information Processing Systems , 36: 67195–67212, 2023. Ilya Kostrikov, Ashvin Nair, and Sergey Levine. Offline reinforcement learning with implicit q-learning. In The Tenth International Conference on Learning Representations , 2022. Zechu Li, Rickmer Krohn, Tao Chen, Anurag Ajay, Pulkit Agrawal, and Georgia Chalvatzaki. Learning multimodal behaviors from scratch with diffusion policy gradient. In Advances in Neural Information Processing Systems , 2024. Shijun Lin, Hao Wang, Ziyang Chen, and Zhen Kan. Projection-based fast and safe policy opti-mization for reinforcement learning. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 7426–7432. IEEE, 2024. Zuxin Liu, Zhepeng Cen, Vladislav Isenbaev, Wei Liu, Steven Wu, Bo Li, and Ding Zhao. Constrained variational policy optimization for safe reinforcement learning. In International Conference on Machine Learning , pages 13644–13668. PMLR, 2022. Zuxin Liu, Zijian Guo, Zhepeng Cen, Huan Zhang, Yihang Yao, Hanjiang Hu, and Ding Zhao. Towards robust and safe reinforcement learning with benign off-policy data. In International Conference on Machine Learning , pages 21586–21610. PMLR, 2023. Lei Lv, Yunfei Li, Yu Luo, Fuchun Sun, Tao Kong, Jiafeng Xu, and Xiao Ma. Flow-based policy for online reinforcement learning. arXiv preprint arXiv:2506.12811 , 2025. Haitong Ma, Jianyu Chen, Shengbo Eben, Ziyu Lin, Yang Guan, Yangang Ren, and Sifa Zheng. Model-based constrained reinforcement learning using generalized control barrier function. In 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 4552–4559. IEEE, 2021a. Haitong Ma, Yang Guan, Shengbo Eben Li, Xiangteng Zhang, Sifa Zheng, and Jianyu Chen. Feasible actor-critic: Constrained reinforcement learning for ensuring statewise safety. arXiv preprint arXiv:2105.10682 , 2021b. Haitong Ma, Tianyi Chen, Kai Wang, Na Li, and Bo Dai. Efficient online reinforcement learning for diffusion policy. In Proceedings of the 42nd International Conference on Machine Learning ,volume 267 of Proceedings of Machine Learning Research , pages 41837–41853. PMLR, 2025. David McAllister, Songwei Ge, Brent Yi, Chung Min Kim, Ethan Weber, Hongsuk Choi, Haiwen Feng, and Angjoo Kanazawa. Flow matching policy gradients. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id= eoEmoKoQpJ .Whitney K. Newey and James L. Powell. Asymmetric least squares estimation and testing. Econo-metrica , 55(4):819–847, 1987. Seohong Park, Qiyang Li, and Sergey Levine. Flow q-learning. In Proceedings of the 42nd International Conference on Machine Learning , 2025. Michael Psenka, Alejandro Escontrela, Pieter Abbeel, and Yi Ma. Learning a diffusion model policy from rewards via q-score matching. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 41163–41182. PMLR, 2024. 12 Shentao Qin, Yujie Yang, Yao Mu, Jie Li, Wenjun Zou, Jingliang Duan, and Shengbo Eben Li. Feasible reachable policy iteration. In Forty-first International Conference on Machine Learning ,2024. Zengyi Qin, Dawei Sun, and Chuchu Fan. Sablas: Learning safe control for black-box dynamical systems. IEEE Robotics and Automation Letters , 7(2):1928–1935, 2022. Alex Ray, Joshua Achiam, and Dario Amodei. Benchmarking safe exploration in deep reinforcement learning. Technical report, OpenAI, 2019. URL https://cdn.openai.com/safexp-short. pdf .Allen Z. Ren, Justin Lidard, Lars L. Ankile, Anthony Simeonov, Pulkit Agrawal, Anirudha Majumdar, Benjamin Burchfiel, Hongkai Dai, and Max Simchowitz. Diffusion policy policy optimization. In 
+
+The Thirteenth International Conference on Learning Representations , 2025. William Sharpless, Dylan Hirsch, Sander Tonkens, Nikhil Uday Shinde, and Sylvia Lee Herbert. Dual-objective reinforcement learning with novel hamilton-jacobi-bellman formulations. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=1SdPgRQrr5 .Oswin So and Chuchu Fan. Solving stabilize-avoid optimal control via epigraph form and deep reinforcement learning. In Proceedings of Robotics: Science and Systems , July 2023. doi: 10.15607/RSS.2023.XIX.085. Oswin So, Cheng Ge, and Chuchu Fan. Solving minimum-cost reach avoid using reinforcement learning. In The Thirty-eighth Annual Conference on Neural Information Processing Systems ,2024a. URL https://openreview.net/forum?id=jzngdJQ2lY .Oswin So, Zachary Serlin, Makai Mann, Jake Gonzales, Kwesi Rutledge, Nicholas Roy, and Chuchu Fan. How to train your neural control barrier function: Learning safety filters for complex input-constrained systems. In 2024 IEEE International Conference on Robotics and Automation (ICRA) ,pages 11532–11539. IEEE, 2024b. Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. Aivar Sootla, Alexander I Cowen-Rivers, Taher Jafferjee, Ziyan Wang, David H Mguni, Jun Wang, and Haitham Ammar. Sauté rl: Almost surely safe reinforcement learning using state augmentation. In International Conference on Machine Learning , pages 20423–20443. PMLR, 2022. Adam Stooke, Joshua Achiam, and Pieter Abbeel. Responsive safety in reinforcement learning by pid lagrangian methods. In Proceedings of the 37th International Conference on Machine Learning ,ICML’20. JMLR.org, 2020. Chen Tessler, Daniel J. Mankowitz, and Shie Mannor. Reward constrained policy optimization. In 
+
+International Conference on Learning Representations , 2019. Masatoshi Uehara, Yulai Zhao, Tommaso Biancalani, and Sergey Levine. Understanding rein-forcement learning-based fine-tuning of diffusion models: A tutorial and review. arXiv preprint arXiv:2407.13734 , 2024. Nolan C Wagener, Byron Boots, and Ching-An Cheng. Safe reinforcement learning using advantage-based intervention. In International Conference on Machine Learning , pages 10630–10640. PMLR, 2021. Yinuo Wang, Likun Wang, Yuxuan Jiang, Wenjun Zou, Tong Liu, Xujie Song, Wenxuan Wang, Liming Xiao, Jiang Wu, Jingliang Duan, et al. Diffusion actor-critic with entropy regulator. 
+
+Advances in Neural Information Processing Systems , 37:54183–54204, 2024. Zhendong Wang, Jonathan J. Hunt, and Mingyuan Zhou. Diffusion policies as an expressive policy class for offline reinforcement learning. In The Eleventh International Conference on Learning Representations , 2023. 13 Zifan Wu, Bo Tang, Qian Lin, Chao Yu, Shangqin Mao, Qianlong Xie, Xingxing Wang, and Dong Wang. Off-policy primal-dual safe reinforcement learning. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=vy42bYs1Wo .Wei Xiao, Tsun-Hsuan Wang, Chuang Gan, Ramin Hasani, Mathias Lechner, and Daniela Rus. Safediffuser: Safe planning with diffusion probabilistic models. In The Thirteenth International Conference on Learning Representations , 2025. Long Yang, Jiaming Ji, Juntao Dai, Linrui Zhang, Binbin Zhou, Pengfei Li, Yaodong Yang, and Gang Pan. Constrained update projection approach to safe policy optimization. Advances in Neural Information Processing Systems , 35:9111–9124, 2022. Dongjie Yu, Haitong Ma, Shengbo Li, and Jianyu Chen. Reachability constrained reinforcement learning. In International conference on machine learning , pages 25636–25655. PMLR, 2022. Jichen Zhang, Liqun Zhao, Antonis Papachristodoulou, and Jack Umenberger. Constrained diffusers for safe planning and control. arXiv preprint arXiv:2506.12544 , 2025a. Songyuan Zhang and Chuchu Fan. Learning to stabilize high-dimensional unknown systems using lyapunov-guided exploration. In 6th Annual Learning for Dynamics & Control Conference , pages 52–67. PMLR, 2024. Songyuan Zhang, Oswin So, Mitchell Black, and Chuchu Fan. Discrete gcbf proximal policy optimization for multi-agent safe optimal control. arXiv preprint arXiv:2502.03640 , 2025b. Yiming Zhang, Quan Vuong, and Keith Ross. First order constrained optimization in policy space. 
+
+Advances in Neural Information Processing Systems , 33:15338–15349, 2020. Yixian Zhang, Shu’ang Yu, Tonghe Zhang, Mo Guang, Haojia Hui, Kaiwen Long, Yu Wang, Chao Yu, and Wenbo Ding. SAC flow: Sample-efficient reinforcement learning of flow-based policies via velocity-reparameterized sequential modeling. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=zZvWj4JrYj .Yinan Zheng, Jianxiong Li, Dongjie Yu, Yujie Yang, Shengbo Eben Li, Xianyuan Zhan, and Jingjing Liu. Safe offline reinforcement learning with feasibility-guided diffusion model. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/ forum?id=j5JvZCaDM0 .
+
+# A Extended Related Work 
+
+Method positioning at a glance. Table 1 summarizes how SSM relates to existing safe RL families along four dimensions: online vs. offline training, the safety semantics enforced, the policy class, and the actor update rule. 
+
+Expected-cost safe RL. A large body of online safe RL formulates safety as a CMDP with an expected cumulative-cost budget and solves it by primal–dual or Lagrangian updates: CPO (Achiam et al., 2017), RCPO (Tessler et al., 2019), FOCOPS (Zhang et al., 2020), SAUTE (Sootla et al., 2022), PPO-Lag and SAC-Lag (Ray et al., 2019), PID-Lagrangian (Stooke et al., 2020), CUP (Yang et al., 2022), CVPO (Liu et al., 2022), CCAC (Liu et al., 2023), and off-policy CAL (Wu et al., 2024). Although these methods enjoy convergence guarantees under mild assumptions (Altman, 2021), the constraint is enforced only on average and the primal–dual loop is unstable in practice (So and Fan, 2023; Zhang et al., 2025b). Most of these methods are on-policy by design; off-policy variants such as SAC-Lag, CVPO, and CAL exist but are particularly susceptible to value-estimation error, where distributional shift compounds critic error and induces oscillating dual variables (Wu et al., 2024). 
+
+State-wise / reachability-based safe RL. A second line of methods enforces state-wise zero-violation by constraining the policy to a control-invariant set: Lyapunov-based methods (Chow et al., 2018; Zhang and Fan, 2024), control barrier functions (Qin et al., 2022; Ma et al., 2021a; So et al., 2024b), safety shielding (Wagener et al., 2021), projection-based filters (Lin et al., 2024), and Hamilton–Jacobi (HJ) reachability analysis (Fisac et al., 2019; Hsu et al., 2021; Ganai et al., 14 2024; Choi et al., 2025). Within HJ-based safe RL, FAC (Ma et al., 2021b) introduces a state-wise Lagrange multiplier with complementary slackness; RCRL (Yu et al., 2022) uses HJ self-consistency to characterize the largest feasible set; RESPO (Ganai et al., 2023) formulates a feasibility-dependent objective in stochastic settings; FRPI (Qin et al., 2024) provides a feasible reachable policy iteration; and DOHJ-PPO (Sharpless et al., 2026) extends HJ-based PPO to reach-always-avoid and reach-reach problems via novel decomposed Bellman formulations. All of these use Gaussian or deterministic actors, which are limited in representing non-convex feasible-action distributions. SSM inherits the feasible/infeasible decomposition from this line but replaces the policy class with a diffusion model and the update rule with HJ-gated score matching. 
+
+Diffusion / flow policies in RL. Diffusion policies were first developed for offline RL, where the policy is fitted to a fixed dataset (Janner et al., 2022; Wang et al., 2023; Chi et al., 2025; Kang et al., 2023; Ren et al., 2025; Park et al., 2025), with extensions for entropy regularization (Wang et al., 2024; Dong et al., 2025) and flexible target sampling (Ding et al., 2024; Uehara et al., 2024). Online RL with diffusion policies is more recent: QSM (Psenka et al., 2024) links the diffusion-policy score to the action-gradient of Qr and trains the denoiser on a single modified target; SDAC (Ma et al., 2025), FlowRL (Lv et al., 2025), SAC Flow (Zhang et al., 2026), and FPO (McAllister et al., 2026) explore related score- and flow-matching objectives. All are reward-only. SSM extends QSM’s score-target machinery to a piecewise reward / recovery target indexed by HJ feasibility. 
+
+Safe generative policies. Closest to our setting are methods that combine generative policies with safety. SafeDiffuser (Xiao et al., 2025) performs constrained planning with a diffusion model; Cheng et al. (2025) use Lyapunov-guided diffusion for stable control; Zhang et al. (2025a) apply constrained diffusion sampling for safe planning. In the offline regime, FISOR (Zheng et al., 2024) combines hard safety, HJ-style feasibility, and a guided diffusion policy via feasibility-dependent weighted behavior cloning extracted by a guided diffusion model. SSM studies the online actor–critic counterpart: it derives a denoising score target from the HJ avoid state-action value Qh and the viable-action set 
+
+{a : Qh(s, a ) ≤ 0}, rather than from a soft cumulative-cost objective. ALGD (Cheng et al., 2026) trains a diffusion policy online under an expected cumulative-cost constraint; Section 6 compares SSM with it on Safety-Gymnasium. 
+
+# B Q-Score Matching: Background and Endpoint Guidance 
+
+This appendix collects the QSM context underlying SSM’s actor update, together with the trade-off between regressing the clean-action energy score and regressing exact intermediate-time scores. The discussion expands the brief inline reference in Section 4. 
+
+Score-based view of policy improvement. The score-based view of policy improvement underlying our method originates from Q-score matching (QSM) (Psenka et al., 2024). Treating the policy as a stochastic process whose actions evolve along a score field Ψ( s, a ), Psenka et al. (2024) showed that the optimal Ψ for reward maximization is, up to a positive constant, the action-gradient of the state-action value function: Ψ⋆(s, a ) ∝ ∇ aQr (s, a ). The induced stationary action distribution is the Boltzmann form π(a | s) ∝ exp( αr Qr (s, a )) , recovering the soft-policy view that motivates entropy-regularized RL (Song et al., 2021). Direct policy gradients for diffusion actors require backpropagating through the entire multi-step reverse sampling chain, which is computationally expensive and high-variance (Psenka et al., 2024); QSM bypasses this by regressing a t-independent score-matching target via a denoising loss, differentiating only through the denoiser at the current noise level. SSM inherits this design choice and extends QSM’s reward-only target to a piecewise reward / recovery target indexed by HJ feasibility (Section 4, Theorems 1–2). 
+
+Endpoint guidance versus exact intermediate diffusion score. The score in Theorem 2 is the score of the clean-action target π⋆(a | s). The exact score of the forward-smoothed intermediate marginals would instead be 
+
+∇at log p⋆t (at | s), p⋆t (at | s) = 
+
+Z
+
+π⋆(a0 | s) qt(at | a0) da 0, (19) which is generally intractable in the hard-constrained setting because the indicator 1{Q⋆h(s, a ) ≤ 0}
+
+inside π⋆ in (9) makes p⋆t a Gaussian convolution of a discontinuous density without a closed-form 15 gradient. Following Psenka et al. (2024), SSM regresses a t-independent target derived from the clean-action density. Since −Mq ¯φ(s, a t) depends only on (s, a t), the population L2-minimizer of (15) is 
+
+−Mq ¯φ itself; substituting it into the reverse update (12) adds a positive-coefficient component aligned with (10) on the support interior. The relation is therefore guidance-component alignment with the clean-energy score, not exact reverse-chain score matching for p⋆t . The velocity-task implementation of Appendix F.6 instead regresses a Monte Carlo estimate of the posterior-mean noise, averaged with the prediction of a lagged copy of the denoiser. 
+
+Connection to Langevin-style sampling. Ma et al. (2025) characterize QSM as a Langevin-based sampler (using the analytic Q-gradient as score, without noise perturbation across denoising levels) rather than a multi-level noisy-score diffusion sampler. SSM inherits this characterization: the reverse update (12) with the substituted denoiser is a diffusion-parameterized Langevin-style sampler on the HJ-gated energy landscape, not an exact multi-level noisy-score sampler. We therefore treat Mq as a guidance-strength hyperparameter rather than assigning a closed-form stationary density to the finite-step chain. 
+
+# C Finite-Candidate HJ Gate 
+
+This appendix records the formal property of the finite-candidate gate (16) used in Section 5. 
+
+Candidate construction. For state s, let CK (s) denote the candidate action set 
+
+CK (s) = {aθ } ∪ ΠA
+
+ aθ + ση η(j) K−1 
+
+> j=1
+
+, aθ ∼ πθ (· | s), η(j) ∼ N (0 , I ). (20) A single diffusion sample aθ anchors the candidate set, and K − 1 local Gaussian-proposal candidates surround it, for K candidates per gate evaluation. The same construction is used for both the target-state gate c¯Vh(s′
+
+> i
+
+) in the safety bootstrap and the current-state gate cVh(si) in the denoising update; the gates differ only in which safety critic is queried (EMA target ¯Qh versus online Qh). Coupling all K − 1 proposals to a single policy sample requires only one reverse-chain forward pass per gate evaluation, while the Gaussian perturbations introduce local action-space coverage at negligible additional cost. 
+
+Conservatism of the gate. The estimator is upward-biased relative to the continuous-action mini-mum, which translates into a conservative feasibility certificate at the gate level. 
+
+Proposition 4 (Conservative finite-candidate HJ gate) . Fix a critic Qh(s, ·) and let Vh(s) = min a∈A Qh(s, a ) and cVh(s) = min a∈C K (s) Qh(s, a ) with CK (s) ⊆ A . Then cVh(s) ≥ Vh(s).Consequently, the finite-candidate feasible set bSf ≜ {s : cVh(s) ≤ 0} is an inner approximation of the critic-induced feasible set Sf ≜ {s : Vh(s) ≤ 0}, i.e., bSf ⊆ S f .Proof. Minimizing over a subset cannot fall below minimizing over the superset, so cVh(s) ≥ Vh(s).If s ∈ bSf , then Vh(s) ≤ cVh(s) ≤ 0, so s ∈ S f .Two caveats are worth stating explicitly. First, the proposition is stated for a fixed critic; in the online learning loop, the bootstrap target itself uses cVh, so the learned Qh fits a finite-candidate Bellman fixed point rather than the oracle one, and learned-critic error can break the conservatism in either direction. Second, the proposition certifies state-level feasibility classification, not that every action sampled by the diffusion policy is viable; reward guidance is restricted separately to actions with 
+
+Qh(s, a t) ≤ 0 by the indicator in the score target (13). The score-matching framework of Section 4 does not depend on the specific Vh estimator: alternatives such as adversarial safety actors (Fisac et al., 2019; Hsu et al., 2021) or expectile regression (Kostrikov et al., 2022; Zheng et al., 2024) can be substituted, and Appendix E reports the variant we use on Quad2D. 
+
+Gate margin under bounded critic error. We prove Proposition 3. 
+
+Proof. Let ˆa ∈ C K (s) attain cVh(s) and suppose that cVh(s) ≤ − εQ. Since CK (s) ⊆ A , the error bound gives 
+
+V ⋆h (s) ≤ Q⋆h(s, ˆa) ≤ Qh(s, ˆa) + εQ = cVh(s) + εQ ≤ 0.
+
+16 The same chain with ˆa replaced by a proves the action statement. With a zero threshold, cVh(s) ≤ 0
+
+implies V ⋆h (s) ≤ cVh(s) + εQ ≤ εQ, so an erroneous feasible classification requires 0 < V ⋆h (s) ≤ εQ;the action case is identical. 
+
+# D Proofs for Section 4 
+
+This appendix proves Theorems 1 (HJ-Gated Boltzmann Target) and 2 (Score of the HJ-Gated Boltz-mann Target), together with the complementary zero-temperature concentration result Proposition 5. Theorem 1’s assumptions are minimal: we only require measurability of the critics together with finiteness of the partition functions, which is the standard regularity needed for the Gibbs variational principle (Boyd and Vandenberghe, 2004; Brézis, 2011). We separate this from the stronger differen-tiability and continuity hypotheses required in Theorem 2 and Proposition 5, which are imposed only locally. 
+
+D.1 Proof of Theorem 1 Entropy-regularized subproblems. We make the entropy-regularized analogues of (PI-feasible)– (PI-infeasible) referenced in Section 4.1 explicit. Stating these explicitly with critics (Qπr , Q ⋆h), with differential entropy H(π(· | s)) ≜ − R π(a | s) log π(a | s) da and inverse-temperature parameters 
+
+αr , β > 0, the regularized feasible subproblem on s ∈ S ⋆f is 
+
+max  
+
+> π(·| s)
+
+Ea∼π
+
+αr Qπr (s, a ) + H(π(· | s)) (21) s.t. supp π(· | s) ⊆ A ⋆f (s), R π(a | s) da = 1 ,
+
+and the regularized recovery subproblem on s / ∈ S ⋆f is 
+
+max  
+
+> π(·| s)
+
+Ea∼π
+
+ − β Q ⋆h(s, a ) + H(π(· | s)) , R π(a | s) da = 1 . (22) The full assumptions of Theorem 1 are: A ⊂ Rd compact, Qπr (s, ·) and Q⋆h(s, ·) Lebesgue-measurable on A, A⋆f (s) Lebesgue-measurable with λ(A⋆f (s)) > 0 whenever s ∈ S ⋆f , and the partition functions 
+
+Zf (s) = 
+
+Z 
+
+> A⋆f(s)
+
+exp( αr Qπr (s, a )) da, Zrec (s) = 
+
+Z
+
+> A
+
+exp( −β Q ⋆h(s, a )) da 
+
+are finite. The maximization is over probability densities absolutely continuous with respect to Lebesgue measure, supported on A⋆f (s) (resp. A); uniqueness is up to Lebesgue-a.e. equivalence. 
+
+Donsker–Varadhan derivation. We give a KL-divergence derivation (Boyd and Vandenberghe, 2004) of (9), which makes the role of partition-function finiteness transparent and avoids differen-tiability of the critics. Throughout, π(· | s) denotes a candidate density with respect to Lebesgue measure on A, all integrals are over A unless noted, and the state s is held fixed. 
+
+Case 1: feasible state s ∈ S ⋆f . The feasible entropy-regularized subproblem (21) reads, after expanding H,
+
+max 
+
+> π(·| s)
+
+Z 
+
+> A⋆f(s)
+
+π(a | s) αr Qπr (s, a ) da −
+
+Z 
+
+> A⋆f(s)
+
+π(a | s) log π(a | s) da (23) over probability densities supported on A⋆f (s) and absolutely continuous with respect to Lebesgue measure. Define the candidate Boltzmann density 
+
+π⋆(a | s) ≜
+
+exp  αr Qπr (s, a ) 1
+
+n
+
+a ∈ A ⋆f (s)
+
+o
+
+Zf (s) , Zf (s) ≜
+
+Z 
+
+> A⋆f(s)
+
+exp( αr Qπr (s, a )) da. 
+
+(24) Under the assumed measurability of A⋆f (s) and Qπr (s, ·) together with 0 < λ (A⋆f (s)) (positive Lebesgue measure) and Zf (s) < ∞, the candidate π⋆ is a well-defined probability density. 17 For any density π supported on A⋆f (s), take logarithms in (24) to obtain the pointwise identity 
+
+αr Qπr (s, a ) = log π⋆(a | s) + log Zf (s) on A⋆f (s). Substituting into the objective in (23), 
+
+Z
+
+π(a | s) αr Qπr (s, a ) da −
+
+Z
+
+π(a | s) log π(a | s) da 
+
+=
+
+Z
+
+π(a | s) log π⋆(a | s)
+
+π(a | s) da + log Zf (s)= − KL  π(· | s) π⋆(· | s) + log Zf (s). (25) The Donsker–Varadhan / Gibbs variational identity (Boyd and Vandenberghe, 2004; Brézis, 2011) states that KL( π∥π⋆) ≥ 0 with equality if and only if π = π⋆ a.e. on A⋆f (s). Hence the objective in (23) is uniformly upper-bounded by log Zf (s), with the unique maximizer being π⋆ in (24). This is the feasible branch of (9). 
+
+Case 2: infeasible state s / ∈ S ⋆f . The infeasible entropy-regularized subproblem (22) reads, after expanding H,
+
+max 
+
+> π(·| s)
+
+Z
+
+> A
+
+π(a | s)   − β Q ⋆h(s, a ) da −
+
+Z
+
+> A
+
+π(a | s) log π(a | s) da s.t. 
+
+Z
+
+> A
+
+π(a | s) da = 1 ,
+
+(26) without a support constraint. Define the candidate Boltzmann density 
+
+π⋆(a | s) ≜ exp   − β Q ⋆h(s, a )
+
+Zrec (s) , Zrec (s) ≜
+
+Z
+
+> A
+
+exp( −β Q ⋆h(s, a )) da, (27) which is a well-defined probability density under the assumed measurability of Q⋆h(s, ·) on A and 
+
+Zrec (s) < ∞. The same KL identity applied with π⋆ in place of the feasible candidate yields 
+
+Z
+
+π(−β Q ⋆h) da −
+
+Z
+
+π log π da = −KL( π ∥ π⋆) + log Zrec (s),
+
+and Donsker–Varadhan again gives uniqueness: the unique maximizer is (27), the infeasible-state branch of (9). □
+
+D.2 Proof of Theorem 2 
+
+Proof of Theorem 2 (Score of the HJ-Gated Boltzmann Target). Take logarithms of the closed-form 
+
+π⋆ from Theorem 1 (proved in Appendix D.1). For s ∈ S ⋆f and a ∈ int( A⋆f (s)) ,
+
+log π⋆(a | s) = αr Qπr (s, a ) − log Zf (s),
+
+with log Zf (s) independent of a. Under the local differentiability assumption that Qπr (s, ·) is differentiable on int( A⋆f (s)) , taking the gradient with respect to a yields 
+
+∇a log π⋆(a | s) = αr ∇aQπr (s, a ), s ∈ S ⋆f , a ∈ int( A⋆f (s)) .
+
+For s / ∈ S ⋆f and a ∈ int( A), log π⋆(a | s) = −β Q ⋆h(s, a ) − log Zrec (s), so under differentiability of 
+
+Q⋆h(s, ·) on int( A),
+
+∇a log π⋆(a | s) = −β ∇aQ⋆h(s, a ).
+
+The condition Q⋆h(s, a ) < 0 used in the theorem statement is sufficient for a ∈ int( A⋆f (s)) , since the strict sublevel set {Q⋆h(s, ·) < 0} is open whenever Q⋆h(s, ·) is continuous; we adopt this form in the main text because it is directly checkable from the routing gate 1ind .
+
+Zero-Temperature Concentration (sanity check) 
+
+For completeness, we record the zero-temperature behaviour of the target policy π⋆ in (9), sum-marised in Section 4.1 of the main text. This complements Theorem 2 by showing that the entropy regularization is a continuous relaxation of the unregularized greedy subproblems on (Qπr , Q ⋆h).18 Proposition 5 (Zero-temperature concentration) . Suppose, in addition to the assumptions of The-orem 1, that Qπr (s, ·) and Q⋆h(s, ·) are continuous on A, and that every open neighbourhood of 
+
+arg max a∈A ⋆f (s) Qπr (s, a ) (resp. arg min a∈A Q⋆h(s, a )) has positive Lebesgue measure within the corresponding support. As αr → ∞ , every weak limit point of π⋆(· | s) for s ∈ S ⋆f is sup-ported on arg max a∈A ⋆f (s) Qπr (s, a ); symmetrically, as β → ∞ , π⋆ for s /∈ S ⋆f concentrates on arg min a∈A Q⋆h(s, a ). These limits recover the unregularized maximizers of (PI-feasible) –
+
+(PI-infeasible) .Proof. Fix s ∈ S ⋆f and let Q⋆ = max a∈A ⋆f (s) Qπr (s, a ), which is attained by continuity of Qπr (s, ·)
+
+on the compact set A⋆f (s). Fix η > 0, and define the two superlevel sets 
+
+Aη ≜ {a ∈ A ⋆f (s) : Qπr (s, a ) ≥ Q⋆ − η}, Aη/ 2 ≜ {a ∈ A ⋆f (s) : Qπr (s, a ) ≥ Q⋆ − η/ 2}.
+
+Both are closed by continuity of Qπr (s, ·), and Aη/ 2 ⊆ Aη ⊆ A ⋆f (s). Under the Boltzmann density 
+
+π⋆(· | s) from (24), the probability of sampling an η-suboptimal action is 
+
+Pr 
+
+> a∼π⋆(·| s)
+
+ Qπr (s, a ) < Q ⋆ − η =
+
+R  
+
+> A⋆f(s)\Aη
+
+exp( αr Qπr (s, a )) da 
+
+R  
+
+> A⋆f(s)
+
+exp( αr Qπr (s, a )) da .
+
+To obtain a non-trivial rate as αr → ∞ , we upper-bound the numerator on A⋆f (s) \ Aη using the sublevel constraint Qπr (s, a ) < Q ⋆ − η, and lower-bound the denominator on the smaller set 
+
+Aη/ 2 ⊆ A ⋆f (s) using the superlevel constraint Qπr (s, a ) ≥ Q⋆ − η/ 2. This creates a positive gap of 
+
+η/ 2 in the exponent: 
+
+Pr 
+
+> a∼π⋆(·| s)
+
+ Qπr (s, a ) < Q ⋆ − η ≤ λ(A⋆f (s)) · exp( αr (Q⋆ − η)) 
+
+λ(Aη/ 2) · exp( αr (Q⋆ − η/ 2)) = λ(A⋆f (s)) 
+
+λ(Aη/ 2) · exp( −αr η/ 2) .
+
+Under the regularity assumption that every open neighbourhood of arg max a∈A ⋆f (s) Qπr (s, a ) has positive Lebesgue measure within A⋆f (s), continuity of Qπr (s, ·) implies that Aη/ 2 contains an open neighbourhood of the argmax set, so λ(Aη/ 2) > 0. The ratio on the right therefore tends to 0 as 
+
+αr → ∞ . Since this holds for every η > 0, π⋆(U | s) → 1 for every open neighbourhood U
+
+of arg max a∈A ⋆f (s) Qπr (s, a ); equivalently, every weak limit point of π⋆(· | s) is supported on this argmax set. Thus, in the zero-temperature limit αr → ∞ , π⋆(· | s) concentrates on the unregularized maximizers of (PI-feasible). The infeasible-state branch for s / ∈ S ⋆f is analogous, with −Q⋆h in place of Qπr , A in place of A⋆f (s), and β in place of αr ; under continuity of Q⋆h(s, ·) on A together with the analogous regularity at arg min a∈A Q⋆h(s, a ), π⋆(· | s) concentrates on this argmin set as β → ∞ ,recovering the greedy HJ-based safety optimizer of (PI-infeasible). 
+
+D.3 Denoising Regression Identity and DDPM Guidance Coefficient 
+
+This appendix establishes the denoising-regression identity referenced in Section 4.2 and computes the DDPM guidance coefficient. 
+
+Population L2 optimum. The loss (15) is a square regression of ϵθ (s, a t, t ) on −Mq ¯φ(s, a t) under the joint distribution of (s, a t, t ) induced by (s, a 0) ∼ B , t ∼ Unif {1, . . . , T }, ϵ ∼ N (0 , I ), and 
+
+at = √¯αt a0 + σ(t) ϵ. The population L2-optimum over measurable functions is the conditional expectation 
+
+ϵ⋆θ (s, a t, t ) = E −Mq ¯φ(s, a t) s, a t, t .
+
+Since −Mq ¯φ(s, a t) is a measurable function of (s, a t) alone (it does not depend on the latent (a0, ϵ )
+
+that produced at, nor on t), the conditional expectation reduces to the quantity itself: ϵ⋆θ (s, a t, t ) = 
+
+−Mq ¯φ(s, a t), independent of t.19 Guidance-component alignment. Substituting ϵθ = ϵ⋆θ = −Mq ¯φ into the DDPM reverse up-date (12) gives 
+
+at−1 = Π A
+
+ 1
+
+√αt
+
+
+
+at + βt
+
+√1 − ¯αt
+
+Mq ¯φ(s, a t)
+
+
+
++ ˜ σt z
+
+
+
+, z ∼ N (0 , I ).
+
+Collecting the ¯φ-dependent contribution, the reverse update adds to at a guidance term 
+
+∆guide (s, a t, t ) = Mq βt
+
+√αt
+
+√1 − ¯αt
+
+¯φ(s, a t), (28) with a positive, time-dependent coefficient Mq βt/(√αt
+
+√1 − ¯αt) > 0. The remaining terms—the base rescaling (1 /√αt − 1) at, the Gaussian noise ˜σt z, and the projection ΠA—do not depend on ¯φ.The decomposition (28) is exact before projection , and after projection only on the region where ΠA
+
+is locally inactive; at action-boundary points where ΠA is active the guidance contribution can be attenuated or eliminated. We therefore obtain guidance-component alignment with the clean-energy score, not an exact correspondence between the finite-step reverse chain and the score field of π⋆.On the interior of supp π⋆ and away from action boundaries, Theorem 2 gives ¯φ = ∇a log π⋆, so 
+
+∆guide is proportional to the clean-energy score of the target policy π⋆ through the time-dependent coefficient in (28). □
+
+# E Implementation and Pseudo Code 
+
+This appendix collects the algorithmic details deferred from Section 5: the full SSM training loop, the reward critic and denoiser updates, and an expectile-smoothed alternative to the finite-candidate 
+
+Vh estimator. 
+
+Pseudo code. Algorithm 1 gives the full online SSM training loop corresponding to Section 5. The algorithm is written at the level of method-defining operations: replay collection, finite-candidate HJ minimization, reward and safety critic updates, and the HJ-gated denoising regression. 20 Algorithm 1 Safe Score Matching (SSM) 
+
+Require: Replay buffer B; DDPM steps T and noise schedule {αt, ¯αt, β t}Tt=1 ; safety discount 
+
+γh; reward discount γr; score strength Mq ; reward inverse temperature αr; recovery inverse temperature β; total candidates K; proposal scale ση . 
+
+> 1:
+
+Initialize denoiser ϵθ , safety critic Qh,ψ , reward critics Qr, 1, Q r, 2, and EMA target networks.  
+
+> 2:
+
+Collect random transitions and store (s, a, r, h (s), s ′) in B. 
+
+> 3:
+
+for each environment step do  
+
+> 4:
+
+Sample action a0 ∼ πθ (· | s) by the DDPM reverse update (12); execute a0 and add the new transition to B. 
+
+> 5:
+
+for each gradient update do  
+
+> 6:
+
+Sample a minibatch {(si, a i, r i, h i, s ′
+
+> i
+
+)}Bi=1 from B. 
+
+> 7:
+
+For each s′
+
+> i
+
+, draw a single policy sample a(i) 
+
+> θ
+
+∼ πθ (· | s′
+
+> i
+
+) and form the candidate set 
+
+CK (s′
+
+> i
+
+) = {a(i) 
+
+> θ
+
+} ∪ { ΠA(a(i) 
+
+> θ
+
++ ση η(j))}K−1 
+
+> j=1
+
+, η(j) ∼ N (0 , I ). 
+
+> 8:
+
+Estimate the target-state HJ value by finite-candidate minimization with the EMA target safety critic ¯Qh:
+
+c¯Vh(s′
+
+> i
+
+) = min  
+
+> a′∈C K(s′
+> i)
+
+¯Qh(s′
+
+> i
+
+, a ′). 
+
+> 9:
+
+Update Qh toward 
+
+yh,i = (1 − γh)hi + γh max {hi, c¯Vh(s′
+
+> i
+
+)}. 
+
+> 10:
+
+Sample a′ 
+
+> i
+
+∼ πθ (· | s′
+
+> i
+
+) and update Qr, 1, Q r, 2 toward 
+
+yr,i = ri + γr min 
+
+> j∈{ 1,2}
+
+¯Qr,j (s′
+
+> i
+
+, a ′
+
+> i
+
+). 
+
+> 11:
+
+Sample diffusion index ti ∼ Unif {1, . . . , T } and noise ϵi ∼ N (0 , I ); construct 
+
+ati = p¯αti ai + p1 − ¯αti ϵi. 
+
+> 12:
+
+Compute the current-state gate with the online safety critic Qh:
+
+cVh(si) = min   
+
+> a∈C K(si)
+
+Qh(si, a ),
+
+1(i)safe = 1
+
+ncVh(si) ≤ 0
+
+o
+
+, 1(i)ind = 1{Qh(si, a ti ) ≤ 0}. 
+
+> 13:
+
+Compute the HJ-gated score target 
+
+¯φi = 1(i)safe 1(i)ind αr ∇ati min  
+
+> j
+
+Qr,j (si, a ti ) + (1 − 1(i)safe )( −β∇ati Qh(si, a ti )) . 
+
+> 14:
+
+Update the denoiser by 
+
+∇θ
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+∥ϵθ (si, a ti , t i) − sg[ −Mq ¯φi]∥2 . 
+
+> 15:
+
+Update all EMA target networks.  
+
+> 16:
+
+end for  
+
+> 17:
+
+end for Reward critic and denoiser. Qr is trained by clipped double-Q regression (Fujimoto et al., 2018) with bootstrap actions sampled from the current diffusion policy. Given learned Vh, Q h, Q r, the score target ¯φ in (13) is computed by a forward pass through the critics and one autograd call for the 21 action gradient, and the denoiser is trained by minimizing (15). The reverse chain (12) produces both environment actions and Qr bootstrap actions, so SSM operates in an off-policy actor–critic regime. 
+
+Guidance normalization and the non-viable set. On the control tasks, the implementation nor-malizes the reward gradient separately for each sample, αr ∇aQr /(∥∇ aQr ∥ + c0) with c0 = 10 −8,and uses the raw recovery gradient −β∇aQh. When the state is classified as feasible but the queried action is not, where (13) sets ¯φ = 0 , it uses −αr ∇aQh/(∥∇ aQh∥ + c0), which guides the action toward lower predicted violation. The normalization rescales the reward branch without changing its direction, and the second term acts only where the score of π⋆ is undefined. The implemented target therefore agrees in direction with Theorem 2 wherever that score is defined. 
+
+Expectile-smoothed Vh estimator. A complementary surrogate for Vh(s) = min a∈A Qh(s, a ),used by FISOR (Zheng et al., 2024) and motivated by expectile regression (Kostrikov et al., 2022; Newey and Powell, 1987), fits a separate state-value network V τh to a smoothed lower expectile of 
+
+Qh(s, ·) over the replay-buffer action distribution. For τ ∈ (0 , 12 ), the reversed expectile loss is 
+
+Lrev  
+
+> τ
+
+(u) = τ − 1{u < 0} · u2, (29) which down-weights residuals above zero and up-weights those below. The expectile state-value network is fit by 
+
+LV τh = E(s,a )∼B 
+
+h
+
+Lrev 
+
+> τ
+
+ Qh(s, a ) − V τh (s) i
+
+, (30) and V τh is substituted for cVh in the feasibility gate of (13). We use τ = 0 .1 on the Quad2D trajectory-tracking benchmark, whose reference repeatedly approaches the safety boundary; all other tasks use the finite-candidate estimator (16). The score-matching framework is agnostic to the choice of estimator: any consistent surrogate for min a Qh(s, a ) is admissible. 
+
+# F More Experimental Results 
+
+F.1 Network Architecture 
+
+The safety critic Qh and the two reward critics Qr, 1, Q r, 2 are 2-hidden-layer MLPs of width 
+
+(512 , 512) on the control tasks; Table 6 lists the velocity-task networks. The denoiser ϵθ uses Mish activations, a learned Fourier time embedding (dim = 64 ), and a separate observation en-coder MLP (128 , 128 , Mish ); its hidden widths are task-dependent, with (512 , 512) for Quad2D and (512 , 512 , 512) for the higher-dimensional Quad3D and F16 tasks (Table 4). The state value 
+
+Vh is obtained from Qh by the finite-candidate estimator (16), except on Quad2D, which trains the expectile value network of Appendix E. 
+
+F.2 Hyperparameters 
+
+Table 3 lists the SSM hyperparameters that are shared across all three benchmarks; Table 4 lists the task-specific training settings. The corresponding system dynamics, reward functions, and safety functions are specified in Appendix F.3. 
+
+F.3 System Dynamics and Safety Functions 
+
+This appendix specifies the dynamics, reward, and safety function h(s) for each of the three bench-marks. All three are deterministic continuous-time systems that we discretize at a fixed step size; the integrator and step size are listed per task. 
+
+Quad2D trajectory tracking. The state is s = ( x, v x, z, v z , θ, ω ) ∈ R6 and the action is a ∈
+
+[−1, 1] 2, mapped to two thrust commands ui = ( ai + 1) /2 with rotor forces Fi = mgu i. The continuous-time dynamics are 
+
+˙x = vx, ˙z = vz , ˙θ = ω, 
+
+˙vx = − (F1 + F2) sin θm , ˙vz = (F1 + F2) cos θm − g, ˙ω = 0.1 ( u2 − u1)
+
+I , (31) 22 Table 3: Shared SSM hyperparameters used on all three benchmarks (Quad2D, Quad3D, F16). 
+
+Hyperparameter Symbol Value Diffusion denoising steps T 5
+
+Diffusion noise schedule — VP DDPM evaluation temperature — 0.2
+
+Score-field strength Mq 10 
+
+Reward-gradient coefficient αr 1
+
+Recovery coefficient β 5
+
+Safety margin δ 0
+
+Safety discount γh 0.999 
+
+EMA target rate τ 0.005 
+
+Learning rate — 3 × 10 −4 (cosine decay) Batch size B 512 
+
+Updates per environment step G 1
+
+Local proposal count K 8
+
+Local proposal scale ση 0.3
+
+Table 4: Task-specific settings. The denoiser actor uses three hidden layers on the higher-dimensional Quad3D and F16 tasks; the critic architecture is shared across tasks (Appendix F.1). 
+
+Task Actor hidden Training steps Warmup Episode horizon γr
+
+Quad2D tracking (512 , 512) 2 × 10 6 5,000 360 0.99 
+
+Quad3D stabilization (512 , 512 , 512) 1 × 10 6 5,000 500 0.99 
+
+F16 stabilization (512 , 512 , 512) 2 × 10 6 20 ,000 640 0.995 
+
+with m = 1 , I = 0 .02 , g = 9 .81 , and step size ∆t = 1 /60 ; we integrate with semi-implicit Euler. The reward tracks a circular reference and penalizes state error and control effort, 
+
+r(s, a ) = −(s − sref )⊤Q(s − sref ) − 10 −3∥a∥22, Q = diag(10 , 1, 10 , 1, 0.2, 0.2) , (32) and the safety function combines a tight altitude band with loose position bounds, 
+
+h(s) = max  0.5 − z, z − 1.5, |x| − 2, |z| − 3. (33) 
+
+Quad3D regulation. We use the standard nine-state quadrotor model. The state is s =(px, p y , p z , v x, v y , v z , ϕ, θ, ψ ) ∈ R9 with pz measured positive downward, and the action a ∈
+
+[−1, 1] 4 is mapped to a thrust command and three angular-rate commands, thrust = mg (1 + a0), ( ˙ϕcmd , ˙θcmd , ˙ψcmd ) = 5 ( a1, a 2, a 3). (34) The dynamics are 
+
+˙px = vx, ˙py = vy , ˙pz = vz ,
+
+˙vx = − thrust sin θm , ˙vy = thrust cos θ sin ϕm , ˙vz = g − thrust cos θ cos ϕm ,
+
+˙ϕ = ˙ϕcmd , ˙θ = ˙θcmd , ˙ψ = ˙ψcmd , (35) with m = 1 , g = 9 .80665 , and step size ∆t = 0 .01 ; we integrate with forward Euler. The reward is a weighted ℓ1 regulation toward the origin (target pz = 0 ) with weights qpos = 15 , qvel = 6 , qang = 0 .5,
+
+qψ = 2 , and no action penalty. The safety function imposes a ground constraint and a bounded workspace, 
+
+h(s) = max  pz , ∥p∥2 − 3. (36) 
+
+F16 stabilize-and-avoid. We adopt the F16 stabilize-and-avoid setup of So and Fan (2023), based on the standard 16-state F16 aircraft model. The state is 
+
+x = ( VT , α, β, ϕ, θ, ψ, p, q, r, p N , p E , H, pow , n zint , p sint , n yr int ),
+
+and the four-dimensional action a ∈ [−1, 1] 4 controls three control surfaces and a throttle; physical commands are obtained by an affine remapping u = 12 (umax − umin ) a + 12 (umax + umin ) with 23 umin = ( −10 , −10 , −10 , 0) and umax = (15 , 10 , 10 , 1) . We integrate the standard F16 nonlinear dynamics ˙x = FF16 (x, u ) with RK4 at step size ∆t = 0 .05 . The task is to stabilize the aircraft into a low-altitude target band H ∈ [50 , 150] for at least 50 consecutive steps; the reward penalizes deviation from this band with a piecewise-linear loss and adds a small bonus once the trajectory enters it. The safety function aggregates six per-axis violations, 
+
+h(x) = max  halt , hα, hβ , hθ , hpE , hp
+
+, (37) where each component normalizes the gap between the current state and the corresponding bound. The active bounds are altitude H ∈ [0 , 1000] , angle of attack α ∈ [−0.1745 , 0.7854] , sideslip 
+
+|β| ≤ 0.5236 , pitch |θ| ≤ 0.95 π/ 2, lateral position |pE | ≤ 200 , and roll rate |p| ≤ 8 (radians or meters as appropriate). 
+
+F.4 Evaluation Protocol and Metrics 
+
+On the control tasks, every baseline is rerun in our setup and trained for its recommended number of iterations or for at least three hours, and every method is evaluated at its best checkpoint. SSM runs on one NVIDIA RTX 5090 GPU, and the baselines run on RTX 4090 and RTX 5090 GPUs. The Quad2D tracking error sums the squared errors of the six state coordinates at each step, averages them over the steps of an episode, and then averages over episodes, including those that end in a crash. The Quad3D terminal tracking ℓ1 is 
+
+Eterm = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+s(n) 
+
+> T
+
+− sref 1, (38) where N is the number of evaluation episodes, including those that end in a crash. The final-50-step tracking ℓ1 averages the same distance over the last 50 steps of each episode. The Quad3D reward is a weighted ℓ1 penalty (Appendix F.3), which keeps penalizing small residual errors near the target; the quadratic tracking reward applies only to Quad2D. The F16 stabilization rate is the fraction of episodes that keep the altitude in the band H ∈ [50 , 150] for at least 50 consecutive steps. Section 6 defines the safety metrics (18). 
+
+F.5 Quad3D Ablation Study 
+
+This appendix expands the Quad3D ablation summarized in Section 5. We add (i) two structural baselines beyond the candidate-set sweep — an expectile-regressed V τh baseline that replaces the sampled gate (16) with a separate value network (Appendix E), and a single-action gate ( K = 1 )that drops local proposals altogether — and (ii) the full K × ση grid. All variants share the anchor configuration of the main-text Quad3D entry (Section 6); each variant modifies only the indicated knob. 
+
+Evaluation. We evaluate each variant on 500 initial states sampled from the Quad3D reset box with rejection on h(s) < 0 (non-goal and physically safe; mean initial h: −0.530 , 95 th percentile: 
+
+−0.099 ). We report the terminal tracking ℓ1 (38), which includes crashed episodes, as the task metric, since it is more aligned with smooth stabilization than thresholded success. We report episode violation fraction (the fraction of episodes with at least one valid step satisfying h(st) > 0) and step violation rate (the fraction of valid steps with h(st) > 0) as safety metrics, alongside crash fraction 
+
+(hard-termination rate). 
+
+Master ablation table. Table 5 consolidates all 12 variants on the 500-state evaluation set. The shaded row marks the canonical SSM configuration; boldface marks the column-wise best within the sampled-Qh block. 
+
+Mechanism notes beyond the main text. Why the expectile baseline degrades on Quad3D. The expectile-regressed V τh inflates terminal tracking ℓ1 by an order of magnitude over the default sampled gate (Table 5). The two estimators aggregate over actions in different ways: the sampled gate resolves 
+
+min a Qh(s, ·) locally on each state via the candidate set, whereas the expectile network learns a smoothed envelope over the policy’s action distribution. Quad3D’s wide reset distribution and disconnected feasible region reward the local resolution. 24 Table 5: Full Quad3D ablation results ( n = 500 evaluation episodes). The top block reports estimator-level and candidate-source baselines; the bottom block sweeps the local Gaussian-proposal grid 
+
+K ∈ { 8, 16 , 32 } × ση ∈ { 0.1, 0.3, 0.8}. Shaded row: the canonical SSM configuration used in the main results. Boldface within the sampled-Qh block: the lowest terminal tracking ℓ1 (default 
+
+K = 8 , σ η = 0 .3) and the safety-clean cell (K, σ η ) = (32 , 0.3) , which is the only sampled-gate cell that achieves zero observed violation across all three safety metrics at the lowest accompanying ℓ1.                                                                                                  
+
+> Variant KσηTerm. ℓ1↓Crash ↓Ep. vio. ↓Step vio. ↓
+> (×10 −3)
+> Structural ablations
+> Expectile-Vτhbaseline ——3.596 0.002 0.004 0.09
+> Policy-only candidates 8—1.793 0.006 0.006 0.65
+> Single-action gate ( K= 1 )1—0.922 0.000 0.000 0.00
+> Sampled-Qhgate: candidate-count ×proposal-scale grid
+> Sampled-Qhgate 80.10.650 0.016 0.016 1.60
+> Sampled-Qhgate (default) 80.30.321 0.002 0.022 2.10
+> Sampled-Qhgate 80.81.233 0.008 0.008 0.80
+> Sampled-Qhgate 16 0.11.131 0.016 0.028 6.10
+> Sampled-Qhgate 16 0.30.883 0.002 0.006 0.40
+> Sampled-Qhgate 16 0.81.184 0.000 0.000 0.00
+> Sampled-Qhgate 32 0.11.343 0.000 0.008 0.60
+> Sampled-Qhgate (safety-clean) 32 0.30.454 0.000 0.000 0.00
+> Sampled-Qhgate 32 0.82.353 0.002 0.008 0.30
+
+Single-action vs. policy-only at the same no-Gaussian setting. Among the no-Gaussian variants, the single-action gate ( K = 1 ) reaches the lowest terminal tracking ℓ1 with zero observed violation, while the policy-only setting ( K = 8 , no Gaussian) is the worst configuration on terminal tracking 
+
+ℓ1 (Table 5). Both drop local proposals; only K differs. A plausible explanation is the bias of min 
+
+over multiple samples drawn from the same policy distribution: as πθ concentrates around its modes, 
+
+cVh = min k Qh(s, a (k) 
+
+> θ
+
+) becomes an optimistic lower estimate of the policy’s worst-case violation and routes more states to the reward branch, where Qr is poorly calibrated. Single-action avoids this by reading Qh at the anchor directly. The (K, σ η ) = (32 , 0.3) configuration attains a lower terminal tracking ℓ1 while retaining zero observed violations and crashes. 
+
+The K trade-off does not extend off the ση = 0 .3 ridge. Along ση = 0 .3, raising K from 8 to 32 removes the observed episode violations at a higher terminal tracking ℓ1; off this ridge, the relationship between K and episode violation is non-monotonic (Table 5). A plausible explanation is that proposals at ση = 0 .1 stay too close to the policy mode, while proposals at ση = 0 .8 reach actions where Qh is poorly calibrated. 
+
+F.6 Safety-Gymnasium Experiments and Additional Studies Tasks and evaluation protocol. SafetyHalfCheetahVelocity-v1 and 
+
+SafetySwimmerVelocity-v1 (Ji et al., 2023) emit a unit cost at every step whose forward velocity vx exceeds a task threshold vthr , 3.2096 for HalfCheetah and 0.2282 for Swimmer. The episodic cost counts these steps in an episode of 1000 steps. CAL and ALGD train against the budget 
+
+Eπ [C(τ )] ≤ d with d = 25 , which also serves as the feasibility criterion for every method; SSM, RAC, and RESPO optimize reachability objectives without a budget. Each method is trained with five seeds and evaluated without checkpoint selection at a fixed step: 1M environment steps, or 10M for RESPO, its native on-policy horizon (333 epochs of 30k steps). Each evaluation runs 50 episodes on CPU with shared reset seeds and one stochastic action sample per decision. RESPO keeps its own simulator versions and policy random-number stream, so its initial states need not match those of the other methods. Tables report the mean ± SD over seeds of per-seed means. These five-seed results, with the configurations specified here, supersede the preliminary velocity results reported during review. 
+
+SSM configuration. On the velocity tasks, SSM keeps the HJ critic, the finite-candidate gate of Section 5, and the reward/recovery structure of the target (9). It trains the denoiser with a posterior-noise regression target instead of the gradient target (13). We noise fresh samples from a lagged copy 25 of the denoiser in pre-tanh coordinates ( a = tanh u) to obtain ut, then estimate the posterior-mean noise E[ϵ | s, u t] under (9) by self-normalized importance sampling over samples from a mixture proposal. The training label averages this estimate 1:1 with the lagged copy’s prediction. In place of a fixed αr , we choose the reward coefficient so that the KL divergence between the reward-tilted and untilted sample weights matches a target value on average over the gated-feasible states. We reduce it separately on states whose KL would exceed a per-state cap. On HalfCheetah, the critic target (7) replaces every positive h by the constant hgap = 0 .5, which keeps the sign of h and the boundary 
+
+h = 0 ; Swimmer uses the raw h. At test time, SSM acts with one diffusion sample without filtering by Qh. Table 6 lists the settings. Table 6: SSM settings on the velocity tasks. Settings not listed follow Algorithm 1.                                                                    
+
+> Setting Value Actor; reward critics (twin); safety critic (single) 3×256 ;2×256 ;2×256
+> Diffusion steps T; schedule; DDPM temperature 5; VP; 0.2, when acting and inside the update Optimizer Adam; actor 10 −4with global-norm clipping at 1.0; critics
+> 3×10 −4; constant rates Batch size critics 256 ; actor 64
+> Discounts γr,γh; target EMA rate 0.99 ,0.99 ;0.005
+> Gate candidates K; proposal scale ση8;0.3
+> Recovery coefficient β3
+> Importance samples 64 :32 from the forward-noise likelihood and 32 from a bridge around 8samples of the lagged denoiser Reward-tilt KL: batch mean; per-state cap 0.6;1.2
+> Lagged copy: refresh interval; averaging weight 500 actor updates; 0.5
+> hgap 0.5(HalfCheetah); 0(Swimmer) Reward-critic loss Huber ( δ= 10 ), targets clipped to [−200 ,1000]
+> Warm-up random actions for 3×10 4steps; critic updates from 2×10 4
+> steps, actor updates from 3×10 4
+> Observation normalization statistics of the first 10 4steps, then frozen Updates per step; training steps 1;10 6
+
+Baseline configurations. CAL uses an update-to-data ratio of 10, an ensemble of eight cost critics, and layer-normalized critics. ALGD uses an update-to-data ratio of 2 with the score-matching term of its release (weight 0.1). Both train with d = 25 . Our HalfCheetah task differs from the HalfCheetah task in the ALGD paper (Cheng et al., 2026), so the results are not directly comparable with those reported there. RESPO runs the official implementation and objective, with constraint threshold 0. RAC runs a JAX port of the official learner whose reference hyperparameters target 3M-step training, so we tuned it at the 1M budget and trained the selected configuration on the reported seeds. The selection followed a pre-specified rule and used only tuning seeds and a separate evaluation panel, although the candidate configurations were partly informed by earlier results on the reporting panel. On two of the five reported HalfCheetah seeds, the learned multiplier of RAC falls to about zero, and the policy then violates the constraint at almost every step. These two seeds account for the large mean and spread of RAC in Table 2. 
+
+Results throughout training. Table 7 reports each method at 25, 50, 75, and 100% of its horizon, and Figure 4 shows the learning curves. The cost of SSM peaks within the first 100k steps and remains low afterwards on both tasks. The reward of RESPO rises over its 10M-step horizon; read at the step counts of the other methods, it is far lower than theirs on both tasks. 
+
+Sensitivity to αr, β, and Mq . On the fixed-layout SafetyCarGoal1-v0 task, we vary one coef-ficient at a time from 0.25 × to 4× its default ( αr = 1 , β = 5 , Mq = 20 ). Table 8 reports the time average of each evaluation curve over the final 20% of environment steps; P (Cep = 0) is the fraction of evaluation episodes without violation in the same window. Across the full 16 × range of each coefficient, the default attains the highest reward and goal count, and every setting keeps a low cost and a high fraction of violation-free episodes. For given critics, the gates depend on cVh and Qh rather than on these coefficients: αr scales the reward guidance in predicted-feasible states, β the recovery guidance in predicted-infeasible states, and Mq the whole denoising target. Changing them therefore rescales the guidance without moving the gates, consistent with the small variation in Table 8. 26 Table 7: Safety-Gymnasium results at 25, 50, 75, and 100% of each method’s horizon (1M steps; 10M for RESPO): episodic reward and cost, mean ± SD over five seeds. Asterisks mark values interpolated per seed between the two neighboring evaluated checkpoints. The row RESPO (0.25–1M) reads the RESPO runs at the step counts of the other methods.                                                                                                                                                                                                                                                                                                                  
+
+> Method Metric 25% 50% 75% 100%
+> HalfCheetah velocity
+> SSM Reward 2675 ±25 2724 ±27 2744 ±25 2754 ±13
+> Cost 0.0±0.00.1±0.10.0±0.00.0±0.1
+> RAC Reward 1949 ±2579 3356 ±2977 3720 ±3456 5014 ±3781
+> Cost 195 .6±437 .3196 .0±438 .3196 .5±438 .5391 .7±536 .3
+> CAL Reward 2451 ±175 2530 ±136 2534 ±193 2631 ±107
+> Cost 15 .8±4.223 .1±6.522 .2±11 .728 .3±12 .5
+> ALGD Reward 2533 ±134 2629 ±113 2677 ±103 2695 ±99
+> Cost 23 .9±15 .916 .1±8.319 .3±11 .942 .0±39 .7
+> RESPO Reward 1411 ±311 ∗1992 ±360 ∗2201 ±324 ∗2323 ±323
+> Cost 6.9±3.7∗9.7±5.1∗11 .4±5.4∗8.4±3.9
+> RESPO (0.25–1M) Reward −178 ±26 ∗−2±57 ∗228 ±111 ∗447 ±142 ∗
+> Cost 0.0±0.0∗0.1±0.1∗0.6±0.7∗1.6±1.3∗
+> Swimmer velocity
+> SSM Reward 35 ±10 42 ±845 ±545 ±6
+> Cost 4.6±5.81.2±1.01.4±1.90.5±0.4
+> RAC Reward 48 ±45 68 ±57 41 ±57 75 ±57
+> Cost 1.2±2.06.2±6.413 .7±18 .614 .5±28 .4
+> CAL Reward 30 ±732 ±627 ±10 31 ±7
+> Cost 47 .3±51 .914 .8±13 .117 .8±5.027 .9±21 .3
+> ALGD Reward 42 ±247 ±348 ±549 ±4
+> Cost 3.6±1.55.9±2.75.9±3.56.5±2.4
+> RESPO Reward 31 ±1∗34 ±1∗36 ±1∗37 ±1
+> Cost 7.8±2.1∗7.3±1.4∗9.2±2.0∗8.4±1.3
+> RESPO (0.25–1M) Reward −17 ±1∗−9±4∗2±7∗13 ±12 ∗
+> Cost 4.2±2.6∗9.3±9.7∗8.1±5.2∗12 .2±4.6∗
+
+Table 8: Sensitivity of SSM to αr , β, and Mq on SafetyCarGoal1-v0 . The first row is the default; each other row changes one coefficient. 
+
+αr β Mq Reward ↑ Cost ↓ Goals ↑ P (Cep = 0) ↑
+
+1 5 20 36.10 1.00 18.65 93.5% 0.25 5 20 35.39 0.52 18.19 96.7% 4 5 20 36.03 1.05 18.57 93.3% 1 1.25 20 35.99 0.83 18.59 95.2% 1 20 20 35.99 0.97 18.39 92.7% 1 5 5 35.55 0.61 18.33 94.3% 1 5 80 35.36 0.81 18.30 93.2% 
+
+Policy class under an expected-cost formulation. To separate the effect of the policy class from that of HJ routing, we compare QSM-Lag and SAC-Lag on the same task (Table 9). Both use a Lagrangian cost term; QSM-Lag trains a diffusion actor by Q-score matching (Psenka et al., 2024), and SAC-Lag trains a Gaussian actor (Haarnoja et al., 2018; Ray et al., 2019). At both budgets, QSM-Lag attains higher reward and goal count with substantially lower cost than SAC-Lag, and only QSM-Lag stays within the budget d = 5 . Constrained navigation can produce several separated high-value action regions, which a Gaussian actor must cover with a single mode, whereas a diffusion actor can place mass on each (Psenka et al., 2024; Ding et al., 2024). 
+
+Baseline properties. Table 10 classifies the compared methods by whether they use a state-wise safety formulation, their policy class, and whether they update a dual variable. Among them, only SSM combines state-wise safety with a diffusion policy and no dual update. 
+
+Computation and sample efficiency. On Quad3D, SSM reaches its reported performance within its training budget of 10 6 environment steps, whereas RAC and RESPO require 4 × 10 6 and 6 × 10 6
+
+steps to converge. CAL is the most sample-efficient method and converges within 5 × 10 5 steps. SSM trains in about one hour on Quad3D, and RESPO, the fastest baseline in wall-clock time, takes 27 025 50 75 100         
+
+> Reward
+> Swimmer
+> 02000 4000 6000
+> HalfCheetah
+> 0.1M 1M 10M
+> Environment steps
+> 010 20 30 40 50 60
+> Cost
+> 0.1M 1M 10M
+> Environment steps
+> 010 20 30 40 50 60
+> RAC above the axis
+> RESPO CAL RAC ALGD SSM (ours)
+
+Figure 4: Learning curves on the velocity tasks (mean ±1 standard error over five seeds; each seed smoothed with a centered moving average over 10% of its horizon): test reward (top) and cost (bottom) against environment steps on a log scale. The dashed line marks the budget d = 25 and the dotted line the 1M endpoint. Cost axes are truncated; the mean cost of RAC on HalfCheetah stays between about 195 and 392 and lies above the axis. Tables use the unsmoothed evaluations. Table 9: Diffusion versus Gaussian actors under the same expected-cost formulation on 
+
+SafetyCarGoal1-v0 , with the summary of Table 8. 
+
+Method Budget d Reward ↑ Cost ↓ Goals ↑
+
+QSM-Lag 5 36.25 1.58 18.73 SAC-Lag 5 30.89 8.25 15.83 QSM-Lag 0 36.34 1.27 18.90 SAC-Lag 0 29.01 5.67 14.67 SSM (ours) — 36.10 1.00 18.65 
+
+about 2.5 hours; the relative order is the same on the other tasks. The actor update differentiates only through the denoiser at one noise level rather than through the reverse chain. At deployment, SSM runs one reverse chain of T = 5 steps per action. The K = 8 gate candidates are used only during training, where they perturb a single policy sample and are evaluated as one critic batch. 28 Table 10: Properties of the compared methods. 
+
+Method State-wise safety Policy class Dual update CAL (Wu et al., 2024) No Gaussian Yes RAC (RCRL) (Yu et al., 2022) Yes Gaussian Yes RESPO (Ganai et al., 2023) Yes Gaussian Yes EFPPO (So and Fan, 2023) Yes Gaussian No ALGD (Cheng et al., 2026) No Diffusion Yes SSM (ours) Yes Diffusion No 
+
+29
