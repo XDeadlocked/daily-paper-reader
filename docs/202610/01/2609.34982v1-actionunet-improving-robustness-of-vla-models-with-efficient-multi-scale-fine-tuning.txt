@@ -1,0 +1,866 @@
+Title: ActionUNet: Improving Robustness of VLA Models with Efficient Multi-scale Fine-tuning
+
+URL Source: https://arxiv.org/pdf/2609.34982v1
+
+Published Time: Tue, 29 Sep 2026 03:16:09 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# ActionUNet: Improving Robustness of VLA Models with Efficient Multi-scale Fine-tuning 
+
+Di Zhu ∗ Ziheng Yan ∗ Fang Wan †
+
+University of Chinese Academy of Sciences 
+
+{zhudi25,yanziheng21}@mails.ucas.ac.cn wanfang@ucas.ac.cn 
+
+## Abstract 
+
+Vision-Language-Action (VLA) models have shown great promise for robotic ma-nipulation by mapping multi-modal semantics to physical actions. However, this mapping inherently struggles to align these coarse-grained semantics with fine-grained temporal execution. It leaves VLA models with limited generalization and insufficient robustness in cluttered environments. To overcome this issue, we propose ActionUNet, an efficient multi-scale fine-tuning framework that en-hances pre-trained VLA models with minimal computational cost. ActionUNet first constructs a lightweight temporal U-Net within the temporal-aligned action feature space to fuse hierarchical structural priors, effectively bridging the scale gap between semantics and temporal executions. Recognizing that multi-scale modeling can disrupt microscopic temporal continuity and cause mechanical os-cillations, ActionUNet then employs a conditional SIREN as a continuous action decoder. Equipped with explicit second-order smoothness constraints, this de-coder guarantees temporal continuity and reduces high-frequency motion jitter. By smoothing temporal discontinuities from multi-scale fusion, this continuous formulation reduces mechanical execution failures while preserving the base VLA model’s generalization and manipulation robustness. Extensive experiments on RoboTwin 2.0 and LIBERO-Plus benchmarks, together with real-world hard eval-uations, demonstrate that ActionUNet significantly improves π0.5 success rates by absolute 9.8%, 6.1%, and 11.4%, respectively, while also generalizing to the regression-based OpenVLA-OFT backbone, highlighting its effectiveness and ef-ficiency as a fine-tuning strategy. Code and implementation details are available at https://github.com/Di-Zhu123/ActionUNet .
+
+## 1 Introduction 
+
+Vision-Language-Action (VLA) models, which combine language instructions with visual environ-mental perception, have emerged as a dominant paradigm for robotic manipulation tasks. With the rapid progress of vision-language models, a series of VLA approaches [1, 2, 3, 4] have demonstrated promising performance. However, existing VLA models still face critical challenges, including lim-ited generalization ability [5] and insufficient robustness in cluttered or distracting environments [6]. Current VLA models [7, 8, 4] typically attach an action expert to the large vision-language model to predict future action sequences, prompted by a single language instruction. This action expert learns to translate the VLM’s multi-modal representations directly into action trajectories, typically through a transformer decoder or a diffusion-based generative head. While VLMs excel at high-level task reasoning, they often struggle with precise, fine-grained action prediction [9, 10].          
+
+> ∗Equal contribution.
+> †Corresponding author. 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2609.34982v1 [cs.CV] 28 Sep 2026 Handover mic Stack blocks two
+> 2.81 cm/step 6.11 cm/step
+> Move can pot
+> 3.48 cm/step 4.63 cm/step
+> Pick dual bottles
+> 7.30 cm/step 1.43 cm/step
+> Coarser Scale Finer Scale Coarser Scale Finer Scale
+> Scale among tasks Scale within single task
+> Transfer above Move away Pick up
+
+Figure 1: Illustration of multi-scale temporal dynamics. Per-step end-effector displacements vary significantly across different tasks (left) and over time within a single task “Stack blocks two” (right). Central to robotic manipulation, action prediction must bridge high-level intentional inference for task planning with fine-grained, low-level control for execution. Furthermore, we observe that the per-step end-effector displacement varies significantly not only across different tasks (Fig. 1 left) but also across different stages within the same task (Fig. 1 right). We characterize execution scale us-ing the per-step end-effector displacement, where larger displacements correspond to coarser-scale motions and smaller displacements correspond to finer-scale motions (see Appendix C). This vari-ance in per-step displacement indicates the differences in the temporal scale of actions, implying that VLA models are inherently required to possess multi-scale temporal representation capabilities. Consequently, directly mapping the coarse-grained multi-modal semantics to fine-grained action se-quences suffers from a severe temporal scale mismatch issue. This mismatch undermines the VLA models’ robustness to visual observation noise, as the model over-relies on abstract semantics while failing to capture the multi-scale, fine-grained temporal cues necessary for resisting local perturba-tions. To address this issue, we introduce multi-scale action modeling in the action feature space. However, implementing such multi-scale representations risks breaking the temporal continuity of actions across different scales. This occurs because aggregating actions from varying granularities often projects disjointed structural priors onto the continuous action space, causing interpolation errors at scale boundaries. Consequently, the generated trajectories often exhibit undesired non-smooth transitions [11], leading to mechanical oscillations and further reducing the execution robustness of VLA models. Therefore, a core challenge lies in equipping VLA models with multi-scale struc-tural priors while simultaneously enforcing action smoothness constraints. Addressing this through efficient fine-tuning strategies has become an urgent necessity. In this paper, we propose ActionUNet, an efficient multi-scale fine-tuning framework that signif-icantly enhances the robustness of pre-trained VLA models with very low training and inference costs. Specifically, ActionUNet first constructs a lightweight temporal U-Net architecture within the temporal-aligned action feature space, injecting explicit multi-scale priors into the action gen-eration process through hierarchical feature encoding and decoding. Then, ActionUNet introduces a conditional SIREN as a continuous action decoder to efficiently leverage the pre-trained VLA’s action features. This architecture directly incorporates these action features as conditional inputs to preserve intrinsic temporal alignment, while simultaneously mitigating high-frequency motion jitter via explicit second-order smoothness constraints to guarantee temporal continuity. By integrating the hierarchical structural priors from the temporal U-Net with the continuous tem-poral constraints of the conditional SIREN, ActionUNet effectively bridges the scale gap between coarse-grained multi-modal semantics and fine-grained physical execution. This ensures the gener-ation of smooth, jitter-resistant action trajectories to enhance the model’s resilience against environ-mental perturbations, while fully leveraging the pre-trained VLA to improve fine-tuning efficiency. Our main contributions are summarized as follows: • We propose ActionUNet, a simple-but-effective multi-scale fine-tuning framework that con-structs a temporal U-Net to endow pre-trained VLA models with hierarchical structural priors, effectively mitigating the scale mismatch problem at a minimal computational cost. • We design a conditional SIREN decoder for continuous action generation, which efficiently leverages the multi-scale fused action features as conditional inputs. This design preserves 2intrinsic temporal alignment while imposing explicit second-order smoothness constraints to guarantee temporal continuity and mitigate high-frequency motion jitter. • Extensive experiments on RoboTwin 2.0, LIBERO-Plus, and real-world dual-arm manipu-lation with hard setting demonstrate that ActionUNet significantly improves π0.5 success rates by 9.8%, 6.1%, and 11.4% in hard/perturbed settings, respectively. Its consistent gains on OpenVLA-OFT further highlight its effectiveness and compatibility as an efficient fine-tuning strategy. 
+
+## 2 Related Work 
+
+Vision-Language-Action Model. Vision-Language-Action (VLA) models have emerged as a promising paradigm for robotic manipulation, typically building upon pre-trained Vision-Language Models (VLMs) [12, 13, 14] to map visual and linguistic inputs to actions. Existing VLA architec-tures can be broadly categorized into two families: autoregressive models that discretize continuous actions into tokens [15, 1, 2, 16], and diffusion-based or flow-matching-based models that generate continuous action chunks [17, 3, 18]. Despite these advances, robustness remains a key concern; prior work has shown that VLA models are vulnerable to visual corruptions [19], and existing ro-bustification strategies often rely on external large models or focus solely on visual perturbations [20, 21]. Meanwhile, most VLA models adopt a single-scale action representation head and gener-ate action sequences without explicit multi-scale or smoothness priors. 
+
+Multi-scale Visuomotor Policy Learning. Robotic manipulation requires modeling actions at mul-tiple temporal scales, since a policy must simultaneously capture long-horizon task progression and fine-grained local control. Existing visuomotor approaches can be broadly grouped into two categories. The first category learns discrete multi-scale representations of actions, often through vector-quantized tokenization, and performs hierarchical or scale-wise prediction [22, 23]. While such discretization can improve long-horizon reasoning and autoregressive efficiency, it introduces an information bottleneck that may hinder the transfer of rich visual features to downstream action prediction [24]. The second category operates in continuous action space and introduces multi-scale structure either within the action generation process, by predicting action chunks at multiple resolutions [25] or decomposing actions into frequency components [26], or through multi-scale per-ception and hierarchical policy architectures that fuse features across sensor modalities [27, 28, 29]. These methods, together with VLA-based multi-scale prediction that requires full-model retrain-ing [30], demonstrate that coordinating global planning with local refinement is crucial, but their specially designed policy heads or training paradigms limit direct reuse of strong pre-trained VLA priors. In contrast, we inject multi-scale structure directly into the action feature space, thereby bypassing the discretization bottleneck and the need for architecturally specialized heads, while retaining the base model’s generalization with low fine-tuning overhead. 
+
+## 3 Method 
+
+3.1 Preliminary 
+
+In standard VLA fine-tuning, the action head inherits its weights from pre-training and decodes each timestep independently from high-level multi-modal features into a continuous action. However, this single-scale mapping often fails to bridge the gap between coarse-grained multi-modal semantics and the multi-scale, fine-grained requirements of physical execution, leading to the scale mismatch issue. Our method, referred to as ActionUNet , addresses this issue by introducing two key modules: a temporal U-Net in the temporal-aligned action feature space that restores multi-scale structure, and a continuous action decoder that imposes explicit smoothness constraints. The temporal U-Net en-riches the backbone action features with hierarchical priors, jointly capturing coarse task semantics and fine local control cues. These refined features are then decoded into a continuous-time trajectory via local SIREN fields and Matérn-weighted aggregation, producing actions that are both spatially precise and temporally smooth. By constructing the multi-scale prior directly in the continuous fea-ture space, ActionUNet bridges the scale gap between coarse-grained multi-modal semantics and fine-grained actions, helps recover the multi-scale temporal cues needed for robust manipulation, and guarantees temporal continuity. 3VLA Backbone Input Data 
+
+> Proprioception
+> "Pick up the can, and place the can near the pot ."
+> Instruction RGB Image
+> Conditional SIREN Decoder
+
+ActionUNet    
+
+> Normalized Query Time τ
+> Conditioning Temporal U-Net
+> t
+> Temporal-aligned Action Feature t
+> Multi-scale Fused Action Feature Predicted Actions τ
+> Flow-based (π0.5, etc.) Regression-based (OpenVLA-OFT, etc.)
+
+Figure 2: Overview of ActionUNet. Given input observations and instructions, the VLA backbone first produces temporal-aligned action features. ActionUNet refines these features in the action feature space through multi-scale temporal mapping, and then decodes the fused features with a conditional SIREN into smooth continuous action trajectories. 
+
+3.2 Temporal U-Net in Action Feature Space 
+
+To address the scale mismatch and recover the fine-grained dynamics lacking in standard fine-tuning approaches, ActionUNet constructs a lightweight temporal U-Net that explicitly encodes multi-scale priors in the temporal-aligned action feature space. Let the action feature be denoted as h(0) ∈ RH×d, where H is the action horizon and d is the feature dimension. The temporal U-Net progressively encodes the action feature into lower-resolution temporal representations and subsequently decodes it back to the original resolution. Skip connections recover fine-grained local details during reconstruction. The whole process is represented as: 
+
+h(ℓ+1) = LN 
+
+(
+
+GeLU (Conv1D (ℓ)(h(ℓ))))
+
+, ℓ = 0 , . . . , L − 1, (1) 
+
+˜h(ℓ) = Fuse (ℓ)(
+
+Up (˜h(ℓ+1) ), h(ℓ))
+
+, ℓ = L − 1, . . . , 0. (2) In Eq. (1), Conv1D (ℓ) denotes a one-dimensional convolution with a downsampling rate r that halves the temporal resolution at each stage. The output is passed through a GeLU activation fol-lowed by Layer Normalization. Starting from h(0) ∈ RH×d, after L stages the hidden state h(L)
+
+resides in R⌊H/r L⌋× d. A fully connected layer transforms h(L) into ˜h(L). Eq. (2) restores temporal resolution in a coarse-to-fine manner. At each stage ℓ, the current hidden state is first upsampled by a factor of two using nearest-neighbor interpolation ( Up( ·)). The upsampled feature is then con-catenated with the corresponding encoder skip feature h(ℓ) and processed by a fusion block Fuse (ℓ),which consists of a single linear layer. The final output ˜h(0) ∈ RH×d serves as the refined action feature. 
+
+3.3 Conditional SIREN Decoder for Continuous Action Generation 
+
+Rather than directly mapping each refined feature vector ˜h(0) to an isolated action step, we inter-pret the action chunk as samples from a temporal-continuous trajectory over a normalized time 
+
+τ ∈ [−1, 1] . To achieve this goal, we propose the conditional SIREN decoder, where the decoder produces a smooth function that can represent either the action trajectory itself (regression mode) or the flow-matching vector field (flow mode), depending on the training objective. This continuous formulation is motivated by standard robot trajectory-generation practice, where the robot’s actions are often represented as smooth twice-differentiable or piecewise C2 continuous curves to ensure continuity [31]. 
+
+Local SIREN Fields. Let ˜h(0) 1 , . . . , ˜h(0)  
+
+> H
+
+∈ Rd be the refined action features from the temporal U-Net, each associated with a uniformly spaced normalized time τ1, . . . , τ H ∈ [−1, 1] . For i-th feature 
+
+˜h(0)  
+
+> i
+
+, we construct a local implicit field Φi(τ ) that continuously maps the query time τ to the action space, conditioned on ˜h(0)  
+
+> i
+
+. To endow every layer with explicit temporal awareness, we replace the standard static biases of SIREN [32] with time-dependent biases defined as simple affine functions 4Local SIREN Fields    
+
+> SIREN Action Fields Matérn Kernel Smoothed Action Fields
+> Queried Actions
+> Time  t
+> of action feature  Matérn Weight Matrix
+> Linear
+> Multi-scale Fused Action Feature
+> Linear  Linear
+> Normalized Query Time Conditioning
+> Smoothed Fusion with Matérn kernel
+> Smoothed Actions Time  t
+> of action feature
+> Normalized Query Time τ
+> a) b)
+
+Figure 3: Overview of the conditional SIREN decoder. Local SIREN fields conditioned on multi-scale action features are queried over continuous time and fused with Matérn-kernel weights to generate temporally smooth actions. of τ . Formally, each hidden layer is a mapping 
+
+ϕτm : Rd → Rd, ϕτm(z) = sin (Wmz + Umτ + bm
+
+), m = 0 , . . . , M − 1, (3) where Wm ∈ Rd×d, Um ∈ Rd×1, and bm ∈ Rd are learnable parameters. Starting from the refined feature ˜h(0)  
+
+> i
+
+, the local SIREN field is the composition of these layers followed by a linear readout: 
+
+Φi(τ ) = WM (ϕτM −1 ◦ · · · ◦ ϕτ 
+
+> 0
+
+)( ˜h(0)  
+
+> i
+
+) + bM , (4) with WM ∈ RD × d, bM ∈ RD where D is the action dimension. Because every ϕτm composes an affine transformation with the analytic sine, and the time dependence enters solely through the parameter bm(τ ), the overall function Φi(τ ) remains infinitely differentiable with respect to τ , inher-iting the smoothness guarantees of SIREN. This formulation preserves the architectural simplicity of the original SIREN while seamlessly embedding temporal τ information into every hidden layer. 
+
+Smooth Fusion with Matérn Kernel. The global continuous function ψ(τ ) is obtained by aggre-gating the local SIREN fields with a normalized Matérn-5/2 kernel [33] of length-scale parameter ρ
+
+as 
+
+ψ(τ ) = 
+
+> H
+
+∑
+
+> i=1
+
+αi(τ ) Φ i(τ ), s.t. αi(τ ) ∝ κ5/2(|τ − τi|/ρ ). (5) This soft assignment encourages second-order temporal smoothness across neighboring feature po-sitions, reducing high-frequency inconsistencies while preserving local expressiveness. The aggre-gated output {ψ(τj )}Hj=1 is interpreted as the predicted action chunk (regression) or as the estimated velocity field (flow matching), depending on the training objective of the base policy. 
+
+3.4 Training Objective 
+
+ActionUNet is compatible with both direct regression and flow-matching policies. We keep the pre-trained backbone frozen and only fine-tune the action expert with ActionUNet, so the method can be trained under the original objective of the base policy. 
+
+Regression Objective. For direct regression, we supervise the output sequence {ψ(τj )}Hj=1 with the ground-truth action chunk a1: H using an ℓ1 loss: 
+
+Lreg = 1
+
+H
+
+> H
+
+∑
+
+> j=1
+
+∥∥ψ(τj ) − aj
+
+∥∥1. (6) 
+
+Flow-matching Objective. For flow-based training, the decoder ψ(τ ) is trained to predict the con-ditional vector field that transports noise to data. Following the standard conditional flow-matching formulation [34], we construct a linear interpolation path between a noise sequence ϵ1: H and the clean action chunk a1: H . Given an observation and the noisy trajectory ϵ1: H , the model predicts 
+
+ψ(τj ), and we minimize the mean squared error against this velocity: 
+
+Lfm = 1
+
+H
+
+> H
+
+∑
+
+> j=1
+
+∥∥ψ(τj ) − (aj − ϵj )∥∥22. (7) 5Temporally Correlated Flow Noise. To align the flow target with the smoothness prior of our continuous decoder, we replace the standard white Gaussian noise with Matérn-5/2 process noise. Concretely, we sample noise vectors with a temporal covariance Kij = κ5/2(|i−j|/σ )+ εδ ij , where 
+
+σ controls the correlation length and ε ensures numerical stability. This correlated perturbation reduces high-frequency jitter in the transport target and better matches the C2 continuity induced by the SIREN decoder and Matérn aggregation. 
+
+## 4 Experiments 
+
+4.1 Experimental Setup Simulation Benchmarks . We evaluate ActionUNet on three simulation benchmarks: 1) RoboTwin 2.0 [35] contains 50 bimanual tasks, each with easy and hard settings (varying dis-tractors, backgrounds, lighting, table heights, and language). We select 12 tasks covering diverse temporal scale compositions. Each single-task policy is trained on 50 clean demonstrations and evaluated over 100 rollouts in both settings. 2) LIBERO [36] comprises four suites (Spatial, Object, Goal, Long), each with 10 tasks and 50 demonstrations. We train on a mixture from all suites. 3) 
+
+LIBERO-Plus [37] extends LIBERO with seven perturbation types (camera, robot state, language, lighting, background, sensor noise, layout). Models trained on LIBERO are directly evaluated on LIBERO-Plus to measure robustness. All tasks adopt the average success rate as the evaluation metric. 
+
+Real-World Robot Experiments. We conduct real-world experiments on the Realman Gen72 dual-arm platform. Three Intel RealSense D435 cameras are used: two wrist-mounted cameras placed on the end-effectors and one head camera positioned between the two arms, providing multi-view observations of the workspace. We train and evaluate models on three dual-arm manipulation tasks: Place Object Basket, Stack Blocks Two, and Stack Bowls Two. To test real-world robustness, we consider two evaluation settings: an easy setting matching the training environment and a hard setting with additional distractor objects. 
+
+Implementation Details. We apply ActionUNet to both π0.5, a flow-based policy, and OpenVLA-OFT, a regression-based policy, to evaluate its compatibility with different VLA frameworks. For ActionUNet, we set the temporal pyramid downsampling rate r = 2 , the Matérn kernel length-scale ρ = 0 .2, and use standard SIREN initialization [32]. We reproduce π0.5 following the official PyTorch version and OpenVLA-OFT baselines. All other baseline results are cited from [35, 38, 37]. All methods adopt the same dataset-specific training data, inference setting, and evaluation protocol. Unless otherwise specified, fine-tuning hyperparameters follow the settings reported in the original papers or official benchmark reports. For RoboTwin 2.0, π0.5 and π0.5+ActionUNet are trained on 2 ×RTX 4090 GPUs for 8K steps with a batch size of 64 and a 5 × 10 −5 learning rate (cosine decay). For LIBERO and LIBERO-Plus, they are trained on 8 ×A800 GPUs for 40K steps with a batch size of 256. OpenVLA-OFT and OpenVLA-OFT+ActionUNet follow official settings, except OpenVLA-OFT+ActionUNet on LIBERO uses a reduced learning rate of 5 × 10 −5 for stable fine-tuning. 
+
+4.2 Results on RoboTwin 2.0 
+
+Table 1 reports the results on RoboTwin 2.0, where tasks are grouped according to their scale com-position. Based on π0.5, ActionUNet consistently improves performance across both easy and hard settings. Averaged over all 12 tasks, ActionUNet significantly improves the success rate by 8.8% in the easy setting, and 9.8% in the hard setting. The improvement under the hard setting is especially important, since this setting introduces stronger environmental perturbations and requires the policy to maintain reliable action execution under distractors. The gains are consistent across scale compositions. On single-scale tasks, ActionUNet improves the average success rate from 66.0% to 72.7% and from 34.0% to 44.0% in the easy and hard settings, respectively. On dual-scale tasks, ActionUNet improves the average success rate from 60.2% to 69.5% and from 29.7% to 40.0% under easy and hard settings, respectively. On three-scale tasks, where successful execution requires coordinating more diverse temporal action patterns, ActionUNet improves the average success rate from 52.0% to 62.0% and from 25.7% to 34.3% in the 6Table 1: Task-wise success rates on RoboTwin 2.0 grouped by scale composition. 
+
+Task RDT [7] π0 [17] ACT [39] DP3 [40] π0.5 [4] π0.5+ActionUNet Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Single-scale Tasks 
+
+Pick Dual Bottles 42 13 57 12 31 0 60 1 65 34 71 39 
+
+Handover Mic 90 31 98 13 85 0 100 3 100 55 100 76 
+
+Handover Block 45 14 45 8 42 0 70 0 33 13 47 17 Dual-scale Tasks 
+
+Beat Block Hammer 77 37 43 21 56 3 72 8 77 28 89 43 
+
+Move Can Pot 25 12 58 21 22 4 70 6 66 52 77 69 
+
+Place A2B Left 3 1 31 1 1 0 46 2 46 7 55 10 
+
+Place Object Stand 15 5 36 11 1 0 60 0 51 29 62 38 
+
+Place Phone Stand 15 6 35 7 2 0 44 2 47 21 61 27 
+
+Press Stapler 41 24 62 29 31 6 69 3 74 41 73 53 Three-scale Tasks 
+
+Stack Blocks Two 21 2 42 1 25 0 24 0 68 24 74 35 
+
+Blocks Ranking RGB 3 0 19 5 1 0 3 0 36 16 50 24 
+
+Put Bottles Dustbin 21 4 54 13 27 1 60 21 52 37 62 44 Average 33.2 12.4 48.3 11.8 27.0 1.2 56.5 3.8 59.6 29.8 68.4 39.6 
+
+Table 2: LIBERO benchmark results. We report the average success rate (%) across four LIBERO task suites. 
+
+Method SPATIAL OBJECT GOAL LONG Avg. 
+
+Diffusion Policy [41] 78.3 92.5 68.3 50.5 72.4 WorldVLA [42] 87.6 96.2 83.4 60.0 81.8 SmolVLA [43] 93.0 94.0 91.0 77.0 88.8 
+
+π0 [17] 96.8 98.8 95.8 85.2 94.2 
+
+π0-FAST [16] 96.4 96.8 88.6 60.2 85.5 UniVLA [44] 96.5 96.8 95.6 92.0 95.2 VLA-Adapter [38] 97.8 99.2 97.2 95.0 97.3 OpenVLA-OFT [8] 98.4 99.0 98.4 95.8 97.9 OpenVLA-OFT+ ActionUNet 99.2 99.0 99.6 96.4 98.6 
+
+π0.5 [4] 95.4 98.4 97.0 91.6 95.6 
+
+π0.5+ActionUNet 98.6 99.4 98.8 93.8 97.7 
+
+Table 3: Performance under environmental perturbations on LIBERO-Plus. All models are trained on LIBERO and evaluated on LIBERO-Plus. We report success rates (%) under 7 perturbation types. 
+
+Method Camera Robot Lang. Light Back. Noise Layout Avg. 
+
+OpenVLA [2] 0.8 3.5 23.0 8.1 34.8 15.2 28.5 15.6 WorldVLA [42] 0.1 27.9 41.6 43.7 17.1 10.9 38.0 25.0 UniVLA [44] 1.8 46.2 69.6 69.0 81.0 21.2 31.9 43.9 
+
+π0 [17] 13.8 6.0 58.8 85.0 81.4 79.0 68.9 53.6 
+
+π0-FAST [16] 65.1 21.6 61.0 73.2 73.2 74.4 68.8 61.6 OpenVLA-OFT [8] 36.0 35.9 67.0 82.1 93.1 47.1 82.5 60.9 OpenVLA-OFT+ ActionUNet 41.2 40.8 68.3 83.4 93.7 54.5 85.3 64.6 
+
+π0.5 [4] 48.2 45.9 68.8 93.0 87.4 52.0 81.7 65.8 
+
+π0.5+ActionUNet 56.9 54.4 73.3 94.6 89.8 61.1 85.7 71.9 
+
+easy and hard settings, respectively. These results show that multi-scale temporal action modeling is beneficial not only for simple action patterns but also for tasks involving more complex scale composition. 
+
+4.3 Results on LIBERO and LIBERO-Plus 
+
+Table 2 reports results on the standard LIBERO benchmark. With π0.5, ActionUNet improves the performance of all four suites, achieving an average success rate of 97.7% against 95.6%. This improvement extends to the regression-based OpenVLA-OFT backbone (98.6% vs 97.9%), con-7Table 4: Comparison of our method against the baseline under easy and hard conditions in real-world experiments.                      
+
+> Task π0.5π0.5+ActionUNet Easy Hard Easy Hard
+> Place Object Basket 60 42 78 52 Stack Bowls Two 88 62 96 74 Stack Blocks Two 80 68 92 80 Average 76.0 57.3 88.7 68.7
+
+Table 5: Ablation results on four RoboTwin 2.0 tasks. Each task reports success rates under easy and hard settings. All non-baseline variants are built on π0.5.                                                                           
+
+> Task π0.5+ U-Net + SIREN + ActionUNet w/o Matérn + ActionUNet Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard
+> Move Can Pot 66 52 64 56 73 53 73 68 77 69
+> Stack Blocks Two 68 24 75 27 74 24 71 34 74 35
+> Beat Block Hammer 77 28 65 33 87 30 89 39 89 43
+> Pick Dual Bottles 65 34 66 33 68 26 67 40 71 39 Average 69.0 34.5 67.5 37.3 75.5 33.3 75.0 45.3 77.8 46.5
+> Gain over π0.5––-1.5 +2.8 +6.5 -1.2 +6.0 +10.8 +8.8 +12.0
+
+firming that ActionUNet generalizes across VLA models while preserving strong in-distribution performance. Table 3 evaluates the robustness of ActionUNet and comparison methods under controlled perturba-tions on LIBERO-Plus. π0.5+ActionUNet improves the average success rate from 65.8% to 71.9%, with consistent gains across all seven perturbation types, particularly for camera, robot-state, and sensor-noise perturbations. This result demonstrates that the temporal U-Net refines action features for multi-scale representations, and the continuous decoder reduces high-frequency inconsistency to benefit the robotic execution. With the more powerful regression-based OpenVLA-OFT, Actio-nUNet still improves the average success rate from 60.9% to 64.6%, indicating its robustness across VLA frameworks. 
+
+4.4 Real-World Experiments Evaluation Protocol. We select three representative tasks from the RoboTwin 2.0 benchmark: place Object Basket, Stack Blocks Two, and Stack Bowls Two. Each task contains easy and hard evalua-tion settings. The easy setting is the same as the training settings. For the hard setting, we randomly add some distractor objects to the environment to introduce visual and physical interference. We report the success rate as the percentage of successful trials out of the 50 rollouts. 
+
+Results. Table 4 reports the real-world evaluation results on the Realman Robot. ActionUNet consistently improves the baseline across all three tasks under both easy and hard evaluation settings. The average success rate is significantly improved from 76.0% to 88.7% in the easy setting and from 57.3% to 68.7% in the hard setting. These results demonstrate its robustness in complex real-world environments without compromising performance in standard scenes. 
+
+4.5 Ablation Study Module Ablation. We ablate ActionUNet with respect to the temporal U-Net, the conditional SIREN decoder, and the Matérn-weighted aggregation in Table 5. Using only the temporal U-Net on π0.5 improves hard-setting performance from 34.5% to 37.3% while slightly dropping in the easy setting. This suggests that while the temporal U-Net enhances robustness against distractors, it compromises the spatial continuity of actions. In contrast, by adding only the SIREN decoder, the success rate in the easy setting is improved from 69.0% to 75.5% while dropping in the hard setting. It indicates the SIREN decoder is capable of maintaining the spatial continuity of actions 8to suppress trajectory jitter, but fails to capture multi-scale action representations, leading to a lack of robustness against distractors. The combination of U-Net and SIREN without the Matérn kernel (ActionUNet w/o Matérn) achieves 75.0% and 45.3% success rates in easy and hard settings, sig-nificantly outperforming the baseline by 6.0% and 10.8%, demonstrating that multi-scale modeling, aided by SIREN to mitigate action discontinuity, effectively provides crucial robustness against dis-tractors. Incorporating the Matérn kernel further increases performance to 77.8% and 46.5% in easy and hard settings, suggesting that the Matérn kernel supplies a lightweight smoothness prior over neighboring local fields, complementing the learned components. 
+
+Effect of Multi-scale Fine-tuning. We compute the response of the 1st, 4th, and 6th layers of temporal U-Net to reflect fine-, mid-, and coarse-scale action feature activations using Grad-CAM on RoboTwin 2.0. The responses are grouped into five bins by ground-truth action scales, and Grad-CAM responses are min-max normalized and averaged per bin. As shown in Fig. 4, action features at each scale respond most strongly to the corresponding ground-truth action scales, suggesting that ActionUNet learns scale-aware temporal representations. Fine Scale Coarse Scale   
+
+> 0.2 0.4 0.6
+> Grad-CAM Response  Fine-scale Feature
+> Fine Scale Coarse Scale
+> 0.050 0.075 0.100 0.125
+> Mid-scale Feature
+> Fine Scale Coarse Scale
+> 0.02 0.04 0.06
+> Coarse-scale Feature
+
+Figure 4: Scale-conditioned temporal Grad-CAM responses on RoboTwin 2.0. Fine-, mid-, and coarse-resolution temporal features show stronger responses to the corresponding action scales. 
+
+Figure 5: Ablation study on the downsampling rate r. Task1, Task2, and Task3 correspond to Move Can Pot, Stack Blocks Two, and Beat Block Hammer, respectively. 
+
+Figure 6: Predicted end-effector action chunks under the same initial settings. ActionUNet pro-duces actions closer to the ground-truth with smoother local action than π0.5.
+
+Effect of Hyper-parameters r. Fig. 5 shows that the downsampling rate r = 2 in the temporal U-Net performs best under both easy and hard settings. Smaller r provides denser intermediate scales for gradual coarse-to-fine refinement, which is especially beneficial in hard settings where contact-sensitive actions are required. 
+
+Visualization Analysis. As shown in Fig. 6, we further visualize predicted end-effector action chunks under the same initial setting. Compared with π0.5, ActionUNet produces smaller spatial de-viation and smoother trajectories in these examples. This demonstrates ActionUNet’s effectiveness in generating precise and stable continuous actions. 
+
+## 5 Conclusion 
+
+We propose ActionUNet, a lightweight multi-scale fine-tuning module for temporal action mapping in pre-trained VLA policies. ActionUNet injects hierarchical temporal priors into the action fea-ture space through a temporal U-Net, and decodes the refined features with a conditional SIREN decoder to preserve smooth action trajectories. This design provides an architecture-compatible interface for both flow-based and regression-based policies, while introducing negligible computa-tional overhead. On RoboTwin 2.0, LIBERO, LIBERO-Plus, and real-world dual-arm experiments, 9ActionUNet consistently improves task success and robustness under environmental distractions, showing the effectiveness of multi-scale temporal mapping for efficient VLA adaptation. 
+
+Limitations and Future Work. 
+
+ActionUNet currently uses fixed temporal scales, models action chunks independently, and intro-duces scale-aware modeling only at downstream action stage. Future work will explore adaptive scales, cross-chunk temporal modeling, and scale-aware VLA pre-training. 10 References 
+
+[1] B. Zitkovich, T. Yu, S. Xu, P. Xu, T. Xiao, F. Xia, J. Wu, P. Wohlhart, S. Welker, A. Wahid 
+
+et al. , “Rt-2: Vision-language-action models transfer web knowledge to robotic control,” in 
+
+Conf. Robot Learn. , 2023, pp. 2165–2183. [2] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. P. Foster, P. R. Sanketi, Q. Vuong et al. , “Openvla: An open-source vision-language-action model,” in 
+
+Conf. Robot Learn. , 2025, pp. 2679–2713. [3] J. Bjorck, F. Castañeda, N. Cherniadev, X. Da, R. Ding, L. Fan, Y. Fang, D. Fox, F. Hu, S. Huang et al. , “Gr00t n1: An open foundation model for generalist humanoid robots,” arXiv preprint arXiv:2503.14734 , 2025. [4] K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. R. Equi, C. Finn, N. Fusai, M. Y. Galliker et al. , “ π0.5: a vision-language-action model with open-world gener-alization,” in Conf. Robot Learn. , 2025. [5] G. Ma, S. Wang, Z. Zhang, S. Yu, and H. Tang, “Generalvla: Generalizable vision-language-action models with knowledge-guided trajectory planning,” arXiv preprint arXiv:2602.04315 ,2026. [6] A. Rasouli, M. Alban, S. Pakdamansavoji, Z. Li, Z. Zhang, A. Wu, and X. Zhao, “Distracted robot: How visual clutter undermine robotic manipulation,” arXiv preprint arXiv:2511.22780 ,2025. [7] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu, “Rdt-1b: a diffusion foundation model for bimanual manipulation,” in Int. Conf. Learn. Represent. , 2025. [8] M. J. Kim, C. Finn, and P. Liang, “Fine-tuning vision-language-action models: Optimizing speed and success,” in Robot.: Sci. Syst. , 2025. [9] W. Yuan, J. Duan, V. Blukis, W. Pumacay, R. Krishna, A. Murali, A. Mousavian, and D. Fox, “Robopoint: A vision-language model for spatial affordance prediction in robotics,” in Conf. Robot Learn. , 2024. [10] E. Zhao, V. Raval, H. Zhang, J. Mao, Z. Shangguan, S. Nikolaidis, Y. Wang, and D. Seita, “Manipbench: Benchmarking vision-language models for low-level robot manipulation,” in 
+
+Conf. Robot Learn. , 2025. [11] Y. Liu, H. Yu, J. Zhao, B. Li, D. Zhang, M. Li, W. Wu, Y. Hu, J. Xie, J. Guo et al. , “Learning native continuation for action chunking flow policies,” arXiv preprint arXiv:2602.12978 , 2026. [12] L. Beyer, A. Steiner, A. S. Pinto, A. Kolesnikov, X. Wang, D. Salz, M. Neumann, I. Alabdul-mohsin, M. Tschannen, E. Bugliarello et al. , “Paligemma: A versatile 3b vlm for transfer,” 
+
+arXiv preprint arXiv:2407.07726 , 2024. [13] H. Liu, C. Li, Q. Wu, and Y. J. Lee, “Visual instruction tuning,” Adv. Neural Inform. Process. Syst. , vol. 36, pp. 34 892–34 916, 2023. [14] P. Wang, S. Bai, S. Tan, S. Wang, Z. Fan, J. Bai, K. Chen, X. Liu, J. Wang, W. Ge et al. ,“Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution,” 
+
+arXiv preprint arXiv:2409.12191 , 2024. [15] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Haus-man, A. Herzog, J. Hsu et al. , “Rt-1: Robotics transformer for real-world control at scale,” in 
+
+Robot.: Sci. Syst. , 2023. [16] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, S. Nair, Q. Vuong, O. Mees, C. Finn, and S. Levine, “Fast: Efficient action tokenization for vision-language-action models,” arXiv preprint arXiv:2501.09747 , 2025. [17] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter et al. , “ π0: A vision-language-action flow model for general robot control,” in Robot.: Sci. Syst. , 2025. [18] Q. Li, Y. Liang, Z. Wang, L. Luo, X. Chen, M. Liao, F. Wei, Y. Deng, S. Xu, Y. Zhang et al. ,“Cogact: A foundational vision-language-action model for synergizing cognition and action in robotic manipulation,” arXiv preprint arXiv:2411.19650 , 2024. 11 [19] Z. Wang, Z. Zhou, J. Song, Y. Huang, Z. Shu, and L. Ma, “Vlatest: Testing and evaluating vision-language-action models for robotic manipulation,” Proceedings of the ACM on Software Engineering , vol. 2, no. FSE, pp. 1615–1638, 2025. [20] A. J. Hancock, A. Z. Ren, and A. Majumdar, “Run-time observation interventions make vision-language-action models more visually robust,” in Int. Conf. Robot. Autom. , 2025, pp. 9499– 9506. [21] H. Zhang, P. Ding, S. Lyu, Y. Peng, and D. Wang, “Gevrm: Goal-expressive video generation model for robust visual manipulation,” arXiv preprint arXiv:2502.09268 , 2025. [22] Z. Gong, P. Ding, S. Lyu, S. Huang, M. Sun, W. Zhao, Z. Fan, and D. Wang, “Carp: Visuomotor policy learning via coarse-to-fine autoregressive prediction,” in Int. Conf. Comput. Vis. , 2025, pp. 13 460–13 470. [23] Z. Sheebaelhamd, M. Tschannen, M. Muehlebach, and C. Vernade, “Quantization-free autore-gressive action transformer,” arXiv preprint arXiv:2503.14259 , 2025. [24] T. Shiba, “The compression gap: Why discrete tokenization limits vision-language-action model scaling,” arXiv preprint arXiv:2604.03191 , 2026. [25] D. Yashima, K. Seno, S. Kurita, Y. Oda, and K. Sugiura, “Hiflow: Tokenization-free scale-wise autoregressive policy learning via flow matching,” arXiv preprint arXiv:2603.27281 , 2026. [26] J. Zhang, Z. Han, J. Wang, X. Wu, S. Lin, J. Li, H. Fan, R. Wu, D. Li, and H. Dong, “Hipolicy: Hierarchical multi-frequency action chunking for policy learning,” arXiv preprint arXiv:2604.06067 , 2026. [27] Y. Su, X. Zhan, H. Fang, H. Xue, H.-S. Fang, Y.-L. Li, C. Lu, and L. Yang, “Dense policy: Bidirectional autoregressive learning of actions,” arXiv preprint arXiv:2503.13217 , 2025. [28] Y. Lu, Y. Tian, Z. Yuan, X. Wang, P. Hua, Z. Xue, and H. Xu, “H 3dp: Triply-hierarchical diffusion policy for visuomotor learning,” in Int. Conf. Learn. Represent. , 2026. [29] H. Xue, J. Ren, W. Chen, G. Zhang, Y. Fang, G. Gu, H. Xu, and C. Lu, “Reactive diffusion policy: Slow-fast visual-tactile policy learning for contact-rich manipulation,” arXiv preprint arXiv:2503.02881 , 2025. [30] R. Huang, C. Zeng, W. Tang, J. Cai, C. Lu, and P. Cai, “Mimic intent, not just trajectories,” 
+
+arXiv preprint arXiv:2602.08602 , 2026. [31] S. Kim, J. Kim, and J. J. Lim, “Time optimal execution of action chunk policies beyond demon-stration speed,” in Int. Conf. Learn. Represent. , 2026. [32] V. Sitzmann, J. Martel, A. Bergman, D. Lindell, and G. Wetzstein, “Implicit neural repre-sentations with periodic activation functions,” Adv. Neural Inform. Process. Syst. , vol. 33, pp. 7462–7473, 2020. [33] C. K. Williams and C. E. Rasmussen, Gaussian processes for machine learning . MIT press Cambridge, MA, 2006, vol. 2, no. 3. [34] Y. Lipman, R. T. Chen, H. Ben-Hamu, M. Nickel, and M. Le, “Flow matching for generative modeling,” in Int. Conf. Learn. Represent. , 2023. [35] T. Chen, Z. Chen, B. Chen, Z. Cai, Y. Liu, Z. Li, Q. Liang, X. Lin, Y. Ge, Z. Gu et al. ,“Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation,” arXiv preprint arXiv:2506.18088 , 2025. [36] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone, “Libero: Benchmarking knowledge transfer for lifelong robot learning,” Adv. Neural Inform. Process. Syst. , vol. 36, pp. 44 776–44 791, 2023. [37] S. Fei, S. Wang, J. Shi, Z. Dai, J. Cai, P. Qian, L. Ji, X. He, S. Zhang, Z. Fei et al. ,“Libero-plus: In-depth robustness analysis of vision-language-action models,” arXiv preprint arXiv:2510.13626 , 2025. [38] Y. Wang, P. Ding, L. Li, C. Cui, Z. Ge, X. Tong, W. Song, H. Zhao, W. Zhao, P. Hou et al. ,“Vla-adapter: An effective paradigm for tiny-scale vision-language-action model,” in AAAI Conf. Artif. Intell. , vol. 40, no. 22, 2026, pp. 18 638–18 646. [39] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-grained bimanual manipulation with low-cost hardware,” in Robot.: Sci. Syst. , 2023. 12 [40] Y. Ze, G. Zhang, K. Zhang, C. Hu, M. Wang, and H. Xu, “3d diffusion policy: Generalizable visuomotor policy learning via simple 3d representations,” in Robot.: Sci. Syst. , 2024. [41] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” Int. J. Robot. Res. , vol. 44, no. 10-11, pp. 1684–1704, 2025. [42] J. Cen, C. Yu, H. Yuan, Y. Jiang, S. Huang, J. Guo, X. Li, Y. Song, H. Luo, F. Wang et al. ,“Worldvla: Towards autoregressive action world model,” arXiv preprint arXiv:2506.21539 ,2025. [43] M. Shukor, D. Aubakirova, F. Capuano, P. Kooijmans, S. Palma, A. Zouitine, M. Aractingi, C. Pascal, M. Russi, A. Marafioti et al. , “Smolvla: A vision-language-action model for afford-able and efficient robotics,” arXiv preprint arXiv:2506.01844 , 2025. [44] Q. Bu, Y. Yang, J. Cai, S. Gao, G. Ren, M. Yao, P. Luo, and H. Li, “Univla: Learning to act anywhere with task-centric latent actions,” in Robot.: Sci. Syst. , 2025. [45] K. Black, M. Y. Galliker, and S. Levine, “Real-time execution of action chunking flow policies,” 
+
+arXiv preprint arXiv:2506.07339 , 2025. [46] D. Snyder, A. J. Hancock, A. Badithela, E. Dixon, P. Miller, R. A. Ambrus, A. Majumdar, M. Itkina, and H. Nishimura, “Is your imitation learning policy better than mine? policy com-parison with near-optimal stopping,” in Robot Evaluation for the Real World , 2025. [47] Y. Liu, S. Zhang, Z. Dong, B. Ye, T. Yuan, X. Yu, L. Yin, C. Lu, J. Shi, L. J.-T. Yu, L. Zheng, J. Gong, T. Jiang, X. Qiu, and H. Zhao, “FASTer: Toward powerful and efficient autoregressive vision–language–action models with learnable action tokenizer and block-wise decoding,” in 
+
+Int. Conf. Learn. Represent. , 2026. [48] J. Wu, S. Zhang, Y. Liu, X. Yu, S. Li, S. Wang, H. Zhao, J. Huo, Y. Gao, J. Gong, X. Qiu, and Y.-G. Jiang, “Coarse-to-control: Action-token planning for vision-language-action models,” in 
+
+Conf. Robot Learn. , 2026. [49] Y. Hu, J. Cui, J. Lu, R. Yang, J. Ye, B. Zhao, X. Chen, X. Lan, and P. Ren, “Echo: Continuous hierarchical memory for vision-language-action models,” arXiv preprint arXiv:2605.10993 ,2026. [50] T. Chen, Y. Chen, Z. Li, J. Tang, K. Su, H. Lu, W. Wan, B. Chen, S. Liu, H. Yan, H. Su, Z. Dou, K. Wang, D. Zhang, Y. Liu, Y. Qin, Q. Liang, Q. Wu, Z. Lin, W. Lin, Y. Wang, M. He, T. Wu, R. Wu, J. Zhou, K.-C. Lei, H. Yu, Y. Ji, W. Jin, G. Lin, X. Li, Q. Xiong, R. Xu, Z. Li, W. Chai, E. Xie, Z. Wang, Y. Mu, H. Dong, W. Matusik, M. Ding, W. Ding, P. Luo, and M. Tomizuka, “Robodojo: A unified sim-and-real benchmark for comprehensive evaluation of generalist robot manipulation policies,” arXiv preprint arXiv:2607.04434 , 2026. 13 A Additional Method Details 
+
+This section provides additional details for the ActionUNet training procedure, the continuous action decoder, and the temporally correlated noise used for flow matching. 
+
+Conditional SIREN Decoder. Given the refined action features ˜h(0) 1 , . . . , ˜h(0)  
+
+> H
+
+, ActionUNet rep-resents an action chunk as samples from a continuous function over the normalized time axis 
+
+τ ∈ [−1, 1] . The temporal anchors are uniformly placed as 
+
+τi = −1 + 2( i − 1) 
+
+H − 1 , i = 1 , . . . , H. (8) For each anchor i, the local SIREN field Φi(τ ) maps a query time τ to the action space while conditioning on the refined action feature ˜h(0)  
+
+> i
+
+. The final continuous function is obtained by Matérn-weighted aggregation: 
+
+ψ(τ ) = 
+
+> H
+
+∑
+
+> i=1
+
+αi(τ )Φ i(τ ), τ ∈ [−1, 1] , (9) where 
+
+αi(τ ) = κ5/2(|τ − τi|/ρ )
+
+∑Hj=1 κ5/2(|τ − τj |/ρ ) . (10) The output sequence {ψ(τj )}Hj=1 is interpreted as the predicted action chunk in regression mode, and as the estimated flow-matching velocity field in flow mode. 
+
+Smoothness of Matérn-weighted Decoding. The continuous decoder uses Matérn-5/2 weights as deterministic interpolation weights over temporal anchors. We verify that this weighting preserves second-order smoothness of the decoded function. Let 
+
+gρ(t) = κ5/2(t/ρ ) = 
+
+(
+
+1 + 
+
+√5tρ + 5t2
+
+3ρ2
+
+)
+
+exp 
+
+(
+
+−√5tρ
+
+)
+
+, t ≥ 0. (11) For anchor τi, define the unnormalized weight 
+
+qi(τ ) = gρ(|τ − τi|). (12) The function qi is smooth for τ̸ = τi. The only point requiring attention is τ = τi, where the absolute value is non-smooth. Let c = √5/ρ . Then 
+
+gρ(t) = 
+
+(
+
+1 + ct + c2t2
+
+3
+
+)
+
+e−ct , (13) and 
+
+g′
+
+> ρ
+
+(t) = − c2
+
+3 t(1 + ct )e−ct . (14) Thus g′
+
+> ρ
+
+(0) = 0 and g′′  
+
+> ρ
+
+(0) = −c2/3 is finite. Therefore, the left and right first derivatives of qi
+
+agree at τi, and the second derivative also has a finite and matching limit: 
+
+lim   
+
+> τ→τ−
+> i
+
+q′′  
+
+> i
+
+(τ ) = lim   
+
+> τ→τ+
+> i
+
+q′′  
+
+> i
+
+(τ ) = g′′  
+
+> ρ
+
+(0) . (15) Hence qi(τ ) is C2 on [−1, 1] .The normalized weight is 
+
+αi(τ ) = qi(τ )
+
+Z(τ ) , Z(τ ) = 
+
+> H
+
+∑
+
+> j=1
+
+qj (τ ). (16) Since qj (τ ) > 0 for all j and τ , the denominator Z(τ ) is strictly positive. Therefore, each normal-ized weight αi(τ ) is also C2. Each local SIREN field Φi(τ ) is smooth in τ , because it is composed of affine maps and sinusoidal nonlinearities. Therefore, 
+
+ψ(τ ) = 
+
+> H
+
+∑
+
+> i=1
+
+αi(τ )Φ i(τ ) (17) 14 is a finite sum of products between C2 and smooth functions. Consequently, 
+
+ψ(τ ) ∈ C2([ −1, 1]; RD ). (18) 
+
+Temporal-grid Discretization. The method section defines the Matérn aggregation in normalized time using the length-scale ρ. In implementation, it is often more convenient to compute the same weights using temporal indices. The grid spacing of the normalized time axis is 
+
+∆τ = 2
+
+H − 1 . (19) For two grid points τi and τj , we have 
+
+|τi − τj |
+
+ρ = ∆τ |i − j|
+
+ρ = |i − j|
+
+ρ/ ∆τ
+
+. (20) Therefore, the continuous-time kernel evaluated on the uniform grid is equivalent to an index-distance kernel with index-space length-scale 
+
+ρidx = ρ
+
+∆τ
+
+. (21) Equivalently, if the implementation directly parameterizes the kernel in index space using ρidx , then the corresponding normalized-time length-scale is ρ = ∆ τ ρidx . This relation ensures that the index-based implementation is exactly a grid evaluation of the continuous Matérn-weighted decoder. 
+
+Temporally Correlated Noise for Flow Matching. For flow-based training, we use temporally correlated Gaussian noise on the action grid. This noise construction follows the notation in Sec. 3: σ
+
+controls the temporal correlation length of the flow noise, while ρ is reserved for Matérn aggregation in the decoder. Let 
+
+η1: H ∼ N (0 , I ) (22) be white Gaussian noise. We define the temporal covariance matrix as 
+
+Kij = κ5/2
+
+( |i − j|
+
+σ
+
+)
+
++ εδ ij , i, j = 1 , . . . , H, (23) where ε is a small diagonal jitter for numerical stability. Given the Cholesky decomposition 
+
+K = RR ⊤, (24) the temporally correlated noise is sampled as 
+
+ϵ1: H = Rη1: H , ϵ1: H ∼ N (0 , K ). (25) For multi-dimensional actions, this temporal covariance is applied independently to each action dimension, equivalently sampling 
+
+ϵ1: H ∼ N (0 , K ⊗ ID ), (26) where D denotes the action dimension. We denote the flow interpolation time by s ∈ [0 , 1] to avoid overloading the normalized action time 
+
+τ . For flow-based training, we use a linear interpolation path from temporally correlated noise to the clean action chunk: 
+
+xs = (1 − s)ϵ1: H + sa1: H , us = dxs
+
+ds = a1: H − ϵ1: H . (27) The flow-mode decoder is trained to predict this target velocity at each temporal query τj , i.e., ψ(τj )
+
+estimates the j-th component of us. This construction aligns the flow target with the second-order temporal prior used by the continuous decoder: the temporally correlated noise produces a smooth transport target from noise to data, instead of injecting temporally white perturbations into the action sequence. 
+
+Action Representation and Normalization 
+
+15 Table 6: Compiled policy-call latency on a single RTX 4090 GPU. We report mean latency with 95% confidence intervals computed over repeated policy-call measurements.            
+
+> Metric π0.5π0.5+ActionUNet Difference Mean latency / policy call (ms) 60 .947 ±0.251 64 .886 ±0.376 +3 .939 (+6 .46%)
+
+Table 7: Rollout-level policy computation on the 12 RoboTwin2.0 tasks. Average taken steps are task-level unweighted means over successful rollouts. Latency values are estimated by multiplying the average taken steps by the compiled policy-call latency in Table 6; their 95% confidence intervals are propagated from the task-independent policy-call latency measurements. The paired difference is computed as π0.5+ActionUNet minus π0.5 latency, and its 95% confidence interval is propagated from the two latency confidence intervals.                             
+
+> Setting Average Taken Steps Latency (s)
+> π0.5π0.5+ActionUNet π0.5π0.5+ActionUNet Difference Easy 238.80 238.69 14 .554 ±0.060 15 .488 ±0.090 +0 .934 ±0.108
+> Hard 276.43 264.29 16 .848 ±0.069 17 .149 ±0.099 +0 .301 ±0.121
+
+ActionUNet inherits the action representation of the backbone VLA model without modification. For 
+
+π0.5, actions are represented as continuous end-effector poses in the flow-matching framework. For OpenVLA-OFT, actions are represented as continuous joint/task-space commands in a regression framework. There are two normalization operations in our pipeline. First, during data preprocessing, actions are normalized to zero mean and unit variance. Second, following SIREN, we map the discrete action horizon H to a continuous normalized time axis τ ∈ [−1, 1] , which improves training stability and gradient flow through the sinusoidal layers. 
+
+## B Inference Efficiency 
+
+ActionUNet is designed as a lightweight module for pre-trained VLA policies. We report policy-level inference latency to quantify the computational overhead introduced by the proposed module. 
+
+Measurement Protocol. We measure the latency of sampling one action chunk on a single NVIDIA RTX 4090 GPU. Both π0.5 and π0.5+ActionUNet use the same input observation, action horizon of 50, and 10 flow-matching steps. All measurements are conducted under the same PyTorch infer-ence setting with torch.compile enabled. We report the mean policy inference latency with 95% confidence intervals computed over repeated policy-call measurements. These measurements correspond to policy computation only. They should not be interpreted as end-to-end robot execution latency, which is also affected by mechanical motion, low-level controller constraints, safety-limited velocity, gripper actuation, and contact-rich interactions. 
+
+Rollout-level Policy Computation. We compute the average number of taken action steps over successful rollouts on the same 12 RoboTwin2.0 main experimental tasks used in the task-wise success-rate evaluation in Table 1. We then estimate cumulative policy inference latency using the compiled policy-call latency in Table 6. This metric measures policy computation only and excludes physical robot execution time. As shown in Table 7, π0.5+ActionUNet introduces only a small rollout-level increase in policy com-putation. In the Easy setting, the cumulative policy-computation latency increases by 0.934 seconds. In the Hard setting, π0.5+ActionUNet uses fewer average taken steps than the baseline, which par-tially offsets its higher per-call latency; the cumulative policy-computation latency increases by only 0.301 seconds. These results indicate that the additional policy-computation overhead remains small relative to the full successful rollout. 16 C Action Scale Computation 
+
+This appendix instantiates the task-scale and stage-scale quantities introduced in Sec. 3.1. They are used to characterize temporal action dynamics and to group RoboTwin tasks. 
+
+C.1 End-effector Displacement 
+
+We quantify action scale using the Cartesian displacement of the robot end-effectors between con-secutive recorded control steps. For each trajectory, let 
+
+pLt ∈ R3, pRt ∈ R3
+
+denote the Cartesian positions of the left and right end-effectors at recorded step t. The per-step end-effector displacement is defined as 
+
+dt = ∥∥pLt+1 − pLt
+
+∥∥2 + ∥∥pRt+1 − pRt
+
+∥∥2 .
+
+All values are reported in meters per recorded step, i.e., m/step. We use m/step instead of m/s because the recorded demonstrations are generated from planned waypoints and stored under a fixed recording protocol. Thus, this quantity should be interpreted as a dataset-level action-scale proxy rather than a physical execution velocity. For each task T , the overall task-level action scale is computed by averaging dt over all valid con-secutive recorded steps from successful episodes: 
+
+Dtask (T ) = 1
+
+|I T |
+
+∑
+
+> t∈I T
+
+dt,
+
+where IT denotes the set of valid step transitions from task T .
+
+C.2 Stage-level Scale Regimes 
+
+To characterize scale variation within a task, we segment each trajectory into stages according to stable gripper-state transitions. Only stable binary gripper states, i.e., 0 and 1, are used to define stage boundaries. Intermediate gripper values are treated as transition states and are not used as separate stage labels. For a stage s, its stage-level action scale is computed as 
+
+Dstage (s) = 1
+
+|I s|
+
+∑
+
+> t∈I s
+
+dt,
+
+where Is denotes the set of valid step transitions belonging to stage s. Stages with Dstage (s) = 0 
+
+are treated as idle or no-op stages and are excluded when determining the number of active scale regimes. 
+
+C.3 Scale Thresholds 
+
+We use empirical tertile thresholds to divide both task-level and stage-level displacement values into low-, medium-, and high-scale regimes. For the task-level overall scale, the thresholds are computed from the distribution of Dtask over all 50 tasks: 
+
+γtask 1 = 0 .03130 , γtask 2 = 0 .03714 .
+
+The task-level scale label is then defined as 
+
+ctask (T ) = 
+
+
+
+Low , Dtask (T ) < γ task 1 ,
+
+Medium , γtask 1 ≤ Dtask (T ) < γ task 2 ,
+
+High , Dtask (T ) ≥ γtask 2 .
+
+For the stage-level scale, the thresholds are computed from all non-idle stage-level displacement values: 
+
+γstage 1 = 0 .01998 , γstage 2 = 0 .04693 .
+
+17 The scale label of a non-idle stage s is defined as 
+
+cstage (s) = 
+
+
+
+Low , Dstage (s) < γ stage 1 ,
+
+Medium , γstage 1 ≤ Dstage (s) < γ stage 2 ,
+
+High , Dstage (s) ≥ γstage 2 .
+
+For each task, we collect the scale labels of all non-idle stages and count the number of distinct active scale regimes: 
+
+K(T ) = |{ cstage (s) : s ∈ T , D stage (s) > 0}| .
+
+A task is categorized as a single-scale, dual-scale, or three-scale task when K(T ) = 1 , 2, or 3,respectively. 
+
+C.4 Scale Analysis on 50 Tasks 
+
+In Table 8, L, M, and H denote low-, medium-, and high-scale stages, respectively. The column “Stage sequence” shows the temporal order of non-idle stage-level scale labels. The column “Scale composition” shows the set of active scale regimes in the task. Table 8: Task-level and stage-level action scale analysis on 50 tasks. The overall scale is computed from the average end-effector displacement over the entire task. Stage sequence is computed from non-idle stage-level displacement values. All displacement values are reported in m/step. 
+
+Task Overall Overall Scale Stage Sequence Composition #Regimes 
+
+Adjust Bottle 0.0442 High H–M M+H 2Beat Block Hammer 0.0372 High H–L L+H 2Blocks Ranking RGB 0.0363 Medium M–L–H–L–H–L–L L+M+H 3Blocks Ranking Size 0.0359 Medium H–L–H–L–H–L–L L+H 2Click Alarmclock 0.0412 High H–M M+H 2Click Bell 0.0373 High H–L L+H 2Dump Bin Bigbin 0.0335 Medium M–L–H–L L+M+H 3Grab Roller 0.0675 High H–M M+H 2Handover Block 0.0348 Medium M–M–M M 1Handover Mic 0.0281 Low M–M–M M 1Hanging Mug 0.0382 High H–L–H–L–L L+H 2Lift Pot 0.0570 High H–M M+H 2Move Can Pot 0.0348 Medium H–L L+H 2Move Pillbottle Pad 0.0346 Medium H–M M+H 2Move Playingcard Away 0.0361 Medium H–M M+H 2Move Stapler Pad 0.0276 Low M–L L+M 2Open Laptop 0.0179 Low M–L L+M 2Open Microwave 0.0116 Low H–L–M–L L+M+H 3Pick Diverse Bottles 0.0736 High H–H H 1Pick Dual Bottles 0.0730 High H–H H 1Place A2B Left 0.0307 Low M–L L+M 2Place A2B Right 0.0299 Low M–M M 1Place Bread Basket 0.0370 Medium H–M–M–L L+M+H 3Place Bread Skillet 0.0438 High H–M M+H 2Place Burger Fries 0.0440 High H–M–M–L L+M+H 3Place Can Basket 0.0460 High H–M–H–L L+M+H 3Place Cans Plasticbox 0.0554 High H–M–H–H M+H 2Place Container Plate 0.0301 Low H–L–L L+H 2Place Dual Shoes 0.0556 High H–M–H M+H 2Place Empty Cup 0.0249 Low M–L–L L+M 2Place Fan 0.0312 Low H–L L+H 2Place Mouse Pad 0.0269 Low M–L L+M 2Place Object Basket 0.0460 High H–L–H–L L+H 2Place Object Scale 0.0316 Medium M–M M 1Place Object Stand 0.0306 Low H–L L+H 2
+
+18 Task Overall Overall Scale Stage Sequence Composition #Regimes                                                                            
+
+> Place Phone Stand 0.0279 Low M–L L+M 2Place Shoe 0.0267 Low M–L L+M 2Press Stapler 0.0296 Low H–L L+H 2Put Bottles Dustbin 0.0384 High M–L–H–M–M–M–H– M–L–H–H L+M+H 3Put Object Cabinet 0.0315 Medium M–M–M M1Rotate QRcode 0.0237 Low M–L L+M 2Scan Object 0.0448 High H–M M+H 2Shake Bottle Horizon-tally 0.0188 Low H–L L+H 2Shake Bottle 0.0213 Low H–L L+H 2Stack Blocks Three 0.0345 Medium M–L–H–L–H–L–L L+M+H 3Stack Blocks Two 0.0333 Medium M–L–H–L–L L+M+H 3Stack Bowls Three 0.0356 Medium M–L–H–L–H–M–L L+M+H 3Stack Bowls Two 0.0328 Medium M–L–H–M–L L+M+H 3Stamp Seal 0.0343 Medium H–L L+H 2Turn Switch 0.0320 Medium MM1
+
+## D Additional Experimental Results in Real World 
+
+Training and Evaluation Details. We evaluate ActionUNet on three representative tasks from the RoboTwin 2.0 benchmark: (1) Place Object Basket: the robot must grasp one of five kinds of objects and place it in the basket; success is recorded when the object is put in the basket. (2) Stack Blocks Two: the robot must grasp two blocks and stack one on the other one; success is recorded when the block is centrally stacked on the other one. (3) Stack Bowls Two: the robot must grasp two bowls and stack one on the other one; success is recorded when the bowl is centrally stacked on the other one. Each task includes 50 demonstrations used for training. Demonstrations are collected through keyboard-based teleoperation. In the hard setting, distractor layouts are randomly sampled across episodes but kept identical across compared models. Success is judged by a blinded human evaluator according to the task-specific criteria above. 
+
+Visualizations. We provide visualizations of real-world task executions in Fig. 7, Fig. 8, and Fig. 9. Across Place Object Basket, Stack Bowls Two, and Stack Blocks Two, π0.5+ActionUNet success-fully completes the manipulation process in both easy and hard settings, demonstrating stable exe-cution under additional distractor objects. 
+
+## E Architecture Exploration: Where Should Multi-scale Features Enter the Continuous Decoder? 
+
+We study an alternative design that directly injects multiple U-Net decoder features into different layers of the SIREN decoder. Specifically, given decoder features from the finest, middle, and coars-est resolutions, this variant conditions the first, second, and third SIREN layers on these features, respectively. This design appears natural because the temporal U-Net produces a feature pyramid whose levels correspond to different temporal resolutions. However, as shown in Table 9, this layer-wise pyramid conditioning does not improve performance and is consistently worse than our default ActionUNet design. We attribute this result to a mismatch between the temporal scale hierarchy and the SIREN layer hierarchy. The depth of a SIREN represents nonlinear composition in an implicit continuous field, but it does not provide an ordered coarse-to-fine temporal scale axis. Injecting U-Net features with 19 Task: Place Object Basket Language instruction: Grab the yellow tape measure, place it in the white basket. Figure 7: Visualization of Place Object Basket task execution with π0.5+ActionUNet. The top row shows the keyframes of the task execution in the easy setting, while the bottom row presents the keyframes in the hard setting. Task: Stack Bowls Two Language instruction: Stack the green bowl with slightly rounded base carefully over the blue bowl. 
+
+Figure 8: Visualization of Stack Bowls Two task execution with π0.5+ActionUNet. The top row shows the keyframes of the task execution in the easy setting, while the bottom row presents the keyframes in the hard setting. different temporal resolutions into different sinusoidal layers, therefore forces the continuous de-coder to simultaneously align multi-scale features and decode smooth trajectories. Because sine activations are sensitive to feature-induced phase shifts, unaligned coarse and fine conditions can in-terfere inside the hidden field, producing less stable action predictions. In contrast, ActionUNet first 20 Task: Stack Blocks Two Language instruction: Place red block and yellow block centrally, then stack red block on yellow block. Figure 9: Visualization of Stack Blocks Two task execution with π0.5+ActionUNet. The top row shows the keyframes of the task execution in the easy setting, while the bottom row presents the keyframes in the hard setting. Table 9: Architecture ablation on where multi-scale features enter the continuous decoder. Layer-wise Pyramid Condition. directly injects U-Net decoder features at different temporal resolutions into different SIREN layers. All non-baseline variants are built on π0.5.                                       
+
+> Task π0.5+ Layer-wise Pyramid Condition + ActionUNet Easy Hard Easy Hard Easy Hard
+> Move Can Pot 66 52 71 64 77 69
+> Stack Blocks Two 68 24 74 25 74 35
+> Beat Block Hammer 77 28 86 34 89 43 Average 70.3 34.7 77.0 41.0 80.0 49.0 Gain over π0.5––+6.7 +6.3 +9.7 +14.3
+
+reconciles multi-scale information in the temporal action feature space through the U-Net decoder and then passes a single temporal-aligned refined feature to the conditional SIREN. This separation lets the U-Net model have a hierarchical temporal structure, while the SIREN focuses on continuous and smooth action decoding, which explains the stronger performance of our default design. 
+
+## F Comparison with Action Smoothing Baselines 
+
+We compare ActionUNet with RTC [45]. RTC does not change the learned policy representation; instead, it replans frequently during execution and uses soft-mask continuation to condition the newly predicted chunk on the previous plan. We use an execution horizon of 40 and the soft-mask scaling coefficient of 0.10. RTC improves over the base policy in the hard setting, indicating that more frequent replanning and soft-mask continuation can reduce some execution errors. However, its gains are limited and inconsistent. For example, RTC decreases Easy performance on Beat Block Hammer and slightly hurts performance on the hard setting of Pick Dual Bottles. This suggests that action smoothing alone does not reliably address the temporal structure required by manipulation tasks. 21 Table 10: Comparison with action smoothing baselines on four RoboTwin2.0 tasks. RTC [45] per-forms run-time replanning and soft-mask continuation without changing the learned action represen-tation. All non-baseline variants are built on π0.5.                                             
+
+> Task π0.5+ RTC + ActionUNet Easy Hard Easy Hard Easy Hard
+> Move Can Pot 66 52 73 64 77 69
+> Stack Blocks Two 68 24 72 37 74 35 Beat Block Hammer 77 28 71 37 89 43
+> Pick Dual Bottles 65 34 71 33 71 39 Average 69.0 34.5 71.8 42.8 77.8 46.5 Gain over π0.5––+2.8 +8.3 +8.8 +12.0
+
+Figure 10: Ablation study on the Matérn length-scale parameter ρ. Changing ρ within the tested range only introduces minor performance variations, showing that ActionUNet is robust to the choice of the Matérn aggregation bandwidth. ActionUNet achieves a higher average success than RTC in both easy and hard settings. The gap is especially clear on tasks with scale transitions, such as Beat Block Hammer and Move Can Pot. Unlike RTC, ActionUNet changes the action feature representation before decoding actions. The temporal U-Net exposes the policy to coarse-to-fine temporal structure, while the continuous de-coder stabilizes the resulting trajectory. Therefore, the comparison supports our main claim: action smoothing is useful but insufficient by itself; robust VLA adaptation requires modeling multi-scale temporal features in the action space. 
+
+## G Ablation on the Matérn Length-Scale Parameter ρ
+
+We evaluate the length-scale parameter ρ in the Matérn aggregation kernel. The parameter ρ controls temporal bandwidth of the fixed Matérn weights which aggregate neighboring local SIREN fields. As shown in Fig. 10, the Matérn length-scale parameter ρ has only a minor effect: the frozen Matérn kernel mainly provides lightweight aggregation, while the conditional SIREN does the heavy lifting in representing the continuous action field. We thus fix ρ = 0 .2 in all experiments. 
+
+## H Parameter-Matched Single-Scale Control 
+
+To disentangle the contribution of multi-scale temporal structure from the effect of model capacity, we evaluate a parameter-matched single-scale variant. Based on the ablation study on the down-sampling rate r, we add the r = 1 setting, where the variant has the same parameter count as ActionUNet but removes temporal downsampling. The Conv1D layers operate at a single temporal resolution with no cross-scale fusion. This isolates the effect of multi-scale structure from parameter capacity. As shown in Table 11, the parameter-matched single-scale variant improves the average Easy per-formance from 69.0% to 74.5%, but yields only a modest Hard-setting gain from 34.5% to 38.5%. In contrast, ActionUNet reaches 77.8% and 46.5% under the Easy and Hard settings, respectively, providing a substantially larger gain in the Hard setting while improving Easy performance. These 22 Table 11: Parameter-matched single-scale control on four RoboTwin 2.0 tasks. The r = 1 variant has the same parameter count as ActionUNet but removes temporal downsampling and cross-scale fusion. All variants are built on π0.5.
+
+Task π0.5 +r = 1 Single-scale +ActionUNet Easy Hard Easy Hard Easy Hard 
+
+Move Can Pot 66 52 76 61 77 69 
+
+Stack Blocks Two 68 24 73 28 74 35 
+
+Beat Block Hammer 77 28 84 33 89 43 
+
+Pick Dual Bottles 65 34 65 32 71 39 Average 69.0 34.5 74.5 38.5 77.8 46.5 
+
+Gain over π0.5 – – +5.5 +4.0 +8.8 +12.0 
+
+Table 12: Repeated evaluation results on RoboTwin 2.0. We report mean success rate (%) ± standard error over five repeated evaluations. 
+
+Task π0.5 π0.5+ActionUNet Easy Hard Easy Hard 
+
+Single-scale Tasks 
+
+Pick Dual Bottles 64.8 ± 1.0 32.4 ± 0.9 70.8 ± 0.6 38.8 ± 0.4 
+
+Handover Mic 99.6 ± 0.2 56.0 ± 0.7 99.8 ± 0.2 78.8 ± 1.2 
+
+Handover Block 34.4 ± 0.5 13.0 ± 0.4 48.6 ± 0.9 16.8 ± 0.4 
+
+Dual-scale Tasks 
+
+Beat Block Hammer 75.4 ± 0.9 28.4 ± 0.5 89.2 ± 0.4 42.6 ± 1.5 
+
+Move Can Pot 66.4 ± 1.2 52.4 ± 1.2 77.2 ± 1.0 71.4 ± 0.7 
+
+Place A2B Left 45.2 ± 1.2 6.4 ± 0.4 54.8 ± 1.8 9.4 ± 0.5 
+
+Place Object Stand 51.2 ± 0.8 29.0 ± 1.0 62.6 ± 0.9 38.2 ± 0.7 
+
+Place Phone Stand 49.0 ± 1.3 19.8 ± 0.6 60.2 ± 1.7 25.8 ± 1.0 
+
+Press Stapler 71.2 ± 2.7 41.0 ± 1.2 75.6 ± 1.2 52.8 ± 0.7 
+
+Three-scale Tasks 
+
+Stack Blocks Two 68.6 ± 0.9 25.8 ± 0.7 76.0 ± 0.3 35.8 ± 0.5 
+
+Blocks Ranking RGB 37.2 ± 0.6 15.8 ± 0.9 48.8 ± 1.3 24.2 ± 0.7 
+
+Put Bottles Dustbin 48.0 ± 2.7 35.3 ± 0.9 59.0 ± 1.8 43.3 ± 0.9 
+
+Average 59.3 ± 0.4 29.6 ± 0.2 68.6 ± 0.3 39.8 ± 0.2 
+
+results show that increased parameter capacity mainly benefits clean-setting fitting, whereas multi-scale temporal modeling provides substantially stronger robustness gains. 
+
+## I Statistical Significance Analysis 
+
+I.1 Repeated Evaluations with Standard Errors 
+
+To quantify the statistical significance of the performance gains, we repeat each evaluation five times under the same benchmark-specific protocol and report all success rates as mean ± standard error. The complete results on RoboTwin 2.0, LIBERO, and LIBERO-Plus are reported below. On RoboTwin 2.0, ActionUNet improves the average success rates by 9.3 and 10.2 percentage points under the Easy and Hard settings, respectively, while the average standard errors are only approxi-mately 0.2–0.4 percentage points. Tables 13 and 14 show the average improvements are 2.1 and 6.0 percentage points on LIBERO and LIBERO-Plus, respectively, while the corresponding standard errors are small relative to the observed gains. These repeated evaluations show that the performance improvements are stable across the evaluated benchmarks. 23 Table 13: Repeated evaluations on LIBERO. We report mean success rate (%) ± standard error over five repeated evaluations. 
+
+Method Spatial Object Goal Long Avg. 
+
+π0.5 95.5 ± 0.45 98.4 ± 0.28 97.4 ± 0.85 91.1 ± 0.95 95.6 ± 0.35 
+
+π0.5+ActionUNet 98.2 ± 0.33 99.6 ± 0.33 98.8 ± 0.68 94.0 ± 0.69 97.7 ± 0.27 
+
+Table 14: Repeated evaluations on LIBERO-Plus. We report mean success rate (%) ± standard error over five repeated evaluations. 
+
+Method Camera Robot Lang. Light Back. Noise Layout Avg. 
+
+π0.5 48.4 ± 0.65 48.0 ± 1.75 67.4 ± 0.65 93.0 ± 0.20 87.1 ± 0.30 51.1 ± 1.20 81.8 ± 0.50 66.0 ± 0.40 
+
+π0.5+ActionUNet 56.4 ± 0.49 55.2 ± 1.55 74.6 ± 0.51 94.8 ± 0.06 89.7 ± 0.20 60.2 ± 0.97 85.5 ± 0.56 72.0 ± 0.32 
+
+Table 15: Sequential A/B hypothesis testing on RoboTwin 2.0. “Sig.” denotes a statistically sig-nificant improvement of π0.5+ActionUNet over π0.5, and “FTD” denotes FailToDecide within the maximum budget of 200 trials per policy. 
+
+Task Easy Hard 
+
+ˆp0 ˆp1 STEP Result ˆp0 ˆp1 STEP Result 
+
+Pick Dual Bottles .645 .720 153 Sig. .350 .390 – FTD Handover Mic .995 1.000 – FTD .540 .780 46 Sig. Handover Block .335 .475 90 Sig. .120 .185 164 Sig. Beat Block Hammer .750 .895 30 Sig. .280 .435 84 Sig. Move Can Pot .660 .770 29 Sig. .520 .715 20 Sig. Place A2B Left .460 .530 123 Sig. .065 .095 – FTD Place Object Stand .500 .630 58 Sig. .285 .385 107 Sig. Place Phone Stand .490 .610 62 Sig. .200 .275 155 Sig. Press Stapler .740 .755 – FTD .410 .530 22 Sig. Stack Blocks Two .680 .775 153 Sig. .240 .360 57 Sig. Blocks Ranking RGB .360 .500 133 Sig. .160 .250 125 Sig. Put Bottles Dustbin .510 .595 145 Sig. .355 .435 132 Sig. 
+
+I.2 Sequential A/B Hypothesis Testing 
+
+We conduct sequential A/B hypothesis testing to evaluate the statistical significance of ActionUNet against the π0.5 baseline on RoboTwin 2.0. Following the sequential testing protocol of [46], we test 
+
+H0 : p1 ≤ p0 vs. H1 : p1 > p 0,
+
+with a pre-specified Type-I error limit of α∗ = 0 .05 and a maximum budget of Nmax = 200 trials per policy for each task and setting. In Table 15, ˆp0 and ˆp1 denote the empirical success rates of π0.5 and π0.5+ActionUNet, respectively. STEP denotes the number of trials per policy used when the sequential test reaches a decision. “Sig.” means that H0 is rejected with the Type-I error controlled at α∗ = 0 .05 . “FTD” denotes 
+
+FailToDecide , meaning that no decision is reached within the budget of 200 trials per policy; it does not imply policy equivalence or acceptance of H0.The results show that 20 of the 24 RoboTwin task-setting comparisons establish statistically signifi-cant improvements of π0.5+ActionUNet over the π0.5 baseline, including 10 of 12 Easy comparisons and 10 of 12 Hard comparisons. The remaining 4 cases are FailToDecide within the available budget. 
+
+## J Additional RoboTwin 2.0 Evaluation 
+
+Our main RoboTwin 2.0 experiments follow a single-task training and evaluation protocol and eval-uate a representative subset of 12 tasks. To obtain balanced coverage, the original subset contains 24 Table 16: Results on 5 additional RoboTwin 2.0 tasks beyond the original 12-task evaluation subset.                                   
+
+> Task π0.5π0.5+ActionUNet Easy Hard Easy Hard
+> Dual-scale Tasks
+> Open Laptop 88 59 96 75
+> Place Dual Shoes 45 12 56 21
+> Click Alarm 84 17 91 21
+> Three-scale Tasks
+> Stack Bowls Two 88 60 94 67
+> Place Can Basket 49 19 57 24 Average 70.8 33.4 78.8 41.6
+> Gain over π0.5––+8.0 +8.2
+
+Table 17: Comparison with HiFlow on three RoboTwin 2.0 tasks under the clean setting. HiFlow results are taken from the corresponding paper.          
+
+> Method Click Alarm Move Can Pot Place Can Basket
+> HiFlow [25] 69 42 39
+> π0.5+ActionUNet 91 77 57
+
+Table 18: Comparison with recent multi-scale and hierarchical methods on LIBERO. Results for external methods are taken from the corresponding papers.                                    
+
+> Method Spatial Object Goal Long Avg.
+> Multi-scale Methods
+> MINT-30M [30] 98.6 99.2 97.4 93.2 97.1 FASTer [47] 98.0 99.4 98.6 95.4 97.9
+> Hierarchical Methods
+> Coarse-to-Control [48] 98.8 100.0 97.8 95.0 97.9 ECHO [49] 98.3 98.8 98.6 93.5 97.3
+> π0.5+ActionUNet 98.6 99.4 98.8 93.8 97.7 OpenVLA-OFT+ActionUNet 99.2 99.0 99.6 96.4 98.6
+
+three single-scale, six dual-scale, and three three-scale tasks, together with five low-, four medium-, and three high-overall-scale tasks according to the temporal-scale analysis in Appendix C. To further validate that the gains generalize beyond the original subset, we evaluate five additional RoboTwin 2.0 tasks. We select them to broaden both scale-composition and overall-scale coverage: three are dual-scale tasks and two are three-scale tasks, while their overall action scales include one low-, one medium-, and three high-scale tasks. Specifically, the additional tasks are Open Laptop (low, dual-scale), Place Dual Shoes and Click Alarm (high, dual-scale), Stack Bowls Two (medium, three-scale), and Place Can Basket (high, three-scale). ActionUNet improves all five additional tasks, increasing the average Easy and Hard success rates by 8.0 and 8.2 percentage points, respectively. These results indicate that the improvements are not specific to the original 12-task subset. 
+
+## K Comparison with Additional Multi-Scale and Hierarchical Methods 
+
+We compare ActionUNet with recent methods that explicitly model multi-scale or hierarchical action generation. The baseline results reported below are taken from the corresponding papers under their reported benchmark evaluation settings. 25 Table 19: Comparison with recent multi-scale and hierarchical methods on LIBERO-Plus. We report average success rate (%).      
+
+> Method Average Success Rate
+> MINT-30M [30] 69.5 ECHO [49] 56.5 OpenVLA-OFT+ActionUNet 64.6
+> π0.5+ActionUNet 71.9
+
+Table 20: Comparison with action-space multi-scale decomposition baselines on four RoboTwin 2.0 tasks. DCT decomposes the target action chunk into low-, mid-, and high-frequency components, while the Laplacian variant constructs a multi-resolution residual action pyramid. All variants are built on π0.5.                                                            
+
+> Task π0.5+ DCT + Laplacian + ActionUNet Easy Hard Easy Hard Easy Hard Easy Hard
+> Move Can Pot 66 52 70 52 64 56 77 69
+> Stack Blocks Two 68 24 71 18 66 16 74 35
+> Beat Block Hammer 77 28 78 29 73 28 89 43
+> Pick Dual Bottles 65 34 69 30 69 28 71 39 Average 69.0 34.5 72.0 33.0 68.0 32.0 77.8 46.5
+> Gain over π0.5––+3.0 -1.5 -1.0 -2.5 +8.8 +12.0
+
+These comparisons show that ActionUNet is competitive with recent multi-scale and hierarchi-cal policies. Importantly, these methods redesign the action representation or generation process, whereas ActionUNet preserves the backbone’s native action space and introduces multi-scale struc-ture through lightweight action-head fine-tuning. 
+
+## L Comparison with Action-Space Multi-Scale Decomposition 
+
+To investigate whether the observed multi-scale benefit comes from explicit action-space decompo-sition or feature-space modeling, we conduct additional experiments. A natural alternative to our approach is to construct a multi-scale action pyramid and train the model to predict these decom-posed actions directly. We implement two multi-scale variants. The first variant uses a discrete cosine transform (DCT) to decompose each action chunk into low-, mid-, and high-frequency components corresponding to three scales, and trains π0.5 to predict all three levels jointly. The second variant constructs a Laplacian residual pyramid with the same downsampling rate and depth as ActionUNet, and trains π0.5 to predict all residual levels jointly. Unlike ActionUNet, both variants introduce multi-scale structure directly in the output action space rather than in the temporally aligned action-feature space. The DCT variant provides modest gains in the Easy setting but slightly underperforms the baseline in the Hard setting on average. The Laplacian residual pyramid also fails to provide consistent improvements, improving only two of eight task-setting comparisons while matching or underper-forming the baseline in the others. In contrast, ActionUNet consistently improves both Easy and Hard performance across all evaluated tasks. These results suggest that directly decomposing and supervising actions at multiple output scales is insufficient. By operating in the temporally aligned action-feature space rather than decomposing the final action space, ActionUNet preserves the pre-trained backbone’s learned action mapping while enriching its features with multi-scale temporal structure. 26 Table 21: Quantitative trajectory analysis on four RoboTwin 2.0 tasks. Lower Manipulation Drift and Jerk RMS indicate better spatial accuracy and smoother trajectories, respectively.                                
+
+> Setting Method Success Rate (%) ↑Drift (mm) ↓Jerk RMS (m/s 3)↓
+> Easy
+> π0.569.0 32.53 32.90 + U-Net 67.5 29.07 34.49 + SIREN 75.5 28.85 29.43
+> + ActionUNet 77.8 27.60 32.70 Hard
+> π0.534.5 81.64 48.31 + U-Net 37.3 76.05 49.34 + SIREN 33.3 83.03 42.01
+> + ActionUNet 46.5 62.28 45.88
+
+Table 22: Module-wise ablation on LIBERO-Plus. All variants are trained on LIBERO and directly evaluated under seven controlled perturbations. We report mean success rate (%) ± standard error over three repeated evaluations.                                         
+
+> Method Camera Robot Lang. Light Back. Noise Layout Avg.
+> π0.548.4 ± 0.65 48.0 ± 1.75 67.4 ± 0.65 93.0 ± 0.20 87.1 ± 0.30 51.1 ± 1.20 81.8 ± 0.50 66.0 ± 0.40
+> + U-Net 50.8 ± 0.18 52.4 ± 0.51 71.3 ± 0.34 93.8 ± 0.86 88.7 ± 0.86 52.9 ± 0.17 83.1 ± 0.31 68.4 ± 0.18
+> + SIREN 47.4 ± 0.23 53.1 ± 0.30 67.4 ± 0.25 92.7 ± 0.55 86.8 ± 0.42 48.7 ± 0.63 81.4 ± 0.53 66.1 ± 0.17
+> + ActionUNet 56.4 ± 0.49 55.2 ± 1.55 74.6 ± 0.51 94.8 ± 0.06 89.7 ± 0.20 60.2 ± 0.97 85.5 ± 0.56 72.0 ± 0.32
+
+## M Quantitative Analysis of Trajectory Accuracy and Smoothness 
+
+To quantitatively support the trajectory analysis in Fig. 6, we compute two metrics on four RoboTwin 2.0 tasks: Move Can Pot, Stack Blocks Two, Beat Block Hammer, and Pick Dual Bottles. 
+
+Jerk RMS is the root mean square of the third temporal derivative of the end-effector position aver-aged over the action horizon. Lower values indicate smoother trajectories with less high-frequency jitter. Manipulation Drift is the positional offset of the end-effector at the first grasp attempt rela-tive to the target object. It measures spatial accuracy in the critical grasping phase, with lower values indicating more precise localization. The results confirm that the SIREN-only variant achieves the lowest Jerk RMS and the best smooth-ness, but its Hard-setting success rate decreases from 34.5% to 33.3%, while Manipulation Drift increases from 81.64 mm to 83.03 mm. This shows that temporal smoothing alone is insufficient to explain the robustness gains. In contrast, the U-Net-only variant improves Hard-setting success from 34.5% to 37.3% and reduces Manipulation Drift from 81.64 mm to 76.05 mm, while increasing Jerk RMS. The full ActionUNet achieves the highest Hard-setting success rate of 46.5% and the lowest drift of 62.28 mm while maintaining relatively low jerk. These results indicate that the temporal U-Net provides the main robustness improvement through multi-scale temporal feature aggregation, while the SIREN decoder complements it by resolving fusion-induced temporal discontinuities. 
+
+## N Module-Wise Robustness Ablation on LIBERO-Plus 
+
+To directly separate the contribution of multi-scale temporal refinement from that of the smoothing decoder, we conduct the module-wise ablation on LIBERO-Plus. All variants are trained under the same LIBERO protocol and directly evaluated on the seven controlled LIBERO-Plus perturbations. We repeat the evaluation three times and report the mean values and standard errors. Performance on LIBERO-Plus provides a direct measure of robustness, as the models are trained on clean data but tested under diverse observation perturbations. Under LIBERO-Plus perturbations, U-Net-only improves the average success rate by 2.4 percentage points and improves all seven perturbation categories. In contrast, SIREN-only improves the average 27 Table 23: Evaluation on precision-demanding RoboDojo tasks. We report mean success rate and Progress Score ± standard error over three repeated evaluations. Lower Jerk RMS indicates smoother trajectories.                           
+
+> Task Method Success (%) ↑Progress ↑Jerk RMS ↓GT Jerk RMS
+> Insert Tubes π0.54.7 ± 3.1 22.0 ± 3.2 127.81 50.62 + ActionUNet 14.0 ± 2.0 30.8 ± 0.4 122.99 50.62 Build Tower π0.526.0 ± 2.0 37.3 ± 0.9 119.75 49.54 + ActionUNet 34.7 ± 2.3 42.5 ± 1.5 109.53 49.54
+
+by only 0.1 points: it improves the Robot perturbation, matches the baseline under Language, and decreases performance under the other perturbations. The U-Net therefore exhibits the broad standalone robustness effect under observation corruptions. The full ActionUNet achieves the best performance under every perturbation and improves the aver-age by 6.0 percentage points, substantially exceeding either individual module. These results show that the U-Net alone provides more consistent performance gains across obser-vation perturbations. Together with the RoboTwin 2.0 module-wise analysis, these results support that the multi-scale scheme improves the robustness of downstream action-feature prediction, rather than making the VLM encoder itself more robust. 
+
+## O Precision-Demanding Manipulation on RoboDojo 
+
+We evaluate ActionUNet on high-precision manipulation tasks from RoboDojo [50], specifically on the precision dimension, which contains tasks requiring strict spatial accuracy and contact-rich control. We evaluate two representative precision tasks: Insert Tubes , where the robot must insert tubes into narrow holes, and Build Tower , where the robot must precisely arrange wooden blocks and boards into a stable tower. We compare π0.5 and π0.5+ActionUNet under the same training protocol with 100 demonstrations and single-task fine-tuning. Each evaluation includes 50 episodes, and we repeat it three times to calculate the mean ± standard error. In addition to success rate, we report the RoboDojo Progress Score and Jerk RMS. Progress Score measures partial completion. Insert Tubes assigns 20, 40, or 100 points when one, two, or three tubes satisfy the position, insertion-depth, and orientation conditions; Build Tower assigns 10, 30, or 100 points for completing the bottom structure, middle structure, or full tower. Jerk RMS is the root mean square of the third temporal derivative of end-effector position over the full episode. GT Jerk RMS is computed from the demonstration trajectories. On Insert Tubes, ActionUNet improves the success rate by 9.3 percentage points and the Progress Score by 8.8 points. On Build Tower, it improves the success rate by 8.7 percentage points and the Progress Score by 5.2 points. These consistent gains in both complete success and partial task progress demonstrate that ActionUNet remains effective on precision-demanding manipulation tasks. The quantitative results further show that ActionUNet is only slightly smoother than the π0.5 baseline and remains substantially less smooth than the ground-truth trajectory. On Insert Tubes, Jerk RMS decreases from 127.81 to 122.99 m/s 3, compared with a GT Jerk RMS of 50.62 m/s 3. On Build Tower, it decreases from 119.75 to 109.53 m/s 3, compared with a GT Jerk RMS of 49.54 m/s 3. The simultaneous improvements in complete success, partial task progress, and trajectory smoothness indicate that the lower Jerk RMS does not come from suppressing the fine-grained motions required for precise manipulation. These results support that ActionUNet remains effective on precision-demanding tasks without over-smoothing the trajectory. 28
