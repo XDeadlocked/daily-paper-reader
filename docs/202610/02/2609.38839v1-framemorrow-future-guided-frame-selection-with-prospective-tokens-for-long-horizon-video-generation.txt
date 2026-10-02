@@ -1,0 +1,644 @@
+Title: FrameMorrow: Future-guided Frame Selection with Prospective Tokens for Long-Horizon Video Generation
+
+URL Source: https://arxiv.org/pdf/2609.38839v1
+
+Published Time: Thu, 01 Oct 2026 00:45:26 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+Preprint 
+
+# FRAME MORROW : FUTURE -GUIDED FRAME SELEC -
+
+# TION WITH PROSPECTIVE TOKENS FOR LONG -HORIZON VIDEO GENERATION 
+
+Bo Yin 1, Xiaobin Hu 1, Jiaqi Zhao 1,2, Shuicheng Yan 1,
+
+> 1
+
+National University of Singapore 
+
+> 2
+
+Harbin Institute of Technology (Shenzhen) 
+
+## ABSTRACT 
+
+Long-horizon video generation requires models to effectively leverage an increas-ingly long generation history. As the generated history grows, retaining all pre-vious content becomes increasingly expensive and redundant, making effective historical selection essential. Existing approaches often determine historical rel-evance from the current content. However, information that is relevant to the present is not necessarily useful for future generation, while seemingly less rele-vant history may become important later. Our key insight is that historical infor-mation should be selected according to its relevance to future information needs .Capturing these needs does not require generating the full future. A compact rep-resentation of what becomes important next is sufficient to guide historical selec-tion. Building on this insight, we propose FRAME MORROW , a prospective frame selector that predicts a small set of prospective tokens representing future informa-tion needs and uses them to identify relevant information from history. F RAME M- 
+
+> ORROW
+
+selects explicit historical frames rather than model-specific internal states, enabling plug-and-play integration across diverse generators, including closed-source models, with little additional inference cost. We evaluate F RAME MOR - 
+
+> ROW
+
+across five benchmarks and 11 generative models spanning long-video gen-eration, interactive generation, and action-conditioned world models. Extensive experiments demonstrate improvements in long-range consistency, visual quality, and action alignment across diverse generation settings. The project page is at 
+
+https://yinbo0927.github.io/FrameMorrow/ .
+
+## 1 INTRODUCTION 
+
+Long-horizon video generation requires models not only to continuously extend visual content, but also to preserve coherent subjects, objects, and scenes over time (Yang et al., 2025; Zhang et al., 2025a; Yu et al., 2026; Yin et al., 2026; Zhao et al., 2026). As generation proceeds, visual details generated earlier in the video gradually fall outside the model’s limited input window (Hu et al., 2026). When such content becomes relevant again, subjects can change appearance, object states can become inconsistent, and revisited scenes can no longer match their earlier observations (Xiao et al., 2026). Keeping all historical information is impractical, as it increases computation and introduces a large amount of redundant context (Yi et al., 2025; Ji et al., 2025; Nie et al., 2026). Moreover, not all historical information is equally useful at every generation step (Ji et al., 2025; An et al., 2026; Yin et al., 2025a). The key challenge is therefore to selectively preserve the historical information that matters for future generation. Many existing methods identify useful history based on its relevance to the current content (Zhang et al., 2025b), often using the recent visual context to retrieve related information from the past (Hu et al., 2026; Ye et al., 2026; Wang et al., 2026a; Ding et al., 2026). Such a strategy mainly answers which historical information is most relevant to what is visible now. However, this can differ from what will actually be useful for future generation. Information that closely matches the present may provide little additional value for what comes next, while earlier information that appears less relevant now can become important again as the generation evolves. As illustrated in Fig. 1, match-1arXiv:2609.38839v1 [cs.CV] 30 Sep 2026 Preprint (a) Available history         
+
+> Room A Room A Sideboard Dining room Corridor Current view
+> Next condition: “Return to the room and move toward the armchair.”
+> (b) Selected history (c) Future generation
+> Context
+> matching
+> Similar to the current view Chair appearance changes
+> FrameMorrow
+> Relevant to future generation Chair appearance is preserved
+
+Figure 1: Motivation for future-relevant history selection. Given the same available history and known next condition, current-context matching favors observations similar to the current view, whereas F RAME MORROW selects earlier history that is more relevant to the upcoming generation. The selected history helps preserve previously observed visual details in the generated continuation. ing the current view can favor visually similar history, while information that is less relevant to the present may better support the upcoming generation. Therefore, the importance of historical information should not be determined only by its relevance to the present, but also by its potential usefulness for the future. Can historical information be selected according to its relevance to the future rather than to the current content? 
+
+However, the challenge is that the future has not been generated when the selection is made. Since the goal is to determine which historical information will be useful for future generation, there is no need to generate the full future itself. Instead, it is sufficient to predict a compact representation that captures future information needs and serves as a proxy for the future. Such a representation can then guide historical selection toward information that is likely to matter next. Motivated by this, we propose F RAME MORROW , which predicts a small set of prospective tokens as compact representations of future information needs. These tokens capture what potentially become important next and are used to identify historical information that is relevant to future generation. FRAME MORROW then selects explicit historical frames based on this relevance. Because it selects explicit historical frames rather than model-specific internal states, the same selector can be used across different generators, while each model processes the selected frames in its native way. This makes F RAME MORROW plug-and-play across different generators, including closed-source models. Moreover, predicting only a few prospective tokens and selecting only a few historical frames keeps FRAME MORROW lightweight with little additional inference cost. Our contributions are as follows: • We formulate using future information needs as the condition for frame selection. Selection based only on current content cannot predict future information needs and retrieve frames that are relevant to the present but unhelpful for future generation. • We propose F RAME MORROW , which introduces prospective tokens to explicitly represent future information needs and identify relevant information from the history. • We design F RAME MORROW as a plug-and-play , lightweight selector that outputs ex-plicit historical frames, enabling broad compatibility across different generators, including closed-source models, with little inference overhead. • We extensively evaluate F RAME MORROW across five benchmarks and 11 generative mod-els, covering long-video generation, interactive generation, and action-conditioned world models, with improvements in long-range consistency, visual quality, and action alignment. 2Preprint 
+
+## 2 RELATED WORK 
+
+Long-Horizon Video Generation. Autoregressive video models extend videos by conditioning new content on previously generated outputs (Yin et al., 2025b; Huang et al., 2026). CausVid (Yin et al., 2025b) distills a bidirectional diffusion model into a few-step causal generator for streaming syn-thesis. Self-Forcing (Huang et al., 2026) reduces the training–inference gap by using self-generated context during training. LongLive (Yang et al., 2025) supports real-time long-video generation with changing text prompts, while Matrix-Game 3.0 (Wang et al., 2026b) extends interactive world gen-eration with action control and long-horizon memory. Rather than developing another generation backbone, our work provides a plug-and-play frame selector that supports diverse existing genera-tors by supplying relevant historical information. 
+
+Historical Information Selection. Historical information can be retrieved as visual context or re-tained within a generator’s internal cache. LongLive-RAG retrieves historical latents using the latest generated content (Hu et al., 2026), while DySink selects visually relevant historical frames as dy-namic frame sinks (Ye et al., 2026). For narrative generation, MemFlow retrieves history using the upcoming chunk prompt (Ji et al., 2025), and Memento separately retrieves identity evidence and short-range shot cues (Wei et al., 2026). Mem-World combines planned actions with scene geometry to retrieve relevant historical observations (Zheng et al., 2026). For cache management, PaFu-KV learns token salience from a bidirectional teacher (Chen et al., 2026a), while Future Forcing con-structs future-query proxies to guide cache eviction and merging (Luo et al., 2026a). Unlike existing approaches that determine historical relevance from observed content or model-specific memory states, our method selects history according to its relevance to future information needs. 
+
+Learning to Select Frames. Learned frame selection reduces redundant visual input for video un-derstanding. Frame-Voyager learns query-conditioned frame combinations from rankings provided by a video-language model (Yu et al., 2025). FrameOracle predicts both query-relevant frames and an adaptive frame budget (Li et al., 2025). Related approaches learn selection through multimodal-model supervision (Hu et al., 2025), flexible selection policies (Buch et al., 2025), or reinforcement-learning rewards (Qin et al., 2026). These methods select evidence to answer questions or reason about an available video. Unlike frame selectors designed for fully observed videos, F RAME MO- 
+
+> RROW
+
+predicts prospective tokens to represent information needs for content that has not yet been generated, enabling lightweight selection of relevant historical frames. 
+
+## 3 METHOD 
+
+Overview. FRAME MORROW predicts a small set of prospective tokens to represent future infor-mation needs by given eligible history Ht, recent context Lt, and the known rollout condition c+ 
+
+> t
+
+.These tokens score historical relevance and guide frame selection. During training, a frozen visual teacher ranks historical frames by their correspondence with future content, providing ranking su-pervision for the tokens. At inference, F RAME MORROW outputs explicit historical frames, which augment a compatible frozen generator through its own conditioning mechanism (Fig. 2). 3.1 PROSPECTIVE FRAME SELECTION 
+
+At rollout step t, we distinguish the backbone’s recent context from the eligible long-term history: 
+
+Lt = {xt−L+1 , . . . , x t}, Ht = {xτi }Ni=1 , τi ≤ t − L. (1) Both sets are observed by the selector, but only Ht is eligible for retrieval. Recent context thus in-forms which past evidence to recall without occupying the long-term memory budget. The condition 
+
+c+ 
+
+> t
+
+is a text prompt, action sequence, or control signal available at step t. It contains no later user input, environment feedback, or future observation. For a memory budget K, we select 
+
+ˆrt = Sθ (Ht, Lt, c + 
+
+> t
+
+) ∈ RN , It = TopK(ˆ rt, K ), Mt = Ht[It]. (2) The selected frames are ordered by their timestamps before being passed to the backbone. 3.2 PROSPECTIVE TOKENS 
+
+To represent future information needs without generating future content, a compact causal Trans-former predicts prospective tokens from the observed history, recent context, and rollout con-3Preprint (a) Inference: prospective frame selection 
+
+> Available context
+> Eligible history H
+> Candidates for selection
+> Recent context L
+> Known condition c
+> “Return to the red chair.”
+
+FrameMorrow   
+
+> Generator-external prospective selector
+> Visual encoder
+> Condition encoder
+> HLc
+> Causal Transformer
+> Prospective queries
+> Candidate history frames
+> Attention logits Pool Frame scores
+> Top-K Selected history
+> Explicit frames
+
+Plug-and-play   
+
+> Backbone-native conditioning
+> Native adapter
+> Backbone-specific KVor
+> Latent tokens KV states
+> Video / world model
+> Next rollout
+
+(b) Training: future-guided ranking distillation              
+
+> Eligible history H
+> Realized future DINOv2
+> Cosine similarity
+> History ×future
+> Pool Frame scores Normalize
+> Ranking distillation
+> Teacher ranking Student ranking
+> 12341234
+> Student ranking
+> Update selector
+> Legend Trainable Fixed
+
+Figure 2: Overview of F RAME MORROW . (a) At inference, the selector autoregressively predicts prospective tokens from history, recent context, and the rollout condition. These tokens score el-igible historical frames and guide top-K selection. Each frozen generator processes the selected frames through its own conditioning mechanism. (b) During training, frozen DINOv2 features pro-vide future-grounded frame rankings, which supervise the prospective tokens through listwise and pairwise ranking losses. dition. A frozen visual encoder Ev and learned projection Pv encode each observed frame as 
+
+z(x) = Pv [Ev (x)] ∈ Rd. We form the temporally ordered sequences Ht = [ h1, . . . , hN ], with 
+
+hi = z(xτi ), and Lt = [ z(xt−L+1 ), . . . , z(xt)] . A frozen modality-specific encoder Ec and learned projection Pc produce C+
+
+t = Pc[Ec(c+
+
+t )] . Selector weights are shared across compatible backbones within each condition modality. Different modalities share the architecture and interface. After processing [Ht, Lt, C+
+
+t ], the selector autoregressively predicts M prospective tokens: 
+
+qmt = Fψ (Ht, Lt, C+
+
+t , q<m t ), m = 1 , . . . , M. (3) All predicted tokens are retained as Qt = [ q1
+
+t , . . . , qMt ] ∈ RM ×d (M = 4 by default). Each to-ken can condition on preceding tokens, allowing their predictions to depend on one another. Their prospective role is learned through future-grounded ranking supervision, without assigning prede-fined future factors to individual tokens. At each rollout step, the tokens are regenerated from the currently available inputs. With θ = {Pv , P c, ψ, W Q, W K }, the prospective tokens serve as at-tention queries over eligible historical frames. We compute scaled dot-product attention logits and aggregate them with a smooth maximum: 
+
+at,m,i = (WQqmt )⊤(WK hi)
+
+√d , ˆrt,i = τq log 1
+
+M
+
+MX
+
+m=1 
+
+eat,m,i /τ q
+
+!
+
+. (4) Here τq > 0 controls aggregation sharpness. A frame can score highly by matching any prospective token. The objective supervises the aggregated ranking without explicitly enforcing diversity among tokens or selected frames. 3.3 FUTURE -G ROUNDED RANKING DISTILLATION 
+
+We train the prospective tokens by matching their predicted frame rankings to rankings derived from future content. Each training trajectory supplies eligible history, recent context, a known condition, and a realized continuation Y+
+
+t = {xt+j }Hj=1 . The teacher compares candidate and continuation frames using a frozen DINOv2 encoder Φ. Historical views of subjects or scenes that recur in the continuation can provide reusable visual evidence, motivating the correspondence target 
+
+RFt,i,j = cos(Φ( xτi ), Φ( xt+j )) , rFt,i = τf log 
+
+ 1
+
+H
+
+HX
+
+j=1 
+
+eRFt,i,j /τ f
+
+ . (5) 4Preprint Table 1: VBench-Long results for 60-second generation on all 128 MovieGenBench prompts. 
+
+Each block compares long-context methods on one backbone. Average rank is computed over six metrics. Bold and underline mark the best and second-best results within each block.                                                                                                                           
+
+> Method Subject ↑Background ↑Motion ↑Dynamic ↑Aesthetic ↑Imaging ↑Avg. Rank ↓
+> Self-Forcing 95.84 95.27 98.20 51.72 56.05 62.22 4.33
+> +∞-RoPE 97.24 96.24 98.58 46.64 56.09 63.28 3.17 +Deep Forcing 96.08 95.38 98.24 41.44 56.68 60.81 4.17 +LongLive-RAG 97.60 96.51 98.70 44.69 57.19 64.97 2.00
+> +F RAME MORROW (Ours) 97.71 96.45 98.60 64.56 57.27 68.47 1.33
+> LongLive 1.0 97.13 95.89 98.61 44.56 58.17 67.56 3.83
+> +∞-RoPE 97.00 95.85 98.53 53.36 57.48 66.94 4.25 +Deep Forcing 97.17 96.04 98.73 45.13 57.48 67.27 3.42 +LongLive-RAG 97.32 96.08 98.62 49.90 58.30 67.79 2.25
+> +F RAME MORROW (Ours) 97.32 96.17 98.75 50.42 58.75 67.82 1.25
+> Causal Forcing 93.52 94.12 95.74 72.32 51.24 62.30 4.83
+> +∞-RoPE 93.81 93.78 96.09 92.47 54.42 67.50 3.33 +Deep Forcing 94.27 94.18 96.62 78.59 52.12 64.25 3.17 +LongLive-RAG 94.29 94.24 96.48 88.20 54.95 68.16 2.33
+> +F RAME MORROW (Ours) 94.54 94.28 96.59 89.74 56.27 68.76 1.33
+
+This smooth maximum favors correspondence with at least part of the continuation. It provides a visual relevance proxy, rather than a measurement of incremental generation utility beyond the recent context or a guarantee of coverage across the continuation. We empirically examine the relationship between this proxy and downstream generation utility in Appendix E.5. The teacher uses only (Ht, Y+ 
+
+> t
+
+), while the student receives only (Ht, Lt, c + 
+
+> t
+
+) during both training and inference. We collect rFt = [ rFt, 1, . . . , r Ft,N ] and normalize teacher and student scores into ranking distributions: 
+
+pFt = Softmax( rFt /τ r ), ˆpt = Softmax(ˆ rt/τ s). (6) The temperatures τf , τ r , τ s are positive. We retain pairwise orderings separated by a margin δ > 0,
+
+Pt = {(i, j ) | rFt,i ≥ rFt,j + δ}, and optimize 
+
+Lsel = Llist + λLpair , (7) where the listwise term aligns the full distribution and the pairwise term preserves orderings sepa-rated by the teacher-score margin: 
+
+Llist = −
+
+> N
+
+X
+
+> i=1
+
+pFt,i log ˆ pt,i , Lpair = 1
+
+|P t|
+
+X
+
+> (i,j )∈P t
+
+softplus[ −(ˆ rt,i − ˆrt,j )] . (8) We set Lpair = 0 when Pt is empty. At inference, continuation-based target construction is re-moved. The selector still encodes observed frames with Ev and predicts prospective tokens from 
+
+(Ht, Lt, c + 
+
+> t
+
+), without accessing Y+ 
+
+> t
+
+.3.4 PLUG -AND -P LAY INTEGRATION 
+
+FRAME MORROW outputs explicit historical frames, while each generator processes these frames through its own conditioning mechanism. For a frozen backbone b that supports reference-frame or memory conditioning, its native adapter Γb maps the selected frames to the representation already accepted by that model: 
+
+M(b) 
+
+> t
+
+= Γ b(Mt), ˆY+ 
+
+> t
+
+= Gωb (Lt, c + 
+
+> t
+
+, M(b) 
+
+> t
+
+), ωb is frozen . (9) For example, a reference-frame interface applies its existing image preprocessing and reference encoder to Mt. No new conditioning module is trained. The selector decides which historical frames to provide, while each generator retains its own way of processing the selected content. Predicting a small number of prospective tokens avoids generating an additional future video for selection. A fixed K bounds the number of additional frames supplied to the generator. Selector processing still depends on the candidate count, recent-context length, and condition length. 5Preprint Table 2: Interactive video generation over 60 seconds. Single-shot and multi-shot results are grouped separately. Bold marks the better result within each backbone pair.                                                                                                                                         
+
+> Overall Segment-wise CLIP Score ↑
+> Model Quality ↑Consistency ↑Aesthetic ↑0–10s 10–20s 20–30s 30–40s 40–50s 50–60s Avg. Single-shot
+> LongLive 1.0 83.49 92.62 64.21 30.71 29.41 27.35 28.45 27.63 28.95 28.75 +F RAME MORROW (Ours) 84.06 93.21 64.56 30.72 29.65 28.11 28.78 28.03 29.18 29.08
+> Self-Forcing 78.71 84.95 58.16 30.40 29.52 26.93 25.10 23.37 23.02 26.39 +F RAME MORROW (Ours) 81.74 89.30 60.62 30.56 29.67 28.34 27.12 26.60 26.01 28.05
+> Causal Forcing 76.00 80.46 55.45 29.92 27.37 23.89 22.43 21.02 22.56 24.53 +F RAME MORROW (Ours) 78.66 83.48 58.75 29.88 27.15 24.27 23.76 23.30 23.08 25.24
+> CausVid 81.94 89.77 63.53 29.92 29.00 28.34 28.22 28.19 28.08 28.63 +F RAME MORROW (Ours) 82.26 90.52 63.64 29.81 29.21 28.86 28.82 28.81 28.64 29.03 Multi-shot
+> LongLive 2.0 82.77 93.14 61.32 29.27 28.12 28.12 28.53 28.04 28.02 28.35 +F RAME MORROW (Ours) 83.18 93.49 61.68 29.28 28.05 28.06 28.71 28.29 28.24 28.44
+> ShotStream 83.12 92.75 62.30 30.15 28.87 28.00 29.14 29.19 29.19 29.09 +F RAME MORROW (Ours) 84.85 96.76 61.74 29.68 28.58 28.38 29.36 29.43 29.51 29.16
+
+## 4 EXPERIMENTS 
+
+We evaluate F RAME MORROW on five benchmarks covering long-video generation, single-shot interactive generation, multi-shot interactive generation, closed-source generation, and action-conditioned world models. 4.1 EXPERIMENTAL SETUP 
+
+Backbones and baselines. For long-video generation, we evaluate Self-Forcing (Huang et al., 2026), LongLive 1.0 (Yang et al., 2025), and Causal Forcing (Zhu et al., 2026). Long-context baselines include ∞-RoPE (Yesiltepe et al., 2026), Deep Forcing (Yi et al., 2025), and LongLive-RAG (Hu et al., 2026). Interactive video experiments additionally include CausVid (Yin et al., 2025b), LongLive 2.0 (Chen et al., 2026b), and ShotStream (Luo et al., 2026b). World-model ex-periments use Matrix-Game 3.0 (Wang et al., 2026b), WorldMem (Xiao et al., 2026), and YuMe 1.5 (Mao et al., 2026). Closed-source model experiments use Seedance 2.0 and Kling O3 through their public reference-conditioning interfaces. 
+
+Offline training and integration. For text-conditioned generation, we train on 10K Open-VidHD Nan et al. (2025) videos organized into streaming prompts. For action-conditioned world models, we use 10K chunk-aligned examples from Sekai Game-Walking with pseudo-actions de-rived from camera motion. In both settings, realized future observations are used only to construct future-grounded ranking supervision. At inference, selected frames are passed through each frozen backbone’s existing conditioning interface. Unless otherwise stated, we use K = 4 historical frames and M = 4 prospective tokens while retaining each backbone’s native recent context. Further details are provided in Appendix A. 
+
+Evaluation metrics. For MovieGenBench, we report the six VBench-Long dimensions and average rank across these dimensions within each backbone. Ties receive their average rank. For interactive long video generation, we report overall quality, consistency, and aesthetic scores. We measure se-mantic adherence using CLIP scores between each 10-second segment and its corresponding prompt. For closed-source generation, we report the same overall quality, consistency, and aesthetic scores as in interactive video generation. For interactive world models, we report visual quality, tempo-ral quality, and action alignment. Qwen3-VL-8B-Instruct evaluates action alignment by assessing whether generated rollouts follow the supplied actions. 4.2 MAIN RESULT 
+
+Long video generation. Table 1 compares long-context mechanisms for 60-second MovieGen-Bench generation. F RAME MORROW achieves the best average rank on all three backbones: 1.33 for Self-Forcing, 1.25 for LongLive 1.0, and 1.33 for Causal Forcing. With Self-Forcing, it improves imaging quality from 62.22 to 68.47 and dynamic degree from 51.72 to 64.56. The advantage is not uniform across metrics, with LongLive-RAG retaining higher background and motion scores on 6Preprint A cobalt-blue handleless pot rests on a wooden kitchen counter.        
+
+> Multi-shot
+> Longlive-2.0 +FrameMorrow Shot 1 Shot 2 Shot 3 Shot 4 Shot 5 Shot 6 Braised beef and rich sauce are poured into the pot. Pearl couscous and colorful vegetables are added. The matching cobalt-blue lid covers the pot. The lid lifts, revealing the simmering stew. The finished beef stew is garnished with fresh herbs. T = 5s T = 15s T = 25s
+
+5s  
+
+> T = 35s T = 55s T = 45s Self-Forcing +FrameMorrow
+> Single-shot
+> A poker player studies his cards at a casino table. He reveals a winning hand and celebrates. A nearby player applauds his victory. He carefully arranges his poker chips. He proudly admires his winnings. He high-fives another player as the table cheers.
+
+Figure 3: Qualitative comparisons for interactive video generation. Top: single-shot generation with Self-Forcing under sequential prompts. Bottom: multi-shot generation with LongLive 2.0. Each pair compares the backbone alone with its F RAME MORROW -augmented variant. Self-Forcing. The consistent average-rank advantage supports the effectiveness of frame selection across these generators, with trade-offs in individual metrics. 
+
+Interactive video generation. We evaluate interactive generation where the generation condition changes over time, covering both single- and multi-shot settings. Table 2 reports improvements in overall quality and consistency across both settings. Table 3: Closed-source generation. All base-lines use the same reference budget. 
+
+Model Quality ↑ Consistency ↑ Aesthetic ↑
+
+Seedance 2.0 86.80 94.02 65.61 + Uniform 86.47 93.54 65.28 +F RAME MORROW 87.46 95.31 65.92 
+
+Kling O3 83.47 91.28 63.41 + Uniform 83.21 90.84 63.18 +F RAME MORROW 84.06 92.61 63.77 
+
+For single-shot generation , FRAME MORROW 
+
+improves overall quality and consistency across all evaluated backbones. For Self-Forcing, con-sistency rises from 84.95 to 89.30. Its segment-wise CLIP-score gain increases from 0.16 in the first 10 seconds to 2.99 in the last 10 seconds, indicating larger improvements in prompt align-ment at later stages of generation. Figure 3 shows a representative example, where the native Self-Forcing sequence develops strong color artifacts, while F RAME MORROW depicts the successive actions at the poker table more clearly. Initial state 0–5s Intervening context 15–20s Revisit 25–30s Seedance 2.0 +FrameMorrow 
+
+Figure 4: Seedance 2.0 revisit case. 
+
+For multi-shot generation , F RAME MORROW also improves overall quality and consistency for both evaluated backbones. In particular, ShotStream gains 4.01 consistency points, although its aes-thetic score decreases by 0.56. In the qualitative example, F RAME MORROW better preserves the blue pot and the specified ingredients across mul-tiple successive shot changes. 
+
+Extension to closed-source generators. To test whether F RAME MORROW remains effective without access to generator internals, we further eval-uate it on Seedance 2.0 and Kling O3 through their public reference-conditioning interfaces. For all variants, the latest generated clip is provided through the native video-reference interface. Uniform-
+
+K and F RAME MORROW additionally receive the same number of historical frames through the image-reference interface, differing only in how these frames are selected. Table 3 reports 30 cases 30-second multi-turn generation results using the same overall metrics as our open-source evalua-7Preprint Table 4: Action-conditioned interactive world generation. Subject, background, anti-flicker, mo-tion, and action-alignment scores lie in [0 , 1] . Imaging quality is on a 0–100 scale. Shaded rows denote F RAME MORROW , and bold indicates the better result within each base-model pair.                                                      
+
+> Visual Quality Temporal Quality Interaction Model Subject ↑Background ↑Imaging ↑Anti-flicker ↑Motion ↑Action Alignment ↑
+> Matrix-Game 3.0 0.801 0.894 68.20 0.936 0.950 0.842 +F RAME MORROW (Ours) 0.816 0.910 68.35 0.939 0.949 0.861
+> WorldMem 0.782 0.924 70.23 0.910 0.916 0.866 +F RAME MORROW (Ours) 0.793 0.932 70.47 0.913 0.918 0.889
+> YuMe 1.5 0.765 0.872 50.98 0.944 0.965 0.883 +F RAME MORROW (Ours) 0.798 0.886 51.80 0.947 0.967 0.912 +FrameMorrow
+> YuMe 1.5 +FrameMorrow Matrix-Game 3.0 +FrameMorrow WorldMem
+
+Figure 5: Qualitative comparisons for interactive world generation. Each pair shows the original backbone (top) and +F RAME MORROW (bottom) on WorldMem, YuMe 1.5, and Matrix-Game 3.0. tion. Compared with the original generators, F RAME MORROW improves consistency by 1.29 points on Seedance 2.0 and 1.33 points on Kling O3. It also outperforms uniform selection on all three reported metrics for both models. These results support plug-and-play use with closed-source gen-erators and show the benefit of selecting relevant references under a fixed reference budget. Figure 4 shows a representative revisit case on Seedance 2.0. While the original model exhibits subject and object drift after intervening interactions, F RAME MORROW better preserves both the established subject appearance and the previously observed vehicle. 
+
+Action-conditioned interactive world models. Table 4 shows consistent improvements across the evaluated world models. F RAME MORROW improves subject and background consistency, imaging quality, anti-flicker, and action alignment on all three backbones. Action alignment increases by 0.019 for Matrix-Game 3.0, 0.023 for WorldMem, and 0.029 for YuMe 1.5, while motion quality is largely preserved. These results demonstrate that F RAME MORROW strengthens both long-range visual consistency and control alignment across diverse interactive world models. Figure 5 provides corresponding visual examples. WorldMem better preserves the snow-covered ground, while YuMe 1.5 and Matrix-Game 3.0 retain more consistent street and corridor structures over longer rollouts. 4.3 ANALYSIS AND ABLATIONS 
+
+We analyze three design choices on the 60-second single-shot interactive generation setting with a frozen Self-Forcing backbone. The recent-context window retains the backbone’s native default, and the eligible-history rule is fixed. Only older historical frames count toward K.8Preprint No future supervision Future distillation Future oracle 0246         
+
+> Consistency gain (points)
+> +1.25 +4.35 +5.65 Reference: 84.95
+> (a) Future supervision
+> 0124816
+> Selected history frames (K)
+> 84 86 88 90
+> Consistency score
+> (b) Historical frame budget
+> Uniform FrameMorrow
+> 124816
+> Prospective tokens (M)
+> 84 86 88 90
+> Consistency score
+> (c) Prospective token design
+> Parallel Autoregressive
+
+Figure 6: Ablation studies. Future supervision, frame budget, and token design. 
+
+Future supervision. Figure 6(a) compares recent-context supervision (the no-future control), future distillation, and a future-informed oracle. The no-future control constructs ranking targets from DINOv2 similarities between eligible historical frames and recent-context observations, whereas future distillation uses realized future observations. Their gains over the native score of 84.95 are 1.25, 4.35, and 5.65 points. Future distillation adds 3.10 points over the control and reduces the oracle gap from 4.40 to 1.30 points, supporting continuation-derived targets for causal selection. The oracle accesses reference future observations and serves as a diagnostic comparison. 
+
+Historical frame budget. Figure 6(b) varies the number of selected historical frames K while fixing 
+
+M = 4 , and compares F RAME MORROW with uniform sampling from the same eligible history. FRAME MORROW reaches 88.00 with only two selected frames, exceeding uniform sampling with sixteen frames (87.10). Increasing K from 4 to 8 adds only 0.40 points, with no further improvement at K = 16 . These results show that selecting relevant historical frames matters more than simply increasing their number. 
+
+Prospective token design. Figure 6(c) compares autoregressive and parallel prediction of prospec-tive tokens at K = 4 . Increasing the number of autoregressively predicted tokens from M = 1 
+
+to M = 4 raises consistency from 87.20 to 89.30. At M = 4 , autoregressive prediction exceeds parallel prediction by 1.00 point. Increasing M to 8 adds only 0.30 points, with no further gain at 
+
+M = 16 . Four autoregressive tokens capture most of the improvement. Table 5: Historical frame selection. 
+
+Strategy Single-shot Multi-shot 
+
+Recent-K 85.70 92.80 Uniform 86.60 92.21 Context matching 87.85 92.68 Prompt matching 88.35 93.17 Direct scoring 88.22 92.53 
+
+FRAME MORROW 89.30 93.49 
+
+Historical frame selection. Table 5 compares consis-tency for 60-second single-shot generation with Self-Forcing and multi-shot generation with LongLive 2.0. All strategies share the backbone, eligible history, memory budget, and conditioning interface. 1) Recent-
+
+K selects the latest eligible frames. 2) Uniform samples frames uniformly from the eligible history. 3) Context matching ranks frames by cosine similarity to the mean recent-context feature from the selector’s frozen visual encoder. 4) Prompt matching ranks frames by frozen CLIP image–text similarity to the next-shot or next-segment prompt. 5) Direct scoring uses the same inputs to predict each candidate’s score from its frame without prospective tokens. F RAME M- 
+
+> ORROW
+
+outperforms the five selection strategies. Table 6: Inference overhead. 
+
+Method Sel. (ms) Total (s) ∆ (%) Self-Forcing – 82.6 –+F RAME MORROW 112 84.0 1.7 LongLive 1.0 – 67.8 –+F RAME MORROW 109 69.2 2.1 Causal Forcing – 82.6 –+F RAME MORROW 115 84.0 1.7 
+
+Inference overhead. We measure the inference overhead of F RAME MORROW on three models un-der matched hardware and sampling settings (Ta-ble 6). For all backbones, F RAME MORROW uses 
+
+K = 4 and M = 4 , with selection refreshed every 5 seconds. Selection time includes feature encod-ing, prospective token prediction, scoring, and Top-
+
+K per refresh. Total time covers the pipeline, includ-ing historical-frame conditioning, and ∆ denotes the increase over the native backbone. 9Preprint 
+
+## 5 CONCLUSION 
+
+We present F RAME MORROW , which uses prospective tokens to predict future information needs and select relevant historical frames. Its explicit-frame interface enables lightweight, plug-and-play use across diverse generators. Experiments on five benchmarks and 11 models demonstrate improvements in long-range consistency, visual quality, and action alignment. These results support selecting historical information according to future needs rather than current relevance alone. 
+
+## REFERENCES 
+
+Zhaochong An, Menglin Jia, Haonan Qiu, Zijian Zhou, Xiaoke Huang, Zhiheng Liu, Weiming Ren, Kumara Kahatapitiya, Ding Liu, Sen He, et al. Onestory: Coherent multi-shot video generation with adaptive memory. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 16173–16184, 2026. Shyamal Buch, Arsha Nagrani, Anurag Arnab, and Cordelia Schmid. Flexible frame selection for efficient video reasoning. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 29071–29082. IEEE, 2025. Hanmo Chen, Chenghao Xu, Xu Yang, Xuan Chen, and Cheng Deng. Past-and future-informed kv cache policy with salience estimation in autoregressive video diffusion. arXiv preprint arXiv:2601.21896 , 2026a. Yukang Chen, Luozhou Wang, Wei Huang, Shuai Yang, Bohan Zhang, Yicheng Xiao, Ruihang Chu, Weian Mao, Qixin Hu, Shaoteng Liu, et al. Longlive-2.0: An nvfp4 parallel infrastructure for long video generation. arXiv preprint arXiv:2605.18739 , 2026b. Yixuan Ding, Jiahao Kong, Wei Huang, Ruijie Quan, and Yi Yang. Layerrecall: A state-conditioned memory router for long-horizon consistency in video generation. arXiv preprint arXiv:2608.28460 , 2026. Kai Hu, Feng Gao, Xiaohan Nie, Peng Zhou, Son Tran, Tal Neiman, Lingyun Wang, Mubarak Shah, Raffay Hamid, Bing Yin, et al. M-llm based video frame selection for efficient video understanding. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 13702–13712. IEEE, 2025. Qixin Hu, Shuai Yang, Wei Huang, Song Han, and Yukang Chen. Longlive-rag: A general retrieval-augmented framework for long video generation. arXiv preprint arXiv:2606.02553 , 2026. Xun Huang, Zhengqi Li, Guande He, Mingyuan Zhou, and Eli Shechtman. Self forcing: Bridging the train-test gap in autoregressive video diffusion. Advances in Neural Information Processing Systems , 38:167283–167308, 2026. Sihui Ji, Xi Chen, Shuai Yang, Xin Tao, Pengfei Wan, and Hengshuang Zhao. Memflow: Flowing adaptive memory for consistent and efficient long video narratives. arXiv preprint arXiv:2512.14699 , 2025. Chaoyu Li, Tianzhi Li, Fei Tao, Zhenyu Zhao, Ziqian Wu, Maozheng Zhao, Juntong Song, Cheng Niu, and Pooyan Fazli. Frameoracle: Learning what to see and how much to see in videos. arXiv preprint arXiv:2510.03584 , 2025. Jiayi Luo, Qiyan Liu, Tengyang Wang, JunHao Liu, Jiayu Chen, Cong Wang, Hanxin Zhu, Chen Gao, Xiaobin Hu, Qingyun Sun, et al. Future forcing: Future-aware training-free kv cache policy for autoregressive video generation. arXiv preprint arXiv:2605.30083 , 2026a. Yawen Luo, Xiaoyu Shi, Junhao Zhuang, Yutian Chen, Quande Liu, Xintao Wang, Pengfei Wan, and Tianfan Xue. Shotstream: Streaming multi-shot video generation for interactive storytelling. 
+
+arXiv preprint arXiv:2603.25746 , 2026b. Xiaofeng Mao, Zhen Li, Chuanhao Li, Xiaojie Xu, Kaining Ying, and Kaipeng Zhang. Yume1. 5: A text-controlled interactive world generation model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 7752–7761, 2026. 10 Preprint Kepan Nan, Rui Xie, Penghao Zhou, Tiehan Fan, Zhenheng Yang, Zhijie Chen, Xiang Li, Jian Yang, and Ying Tai. Openvid-1m: A large-scale high-quality dataset for text-to-video generation. In 
+
+International conference on learning representations , volume 2025, pp. 1045–1064, 2025. Zheng Nie, Ruolin Shen, Xinlei Yu, Bo Yin, Jiangning Zhang, and Xiaobin Hu. Skill-graph: Self-evolving multi-agent collaboration with multimodal graph topology. arXiv preprint arXiv:2604.17503 , 2026. Yaxuan Qin, Hefei Li, Wenqi Mu, and Yancheng He. Efficient frame selection for long video under-standing via reinforcement learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 16944–16953, 2026. Hongjun Wang, Lin Liu, Jianguo Li, and Tao Lin. Dual-granularity memory for efficient video generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recog-nition , pp. 38016–38026, 2026a. Zile Wang, Zexiang Liu, Jiaxing Li, Kaichen Huang, Baixin Xu, Fei Kang, Mengyin An, Peiyu Wang, Biao Jiang, Yichen Wei, et al. Matrix-game 3.0: Real-time and streaming interactive world model with long-horizon memory. arXiv preprint arXiv:2604.08995 , 2026b. Xuan Wei, Longbin Ji, Guan Wang, Xiangrui Liu, Zhenyu Zhang, Shuohuan Wang, Yu Sun, and Qingqi Hong. Memento: Reconstruct to remember for consistent long video generation. arXiv preprint arXiv:2606.14667 , 2026. Zeqi Xiao, Yushi Lan, Yifan Zhou, Wenqi Ouyang, Shuai Yang, Yanhong Zeng, and Xingang Pan. Worldmem: Long-term consistent world simulation with memory. Advances in Neural Informa-tion Processing Systems , 38:49632–49652, 2026. Shuai Yang, Wei Huang, Ruihang Chu, Yicheng Xiao, Yuyang Zhao, Xianbang Wang, Muyang Li, Enze Xie, Yingcong Chen, Yao Lu, et al. Longlive: Real-time interactive long video generation. 
+
+arXiv preprint arXiv:2509.22622 , 2025. Bo Ye, Xinyu Cui, Jian Zhao, Tong Wei, and Min-Ling Zhang. Dysink: Dynamic frame sinks for autoregressive long video generation. arXiv preprint arXiv:2605.21028 , 2026. Hidir Yesiltepe, Tuna Meral, Adil Kaan Akan, Kaan Oktay, and Pinar Yanardag. Infinity-rope: Action-controllable infinite video generation emerges from autoregressive self-rollout. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 40256– 40265, 2026. Jung Yi, Wooseok Jang, Paul Hyunbin Cho, Jisu Nam, Heeji Yoon, and Seungryong Kim. Deep forcing: Training-free long video generation with deep sink and participative compression. arXiv preprint arXiv:2512.05081 , 2025. Bo Yin, Xiaobin Hu, Xingyu Zhou, Yu He, Peng-Tao Jiang, Yue Liao, Junwei Zhu, Jiangning Zhang, Ying Tai, and Shuicheng Yan. Fera: Frequency-energy constrained routing for effective diffusion adaptation fine-tuning. arXiv preprint arXiv:2511.17979 , 2025a. Bo Yin, Xiaobin Hu, Chengming Xu, Ruolin Shen, Mo Yang, Jiangning Zhang, Peng-Tao Jiang, Cheng Tan, and Shuicheng Yan. Spot-e: Test-time entropy shaping with visual spotlights for frozen vlms. arXiv preprint arXiv:2606.20244 , 2026. Tianwei Yin, Qiang Zhang, Richard Zhang, William T Freeman, Fredo Durand, Eli Shechtman, and Xun Huang. From slow bidirectional to fast autoregressive video diffusion models. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 22963–22974. IEEE, 2025b. Sicheng Yu, Chengkai Jin, Huanyu Wang, Zhenghao Chen, Sheng Jin, Zhongrong Zuo, Xiaolei Xu, Zhenbang Sun, Bingni Zhang, Jiawei Wu, et al. Frame-voyager: Learning to query frames for video large language models. In International Conference on Learning Representations , volume 2025, pp. 84154–84179, 2025. 11 Preprint Xinlei Yu, Chengming Xu, Zhangquan Chen, Bo Yin, Cheng Yang, Yongbo He, Yihao Hu, Jiangning Zhang, Cheng Tan, Xiaobin Hu, et al. Dual latent memory for visual multi-agent system. arXiv preprint arXiv:2602.00471 , 2026. Kaiwen Zhang, Liming Jiang, Angtian Wang, Jacob Zhiyuan Fang, Tiancheng Zhi, Qing Yan, Hao Kang, Xin Lu, and Xingang Pan. Storymem: Multi-shot long video storytelling with memory. 
+
+arXiv preprint arXiv:2512.19539 , 2025a. Liuzhou Zhang, Jiarui Ye, Yuanlei Wang, Ming Zhong, Mingju Cao, Wanke Xia, Bowen Zeng, Zeyu Zhang, and Hao Tang. Egolcd: Egocentric video generation with long context diffusion. arXiv preprint arXiv:2512.04515 , 2025b. Jiaqi Zhao, Xiaobin Hu, Bo Yin, Junpeng Jiang, Miao Zhang, and Shuicheng Yan. Quantwm: Temporally consistent 2-bit kv cache quantization for world models and video generation. arXiv preprint arXiv:2609.26425 , 2026. Zirui Zheng, Jiaqian Yu, Xiongfeng Peng, Mingyi Li, Chao Zhang, Weiming Li, Dong Wang, Huchuan Lu, Xu Jia, et al. Mem-world: Memory-augmented action-conditioned world models for persistent robot manipulation. arXiv preprint arXiv:2606.18960 , 2026. Hongzhou Zhu, Min Zhao, Guande He, Hang Su, Chongxuan Li, and Jun Zhu. Causal forcing: Autoregressive diffusion distillation done right for high-quality real-time interactive video gener-ation. arXiv preprint arXiv:2602.02214 , 2026. 12 Preprint 
+
+## A IMPLEMENTATION DETAILS 
+
+A.1 SELECTOR ARCHITECTURE 
+
+The selector takes eligible history, recent context, and the known rollout condition. Visual and con-dition encoders are frozen. Only the visual/condition projections, causal Transformer, and ranking query/key projections are trained, without the generator. Compatible text-conditioned backbones share one checkpoint. Action-conditioned experiments use a separate checkpoint with the same architecture. Table 7 summarizes the architecture. DINOv2 ViT-B/14 provides final class-token frame features for the visual encoder and teacher. Learned projections map visual and condition features into the selector space. Text conditions use frozen UMT5-XXL token features. Actions are serialized as short motion descriptions and encoded by frozen CLIP ViT-B/32, with a separate projection for its feature dimension. Historical and recent tokens follow observation time, with learned temporal and token-type em-beddings distinguishing history, recent context, and conditions. A learned start token initializes autoregressive queries under a causal mask. Padding is masked in attention and ranking. Only el-igible history is scored and returned by Top-K, excluding recent context. Deployment retains the backbone’s native recent window. If fewer than K candidates exist, all are returned without dupli-cation. Table 7: Selector architecture. Frozen encoders are excluded from the trainable parameter estimate. Configuration Value Visual encoder / teacher DINOv2 ViT-B/14 Visual feature dimension 768 Transformer layers / hidden dimension 4 / 512 Attention heads / FFN dimension 8 / 2,048 Normalization / activation Pre-LayerNorm / GELU Dropout 0.0 Positional encoding Learned temporal embeddings Prospective queries M / memory budget K 4 / 4 Maximum training candidates 128 Trainable parameters, text selector 16M A.2 RANKING TARGETS AND LOSSES 
+
+The teacher computes cosine similarities between ℓ2-normalized DINOv2 features of historical and realized future frames. Future observations supply detached targets only and never enter the selector. Scores are aggregated by the smooth maximum in Section 3.3, then softmaxed over valid historical candidates for listwise supervision, without per-example min–max normalization. The teacher uses H = 8 continuation frames sampled at two fps over the next four seconds. Table 8 lists the loss settings. Pairwise softplus loss is averaged over all ordered pairs with teacher-score gaps of at least δ, or set to zero if none qualify. The listwise term remains active. Both losses are averaged across examples, not pooled candidates. A.3 OPTIMIZATION AND COMPUTE 
+
+Text- and action-conditioned selectors are trained independently using precomputed frozen encoder features. Table 9 gives the configuration. Linear warmup precedes cosine learning-rate decay, gra-dients are clipped before each update, and validation listwise loss selects the final checkpoint. The planning budget is six hours on two A100 80GB GPUs, or 12 GPU-hours per selector, excluding annotation and feature extraction. 13 Preprint Table 8: Ranking hyperparameters. 
+
+Symbol Role Value 
+
+τq Query-score aggregation 0.10 
+
+τf Future-similarity aggregation 0.05 
+
+τr Teacher ranking temperature 0.10 
+
+τs Student ranking temperature 1.00 
+
+δ Teacher margin for pair inclusion 0.05 
+
+λ Pairwise loss weight 0.50 
+
+H Number of teacher continuation frames 8Table 9: Optimization settings. 
+
+Configuration Value Optimizer AdamW Learning rate / weight decay 10 −4 / 0.01 Adam coefficients (0 .9, 0.999) 
+
+Schedule / warmup Cosine / 5% of updates Global batch size / epochs 64 / 5 Precision / gradient clipping BF16 / global norm 1.0 Training seed 0Hardware budget 2× A100 80GB 
+
+## B TRAINING DATA CONSTRUCTION 
+
+B.1 TEXT -CONDITIONED TRAINING TUPLES 
+
+We use 10K OpenVidHD videos, divided into two-second annotation units with four uniformly sam-pled frames each. These units do not set rollout-condition durations or selection refresh intervals. Qwen3-VL-8B-Instruct generates structured segment descriptions, which form the streaming con-ditions. Each tuple (Ht, Lt, c + 
+
+> t
+
+, Y+ 
+
+> t
+
+) contains eligible history, recent context ending at t, the next-rollout condition, and a teacher-only continuation. Recent context comprises eight frames from the preced-ing four seconds. Up to 128 historical frames are sampled uniformly before this window and kept in temporal order. Boundaries lacking eligible history or a complete continuation are skipped. This training window does not replace the backbone’s native deployment window. Videos are split 90:10 for training and validation before tuple extraction, keeping all tuples from each video together. Teacher frames remain within the condition’s temporal scope. Shorter intervals use fewer frames rather than sampling beyond that scope. B.2 SEGMENT ANNOTATION AND PROMPT CONSTRUCTION 
+
+The annotation template preserves visible identities, scene attributes, actions, and state changes without introducing unsupported objects or events.         
+
+> Prompt 1: Segment annotation
+> Instructions
+> Given four chronologically ordered frames from a two-second video segment, describe the visible sub-jects, scene, actions, and object states. If a preceding segment description is supplied, identify visible changes while preserving consistent names for recurring subjects and objects. Do not infer unseen events or future actions.
+> Output
+> Return the fields subject ,scene ,action ,state ,change , and segment prompt .The
+> segment prompt should be a concise visual description suitable for conditioning this segment.
+
+14 Preprint Table 10: Backbone integration map. Every row retains the native recent window and selects up to four additional historical frames. No generator fine-tuning is used.                     
+
+> Backbone Selector Historical conditioning route Self-Forcing Text Frame encoding followed by historical KV conditioning LongLive 1.0 Text Historical frame encoding into the memory cache Causal Forcing Text Frame encoding into causal context KV states CausVid Text Historical latent encoding into context KV states LongLive 2.0 Text Historical references in the streaming memory interface ShotStream Text Selected images as cross-shot reference conditioning Matrix-Game 3.0 Action Encoded historical frames in the rollout context WorldMem Action Historical frame memory with associated pose metadata YuMe 1.5 Action Historical latent references for rollout conditioning
+
+Structured fields form each segment prompt, excluding later timestamps and teacher scores. An-notation uses temperature zero and at most 256 output tokens. Empty or malformed outputs are regenerated once, then excluded if still invalid. B.3 ACTION -CONDITIONED TRAINING TUPLES 
+
+We use 10K chunk-aligned Sekai Game-Walking examples. Each combines observed history and context, the next chunk’s pseudo-action condition, and its realized continuation for the teacher. Pseudo-actions derive from relative camera translation and rotation and need not reproduce the orig-inal keyboard inputs. Under the camera-to-world pose convention, let Rt and pt denote camera orientation and position. Local translation and angular velocity are computed as 
+
+vt = R⊤ 
+
+> t
+
+(pt+1 − pt)/∆t, ωt = Log( R⊤ 
+
+> t
+
+Rt+1 )∨/∆t. (10) Translation is normalized by the trajectory’s median nonzero speed, with components activated above 0.2. Yaw and pitch use a 2◦/s threshold. Labels cover forward/backward, left/right, turn left/right, and look up/down. Simultaneous labels are retained, and chunks are stationary when all components fall below threshold. A trajectory-level 90:10 train/validation split keeps adjacent chunks together. 
+
+## C BACKBONE INTEGRATION DETAILS 
+
+C.1 SHARED SELECTION AND BACKBONE -SPECIFIC CONDITIONING 
+
+The selector returns explicit frames and shares one checkpoint per condition modality across com-patible generators, with K = M = 4 . Each backbone retains its native recent window. Integration trains neither the generator nor a new conditioning module. Selected frames are sorted by timestamp and converted by each backbone’s adapter into its reference representation (Table 10). Generator activations never feed back into the selector. C.2 TEMPORAL POSITIONS AND CACHE MANAGEMENT 
+
+For KV conditioning, the backbone’s frozen image/video encoder and context-encoding path con-vert selected frames into layer-specific keys and values. DINOv2 features are not copied into this cache. Reference latents are conditioning inputs, not generated output frames. Backbones with direct image-reference interfaces instead receive selected RGB frames. Selection retains original timestamps. Adapters use historical temporal positions where supported, or map sorted frames to reference slots in temporal order. Refreshes replace historical slots while preserving native recent context, whose frames are excluded from the candidate pool. Thus, the four-frame budget fixes additional observations, not latent-token or KV-cache size across backbones. 15 Preprint C.3 MATCHED INTEGRATION CONTROLS 
+
+Recent-K, Uniform, Context matching, Prompt matching, and F RAME MORROW share eligible his-tory, budget, and conditioning adapter within each backbone. Context matching uses the selector’s recent visual features, whereas Prompt matching uses CLIP image–text similarity to the known con-dition. These controls isolate selection quality. Comparisons with the unaugmented backbone also include the benefit of adding historical references. 
+
+## D EVALUATION PROTOCOLS 
+
+Unless otherwise specified, historical frame selection is refreshed every five seconds of generated video. Each refresh uses only the eligible history, recent context, and condition available at that time. D.1 LONG VIDEO GENERATION 
+
+We generate 60-second videos from 128 MovieGenBench prompts and evaluate six VBench-Long dimensions: subject/background consistency, motion smoothness, dynamic degree, aesthetic qual-ity, and imaging quality. They assess foreground/scene persistence, temporal smoothness, motion magnitude, aesthetics, and frame-level quality, respectively. Higher is better for all six. Prompt i ∈ { 0, . . . , 127 } uses paired seed i. Each backbone and its augmented variants share its released resolution, frame rate, denoising steps, and guidance. Settings are matched within, not across, backbones. Evaluation covers the full 60 seconds without selecting favorable subsequences. Methods are ranked per metric within each backbone before display rounding, with ties assigned average ranks. Average rank is the mean over six metrics. Dataset scores weight prompts equally. D.2 INTERACTIVE VIDEO GENERATION 
+
+We evaluate 100 single-shot and 100 multi-shot cases, each comprising six ten-second condition in-tervals. LLM-generated prompt sequences require dependencies across intervals. Single-shot cases retain one scene, while multi-shot transitions depend on previously established subjects and states. Methods share prompts and recent context. Selection refreshes every five seconds, independently of the ten-second condition/evaluation intervals. Segment-wise alignment pairs each ten-second interval with its current prompt, following the eval-uation organization used for LongLive. In the CLIP ViT-B/32 implementation, eight uniformly sampled frames per interval are encoded and compared with the normalized prompt embedding. The score for interval j is 
+
+sj = 100 
+
+njnj
+
+X
+
+> u=1
+
+cos  Eimg CLIP (xj,u ), E txt CLIP (cj ). (11) Each interval’s score is averaged across cases using only its current prompt, never prompts from later intervals. Quality, Consistency, and Aesthetic use the VBench quality aggregate, subject consistency, and aes-thetic evaluator, respectively. Multi-shot evaluation measures recurring-subject consistency across shots and temporal quality within shots, avoiding penalties for intended scene changes. D.3 CLOSED -S OURCE GENERATION 
+
+We evaluate Seedance 2.0 and Kling O3 through their public reference-conditioning interfaces via fal.ai on 30 cases with five turns each. Methods share prompts, initial context, explicit API seeds, and reference budgets. The native model receives the latest clip as a video reference. Uniform-K
+
+and F RAME MORROW additionally receive equal numbers of historical image references, differing only in frame selection. Other settings remain fixed within each backbone. 16 Preprint Table 11: Action-alignment rubric. 
+
+Score Criterion 1.00 All commanded motion directions and their temporal order are clearly followed. 0.75 The dominant commands are followed, with minor delay or one brief inconsistency. 0.50 Some commands are followed, but a substantial part is missing or ambiguous. 0.25 Only weak evidence supports the commands, with mostly inconsistent motion. 0.00 The commanded motion is absent, reversed, or unsupported by the visible rollout. Table 12: Sensitivity to the visual teacher. All variants use the same selector architecture and training data. ∆ denotes the improvement over the native Self-Forcing consistency score of 84.95. 
+
+Visual Teacher Consistency ↑ ∆
+
+CLIP 88.42 +3.47 SigLIP 88.76 +3.81 DINOv2 89.30 +4.35 
+
+D.4 ACTION -CONDITIONED WORLD MODELS 
+
+We evaluate Matrix-Game 3.0, WorldMem, and YuMe 1.5 on 60 trajectories each. Native and F RAME MORROW variants share initial context and actions. Visual metrics cover sub-ject/background consistency, anti-flicker, motion smoothness, and imaging quality. Qwen3-VL-8B-Instruct judges whether rollouts follow the supplied controls. The judge receives 16 ordered frames per action interval, command descriptions, and durations, without method identities or competing outputs. Each interval is scored once at temperature zero using Table 11. Scores are averaged within trajectories and then across trajectories, avoiding extra weight for longer sequences.            
+
+> Prompt 2: Action-alignment evaluation
+> Instructions
+> Compare camera motion with the supplied controls and intervals. Distinguish camera motion from mov-ing objects. Judge action compliance, not aesthetics. Using the rubric, assign 0, 0.25, 0.5, 0.75, or 1. Do not infer invisible motion.
+> Inputs
+> Controls: <action sequence and intervals>
+> Frames: <chronologically sampled rollout frames>
+> Output
+> Return JSON fields score and reason , citing visible evidence.
+
+Malformed outputs are retried once, with persistent failures reported as missing. The judge assesses observable action compliance rather than physical correctness. 
+
+## E ADDITIONAL ABLATIONS 
+
+Unless otherwise specified, additional ablations use 60-second single-shot interactive generation with frozen Self-Forcing, its native recent window, K = 4 historical frames, and M = 4 prospective queries. We report overall consistency, as in the main ablations. E.1 SENSITIVITY TO THE VISUAL TEACHER 
+
+Visual teacher. We replace the DINOv2 teacher with CLIP or SigLIP, fixing selector architecture, training trajectories, candidate history, and optimization. All three improve consistency (Table 12), supporting the use of different visual feature spaces. DINOv2 performs best and is used in the main experiments. 17 Preprint Table 13: Ablation of the ranking objective. The full objective combines listwise distribution matching with margin-based pairwise ordering constraints. 
+
+Objective Consistency ↑ ∆
+
+Pairwise only 88.21 +3.26 Listwise only 88.67 +3.72 Listwise + Pairwise 89.30 +4.35 
+
+Table 14: Effect of the realized-continuation horizon. H denotes the number of continuation observations available only to the training teacher. 
+
+H Consistency ↑ ∆
+
+1 87.86 +2.91 2 88.71 +3.76 4 89.14 +4.19 8 89.30 +4.35 
+
+E.2 RANKING OBJECTIVE 
+
+Listwise and pairwise supervision. Listwise loss transfers the teacher’s relevance distribution, while pairwise loss preserves orderings above the teacher-score margin. Table 13 compares each alone with their combination. Both help, listwise supervision is stronger alone, and adding pairwise constraints yields the best consistency. E.3 LENGTH OF THE REALIZED CONTINUATION 
+
+Continuation horizon. We vary the number of teacher continuation observations H, which affects supervision but not deployed inputs or computation. Consistency improves substantially up to H =4, then largely saturates (Table 14). Multiple future observations provide a more reliable target than one frame, with limited benefit from longer horizons. E.4 AGGREGATION OF PROSPECTIVE QUERIES 
+
+Query-score aggregation. We compare mean, hard-maximum, and smooth-maximum pooling of query–frame scores. Mean pooling favors consistent matches across queries, while hard maximum keeps only the strongest match. Smooth maximum allows one strong prospective match to dominate while retaining other queries’ contributions and gives the best consistency (Table 15). E.5 RELATION BETWEEN FUTURE RELEVANCE AND GENERATION UTILITY 
+
+Generation-utility validation. The target in Eq. (5) measures visual correspondence with the realized continuation, which need not imply downstream benefit. We test whether teacher relevance 
+
+rFt,i correlates with the generation utility of individual historical frames. This diagnostic uses condition-free long-video generation. All ranking signals exclude upcoming conditions. At each rollout step t, we sample Nu eligible candidates xτi ∈ H t.The privileged teacher score rFt,i uses the held-out realized continuation, not generated futures. Gen-erated continuations are used only to measure each candidate’s downstream utility. We first generate a baseline continuation using only the backbone’s native recent context, 
+
+ˆY 0 
+
+> t
+
+= Gω (Lt), (12) and then generate an additional continuation for each candidate while providing that candidate through the same historical-conditioning interface, 
+
+ˆY it = Gω (Lt, x τi ). (13) All generations share the initial context, seed, sampling settings, and frozen backbone. Only the supplied historical frame differs. 18 Preprint Table 15: Aggregation across prospective queries. All variants use M = 4 queries and the same trained selector configuration. 
+
+Aggregation Consistency ↑ ∆
+
+Mean 88.43 +3.48 Hard maximum 88.91 +3.96 Smooth maximum 89.30 +4.35 
+
+Table 16: Relationship between historical-frame ranking signals and empirical generation utility. Spearman correlations are computed across historical candidates at each rollout step, av-eraged within each trajectory, and then averaged across the held-out evaluation set. The future-grounded teacher uses the held-out realized continuation only for this diagnostic analysis, whereas FRAME MORROW does not observe future content at inference. Confidence intervals are obtained by trajectory-level bootstrap with 1,000 resamples. 
+
+Ranking signal Realized future ρ ↑ 95% CI 
+
+Context similarity No 0.10 [0.04, 0.16] FRAME MORROW prediction ˆr No 0.42 [0.35, 0.49] Future-grounded teacher rF Yes 0.51 [0.44, 0.57] We define the empirical generation utility of candidate i as 
+
+ut,i = Q
+
+ ˆY it
+
+
+
+− Q
+
+ ˆY 0
+
+> t
+
+
+
+, (14) where Q is the main experiments’ long-range consistency evaluator. It measures preservation of subjects, objects, and scene appearance from preceding context, rather than internal consistency of the new continuation alone. Positive utility indicates better preservation than the native backbone. Because trajectory difficulty and utility scale may vary across examples, we measure rank corre-spondence among historical candidates at each rollout step rather than pooling raw utility values globally. Specifically, we compute 
+
+ρt(s, u ) = Spearman 
+
+
+
+{st,i }Nu
+
+> i=1
+
+, {ut,i }Nu
+
+> i=1
+
+
+
+, (15) where s denotes a historical-frame ranking signal. We compare current-context similarity, the privi-leged future-grounded teacher score rF , and the deployed F RAME MORROW prediction ˆr.We average valid step-level correlations within each trajectory, then across trajectories. The analysis includes Ntraj = 30 held-out trajectories, Nstep = 120 valid steps, and Nu = 8 candidates per step. We obtain 95% confidence intervals by resampling trajectories with replacement 1,000 times. Table 16 shows weak correspondence between current-context similarity and generation utility. The teacher ranking aligns more closely with utility, and F RAME MORROW recovers much of this associ-ation without future access at inference. These results support continuation-based visual correspon-dence as a training proxy for downstream usefulness. 
+
+## F ADDITIONAL QUALITATIVE RESULTS 
+
+Figures 7, 8, and 9 compare native and F RAME MORROW -augmented Self-Forcing, LongLive, and Causal Forcing under matched generation conditions and sampling settings, illustrating long-horizon visual consistency. 
+
+## G USER STUDY 
+
+We conduct a blinded pairwise study of long-video generation. For each of Self-Forcing, LongLive, and Causal Forcing, 30 randomly sampled native/F RAME MORROW video pairs share prompts and generation settings. All ten raters evaluate every pair, yielding 300 judgments per backbone and 900 per criterion. Method identities are hidden and left–right order is randomized. Raters inde-pendently assess long-range consistency (preservation of subjects, objects, and scenes) and overall 
+
+19 Preprint 
+
+Figure 7: Additional qualitative comparisons with Self-Forcing. Each example compares the original Self-Forcing model (top) with Self-Forcing+F RAME MORROW (bottom) over long-horizon generation. F RAME MORROW better preserves subject appearance and visual details as generation progresses. 
+
+Figure 8: Additional qualitative comparisons with LongLive. Each example compares the orig-inal LongLive model (top) with LongLive+F RAME MORROW (bottom) under the same generation conditions. F RAME MORROW improves the preservation of subjects and scene appearance over ex-tended generation. 
+
+visual quality (clarity, artifacts, and naturalness), selecting a preferred video or a tie when neither is clearly better. Figure 10 reports preferences, with Overall averaging the three backbones. FRAME MORROW is preferred more often than native models for both criteria on every backbone. Average consistency preferences are 62.7% for F RAME MORROW , 16.7% for native, and 20.7% ties. Quality preferences 20 Preprint 
+
+Figure 9: Additional qualitative comparisons with Causal Forcing. Each example compares the original Causal Forcing model (top) with Causal Forcing+F RAME MORROW (bottom) under the same generation conditions. F RAME MORROW provides more consistent subjects, objects, and scene details throughout long-horizon generation. 0 25 50 75 100 
+
+> Preference (%) Self-Forcing LongLive Causal Forcing
+> Overall
+
+(a) Long-range consistency     
+
+> 64% 58% 66%
+> 62.7%
+> 18% 24% 20%
+> 20.7%
+> 18% 18% 14%
+> 16.7%
+> 025 50 75 100
+> Preference (%) Self-Forcing LongLive Causal Forcing
+> Overall
+
+(b) Overall visual quality   
+
+> 55% 50% 57%
+> 54.0%
+> 27% 32% 28%
+> 29.0%
+> 18% 18% 15%
+> 17.0%
+> FrameMorrow Tie Native
+
+Figure 10: User preferences for long-video generation. FRAME MORROW is preferred over the native model across all three backbones. Overall averages the three backbone-level percentages. are 54.0%, 17.0%, and 29.0%, respectively. The stronger consistency preference matches our focus on historical preservation, while quality preferences indicate broader perceptual benefits. 21
