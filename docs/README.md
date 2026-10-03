@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-02</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-03</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 34 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>23</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-02 23:29:16 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-03 21:58:21 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共筛34篇文献，精读23篇、速读11篇，主线集中在机器人动作生成与世界模型落地。</p>
-<p>最值得看的是两篇9.0分精读：《Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching》与《One from Infinity: Actualizing Futures from Pretrained World Models into Robot Actions》。</p>
-<p>普通读者可先读这两篇精读，再用DynaTokens、LexiconVLA、Diffusion Policy Improvement三篇8分速读补充测试时动力学、可复用动作码本与策略改进的视角。</p>
+<p>今日筛选18篇AI论文，精读7篇、速读11篇，聚焦视频世界模型与长视频生成。最值得看的是两篇9分工作：Honeycomb用恒定大小场景记忆压缩视频世界模型，LIFT靠在线自蒸馏实现大视角变化下的未来布局生成。普通读者可先读这两篇精读，再顺带看速读里8分的记忆压缩与具身感知方向。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">23 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching">Rethinking Causal Action Tokenization with Conditional Annealing in Flow Matching</span></li><li><span class="dpr-home-dashboard-paper-title" title="One from Infinity: Actualizing Futures from Pretrained World Models into Robot Actions">One from Infinity: Actualizing Futures from Pretrained World Models into Robot Actions</span></li><li><span class="dpr-home-dashboard-paper-title" title="Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks">Staircase Policy: Streaming Inference for World-Action Models with Large Action Chunks</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Honeycomb: Constant-Size Scene Memory Representation for Video World Models">Honeycomb: Constant-Size Scene Memory Representation for Video World Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="LIFT: Layout-In-Future Video Generation under Large Viewpoint Change via On-Policy Self-Distillation">LIFT: Layout-In-Future Video Generation under Large Viewpoint Change via On-Policy Self-Distillation</span></li><li><span class="dpr-home-dashboard-paper-title" title="The Planning Limits of Latent World Models">The Planning Limits of Latent World Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>23</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +87,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DynaTokens: Teaching Dynamics to Camera-Controlled Video Models at Test Time">DynaTokens: Teaching Dynamics to Camera-Controlled Video Models at Test Time</span></li><li><span class="dpr-home-dashboard-paper-title" title="LexiconVLA: Learning Reusable Atomic Action Codebooks for Unseen Tasks">LexiconVLA: Learning Reusable Atomic Action Codebooks for Unseen Tasks</span></li><li><span class="dpr-home-dashboard-paper-title" title="Diffusion Policy Improvement with Proposal-Conditioned Refinement Flows">Diffusion Policy Improvement with Proposal-Conditioned Refinement Flows</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Compress to Remember: Learning Compact Memory via On-Policy Distillation for Long Video Generation">Compress to Remember: Learning Compact Memory via On-Policy Distillation for Long Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="RawVLA: Embodied Neural Image Signal Processor For Robotic Manipulation">RawVLA: Embodied Neural Image Signal Processor For Robotic Manipulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="CogWAM: Aligning Semantic Cognition with World Action Modeling via Event-Driven Interfaces">CogWAM: Aligning Semantic Cognition with World Action Modeling via Event-Driven Interfaces</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
