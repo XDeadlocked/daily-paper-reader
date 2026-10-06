@@ -1,0 +1,3383 @@
+WORLD-CALIBRATED PROPOSAL-TO-ACTION FLOW
+FOR VISION-LANGUAGE-ACTION MODELS
+Jie He1,∗, Wei Li1,∗, Junwen Tong2,∗, Rui Shao1,†, Wei-Shi Zheng3, Liqiang Nie1
+1Harbin Institute of Technology, Shenzhen
+2State Key Laboratory of Mobile Network and Mobile Multimedia Technology, ZTE, China
+3Sun Yat-sen University
+∗Equal Contributions, †Corresponding Author
+shaorui@hit.edu.cn
+ Homepage: https://JiuTian-VL.github.io/ProAct-page
+§ Github: https://github.com/JiuTian-VL/ProAct
+ABSTRACT
+Flow-based Vision-Language-Action (VLA) policies generate action chunks by
+transporting samples from a task-agnostic isotropic Gaussian source.
+As this
+source is conditioned on neither recent execution nor predicted future evolution,
+(i) it discards the local continuity established by recently executed motion. (ii)
+Even when predictive world representations are introduced, they often only con-
+dition the transport dynamics rather than determine where generation starts, how
+far it may deviate, or along which action directions it may expand. Building on
+this observation, we introduce PROACT, a world-calibrated proposal-to-action
+framework that makes the generative source itself predictable. (i) To preserve
+motion continuity, a lightweight Proposal Expert converts recent actions into a
+scene-aware hypothesis via one motion-anchored endpoint flow-matching step,
+initializing generation near the demonstrated action manifold. (ii) To jointly cap-
+ture intended scene evolution and proposal–future compatibility, a prospective
+World Expert treats the hypothesis as a soft motion prior while predicting the
+task-consistent latent future. (iii) From this compatibility, the model calibrates
+a proposal-centered anisotropic source, where a bounded per-step extent con-
+trols the allowed deviation and a trace-normalized low-rank geometry under a
+condition-number budget allocates refinement over coupled translation, rotation,
+and gripper directions. Compared with π0.5, PROACT improves performance
+across simulation and real-world tasks while reducing denoising steps by 50%,
+inference latency by up to 25.8%, and increasing throughput by up to 34.8%.
+1
+INTRODUCTION
+Vision-language-action (VLA) models Black et al. (2024); Bjorck et al. (2025); Li et al. (2026b);
+Luo et al. (2026); Shao et al. (2025) increasingly use diffusion Chi et al. (2025) or flow matching Lip-
+man et al. (2022) to generate continuous robot actions, building on broader progress in fine-grained
+multimodal understanding and visual grounding Peng et al. (2026); Shao et al. (2024; 2023; 2019).
+However, these generative decoders typically initialize each action chunk from a generic source dis-
+tribution Intelligence et al. (2025); Zheng et al. (2026), forcing the policy to repeatedly transport
+uninformed samples toward executable trajectories, as illustrated in the upper panel of Fig. 1. Such
+a generic source ignores readily available context that could inform where action generation should
+begin. By making the source distribution itself contextually predictable, action generation can begin
+from a more informed region of the action space, yielding a policy that is both more accurate and
+substantially cheaper to sample during closed-loop policy execution.
+A generic isotropic source leaves two useful sources of information unexploited. The first is re-
+cently executed motion. Although task-level behavior can be highly multimodal, physical motion
+often exhibits strong local regularity over short horizons, and recently executed, reliable actions are
+already available during closed-loop control Black et al. (2026); Wang et al. (2026a). A naive strat-
+1
+arXiv:2610.02323v1  [cs.RO]  1 Oct 2026
+
+
+Figure 1:
+Motivation of PROACT. PROACT uses recent motion to form a scene-aware proposal
+and prospective world reasoning to calibrate its source distribution. Starting from this informed,
+proposal-centered source shortens action transport while improving performance and efficiency.
+egy is to extrapolate this motion and reuse it for the next action chunk Jia et al. (2026); Zhan et al.
+(2026). Yet such continuation becomes unreliable around contact, reorientation, gripper actuation,
+or task-phase transitions, where appropriate motion may deviate sharply from recent behavior Yang
+et al. (2026c). Local continuity therefore indicates what is plausible from the recent past, but not
+necessarily what remains appropriate for the current scene and task. Recent motion should thus be
+treated as a proposal to be evaluated against the intended future, rather than as the action itself.
+The second is predicted future evolution, which provides prospective evidence for calibrating such
+a proposal. Prospective world modeling Zhao et al. (2025); Zhang et al. (2025); Tian et al. (2025);
+Zhang et al. (2026); Li et al. (2026f); Zhu et al. (2026a); Li et al. (2026c) has increasingly been
+incorporated into VLA policies, but typically as auxiliary supervision or additional conditioning.
+In these formulations, prospective information helps predict what should happen next, but is not
+explicitly used to calibrate an existing action hypothesis according to whether it remains appropriate
+for the anticipated task evolution. The missing element is therefore an explicit interface between a
+candidate motion, prospective world reasoning, and generative refinement.
+We build this missing interface around a propose–calibrate–refine principle and instantiate it as
+PROACT, a World-Calibrated Proposal-to-Action Flow framework.
+PROACT first constructs a
+scene-aware motion hypothesis, then uses prospective world reasoning to estimate the correction
+required to realize the intended future, and finally converts this calibration into the source distribu-
+tion for flow-based action generation, as illustrated in the lower panel of Fig. 1.
+Specifically, (i) a lightweight Proposal Expert first converts recently executed actions into a scene-
+aware motion hypothesis. It extrapolates short-horizon motion and uses it to initialize the motion-
+anchored flow module, which grounds the proposal in the current VLM context through a single
+endpoint flow step. Rather than producing an executable action, this stage places generation near a
+plausible region of the demonstrated action manifold and provides a soft motion prior for subsequent
+reasoning. (ii) A prospective World Expert calibrates this proposal against the task-consistent fu-
+ture. The motion hypothesis is provided as contextual evidence for prospective reasoning, while the
+prediction target remains the demonstrated future encoded in the latent space of a frozen V-JEPA 2
+encoder Assran et al. (2025). Calibration readouts are further supervised by the residual between
+the demonstrated action and the proposal, forcing the shared world representation to encode both
+the task-consistent latent future and the proposal–future compatibility. (iii) The resulting calibration
+is finally expressed as a proposal-centered anisotropic source for action generation. A bounded
+per-step extent limits how far generation may deviate from the proposal, while trace-normalized
+low-rank geometry determines along which coupled action directions that correction should occur.
+An Action Expert then transports samples from this calibrated source into executable action chunks
+using the base VLA’s original flow parameterization. Thus, PROACT changes where and how action
+generation begins while preserving the flexibility to depart from the proposal when needed.
+Our primary contributions are summarized as follows:
+2
+
+
+Figure 2:
+Overview of PROACT. A Proposal Expert forms a scene-aware motion hypothesis,
+which the World Expert calibrates against the task-consistent future to predict refinement extent and
+geometry. The resulting source is then refined into executable actions by the Action Expert.
+• We formulate generative action prediction from a propose–calibrate–refine perspective, where re-
+cent motion provides a soft local hypothesis calibrated by task-consistent prospective reasoning,
+providing an interface between local motion continuity and future-aware action generation.
+• We introduce an asymmetric proposal-aware World Expert that uses motion to assist future pre-
+diction while anchoring the desired future independently of proposal correctness, and jointly
+predicts proposal-specific refinement extent and geometry at every horizon step.
+• We replace the isotropic Gaussian of flow-based VLAs with a world-calibrated, proposal-
+centered source while leaving their transport parameterization unchanged.
+• We validate PROACT across extensive simulation benchmarks and real-world robotic manipula-
+tion tasks, where it consistently outperforms strong baselines while reducing denoising steps by
+up to 50%, demonstrating both superior effectiveness and inference efficiency.
+2
+PROACT
+As shown in Fig. 2, PROACT follows a propose–calibrate–refine pipeline. A Proposal Expert
+grounds recent motion into a scene-aware hypothesis, a prospective World Expert models latent
+future and proposal–future compatibility, and an Action Expert transports the calibrated source into
+executable actions. This calibration determines where refinement starts, how far it may travel, and
+along which coupled directions it should proceed at each horizon step.
+2.1
+PROBLEM FORMULATION
+Given demonstrations D = {(τi, ℓi)}N
+i=1 with τi = {(Ot, qt, at)}Ti
+t=1, we predict an action
+chunk At = (at,1, . . . , at,H) ∈RH×da from Ct = (O≤t, ℓ, q≤t) and recent action history
+Ha
+t = {at−M, . . . , at−1} containing only executed actions. We use a shared horizon M = H.
+A VLM encodes Ct and exposes layer-wise keys and values KVLM
+t
+= {(Kv
+t,l, V v
+t,l)}Lv
+l=1, which pro-
+vide common perception–language context to all experts throughout generation.
+Suppressing time indices and treating KVLM
+t
+as implicit context, for notational clarity we let C = Ct,
+Ha = Ha
+t , and X = Xsrc throughout this formulation. Generation then factorizes as
+p(A | C, Ha) =
+ZZZ
+pθ(A | X, Hw)
+|
+{z
+}
+Action
+pη(X | P, Hw)
+|
+{z
+}
+Source
+pω(Hw | P)
+|
+{z
+}
+World
+pϕ(P | Ha)
+|
+{z
+}
+Proposal
+dHw dX dP.
+(1)
+Read right-to-left, the factors propose motion, model its desired future, calibrate the source, and
+generate actions; pω may condition on P when beneficial, whereas pη must explicitly preserve P as
+the source anchor and calibrate deviations around it.
+3
+
+
+2.2
+MOTION-INFORMED ACTION PROPOSAL
+Robot motion is locally continuous despite task-level multimodality. Let ∆at = at−1 −at−2 and
+maintain the smoothed motion state mt = βmt−1 + (1 −β)∆at. We extrapolate
+amom
+t,k
+= at−1 + 1 −λk
+1 −λ mt,
+k = 1, . . . , H,
+(2)
+where β suppresses fluctuations and λ attenuates long-horizon extrapolation; gripper dimensions
+retain their last executed value. The chunk Amom
+t
+captures local motion continuity but is not scene-
+aware. It initializes smooth motion while leaving contact and target changes to visual grounding.
+A shallow Proposal Expert grounds this analytic prior in VLM context. It uses Lp layers of the
+Action Expert and a single flow time tp = 1, treating Amom
+t
+as a source rather than noise. During
+training, we perturb it as Xp
+t = Amom
+t
++ σpϵp, ϵp ∼N(0, I), and initialize Hp
+t,0 = W p
+inXp
+t . Each
+layer jointly attends to VLM context and the proposal state:
+b
+Hp
+t,j = Attn
+
+Qp
+j(Hp
+t,j−1), [ e
+Kv
+t,j; Kp
+j ], [eV v
+t,j; V p
+j ]
+
+,
+(3)
+where Kp
+j , V p
+j project Hp
+t,j−1. Because the proposer is shallower than the VLM (Lp = 6 versus
+Lv = 18), its layer j receives a compressed cache from Sj = {3j −2, 3j −1, 3j}. It aver-
+ages jointly RMS-normalized caches using parameter-free reliability weights wt,j,l ∝bσ−2
+t,j,l, where
+bσ2
+t,j,l estimates layer noise from within-window dispersion. Appendix E.1 derives the fusion rule.
+This favors locally consistent VLM depths without learned fusion parameters while matching the
+proposer’s smaller depth. Residual and feed-forward updates yield Hp
+t = Hp
+t,Lp; we read out
+vp
+ϕ = W p
+outHp
+t and take one Euler step from tp = 1 to 0:
+Pt = Xp
+t −vp
+ϕ,
+Lprop = 1
+H
+X
+k
+∥Pt,k −a∗
+t,k∥2
+2.
+(4)
+This endpoint objective requires no additional parameterization or iterative proposal refinement. At
+inference, we simply remove the training perturbation and set Xp
+t = Amom
+t
+.
+2.3
+ASYMMETRIC DESIRED-FUTURE MODELING AND PROPOSAL CALIBRATION
+A single World Expert jointly reasons over the proposal and VLM semantics to capture proposal-
+conditioned prospective information. It is a Transformer without flow-time conditioning whose
+shared queries support asymmetric future-prediction and proposal-calibration readouts.
+V-JEPA future latent target.
+Rather than reconstructing pixels or imposing object slots, we
+supervise prospective reasoning in video representation space. We form the future clip V→
+t
+=
+(Ot+1, Ot+2, . . . , Ot+H) and use the frozen V-JEPA 2 encoder from V-JEPA 2-AC Assran et al.
+(2025) as the target space. With temporal tubelet size 2, N f = H/2 is its temporal resolution. We
+spatially pool the encoder tokens into Nz groups within each temporal tubelet:
+Z∗
+t = Ps(sg(EVJ(V→
+t ))) = {z∗
+t,τ,j}τ,j ∈RNf ×Nz×df ,
+(5)
+where Ps performs spatial pooling and feature-wise normalization. This removes the frozen en-
+coder’s arbitrary scale and balances future prediction against the remaining objectives. The target
+captures physical evolution without reconstructing task-irrelevant texture.
+Proposal-aware world reasoning. The World Expert initializes learnable spatiotemporal queries
+Hw
+t,0 = {qw
+j +etime
+k
+}k,j ∈RH×Nz×dw at the full action-horizon resolution and embeds the detached
+proposal as H condition tokens, Hc
+t,0 = W c
+in sg(Pt). Only the final Pt is shared. Writing St,l =
+[Hw
+t,l; Hc
+t,l], each layer jointly attends to the VLM cache and its own state:
+St,l = Attn
+ Qw
+l (St,l−1),
+
+Kv
+t,l; Ks
+t,l
+
+,
+
+V v
+t,l; V s
+t,l
+
+,
+(6)
+where Ks
+t,l, V s
+t,l project St,l−1, followed by standard Transformer updates. VLM features provide
+task and scene semantics, while proposal tokens inject a concrete motion tendency. Retaining only
+the H×Nz world-query outputs gives Hw
+t = {hw
+t,k,j}k,j, a shared proposal-conditioned prospective
+representation for calibration. Joint attention exposes proposal–scene compatibility per horizon step
+rather than compressing the motion hypothesis into one global token.
+4
+
+
+Figure 3: World-calibrated source construction. Proposal-conditioned future features yield per-
+step refinement extent and low-rank geometry, defining an anisotropic source for action refinement.
+Asymmetric future and calibration readouts. For future prediction, neighboring world-token
+groups are pooled to match the V-JEPA resolution, h
+w
+t,τ,j
+= Poolt(hw
+t,2τ−1,j, hw
+t,2τ,j), and a
+linear head maps h
+w
+t,τ,j to bzt,τ,j.
+Fixed token ordering avoids matching, giving Lfuture
+=
+1
+N f Nzdf
+P
+τ,j ∥bzt,τ,j −z∗
+t,τ,j∥2
+2. The target is the demonstrated future, not the counterfactual out-
+come of executing Pt, so the proposal remains a soft motion prior.
+For calibration, we pool latent tokens into one horizon-aligned feature, gw
+t,k =
+1
+Nz
+P
+j hw
+t,k,j, and
+denote Gw
+t = (gw
+t,1, . . . , gw
+t,H). The future head decodes what task-consistent evolution should look
+like; calibration decodes how the proposal must be loosened and reshaped from the same prospec-
+tive representation. Both calibration targets use residual A∗
+t −Pt, making proposal information
+necessary even though the future target itself remains task-consistent. This asymmetry also prevents
+an inaccurate proposal from redefining the desired future merely to justify itself.
+2.4
+WORLD-CALIBRATED ACTION REFINEMENT
+The proposal-aligned Gw
+t defines a source with scalar extent and low-rank geometry.
+Refinement extent. Let rt,k = a∗
+t,k −Pt,k, with the diagonal action-scale matrix Da (See Ap-
+pendix E). We infer correction extent via proposal–future compatibility:
+et,k = ∥D−1
+a rt,k∥2
+√da
+,
+U ∗
+t,k = 1 −exp(−et,k/τu),
+Ut,k = sigmoid(fu(gw
+t,k)),
+σ(∗)
+t,k = σmin + U (∗)
+t,k (σmax −σmin).
+(7)
+Here σ∗
+t,k uses U ∗
+t,k, while σt,k uses Ut,k. MSE LU supervises Ut,k against U ∗
+t,k. Compatible
+proposals induce concentrated sources; incompatible ones open more room for refinement.
+Refinement geometry. Magnitude alone misses dependencies among translation, rotation, and grip-
+per dimensions. From the same world feature, we predict a low-rank factor Bt,k = fB(gw
+t,k) ∈
+Rda×r, with r ≪da. It defines the scale-normalized covariance at each proposal horizon step:
+Ct,k = σ2
+t,kda
+
+I + Bt,kB⊤
+t,k
+
+/ tr
+
+I + Bt,kB⊤
+t,k
+
+.
+(8)
+To reduce magnitude dependence when learning refinement geometry, we normalize residuals by
+the detached target extent and score them under the scale-normalized eCt,k = Ct,k/σ2
+t,k:
+brt,k = D−1
+a rt,k
+sg(σ∗
+t,k) ,
+LB =
+1
+2H
+X
+k
+h
+br⊤
+t,k eC−1
+t,k brt,k + log det eCt,k
+i
+.
+(9)
+Target normalization reduces residual-scale variation, while trace normalization prevents Bt,k from
+changing the average variance across action dimensions. Thus, LU primarily controls refinement
+magnitude and LB its geometry. Trace normalization removes scale but not single-sample shape
+degeneracy, so we project Bt,k onto ∥Bt,k∥2
+F ≤Smax. This enforces κ( eCt,k) ≤1 + Smax while
+preserving tr Ct,k = daσ2
+t,k. We use Smax = 5; Appendix E.2 gives the derivation and O(dar2)
+evaluation. Consequently, σt,k fixes average variance while Bt,k redistributes it toward coupled
+residual directions without silently changing the overall refinement extent.
+With action-space covariance Ca
+t,k = DaCt,kD⊤
+a , we sample the source as
+Xa
+t,src = Pt + Ltϵa,
+ϵa ∼N(0, I),
+LtL⊤
+t = BlockDiag
+ Ca
+t,1, . . . , Ca
+t,H
+
+.
+(10)
+5
+
+
+Table 1: Results on LIBERO and LIBERO-Plus. We report performance on the four LIBERO
+task suites and generalization under seven perturbation dimensions in LIBERO-Plus.
+Method
+LIBERO
+LIBERO-Plus
+Spatial
+Object
+Goal
+Long
+Avg.
+Camera
+Robot
+Language
+Light
+Background
+Noise
+Layout
+Total
+OpenVLA-OFT Kim et al. (2025)
+97.6
+98.4
+97.9
+94.5
+97.1
+56.4
+31.9
+79.5
+88.7
+93.3
+75.8
+74.2
+69.6
+π0.5 Intelligence et al. (2025)
+98.8
+98.2
+98.0
+92.4
+96.9
+59.7
+65.5
+75.3
+87.0
+82.4
+72.1
+80.3
+73.6
+WorldVLA Cen et al. (2025)
+87.6
+96.2
+83.4
+60.0
+81.8
+0.1
+27.9
+41.6
+43.7
+17.1
+10.9
+38.0
+25.0
+UniVLA Bu et al. (2025)
+95.4
+98.8
+93.6
+94.0
+95.4
+1.8
+46.2
+69.6
+69.0
+81.0
+21.2
+31.9
+42.9
+VLA-Adapter Wang et al. (2026b)
+97.8
+99.2
+97.2
+95.0
+97.3
+36.2
+37.9
+74.6
+70.6
+76.1
+58.0
+69.7
+59.1
+DreamVLA Zhang et al. (2026)
+97.5
+94.0
+89.5
+89.5
+92.6
+65.0
+40.8
+63.5
+85.7
+82.6
+84.9
+74.0
+69.9
+VLA-JEPA Sun et al. (2026)
+96.2
+99.6
+97.2
+95.8
+97.2
+63.3
+67.1
+85.4
+95.6
+93.6
+66.3
+85.1
+79.5
+Fast-WAM Yuan et al. (2026)
+98.2
+100.0
+98.2
+95.2
+97.6
+34.0
+55.1
+88.9
+90.0
+44.9
+33.3
+73.4
+59.0
+HoloBrain Lin et al. (2026)
+–
+–
+–
+–
+–
+66.3
+49.0
+65.9
+94.9
+93.3
+73.1
+78.2
+72.6
+PROACT
+99.4
+99.6
+98.4
+96.0
+98.4
+76.1
+80.3
+87.4
+97.8
+95.5
+90.2
+86.2
+86.8
+Table 2: Results on RoboTwin 2.0 benchmark. All policies are trained on the Clean setting and
+evaluated under the Randomized (hard) zero-shot setting, with 100 rollouts per task.
+Method
+Put
+Bottles
+Dustbin
+Place
+Dual
+Shoes
+Pick
+Diverse
+Bottles
+Place
+Burger
+Fries
+Open
+Laptop
+Blocks
+Ranking
+RGB
+Pick
+Dual
+Bottles
+Dump
+Bin
+Bigbin
+Stamp
+Seal
+Place
+Bread
+Basket
+Avg.
+π0 Black et al. (2024)
+13%
+0%
+6%
+4%
+46%
+5%
+12%
+24%
+4%
+4%
+11.8%
+π0.5 Intelligence et al. (2025)
+9%
+7%
+3%
+70%
+35%
+35%
+6%
+42%
+23%
+56%
+28.6%
+X-VLA Zheng et al. (2026)
+20%
+12%
+30%
+35%
+16%
+4%
+51%
+41%
+2%
+52%
+26.3%
+Spatial Forcing Li et al. (2026a)
+41%
+2%
+38%
+71%
+15%
+7%
+47%
+70%
+2%
+53%
+34.6%
+X-WAM Guo et al. (2026)
+21%
+7%
+26%
+36%
+6%
+36%
+55%
+40%
+16%
+40%
+28.3%
+Abot-M0 Yang et al. (2026b)
+26%
+15%
+7%
+55%
+64%
+23%
+19%
+68%
+19%
+47%
+34.3%
+EventVLA Yang et al. (2026a)
+31%
+1%
+9%
+7%
+23%
+6%
+8%
+64%
+3%
+15%
+16.7%
+Xiaomi Robotics-0 Cai et al. (2026b)
+21%
+9%
+12%
+27%
+24%
+8%
+28%
+49%
+3%
+23%
+20.4%
+FastWAM Yuan et al. (2026)
+0%
+0%
+0%
+0%
+0%
+0%
+1%
+0%
+0%
+0%
+0.1%
+GalaxeaVLA Liu et al. (2026)
+3%
+9%
+11%
+32%
+13%
+1%
+21%
+40%
+2%
+32%
+16.4%
+starVLA Community (2026)
+0%
+2%
+15%
+11%
+2%
+2%
+20%
+4%
+0%
+5%
+6.1%
+PROACT
+69%
+39%
+57%
+84%
+76%
+46%
+63%
+78%
+29%
+62%
+60.3%
+Appendix E.2 details sampling and covariance construction.
+Action flow refinement. The calibrated covariance defines preferred correction axes but not the
+signed transport direction, which the Action Expert supplies. We preserve the base VLA’s flow
+parameterization, where s = 1 is the source and s = 0 the data, replacing only its Gaussian source
+by Xa
+t,src. For base-model flow time s and velocity vA
+θ = WvHa
+t,s,La, the path and objective are
+Xa
+t,s = sXa
+t,src + (1 −s)A∗
+t ,
+v∗
+t = Xa
+t,src −A∗
+t ,
+Lflow = Et,s,ϵp,ϵa
+vA
+θ −v∗
+t
+
+2
+2
+
+.
+(11)
+The Action Expert uses Xa
+t,s as its action state, reads shared VLM context, and attends to Hw
+t for
+proposal-aware prospective guidance. Its velocity therefore receives both desired future evolution
+and proposal compatibility, with attention and integration detailed in Appendix A.1.3.
+At inference, we construct Pt and Hw
+t , predict Ut and Bt, sample Xa
+t,src, and integrate from s =
+1 to 0. Starting closer to the action manifold shortens the required transport, allowing a coarser
+integration grid while reducing both sampling cost and accumulated integration error.
+Training objective. The complete model is trained end-to-end with
+L = λpLprop + λfLfuture + λuLU + λbLB + λaLflow.
+(12)
+These terms learn a useful proposal, anchor world reasoning in V-JEPA space, calibrate proposal-
+specific extent and geometry, and transport samples toward executable actions.
+3
+EXPERIMENTS
+We evaluate PROACT through four questions: (Q1) Does the world-calibrated, proposal-centered
+source outperform strong VLA baselines? (Q2) Are gains larger when long-horizon or perturbed
+conditions weaken motion continuity? (Q3) Which propose–calibrate–refine components drive the
+gains? (Q4) Does calibration improve proposal refinement and generation efficiency?
+3.1
+COMPARISON ON SIMULATION BENCHMARKS
+This section addresses Q1 and Q2 on three complementary benchmarks, testing whether a cali-
+brated source improves strong VLA baselines under saturation, distribution shift, and long-horizon
+bimanual control across increasingly demanding manipulation conditions.
+6
+
+
+Figure 4: Closed-loop proposal refinement on real robots. Drawer Toy Retrieval (left) and Block
+Sorting (right). Enlarged frames overlay history (purple), proposal (blue), and refined action (green);
+orange callouts mark changes requiring departure from local motion continuity.
+Table 3: Real-world manipulation results. Results are reported over the same six tasks on both
+on GALAXEA R1 Lite Galaxea (2025) and AgileX Cobot Magic Fu et al. (2024) platforms. The
+superscript † denotes our reproduced baselines.
+Galaxea R1 Lite Platform
+Method
+Block Sorting
+Pot Lid Retrieval
+Drawer Manipulation
+Pick
+Red Block
++Place Red
+in Bowl
++Pick
+Blue Block
++Place Blue
+in Bowl
+CSR
+Remove
+Lid
++Retrieve
+Object to Plate
+CSR
+Open
+Drawer
++Grasp
+Toy
++Place Toy
+Inside
++Close
+Drawer
+CSR
+OpenVLA-OFT Kim et al. (2025)†
+19/25
+17/25
+13/25
+12/25
+61.0%
+21/25
+17/25
+76.0%
+17/25
+15/25
+12/25
+12/25
+56.0%
+π0 Black et al. (2024)†
+20/25
+18/25
+14/25
+14/25
+66.0%
+21/25
+16/25
+74.0%
+18/25
+17/25
+13/25
+13/25
+61.0%
+π0.5 Intelligence et al. (2025)†
+23/25
+22/25
+19/25
+17/25
+81.0%
+22/25
+20/25
+84.0%
+21/25
+21/25
+18/25
+16/25
+76.0%
+PROACT
+23/25
+23/25
+21/25
+20/25
+87.0%
+24/25
+21/25
+90.0%
+23/25
+22/25
+20/25
+19/25
+84.0%
+Method
+Drawer Toy Retrieval
+Table Wiping
+Color Sorting
+Overall
+Open
+Drawer
++Retrieve
+Toy
++Place Toy
+on Plate
++Close
+Drawer
+CSR
+Grasp
+Cloth
++Wipe
+Table
+CSR
+Red
+Block→Bin
++Blue
+Block→Bin
++Yellow
+Block→Bin
+CSR
+TSR
+CSR
+OpenVLA-OFT Kim et al. (2025)†
+15/25
+9/25
+8/25
+7/25
+39.0%
+19/25
+12/25
+62.0%
+22/25
+16/25
+9/25
+62.7%
+46.0% 59.4%
+π0 Black et al. (2024)†
+19/25
+14/25
+14/25
+12/25
+59.0%
+22/25
+16/25
+76.0%
+20/25
+16/25
+13/25
+65.3%
+56.0% 66.9%
+π0.5 Intelligence et al. (2025)†
+22/25
+18/25
+17/25
+16/25
+73.0%
+24/25
+20/25
+88.0%
+23/25
+18/25
+16/25
+76.0%
+70.0% 79.7%
+PROACT
+22/25
+20/25
+19/25
+19/25
+80.0%
+24/25
+21/25
+90.0%
+24/25
+22/25
+18/25
+85.3% 78.7% 86.1%
+AgileX Cobot Magic Platform
+Method
+Block Sorting Pot Lid Retrieval Drawer Manipulation Drawer Toy Retrieval Table Wiping
+Color Sorting
+Average
+TSR
+CSR
+TSR
+CSR
+TSR
+CSR
+TSR
+CSR
+TSR
+CSR
+TSR
+CSR
+TSR
+CSR
+OpenVLA-OFT Kim et al. (2025)†
+44.0% 55.0%
+60.0% 70.0%
+40.0% 52.0%
+28.0% 37.0%
+48.0% 62.0% 36.0% 57.3% 42.7% 55.6%
+π0 Black et al. (2024)†
+52.0% 63.0%
+56.0% 68.0%
+48.0% 59.0%
+44.0% 54.0%
+56.0% 68.0% 48.0% 61.3% 50.7% 62.2%
+π0.5 Intelligence et al. (2025)†
+64.0% 73.0%
+72.0% 78.0%
+60.0% 70.0%
+56.0% 65.0%
+72.0% 82.0% 64.0% 76.0% 64.7% 74.0%
+PROACT
+76.0% 82.0%
+80.0% 86.0%
+72.0% 80.0%
+68.0% 75.0%
+80.0% 88.0% 72.0% 82.7% 74.7% 82.3%
+LIBERO Benchmark. LIBERO Liu et al. (2023) spans spatial, object, goal, and long-horizon
+variation; following π0.5 Intelligence et al. (2025), we report 500 rollouts per suite. Tab. 1 shows
+that PROACT achieves 98.4% average success, 1.5 points above its backbone. While single-stage
+suites are near saturation, the margin grows to 3.6 points on Long, supporting calibrated source
+expansion when stage transitions sharply break local motion continuity.
+LIBERO-Plus Benchmark. Without retraining, we test seven LIBERO-Plus perturbations Fei et al.
+(2025) under the Total protocol. Tab. 1 shows that PROACT reaches 86.8%, 13.2 points above π0.5
+and 7.3 above the strongest competing average. It improves every category, with the largest gains on
+Noise, Camera, and Robot shifts (18.1/16.4/14.8 points), showing that calibration re-anchors motion
+proposal to altered visual and geometric conditions.
+RoboTwin 2.0 Benchmark. We train one policy on all 50 Aloha-AgileX tasks Chen et al. (2025)
+and evaluate 100 zero-shot Randomized (Hard) rollouts per task. Tab. 2 reports the ten largest
+margins; full results appear in Appendix B. PROACT averages 60.3%, 31.7 points above π0.5 and
+25.7 above the strongest competing average. Gains across placement, bimanual coordination, and
+object-dependent grasping show robustness across randomized scenes with unreliable local motion.
+3.2
+COMPARISON ON REAL-WORLD TASKS
+This section further addresses Q1 and Q2 on six tasks across GALAXEA R1 Lite and AgileX Cobot
+Magic, with 25 trials each. TSR requires full completion, while CSR retains checkpoint progress;
+Appendix C.1 provides metric details. All baselines use the same setup, enabling direct comparison
+across methods and embodiments under identical protocols.
+Closed-loop correction on real robots. Fig. 4 shows selective refinement over complete rollouts.
+Forward proposals become grasp-and-pull motions at contact in Drawer Toy Retrieval, while Block
+Sorting realigns to displaced or newly relevant blocks. Proposals preserve stable phases, and cali-
+bration handles contact and target transitions throughout execution.
+7
+
+
+Table 4:
+Motion proposal ablation. Success
+rates (%) under different source initializations
+for action generation, from generic noise to the
+scene-aware motion proposal.
+Initialization
+LIBERO
+Real-World
+Spa. Obj. Goal Long Avg.
+SR
+Gaussian N(0, I)
+98.8 98.6 97.8
+93.6
+97.2
+72.0
+Last Action Chunk
+98.4 98.2 97.4
+92.8
+96.7
+70.7
+Motion Extrapolation
+99.0 99.2 98.0
+94.8
+97.8
+75.3
+Scene-aware Proposal 99.4 99.6 98.4
+96.0
+98.4
+78.7
+Table 5:
+World calibration ablation. We re-
+port success rates (%) while ablating the World
+Expert (W), proposal conditioning (P), future su-
+pervision (F), and source calibration (C).
+Components
+LIBERO
+Real-World
+W
+P
+F
+C
+Spa.
+Obj.
+Goal
+Long
+Avg.
+SR
+✓
+✓
+×
+✓
+99.0
+99.2
+98.0
+93.6
+97.5
+74.7
+✓
+×
+✓
+✓
+98.8
+99.0
+97.6
+92.8
+97.1
+73.3
+✓
+✓
+✓
+×
+99.2
+99.4
+98.2
+94.4
+97.8
+76.0
+×
+–
+–
+–
+98.6
+98.4
+97.2
+91.6
+96.5
+70.7
+✓
+✓
+✓
+✓
+99.4
+99.6
+98.4
+96.0
+98.4
+78.7
+Table 6: Source calibration ablation. Success
+rates (%) across source variants; U and B denote
+refinement extent and geometry.
+Calibration
+LIBERO
+Real-World
+Source
+U
+B Spa. Obj. Goal Long Avg.
+SR
+Fixed Isotropic × × 98.6 98.8 97.4
+92.8
+96.9
+72.7
+Extent Only
+✓× 99.0 99.2 98.0
+94.8
+97.8
+76.0
+Geometry Only × ✓98.8 99.0 97.6
+93.6
+97.3
+74.7
+PROACT
+✓✓99.4 99.6 98.4
+96.0
+98.4
+78.7
+Table 7:
+Inference efficiency.
+Latency,
+throughput, and success rate under default infer-
+ence on LIBERO (A800, upper rows) and real-
+world tasks (RTX 5090, lower rows).
+Model
+Latency↓
+Throughput↑
+Success Rate↑
+π0.5
+121.26 ms
+82.47 Hz
+96.9%
+PROACT
+89.98 ms
+111.14 Hz
+98.4%
+π0.5
+104.62 ms
+477.92 Hz
+70.0%
+PROACT
+87.52 ms
+571.30 Hz
+78.7%
+Results on both robot platforms. Tab. 3 shows consistent gains over π0.5: overall TSR/CSR rises
+by 8.7/6.4 points on GALAXEA and 10.0/8.3 on AgileX, with 12-point TSR gains on three AgileX
+tasks. The CSR–TSR gap narrows by 2.3/1.7 points, showing that intermediate progress more often
+survives task completion across both physical embodiments and task settings. The consistent gains
+across tasks further support the robustness of the refinement mechanism.
+3.3
+ABLATION STUDY
+This section addresses Q3 through component ablations in simulation and the real world.
+Motion-informed source. Tab. 4 separates motion continuity from scene grounding. Reusing the
+last chunk is slightly worse than Gaussian noise, whereas motion extrapolation gains 0.6/3.3 points
+on LIBERO/real-world tasks. Proposal Expert grounding adds another 0.6/3.4 points, showing that
+recent motion is a useful soft prior but needs scene grounding when local continuity is unreliable.
+World calibration. Tab. 5 validates the asymmetric calibration interface. Removing the World
+Expert causes the largest drop, by 1.9 points on LIBERO and 8.0 points in the real world. Re-
+moving proposal conditioning, future supervision, or source calibration costs 1.3/5.4, 0.9/4.0, and
+0.6/2.7 points, respectively. Thus, proposal-aware future reasoning and source calibration are both
+necessary, especially when real-world motion continuity becomes unreliable. The larger real-world
+penalties highlight their importance under physical manipulation settings.
+Refinement extent and geometry. Tab. 6 shows that the two calibration outputs are complementary.
+Relative to a fixed isotropic proposal-centered source, adaptive extent improves LIBERO/real-world
+success by 0.9/3.3 points, while low-rank geometry contributes 0.4/2.0 points. Combining both
+raises the gains to 1.5/6.0 points. Extent controls correction magnitude, while geometry allocates it
+across coupled action dimensions. Their complementary gains show that effective refinement needs
+both adaptive magnitude and structured directionality, especially across embodiments, real-world
+contact transitions, and long-horizon manipulation settings in practice.
+3.4
+QUALITATIVE ANALYSIS
+This section addresses Q4 by examining whether the learned proposals and calibrations are inter-
+pretable and whether proposal-centered transport improves efficiency during action generation.
+Scene-aware proposal grounding.
+Fig. 5 shows that, despite compressed VLM KV caches,
+Proposal Expert attention remains focused on manipulated objects and interaction regions across
+LIBERO and RoboTwin 2.0 while suppressing background distractors. Thus, cache compression
+preserves task cues for reliable scene-aware proposals during execution.
+8
+
+
+Figure 5:
+Visual attention of the Proposal Expert. Attention
+maps on LIBERO (top) and RoboTwin 2.0 (bottom); warmer col-
+ors highlight objects, interaction regions, and receptacles.
+Figure 6:
+Calibrated source
+correlation.
+Action samples
+and correlation ellipses.
+Figure 7:
+World-calibrated proposal refinement. Left: proposal refinement in 3D translation
+space. Right: normalized trajectories and calibrated support across seven action dimensions.
+Calibrated source geometry. Fig. 6 shows uncertainty over action dimensions. From left to right,
+nearly circular contours indicate no correlation, upward-tilted ellipses indicate positive correlation,
+and downward-tilted ellipses indicate negative correlation. Dense samples mark source actions,
+while solid and dashed ellipses denote approximately 1σ and 2σ contours. Together, the panels
+show how calibration adjusts the source distribution in extent, orientation, and cross-dimensional
+coupling according to action geometry.
+World-calibrated refinement. Fig. 7 shows that the proposal preserves recent motion’s coarse
+direction while refinement bends toward the demonstration within an anisotropic region. Stable
+dimensions remain close to the proposal, whereas incompatible ones move toward the desired future,
+consistent with the roles of extent and geometry in Tab. 6 across domains and robot embodiments.
+Efficient proposal-to-action transport. Fig. 7 and Tab. 7 show that calibrated geometry short-
+ens transport by starting near the demonstration and focusing corrections along task-relevant direc-
+tions, removing unnecessary transport during generation. On LIBERO/real robots, latency falls by
+25.8/16.3%, throughput rises by 34.8/19.5%, and success improves by 1.5/8.7 points.
+4
+RELATED WORK
+Beyond embodied control, multimodal learning has also explored fine-grained understanding and
+media manipulation grounding Peng et al. (2026); Shao et al. (2024; 2023). These lines of work
+provide complementary perspectives on grounding visual semantics across modalities.
+Structured Priors for Action Generation. Recent generative robot policies increasingly inject
+structured priors to simplify action synthesis Hu et al. (2026); Li et al. (2026g;e;d). These priors
+improve task efficiency. Diffusion and flow-based policies typically generate actions from a generic
+Gaussian source Chi et al. (2025); Black et al. (2024); Intelligence et al. (2025); Bjorck et al. (2025);
+Zheng et al. (2026); Luo et al. (2026). Recent work instead explores more informative starting
+points. Streaming Flow Policy Jiang et al. (2025) initializes generation around recently executed
+actions, while VITA Gao et al. (2026) directly transports visual latents toward action representations.
+A2A Jia et al. (2026) further encodes historical proprioceptive sequences as an informative flow
+source. Together, these studies establish source design as an important dimension of generative
+action policies. However, an informative source does not ensure that its implied motion remains
+suitable as the task evolves. PROACT therefore treats recent motion as a proposal and determines
+how strongly and along which directions it should be corrected.
+World Models for Action Generation. A complementary line of work augments action policies
+with predictive world representations to account for future scene evolution Zhu et al. (2026a); Li
+9
+
+
+et al. (2026c); Zhu et al. (2026b). DreamZero Ye et al. (2026), LingBot-VA Li et al. (2026b),
+DreamVLA Zhang et al. (2026), and WorldVLA Cen et al. (2025) couple future prediction or world
+modeling with action learning, while X-WAM Guo et al. (2026) incorporates future spatial structure
+through RGB-D prediction. VLA-JEPA Sun et al. (2026) introduces latent future prediction into
+VLA learning without explicit pixel-space generation, with related predictive objectives explored
+in UP-VLA Zhang et al. (2025). Fast-WAM Yuan et al. (2026) further suggests that explicit test-
+time future generation is not always necessary. Together, these studies leave open how predictive
+information should most effectively influence action generation. In PROACT, the predicted future
+calibrates the proposal-centered source, controlling how far and along which directions the proposal
+is refined across diverse tasks, horizons, and embodiments.
+5
+CONCLUSION
+We presented PROACT, a world-calibrated proposal-to-action framework that makes the source of
+flow-based VLAs context dependent. A scene-aware motion proposal and task-consistent future cal-
+ibrate refinement extent and geometry while preserving the original flow parameterization. Across
+simulation and real-world benchmarks, this design improves robustness under perturbations and
+long-horizon execution while reducing denoising and inference cost, motivating prospective source
+calibration for robust and efficient generative robot policies across manipulation settings.
+6
+AI USE DISCLOSURE
+Generative AI tools were used solely to assist with English language polishing and to check for-
+matting and presentation consistency in the manuscript. They were not used to develop research
+ideas, formulate hypotheses or mathematical claims, design the methodology or experiments, im-
+plement the proposed method, or analyze and interpret experimental results. All AI-assisted edits
+were reviewed by the authors, who take full responsibility for the final content of the paper.
+REFERENCES
+Mahmoud Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, Mojtaba Komeili,
+Matthew Muckley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem Zholus, Sergio Ar-
+naud, Abha Gejji, Ada Martin, Francois Robert Hogan, Daniel Dugas, Piotr Bojanowski, Vasil
+Khalidov, Patrick Labatut, Francisco Massa, Marc Szafraniec, Kapil Krishnakumar, Yong Li, Xi-
+aodong Ma, Sarath Chandar, Franziska Meier, Yann LeCun, Michael Rabbat, and Nicolas Ballas.
+V-jepa 2: Self-supervised video models enable understanding, prediction and planning. arXiv
+preprint arXiv:2506.09985, 2025.
+Johan Bjorck, Fernando Casta˜neda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan,
+Yu Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et al. Gr00t n1: An open foundation model
+for generalist humanoid robots. arXiv preprint arXiv:2503.14734, 2025.
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo
+Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. π0: A vision-language-action flow
+model for general robot control. arXiv preprint arXiv:2410.24164, 2024.
+Kevin Black, Manuel Galliker, and Sergey Levine. Real-time execution of action chunking flow
+policies. Advances in Neural Information Processing Systems, 38:33383–33407, 2026.
+Qingwen Bu, Yanting Yang, Jisong Cai, Shenyuan Gao, Guanghui Ren, Maoqing Yao, Ping Luo, and
+Hongyang Li. Univla: Learning to act anywhere with task-centric latent actions. arXiv preprint
+arXiv:2505.06111, 2025.
+Jisong Cai, Long Ling, Shiwei Chu, Zhongshan Liu, Jiayue Kang, Zhixuan Liang, Wenjie Xu, Yinan
+Mao, Weinan Zhang, Xiaokang Yang, et al. Aha-wam: Asynchronous horizon-adaptive world-
+action modeling with observation-guided context routing.
+arXiv preprint arXiv:2606.09811,
+2026a.
+Rui Cai, Jun Guo, Xinze He, Piaopiao Jin, Jie Li, Bingxuan Lin, Futeng Liu, Wei Liu, Fei Ma,
+Kun Ma, et al. Xiaomi-robotics-0: An open-sourced vision-language-action model with real-time
+execution. arXiv preprint arXiv:2602.12684, 2026b.
+10
+
+
+Jun Cen, Chaohui Yu, Hangjie Yuan, Yuming Jiang, Siteng Huang, Jiayan Guo, Xin Li, Yibing
+Song, Hao Luo, Fan Wang, et al. Worldvla: Towards autoregressive action world model. arXiv
+preprint arXiv:2506.21539, 2025.
+Tianxing Chen, Zanxin Chen, Baijun Chen, Zijian Cai, Yibin Liu, Zixuan Li, Qiwei Liang, Xi-
+anliang Lin, Yiheng Ge, Zhenyu Gu, et al. Robotwin 2.0: A scalable data generator and bench-
+mark with strong domain randomization for robust bimanual robotic manipulation. arXiv preprint
+arXiv:2506.18088, 2025.
+Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake,
+and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. The Inter-
+national Journal of Robotics Research, 44(10-11):1684–1704, 2025.
+StarVLA Community. Starvla: A lego-like codebase for vision-language-action model developing.
+arXiv preprint arXiv:2604.05014, 2026.
+Senyu Fei, Siyin Wang, Junhao Shi, Zihao Dai, Jikun Cai, Pengfang Qian, Li Ji, Xinzhe He, Shiduo
+Zhang, Zhaoye Fei, et al. Libero-plus: In-depth robustness analysis of vision-language-action
+models. arXiv preprint arXiv:2510.13626, 2025.
+Zipeng Fu, Tony Z. Zhao, and Chelsea Finn. Mobile aloha: Learning bimanual mobile manipulation
+with low-cost whole-body teleoperation. In CoRL, 2024.
+Galaxea. Galaxea r1 lite. https://galaxea-dynamics.com/, 2025.
+Dechen Gao, Boqi Zhao, Andrew Lee, Ian Chuang, Hanchu Zhou, Hang Wang, Zhe Zhao, Jun-
+shan Zhang, and Iman Soltani. Vita: Vision-to-action flow matching policy. In International
+Conference on Learning Representations, volume 2026, pp. 100903–100933, 2026.
+Jun Guo, Qiwei Li, Peiyan Li, Zilong Chen, Nan Sun, Yifei Su, Heyun Wang, Yuan Zhang, Xing-
+hang Li, and Huaping Liu. Unified 4d world action modeling from video priors with asynchronous
+denoising. arXiv preprint arXiv:2604.26694, 2026.
+Bing Hu, Zaijing Li, Rui Shao, Junda Chen, April Hua Liu, Wei-Shi Zheng, and Liqiang Nie. From
+abstraction to instantiation: Learning behavioral representation for vision-language-action model.
+arXiv preprint arXiv:2605.22671, 2026.
+Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess,
+Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, et al. π0.5: a vision-language-action
+model with open-world generalization. arXiv preprint arXiv:2504.16054, 2025.
+Jindou Jia, Gen Li, Xiangyu Chen, Tuo An, Yuxuan Hu, Jingliang Li, Xinying Guo, and Jianfei
+Yang. Action-to-action flow matching. arXiv preprint arXiv:2602.07322, 2026.
+Sunshine Jiang, Xiaolin Fang, Nicholas Roy, Tom´as Lozano-P´erez, Leslie Pack Kaelbling, and Sid-
+dharth Ancha. Streaming flow policy: Simplifying diffusion/flow-matching policies by treating
+action trajectories as flow trajectories. arXiv preprint arXiv:2505.21851, 2025.
+Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Opti-
+mizing speed and success. arXiv preprint arXiv:2502.19645, 2025.
+Fuhao Li, Wenxuan Song, Han Zhao, Jingbo Wang, Pengxiang Ding, Donglin Wang, Long Zeng,
+and Haoang Li. Spatial forcing: Implicit spatial representation alignment for vision-language-
+action model.
+In International Conference on Learning Representations, volume 2026, pp.
+132324–132345, 2026a.
+Lin Li, Qihang Zhang, Yiming Luo, Shuai Yang, Ruilin Wang, Fei Han, Mingrui Yu, Zelin Gao, Nan
+Xue, Xing Zhu, et al. Causal world modeling for robot control. arXiv preprint arXiv:2601.21998,
+2026b.
+Wei Li, Rui Shao, Jie He, Lingsen Zhang, Ziwei Liu, and Liqiang Nie.
+Unimpa:
+A uni-
+fied memory-prediction-action model via action-grounded transition modeling. arXiv preprint
+arXiv:2609.11875, 2026c.
+11
+
+
+Wei Li, Renshan Zhang, Rui Shao, Zhijian Fang, Kaiwen Zhou, Zhuotao Tian, and Liqiang Nie.
+Semanticvla: Semantic-aligned sparsification and enhancement for efficient robotic manipulation.
+In Proceedings of the AAAI Conference on Artificial Intelligence, volume 40, pp. 18397–18405,
+2026d.
+Wei Li, Renshan Zhang, Rui Shao, Jie He, and Liqiang Nie. Cogvla: Cognition-aligned vision-
+language-action models via instruction-driven routing & sparsification. Advances in Neural In-
+formation Processing Systems, 38:137646–137675, 2026e.
+Yingyan Li, Shuyao Shang, Weisong Liu, Bing Zhan, Haochen Wang, Yuqi Wang, Yuntao Chen,
+Xiaoman Wang, Yasong An, Chufeng Tang, et al. Drivevla-w0: World models amplify data
+scaling law in autonomous driving. In International Conference on Learning Representations,
+volume 2026, pp. 7890–7911, 2026f.
+Zaijing Li, Bing Hu, Rui Shao, Gongwei Chen, Dongmei Jiang, Pengwei Xie, Jianye Hao, and
+Liqiang Nie. Global prior meets local consistency: Dual-memory augmented vision-language-
+action model for efficient robotic manipulation. arXiv preprint arXiv:2602.20200, 2026g.
+Xuewu Lin, Tianwei Lin, Yun Du, Hongyu Xie, Yiwei Jin, Jiawei Li, Shijie Wu, Qingze Wang,
+Mengdi Li, Mengao Zhao, et al. Holobrain-0 technical report. arXiv preprint arXiv:2602.12062,
+2026.
+Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching
+for generative modeling. arXiv preprint arXiv:2210.02747, 2022.
+Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero:
+Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information
+Processing Systems, 36:44776–44791, 2023.
+Yicheng Liu, Zibin Dong, Baijun Ye, Tianyuan Yuan, Tao Jiang, Anqi Yang, Shicheng Cao, Haonan
+Liu, Yue Sun, Zihan Guo, Xiao Liu, Ke Dong, Changxun Pan, Chenru Wu, Tailai Cheng, Xi-
+aoshu Ren, Xinlei Zhang, Jianning Cui, Zijie Zhao, Haoyu Zhang, Kaiming Xu, Haodong Yang,
+Bowen Zhang, Jiahui Niu, Shaoting Zhu, Shiduo Zhang, and Hang Zhao. G0.5: One autoregres-
+sive stream for robot reasoning and action, 2026. URL https://arxiv.org/abs/2608.
+11739.
+Hao Luo, Ye Wang, Wanpeng Zhang, Sipeng Zheng, Ziheng Xi, Chaoyi Xu, Haiweng Xu, Haoqi
+Yuan, Chi Zhang, Yiqing Wang, et al. Being-h0. 5: Scaling human-centric robot learning for
+cross-embodiment generalization. arXiv preprint arXiv:2601.12993, 2026.
+Yuxin Peng, Zishuo Wang, Geng Li, Xiangtian Zheng, Sibo Yin, and Hulingxiang He. A survey
+on fine-grained multimodal large language models. Chinese Journal of Electronics, 35(2):1–33,
+2026.
+Rui Shao, Xiangyuan Lan, Jiawei Li, and Pong C Yuen.
+Multi-adversarial discriminative deep
+domain generalization for face presentation attack detection. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, pp. 10023–10031, 2019.
+Rui Shao, Tianxing Wu, and Ziwei Liu. Detecting and grounding multi-modal media manipulation.
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp.
+6904–6913, 2023.
+Rui Shao, Tianxing Wu, Jianlong Wu, Liqiang Nie, and Ziwei Liu. Detecting and grounding multi-
+modal media manipulation and beyond. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 2024.
+Rui Shao, Wei Li, Lingsen Zhang, Renshan Zhang, Zhiyang Liu, Ran Chen, and Liqiang Nie. Large
+vlm-based vision-language-action models for robotic manipulation: A survey. arXiv preprint
+arXiv:2508.13073, 2025.
+Jingwen Sun, Wenyao Zhang, Zekun Qi, Shaojie Ren, Zezhi Liu, Hanxin Zhu, Guangzhong Sun,
+Xin Jin, and Zhibo Chen. Vla-jepa: Enhancing vision-language-action model with latent world
+model. arXiv preprint arXiv:2602.10098, 2026.
+12
+
+
+Yang Tian, Sizhe Yang, Jia Zeng, Ping Wang, Dahua Lin, Hao Dong, and Jiangmiao Pang. Pre-
+dictive inverse dynamics models are scalable learners for robotic manipulation. In International
+Conference on Learning Representations, volume 2025, pp. 92033–92052, 2025.
+Haoxuan Wang, Gengyu Zhang, Yan Yan, Yuzhang Shang, Ramana Kompella, and Gaowen Liu.
+Real-time robot execution with masked action chunking. In International Conference on Learning
+Representations, volume 2026, pp. 120161–120179, 2026a.
+Yihao Wang, Pengxiang Ding, Lingxiao Li, Can Cui, Zirui Ge, Xinyang Tong, Wenxuan Song,
+Han Zhao, Wei Zhao, Pengxu Hou, et al.
+Vla-adapter: An effective paradigm for tiny-scale
+vision-language-action model. In Proceedings of the AAAI conference on artificial intelligence,
+volume 40, pp. 18638–18646, 2026b.
+Ganlin Yang, Zhangzheng Tu, Yuqiang Yang, Sitong Mao, Junyi Dong, Tianxing Chen, Jiaqi Peng,
+Jing Xiong, Jiafei Cao, Jifeng Dai, et al. Eventvla: Event-driven visual evidence memory for
+long-horizon vision-language-action policies. arXiv preprint arXiv:2606.20092, 2026a.
+Yandan Yang, Shuang Zeng, Tong Lin, Xinyuan Chang, Dekang Qi, Junjin Xiao, Haoyun Liu,
+Ronghan Chen, Yuzhi Chen, Dongjie Huo, et al. Abot-m0: Vla foundation model for robotic
+manipulation with action manifold learning. arXiv preprint arXiv:2602.11236, 2026b.
+Zhao Yang, Yinan Shi, Mingyuan Yao, Wenyao Xue, Yawei Jueluo, and Longjun Liu. Chunkflow:
+Towards continuity-consistent chunked policy learning. arXiv preprint arXiv:2607.12992, 2026c.
+Seonghyeon Ye, Yunhao Ge, Kaiyuan Zheng, Shenyuan Gao, Sihyun Yu, George Kurian, Suneel
+Indupuru, You Liang Tan, Chuning Zhu, Jiannan Xiang, et al. World action models are zero-shot
+policies. arXiv preprint arXiv:2602.15922, 2026.
+Tianyuan Yuan, Zibin Dong, Yicheng Liu, and Hang Zhao. Fast-wam: Do world action models need
+test-time future imagination? arXiv preprint arXiv:2603.16666, 2026.
+Yanjie Ze, Gu Zhang, Kangning Zhang, Chenyuan Hu, Muhan Wang, and Huazhe Xu. 3d diffusion
+policy: Generalizable visuomotor policy learning via simple 3d representations. arXiv preprint
+arXiv:2403.03954, 2024.
+Dijia Zhan, Xuemiao Xu, Jinyi Li, and Jie Tang. Seam: Smooth execution of action-chunked motion
+for vision-language-action policies. arXiv preprint arXiv:2607.04609, 2026.
+Jianke Zhang, Yanjiang Guo, Yucheng Hu, Xiaoyu Chen, Xiang Zhu, and Jianyu Chen.
+Up-
+vla:
+A unified understanding and prediction model for embodied agent.
+arXiv preprint
+arXiv:2501.18867, 2025.
+Wenyao Zhang, Hongsi Liu, Zekun Qi, Yunnan Wang, Xinqiang Yu, Jiazhao Zhang, Runpei Dong,
+Jiawei He, He Wang, Zhizheng Zhang, et al. Dreamvla: a vision-language-action model dreamed
+with comprehensive world knowledge. Advances in Neural Information Processing Systems, 38:
+24195–24228, 2026.
+Qingqing Zhao, Yao Lu, Moo Jin Kim, Zipeng Fu, Zhuoyang Zhang, Yecheng Wu, Zhaoshuo Li,
+Qianli Ma, Song Han, Chelsea Finn, et al. Cot-vla: Visual chain-of-thought reasoning for vision-
+language-action models. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recog-
+nition (CVPR), pp. 1702–1713. IEEE, 2025.
+Jinliang Zheng, Jianxiong Li, Zhihao Wang, Dongxiu Liu, Xirui Kang, Yuchun Feng, Yinan Zheng,
+Jiayin Zou, Yilun Chen, Jia Zeng, et al. X-vla: Soft-prompted transformer as scalable cross-
+embodiment vision-language-action model. In International Conference on Learning Represen-
+tations, volume 2026, pp. 60580–60606, 2026.
+Yijie Zhu, Jie He, Rui Shao, Kaishen Yuan, Tao Tan, Xiaochen Yuan, and Zitong Yu. ∆VLA:
+Prior-guided vision-language-action models via world knowledge variation.
+arXiv preprint
+arXiv:2603.08361, 2026a.
+Yijie Zhu, Rui Shao, Ziyang Liu, Jie He, Jizhihui Liu, Jiuru Wang, and Zitong Yu.
+H-gar: A
+hierarchical interaction framework via goal-driven observation-action refinement for robotic ma-
+nipulation. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 40, pp.
+18882–18890, 2026b.
+13
+
+
+The appendix is organized as follows:
+• Sec. A: Implementation Details.
+• Sec. B: Supplementary RoboTwin 2.0 Results.
+• Sec. C: Real-World Evaluation Details.
+• Sec. D: Extended Qualitative Analysis.
+• Sec. E: Derivations.
+• Sec. F: Limitations and Future Work.
+A
+IMPLEMENTATION DETAILS
+A.1
+MODEL DETAILS
+A.1.1
+THREE-LAYER KV FUSION: INSTANTIATION
+With Lv = 18 VLM layers and Lp = 6 Proposal layers we set ρp(j) = 3j −1, so Sj = {3j −
+2, 3j −1, 3j} splits the depth into six disjoint centered windows of width m⋆= 1; no boundary
+clamping is required. Disjointness is a convenience, not a consequence of the analysis, which is
+stated per window. See Appendix E.1 for the derivation of the conditional risk characterization of
+m⋆= 1 and the inverse-variance weights wt,j,l used here.
+A.1.2
+CALIBRATED SOURCE: EFFICIENT EVALUATION AND SAMPLING
+Role of the action scale Da.
+The released ProAct data pipeline applies the same coordinate-
+wise normalization to the target action chunk and to the executed-action history. For the ProAct
+configurations, this is quantile normalization: with empirical quantiles q.01,i and q.99,i and εn =
+10−6,
+di = q.99,i −q.01,i + εn
+2
+,
+µa,i = q.01,i + di,
+¯ai = araw
+i
+−µa,i
+di
+.
+(13)
+The supported z-score alternative has di = std(ai) + εn and µa,i = mean(ai). Hence Da is a fixed
+data-statistics scale, not a learned model output. It has two roles. First, it converts the raw residual
+to the dimensionless residual used by calibration: D−1
+a (a∗,raw
+t,k
+−P raw
+t,k ) = ¯a∗
+t,k −¯Pt,k. The additive
+center cancels, so it never enters the extent or geometry losses. Second, it maps a covariance learned
+in normalized coordinates back to original units by congruence, Ca
+t,k = DaCt,kD⊤
+a .
+Importantly, normalization is performed before the ProAct model is called and unnormalization after
+it returns. Thus the implementation stores ¯a∗, ¯P, and ¯Xsrc and does not explicitly construct or apply
+Da inside the model; internally, its role is already absorbed and is equivalent to setting Da = I. In
+particular, the code expression actions - proposal is exactly the normalized residual above,
+not an unnormalized residual missing a factor of D−1
+a . Likewise, multiplying the sampled source by
+Da inside the model would incorrectly apply the action scale twice.
+The geometry objective of equation 9 uses the normalized shape covariance eCt,k. The model sam-
+ples the source using Ct,k in normalized coordinates; Ca
+t,k = DaCt,kD⊤
+a is its original-coordinate
+interpretation after output unnormalization. Neither requires forming a dense da × da matrix. Let
+αt,k = da/ tr(I + Bt,kB⊤
+t,k), so that eCt,k = αt,k(I + Bt,kB⊤
+t,k). The Woodbury identity and the
+matrix determinant lemma give
+eC−1
+t,k = α−1
+t,k
+ I −Bt,k(Ir + B⊤
+t,kBt,k)−1B⊤
+t,k
+
+,
+(14)
+log det eCt,k = da log αt,k + log det(Ir + B⊤
+t,kBt,k),
+(15)
+so both terms cost O(dar2 + r3) = O(dar2) for r ≤da and never require a da × da inverse.
+Sampling is equally cheap: for each k, draw mutually independent ϵa,k ∼N(0, Ida) and ξt,k ∼
+N(0, Ir),
+¯Xt,src,k = ¯Pt,k + σt,k√αt,k (ϵa,k + Bt,kξt,k) ,
+(16)
+14
+
+
+which realizes Ct,k without any Cholesky factorization. Applying the output transform gives
+Xa
+t,src,k = µa + Da ¯Xt,src,k = P raw
+t,k + σt,k√αt,k Da(ϵa,k + Bt,kξt,k) ,
+(17)
+and therefore Cov(Xa
+t,src,k | Pt, Ut, Bt) = Ca
+t,k = DaCt,kD⊤
+a . The block-diagonal Gaussian
+construction makes the H action steps conditionally independent given (Pt, Ut, Bt). Padding di-
+mensions of the action tensor are excluded from et,k, LU, and LB, and da counts only the effective
+action dimensions. See Appendix E.2 for why the projection this evaluation relies on (S ≤Smax) is
+necessary.
+A.1.3
+ACTION EXPERT ARCHITECTURE AND INFERENCE
+The Action Expert keeps the layer count, width, and adaRMS time conditioning of the base VLA
+action expert. At layer l, its H action-state tokens attend jointly to three sources of keys and values,
+H
+a
+t,s,l = Attn
+ Qa
+l (Ha
+t,s,l−1),
+
+Kv
+t,l; Kw
+l ; Ka
+t,s,l
+
+,
+
+V v
+t,l; V w
+l ; V a
+t,s,l
+
+,
+(18)
+where Kv
+t,l, V v
+t,l is the VLM cache at the aligned depth, Kw
+l , V w
+l
+are layer-wise projections of the
+H × Nz world tokens Hw
+t , and Ka
+t,s,l, V a
+t,s,l are its own projections.
+Training-time convention. In equation 11, a demonstration index and valid time index are sam-
+pled from the empirical training distribution, s ∼Uniform[0, 1], and ϵp, ϵa are independent stan-
+dard Gaussian noises independent of s. In the released configuration, the proposal, extent, and
+geometry are stop-gradient quantities when forming Xa
+t,src; consequently, both this source and
+v∗
+t = Xa
+t,src−a∗
+t are held fixed with respect to their source-producing branches under Lflow. The flow
+loss still trains the Action Expert and can train the World Expert through the separate world-context
+conditioning path. The proposal, future, extent, and geometry objectives provide the corresponding
+direct supervision to the preceding modules. Thus equation 11 is standard conditional flow regres-
+sion with a fixed sampled source, rather than an objective that can be reduced by moving the source
+itself. For completeness, the extent loss is LU = H−1 PH
+k=1(Ut,k −U ∗
+t,k)2.
+Because the VLM prefix never attends to the action stream, the VLM cache and the world tokens
+are independent of the flow time s; both are computed once per observation and reused across all
+integration steps. Hence, the added inference cost over the base policy is one Proposal Expert pass
+and one World Expert pass. Integration follows the base policy exactly: starting from Xa
+t,src at
+s = 1, we take uniform Euler steps
+Xa ←Xa −
+1
+Nstep
+vA
+θ
+(19)
+down to s = 0.
+A.2
+TRAINING DETAILS
+A.2.1
+EPISODE BOUNDARY HANDLING
+Two boundary cases are handled by masking rather than by discarding samples. Near the end of
+an episode, the future clip is completed by repeating the last available frame. Because temporal
+attention would allow these padded frames to contaminate every latent token, such samples are
+excluded from Lfuture while keeping all remaining losses.
+Near the beginning of an episode, the action history is shorter than M. The missing entries and the
+motion state are initialized to zero, while gripper dimensions are initialized to the gripper value of
+the first executed action. At deployment, the motion state is recomputed from scratch over the last
+M executed actions at every call, ensuring that the analytical proposal is identical during training
+and inference for consistency across repeated evaluations.
+A.2.2
+TRAINING CONFIGURATION
+Tab. 8 summarizes the optimization, loss, architecture, and data configurations used for PROACT.
+We use the same optimizer and peak learning rate across LIBERO, RoboTwin 2.0, and real-world
+experiments, while adapting the training schedule and batch size to the scale of each setting. The
+15
+
+
+Table 8: Training Configuration of PROACT.
+Setting
+LIBERO
+RoboTwin 2.0
+Real-World
+Optimization
+Training steps
+60k
+30k
+30k
+Batch size
+128
+64
+64
+Optimizer
+AdamW, β1 = 0.9, β2 = 0.95
+Peak learning rate
+5 × 10−5
+5 × 10−5
+5 × 10−5
+Warm-up steps
+10k
+10k
+10k
+GPUs
+4
+4
+4
+Loss Weights (Eq. 12)
+λp (proposal)
+0.1
+0.1
+0.1
+λf (future)
+0.01
+0.01
+0.01
+λu (extent)
+0.1
+0.1
+0.1
+λb (geometry)
+0.001
+0.001
+0.001
+λa (flow)
+1.0
+1.0
+1.0
+Architecture and Calibration
+Action horizon H
+10
+50
+50
+Action history length M
+10
+50
+50
+Proposal Expert depth Lp
+6
+World queries Nz
+16
+4
+4
+Geometry rank r
+4
+Geometry budget Smax
+5.0
+τu
+0.35
+σmin, σmax
+0.05, 1.0
+Momentum β, λ
+0.9, 0.9
+Data
+Input cameras
+2
+3
+3
+Input resolution
+224 × 224
+Number of arms
+1
+2
+2
+Robotic arm type
+Franka Emika
+Panda
+Aloha-AgileX
+Galaxea R1
+Lite &
+Aloha-AgileX
+action history length is matched to the action horizon (M = H), with H = 10 for LIBERO and
+H = 50 for both RoboTwin 2.0 and real-world experiments. Most architectural and calibration hy-
+perparameters, including the Proposal Expert depth, geometry rank, geometry budget, extent thresh-
+old, and momentum coefficients, are shared across all settings; only the number of world queries is
+adjusted, with Nz = 16 for LIBERO and Nz = 4 for RoboTwin 2.0 and real-world experiments.
+The real-world configuration otherwise follows the RoboTwin 2.0 setting.
+B
+SUPPLEMENTARY ROBOTWIN 2.0 RESULTS
+To complement the representative results in the main paper, we provide a task-level evaluation over
+all 50 RoboTwin 2.0 tasks under the Randomized (Hard) setting in Tab. 9. Each task is evaluated
+with 100 rollouts under the same protocol. The full benchmark covers a diverse range of manip-
+ulation behaviors, including interaction, placement, handover, articulated-object manipulation, and
+multi-object coordination, thereby providing a more comprehensive assessment of robustness under
+substantial visual and physical variation.
+Across all 50 tasks, PROACT achieves the highest average success rate of 47.06%, exceeding the
+strong π0.5 baseline (43.84%) by 3.22 percentage points. It also substantially outperforms Abot-
+M0 (30.4%), Spatial Forcing (26.7%), X-WAM (25.8%), and X-VLA (20.9%). At the task level,
+PROACT improves over π0.5 on 22 tasks and ties on another four, while achieving the best or tied-
+best performance among all compared methods on 19 tasks. Notably, the improvements are partic-
+16
+
+
+Table 9:
+Per-task success rates on 50 RoboTwin 2.0 tasks under Randomized (Hard). All
+methods use the same protocol. The overall average is reported in the final block.
+Method
+Adjust
+Bottle
+Beat
+Block
+Hammer
+Blocks
+Rank.
+RGB
+Blocks
+Rank.
+Size
+Click
+Alarmclock
+Click
+Bell
+Dump
+Bin
+Bigbin
+Grab
+Roller
+Handover
+Block
+Handover
+Mic
+DP3 Ze et al. (2024)
+3%
+8%
+0%
+0%
+14%
+0%
+53%
+2%
+0%
+3%
+π0 Black et al. (2024)
+56%
+21%
+5%
+1%
+11%
+3%
+24%
+80%
+8%
+13%
+π0.5 Intelligence et al. (2025)
+83%
+50%
+35%
+14%
+93%
+76%
+42%
+89%
+19%
+18%
+X-VLA Zheng et al. (2026)
+33%
+9%
+4%
+25%
+43%
+63%
+41%
+20%
+1.3%
+1%
+Spatial Forcing Li et al. (2026a)
+71%
+13%
+7%
+3%
+28%
+28%
+70%
+94%
+2%
+2%
+X-WAM Guo et al. (2026)
+13%
+21%
+36%
+0%
+61%
+52%
+40%
+16%
+21%
+8%
+Abot-M0 Yang et al. (2026b)
+49%
+33%
+23%
+7%
+21%
+11%
+68%
+91%
+0%
+22%
+EventVLA Yang et al. (2026a)
+24%
+1%
+6%
+1%
+30%
+48%
+64%
+48%
+4%
+5%
+Xiaomi Robotics-0 Cai et al. (2026b)
+9%
+16%
+8%
+1%
+58%
+57%
+49%
+12%
+1%
+6%
+FastWAM Yuan et al. (2026)
+0%
+0%
+0%
+0%
+60%
+7%
+0%
+2%
+0%
+0%
+GalaxeaVLA Liu et al. (2026)
+10%
+31%
+1%
+0%
+7%
+27%
+40%
+33%
+0%
+2%
+AHA-WAM Cai et al. (2026a)
+0%
+0%
+1%
+0%
+17%
+19%
+27%
+3%
+1%
+3%
+starVLA Community (2026)
+0%
+2%
+2%
+0%
+0%
+7%
+4%
+44%
+0%
+1%
+PROACT
+75%
+28%
+46%
+20%
+61%
+50%
+78%
+94%
+11%
+10%
+Method
+Hanging
+Mug
+Lift
+Pot
+Move
+Can
+Pot
+Move
+Pillbottle
+Pad
+Move
+Playingcard
+Away
+Move
+Stapler
+Pad
+Open
+Laptop
+Open
+Microwave
+Pick
+Diverse
+Bottles
+Pick
+Dual
+Bottles
+DP3 Ze et al. (2024)
+1%
+0%
+6%
+0%
+3%
+0%
+7%
+22%
+1%
+1%
+π0 Black et al. (2024)
+3%
+36%
+21%
+1%
+22%
+2%
+46%
+50%
+6%
+12%
+π0.5 Intelligence et al. (2025)
+3%
+0%
+27%
+29%
+67%
+18%
+35%
+37%
+3%
+6%
+X-VLA Zheng et al. (2026)
+2%
+15%
+0%
+3%
+5%
+0%
+16%
+5%
+30%
+51%
+Spatial Forcing Li et al. (2026a)
+1%
+0%
+1%
+14%
+15%
+1%
+15%
+18%
+38%
+47%
+X-WAM Guo et al. (2026)
+0%
+0%
+34%
+26%
+11%
+2%
+6%
+24%
+26%
+55%
+Abot-M0 Yang et al. (2026b)
+4%
+29%
+4%
+4%
+50%
+4%
+64%
+26%
+7%
+19%
+EventVLA Yang et al. (2026a)
+2%
+1%
+0%
+3%
+17%
+2%
+23%
+44%
+9%
+8%
+Xiaomi Robotics-0 Cai et al. (2026b)
+6%
+1%
+7%
+3%
+12%
+0%
+24%
+16%
+12%
+28%
+FastWAM Yuan et al. (2026)
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+1%
+GalaxeaVLA Liu et al. (2026)
+1%
+0%
+5%
+2%
+13%
+1%
+13%
+13%
+11%
+21%
+AHA-WAM Cai et al. (2026a)
+0%
+0%
+0%
+0%
+0%
+0%
+9%
+1%
+0%
+1%
+starVLA Community (2026)
+0%
+0%
+0%
+0%
+0%
+0%
+2%
+1%
+15%
+20%
+PROACT
+10%
+33%
+27%
+29%
+55%
+13%
+76%
+54%
+57%
+63%
+Method
+Place
+A2B
+Left
+Place
+A2B
+Right
+Place
+Bread
+Basket
+Place
+Bread
+Skillet
+Place
+Burger
+Fries
+Place
+Can
+Basket
+Place
+Cans
+Plasticbox
+Place
+Container
+Plate
+Place
+Dual
+Shoes
+Place
+Empty
+Cup
+DP3 Ze et al. (2024)
+2%
+0%
+1%
+0%
+18%
+2%
+3%
+1%
+0%
+1%
+π0 Black et al. (2024)
+1%
+6%
+4%
+1%
+4%
+5%
+2%
+45%
+0%
+11%
+π0.5 Intelligence et al. (2025)
+60%
+57%
+56%
+46%
+70%
+25%
+47%
+78%
+7%
+86%
+X-VLA Zheng et al. (2026)
+15%
+13%
+52%
+17%
+35%
+9%
+60%
+39%
+12%
+16%
+Spatial Forcing Li et al. (2026a)
+11%
+6%
+53%
+30%
+71%
+10%
+11%
+54%
+2%
+33%
+X-WAM Guo et al. (2026)
+18%
+21%
+40%
+37%
+36%
+15%
+36%
+52%
+7%
+36%
+Abot-M0 Yang et al. (2026b)
+26%
+22%
+47%
+25%
+55%
+13%
+36%
+62%
+15%
+43%
+EventVLA Yang et al. (2026a)
+20%
+17%
+15%
+4%
+7%
+7%
+14%
+15%
+1%
+18%
+Xiaomi Robotics-0 Cai et al. (2026b)
+6%
+2%
+23%
+11%
+27%
+7%
+31%
+59%
+9%
+12%
+FastWAM Yuan et al. (2026)
+0%
+1%
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+GalaxeaVLA Liu et al. (2026)
+5%
+3%
+32%
+14%
+32%
+6%
+22%
+38%
+9%
+3%
+AHA-WAM Cai et al. (2026a)
+1%
+0%
+3%
+0%
+0%
+2%
+1%
+11%
+0%
+2%
+starVLA Community (2026)
+0%
+1%
+5%
+2%
+11%
+0%
+2%
+3%
+2%
+0%
+PROACT
+50%
+44%
+62%
+48%
+84%
+11%
+63%
+76%
+39%
+82%
+Method
+Place
+Fan
+Place
+Mouse
+Pad
+Place
+Object
+Basket
+Place
+Object
+Scale
+Place
+Object
+Stand
+Place
+Phone
+Stand
+Place
+Shoe
+Press
+Stapler
+Put
+Bottles
+Dustbin
+Put
+Object
+Cabinet
+DP3 Ze et al. (2024)
+1%
+1%
+0%
+0%
+0%
+2%
+2%
+3%
+21%
+1%
+π0 Black et al. (2024)
+10%
+1%
+2%
+0%
+11%
+7%
+6%
+29%
+13%
+18%
+π0.5 Intelligence et al. (2025)
+36%
+26%
+36%
+49%
+65%
+53%
+61%
+70%
+9%
+15%
+X-VLA Zheng et al. (2026)
+1%
+0%
+6%
+6%
+43%
+5%
+39%
+73%
+20%
+21%
+Spatial Forcing Li et al. (2026a)
+7%
+9%
+16%
+4%
+32%
+1%
+61%
+55%
+41%
+1%
+X-WAM Guo et al. (2026)
+6%
+6%
+20%
+14%
+28%
+4%
+31%
+20%
+21%
+16%
+Abot-M0 Yang et al. (2026b)
+10%
+5%
+33%
+23%
+25%
+26%
+24%
+52%
+26%
+22%
+EventVLA Yang et al. (2026a)
+5%
+6%
+29%
+24%
+32%
+3%
+10%
+32%
+31%
+27%
+Xiaomi Robotics-0 Cai et al. (2026b)
+3%
+1%
+15%
+2%
+24%
+11%
+29%
+21%
+21%
+5%
+FastWAM Yuan et al. (2026)
+0%
+0%
+0%
+0%
+0%
+0%
+0%
+3%
+0%
+0%
+GalaxeaVLA Liu et al. (2026)
+2%
+1%
+3%
+2%
+27%
+8%
+22%
+17%
+3%
+5%
+AHA-WAM Cai et al. (2026a)
+0%
+0%
+0%
+0%
+0%
+0%
+5%
+2%
+1%
+0%
+starVLA Community (2026)
+1%
+0%
+1%
+1%
+0%
+0%
+0%
+10%
+0%
+0%
+PROACT
+28%
+25%
+35%
+34%
+61%
+32%
+53%
+57%
+69%
+21%
+Method
+Rotate
+QRCode
+Scan
+Object
+Shake
+Bottle
+Horiz.
+Shake
+Bottle
+Stack
+Blocks
+Three
+Stack
+Blocks
+Two
+Stack
+Bowls
+Three
+Stack
+Bowls
+Two
+Stamp
+Seal
+Turn
+Switch
+Overall
+Avg.
+DP3 Ze et al. (2024)
+1%
+1%
+25%
+19%
+0%
+0%
+5%
+6%
+0%
+8%
+4.96%
+π0 Black et al. (2024)
+15%
+1%
+51%
+60%
+0%
+1%
+24%
+41%
+4%
+23%
+16.34%
+π0.5 Intelligence et al. (2025)
+56%
+38%
+100%
+100%
+16%
+56%
+35%
+66%
+23%
+6%
+43.84%
+X-VLA Zheng et al. (2026)
+1%
+9%
+78%
+76%
+0%
+2%
+9%
+15%
+2%
+6%
+20.9%
+Spatial Forcing Li et al. (2026a)
+22%
+6%
+87%
+84%
+0%
+19%
+55%
+79%
+2%
+7%
+26.7%
+X-WAM Guo et al. (2026)
+2%
+14%
+66%
+67%
+26%
+76%
+38%
+67%
+16%
+4%
+25.8%
+Abot-M0 Yang et al. (2026b)
+6%
+17%
+85%
+84%
+10%
+42%
+44%
+65%
+19%
+20%
+30.4%
+EventVLA Yang et al. (2026a)
+1%
+3%
+37%
+34%
+3%
+13%
+11%
+17%
+3%
+8%
+15.7%
+Xiaomi Robotics-0 Cai et al. (2026b)
+1%
+8%
+62%
+61%
+7%
+22%
+35%
+53%
+3%
+14%
+18.2%
+FastWAM Yuan et al. (2026)
+0%
+0%
+9%
+10%
+0%
+0%
+0%
+0%
+0%
+3%
+1.9%
+GalaxeaVLA Liu et al. (2026)
+2%
+6%
+46%
+45%
+1%
+9%
+5%
+27%
+2%
+8%
+12.7%
+AHA-WAM Cai et al. (2026a)
+0%
+0%
+15%
+14%
+1%
+2%
+0%
+5%
+0%
+13%
+3.2%
+starVLA Community (2026)
+0%
+5%
+9%
+5%
+1%
+1%
+0%
+0%
+0%
+0%
+3.2%
+PROACT
+15%
+34%
+100%
+100%
+26%
+44%
+48%
+73%
+29%
+20%
+47.06%
+17
+
+
+Figure 8: Representative successful real-world rollouts of PROACT on the six evaluation tasks.
+Within each task panel, the top row shows GALAXEA R1 Lite and the bottom row shows AgileX
+Cobot Magic; snapshots in each row are ordered from left to right. The eight snapshots are selected
+at semantic milestones rather than at uniform temporal intervals, covering repeated sorting, container
+and drawer manipulation, object transfer, and sustained wiping.
+ularly large on several challenging tasks, including Put Bottles Dustbin (69% vs. 9%), Pick Dual
+Bottles (63% vs. 6%), Pick Diverse Bottles (57% vs. 3%), Open Laptop (76% vs. 35%), and Dump
+Bin Bigbin (78% vs. 42%). PROACT also retains strong performance on high-success tasks, reach-
+ing 100% on both bottle-shaking variants and 94% on Grab Roller. Although the relative advantage
+varies across individual tasks, the aggregate results show that the proposal–calibrate–refine formu-
+lation provides a stronger overall policy across the heterogeneous RoboTwin 2.0 task distribution.
+C
+REAL-WORLD EVALUATION DETAILS
+C.1
+EVALUATION PROTOCOL AND METRICS
+We use a unified evaluation setup for all methods. Each policy is tested with the same task instruc-
+tions, sensing configuration, camera placement, control interface, and randomized initialization pro-
+tocol. Unless stated otherwise, every task contains N = 25 independent trials. Object and robot
+initial states are sampled from task-specific admissible ranges that are fixed before evaluation and
+shared across methods. No human correction is allowed once a trial starts.
+18
+
+
+Each task is represented by an ordered sequence of Si checkpoints. Let c(n)
+i,j ∈{0, 1} denote whether
+trial n reaches checkpoint j of task i. To enforce sequential completion, we evaluate checkpoint j
+through the progressive indicator
+¯c(n)
+i,j =
+j
+Y
+k=1
+c(n)
+i,k ,
+SRi,j = 1
+N
+N
+X
+n=1
+¯c(n)
+i,j .
+(20)
+Hence, a later checkpoint counts only if all preceding stages are completed.
+We summarize real-world performance using two metrics. Task Success Rate (TSR) measures the
+fraction of trials that finish the entire task,
+TSRi = SRi,Si,
+(21)
+whereas Cumulative Success Rate (CSR) measures average checkpoint progress,
+CSRi = 1
+Si
+Si
+X
+j=1
+SRi,j.
+(22)
+TSR therefore reflects complete task execution, while CSR additionally captures how far unsuc-
+cessful trials progress before failure. Aggregate suite- and platform-level results are computed by
+averaging the corresponding task-level metrics.
+C.2
+TASK DESCRIPTIONS
+We deploy PROACT on GALAXEA R1 Lite and AgileX Cobot Magic and evaluate the same six
+sequential manipulation tasks on both platforms. The suite spans repeated object sorting, container
+interaction, articulated-object manipulation, retrieval, and contact-rich wiping, jointly testing visual
+grounding, precise grasping and placement, phase transitions, and robustness to accumulated execu-
+tion error. Each task is evaluated through the ordered progressive checkpoints below, with identical
+semantic completion criteria across the two embodiments throughout evaluation.
+• Block Sorting. Instruction: “Place the red and blue blocks into the target bowl.” This task
+evaluates repeated object-centric pick-and-place over a multi-stage sequence, requiring the
+policy to preserve color identity, maintain the prescribed manipulation order, and recover a
+reliable grasp after completing the first placement. The four progressive stages are: 1) Pick
+Red Block—securely grasping and lifting the red block; 2) +Place Red in Bowl—placing
+the red block inside the target bowl; 3) +Pick Blue Block—locating and grasping the blue
+block after the scene has changed; and 4) +Place Blue in Bowl—placing the blue block
+inside the target bowl to complete the task.
+• Pot Lid Retrieval. Instruction: “Remove the lid and retrieve the object from the pot
+onto the plate.” This task tests interaction with a covered container and the transition
+from opening to retrieval. It requires the policy to remove the lid without destabilizing
+the pot, visually re-ground the previously occluded target, and transfer it to a constrained
+destination. The two progressive stages are: 1) Remove Lid—grasping and moving the lid
+until the pot is accessible; and 2) +Retrieve Object to Plate—extracting the target object
+and placing it stably within the designated area of the plate.
+• Drawer Manipulation. Instruction: “Open the drawer, place the toy inside, and close the
+drawer.” This task combines articulated-object control with object transport and evaluates
+whether a policy can maintain task coherence across distinct interaction modes. The four
+progressive stages are: 1) Open Drawer—grasping the handle and opening the drawer
+sufficiently; 2) +Grasp Toy—releasing the handle and securely grasping the toy; 3) +Place
+Toy Inside—placing the toy fully inside the open drawer; and 4) +Close Drawer—closing
+the drawer to its terminal state without displacing the inserted toy.
+• Drawer Toy Retrieval. Instruction: “Open the drawer, retrieve the toy, place it on the
+plate, and close the drawer.” This complementary drawer task tests target discovery un-
+der partial occlusion, collision-aware extraction from a confined space, and restoration of
+the articulated object after retrieval. The four progressive stages are: 1) Open Drawer—
+opening the drawer until the interior is accessible; 2) +Retrieve Toy—grasping and extract-
+ing the toy from the drawer; 3) +Place Toy on Plate—transferring the toy onto the plate;
+and 4) +Close Drawer—returning the drawer to its closed state.
+19
+
+
+Table 10: Per-checkpoint real-world results on AgileX Cobot Magic. For each of the six tasks
+we report the number of successful trials (out of 25) at every progressive checkpoint, so that a
+checkpoint is credited only when all preceding stages succeed. CSR is the mean success rate across
+a task’s checkpoints, and its final checkpoint equals the task TSR. Best entries per column are in
+bold.
+Method
+Block Sorting
+Pot Lid Retrieval
+Drawer Manipulation
+Pick
+Red Block
++Place Red
+in Bowl
++Pick
+Blue Block
++Place Blue
+in Bowl
+CSR
+Remove
+Lid
++Retrieve
+Object
+CSR
+Open
+Drawer
++Grasp
+Toy
++Place Toy
+Inside
++Close
+Drawer
+CSR
+OpenVLA-OFT Kim et al. (2025)†
+17/25
+15/25
+12/25
+11/25
+55.0%
+20/25
+15/25
+70.0%
+16/25
+15/25
+11/25
+10/25
+52.0%
+π0 Black et al. (2024)†
+19/25
+17/25
+14/25
+13/25
+63.0%
+20/25
+14/25
+68.0%
+18/25
+16/25
+13/25
+12/25
+59.0%
+π0.5 Intelligence et al. (2025)†
+21/25
+19/25
+17/25
+16/25
+73.0%
+21/25
+18/25
+78.0%
+20/25
+19/25
+16/25
+15/25
+70.0%
+PROACT
+22/25
+21/25
+20/25
+19/25
+82.0%
+23/25
+20/25
+86.0%
+22/25
+21/25
+19/25
+18/25
+80.0%
+Method
+Drawer Toy Retrieval
+Table Wiping
+Color Sorting
+Open
+Drawer
++Retrieve
+Toy
++Place Toy
+on Plate
++Close
+Drawer
+CSR
+Grasp
+Cloth
++Wipe
+Table
+CSR
+Red
+Block→Bin
++Blue
+Block→Bin
++Yellow
+Block→Bin
+CSR
+OpenVLA-OFT Kim et al. (2025)†
+14/25
+8/25
+8/25
+7/25
+37.0% 19/25
+12/25
+62.0%
+20/25
+14/25
+9/25
+57.3%
+π0 Black et al. (2024)†
+18/25
+13/25
+12/25
+11/25
+54.0% 20/25
+14/25
+68.0%
+19/25
+15/25
+12/25
+61.3%
+π0.5 Intelligence et al. (2025)†
+20/25
+16/25
+15/25
+14/25
+65.0% 23/25
+18/25
+82.0%
+22/25
+19/25
+16/25
+76.0%
+PROACT
+21/25
+19/25
+18/25
+17/25
+75.0% 24/25
+20/25
+88.0%
+23/25
+21/25
+18/25
+82.7%
+• Table Wiping. Instruction: “Grasp the cloth and wipe the table.” This contact-rich task
+evaluates deformable-object grasping and sustained surface interaction. Beyond reaching
+the cloth, the policy must establish a stable grasp, bring the cloth into contact with the
+tabletop, and execute a coherent wiping trajectory over the designated region. The two
+progressive stages are: 1) Grasp Cloth—securely picking up the cloth; and 2) +Wipe Ta-
+ble—using the grasped cloth to complete the required wiping motion while maintaining
+effective surface contact throughout the designated trajectory.
+• Color Sorting. Instruction: “Sort the red, blue, and yellow blocks into the matching bins.”
+This task evaluates language-conditioned color grounding and repeated placement over a
+long action sequence. The policy must preserve the association between each object and
+its color-matched receptacle while operating in a scene that changes after every placement.
+The three progressive stages are: 1) Red Block →Bin—placing the red block into the
+matching bin; 2) +Blue Block →Bin—subsequently placing the blue block into its match-
+ing bin; and 3) +Yellow Block →Bin—placing the yellow block into its matching bin,
+thereby completing the full three-object sorting sequence.
+C.3
+QUALITATIVE REAL-WORLD ROLLOUTS
+Fig. 8 provides a compact view of representative successful rollouts on GALAXEA R1 Lite and
+AgileX Cobot Magic. The six panels correspond to Block Sorting, Pot Lid Retrieval, Drawer Ma-
+nipulation, Drawer Toy Retrieval, Table Wiping, and Color Sorting, with the top and bottom rows
+showing the two platforms and snapshots ordered from left to right. This selection covers repeated
+sorting, container interaction, articulated manipulation, object retrieval, and contact-rich wiping. In
+particular, the pot and drawer sequences make re-grounding after the scene changes visible, while
+Table Wiping shows sustained surface contact and the sorting tasks show repeated object localiza-
+tion and placement. Together, these sequences provide a qualitative view of how PROACT maintains
+coherent progress through distinct interaction phases.
+C.4
+DETAILED REAL-WORLD RESULTS AND ABLATIONS
+We complement the aggregate comparison in Section 3.2 with per-checkpoint results on AgileX
+Cobot Magic (Tab. 10) and a checkpoint-level ablation on GALAXEA R1 Lite (Fig. 9). The progres-
+sive view isolates where along a task the improvements and the individual component contributions
+arise, which the task-level TSR/CSR summaries cannot expose.
+Gains concentrate at transition checkpoints. The initial acquisition checkpoints are already re-
+liable for every method: all policies open the drawer, remove the lid, or pick the first block on
+most trials, so the advantage of PROACT accrues almost entirely at the later stages that require re-
+grounding after the scene changes. On Drawer Toy Retrieval, PROACT loses only two trials at the
+Open →Retrieve transition (21 →19), whereas π0.5 loses four (20 →16) and OpenVLA-OFT col-
+20
+
+
+Figure 9: Per-checkpoint real-world ablations across the six GALAXEA R1 Lite tasks. Each
+panel plots per-checkpoint success for one ablation axis: motion proposal (left), world calibration
+(middle), and source calibration (right). Within every panel the full PROACT (blue) attains the
+highest bar, and its margin widens at the later transition and terminal checkpoints where local motion
+continuity becomes unreliable across the full execution horizon.
+lapses (14→8); the same pattern produces the +10-point CSR gaps on both drawer tasks, the largest
+in the suite. Because a checkpoint is credited only after all earlier ones succeed, these mid-sequence
+savings compound, so PROACT carries more trials into the terminal checkpoint on all six tasks —
+the effect that narrows the CSR–TSR gap reported in the main text.
+Fewer late-stage failures. Read as survival curves, the PROACT rows decay most slowly: across
+the four-checkpoint tasks it forfeits at most three trials from the first to the last checkpoint (e.g.
+Block Sorting 22 →19), against five for π0.5 (21 →16) and six or more for the weaker baselines.
+The terminal contact-rich stages benefit most — +Close Drawer, +Wipe Table, and +Yellow→Bin
+21
+
+
+Figure 10:
+Additional world-calibrated proposal refinements. Further examples in the same
+format as Fig. 7, illustrating refinement behavior across more cases and execution phases.
+each improve while their preceding stages are near-saturated — consistent with calibration acting
+precisely when the proposal must depart from recent motion.
+Components matter at the transitions, not the grasps. Fig. 9 decomposes each ablation axis by
+checkpoint. Removing any single component leaves the first checkpoint of every task essentially un-
+changed — initial grasps and openings survive — but erodes the later checkpoints, so the aggregate
+TSR drop is almost entirely a terminal-checkpoint effect over the full task horizon. The World Ex-
+pert is the exception: its removal already depresses the earliest checkpoints and then decays fastest,
+which is why it is the only ablation to lower performance across the whole sequence from early to
+late stages and yields the largest aggregate loss (−8.0 points in Tab. 5).
+Extent carries more of the real-world gain. Within the source-calibration axis, both partial vari-
+ants match PROACT on the initial grasps but trail it at the later checkpoints, and Extent Only ends
+higher than Geometry Only (76.0 vs. 74.7 real-world SR in Tab. 6). Adaptive magnitude therefore
+accounts for more of the real-robot improvement than low-rank geometry throughout the later ex-
+ecution stages, while only their combination recovers PROACT across the full checkpoint sequence
+— the checkpoint-level counterpart of the complementary roles isolated in that table.
+D
+EXTENDED QUALITATIVE ANALYSIS
+Calibration adapts to each case. Fig. 10 collects several additional refinements in the format of
+Fig. 7, drawn from different execution phases and diverse interaction conditions. The same pattern
+22
+
+
+recurs across all of them: the calibrated support is anisotropic and phase-dependent, widening on
+the steps and dimensions where the proposal (blue) must leave the momentum prior and separate
+from the demonstration (dashed red), and tightening once the two agree.
+Refinement moves only where it must. The refined trajectory (green) stays on the proposal where
+recent motion is already reliable and bends toward the demonstration only inside the widened sup-
+port. This consistency across more examples and execution phases under varying manipulation
+conditions corroborates the quantitative trends of Section 3.3, indicating that the calibration re-
+sponds to the local reliability of recent motion rather than applying a fixed correction.
+E
+DERIVATIONS
+Conventions and regularity conditions.
+Normalized and raw actions satisfy ¯a = D−1
+a (araw −
+µa), where Da = diag(d1, . . . , dda) ≻0; da is the number of effective action dimensions and di
+the scale of coordinate i. We assume 0 ≤β, λ < 1, τu > 0, 0 < σmin ≤σmax < ∞, da > 1,
+1 ≤r < da, and 0 ≤Smax < ∞; H is even when temporal tubelets are used. Gaussian noises are
+mutually independent across sources and horizon steps unless stated otherwise. The stop-gradient
+sg is the identity forward and has zero derivative backward. Equation 1 suppresses the perception–
+language context; deterministic modules correspond to Dirac conditional kernels.
+E.1
+THREE-LAYER KV FUSION: RISK-OPTIMAL WINDOW AND WEIGHTS
+The locality and weights of ( eKv
+t,j, eV v
+t,j) in Equation 3 follows from one risk. Let
+Yt,l = RMSNorm
+ [Kv
+t,l; V v
+t,l]
+
+,
+(23)
+and cj = ρp(j). On every admissible window we assume (A1) the conditional quadratic-mean
+model
+Yt,cj+r = Ct,j + rGt,j + r2
+2 Ht,j + Et,cj+r,
+(24)
+where C, G, H are the local value and depth variations (a discrete working model, not a Tay-
+lor identity); (A2) at fixed depth and token layout, E[Et,l] = 0, E∥Et,l∥2
+F = σ2
+t,l ∈(0, ∞),
+E⟨Et,l, Et,r⟩F = 0 for l̸ = r, and ⟨Gt,j, Ht,j⟩F = 0; and (A3) the estimand is the smooth context
+Ct,j, not the observed Yt,cj. An omitted deterministic higher-order term contributes bias rather than
+noise. Below write γt,j = ∥Gt,j∥F and κt,j = ∥Ht,j∥F , suppressing their indices when unambigu-
+ous.
+For S(m)
+j
+= {cj −m, . . . , cj + m} and bC(m)(w) = P
+r wrYt,cj+r with P
+r wr = 1, (A1)–(A2)
+give
+R(m, w) = E∥bC(m)(w) −Ct,j∥2
+F =
+ X
+r
+wrr
+2
+γ2 + 1
+4
+ X
+r
+wrr22
+κ2 +
+X
+r
+w2
+rσ2
+t,cj+r, (25)
+from which we derive the window at uniform w and the weights at fixed m = 1.
+Window size. For homoscedastic noise and wr = (2m + 1)−1, P
+r wrr = 0 and Pm
+r=−m r2 =
+m(m + 1)(2m + 1)/3, hence
+R(m) =
+σ2
+2m + 1 + κ2m2(m + 1)2
+36
+.
+(26)
+In particular, R(0) = σ2, R(1) = σ2/3 + κ2/9, and R(2) = σ2/5 + κ2. Moreover,
+∆(m) := R(m + 1) −R(m) = −
+2σ2
+(2m + 1)(2m + 3) + κ2(m + 1)3
+9
+,
+(27)
+is strictly increasing in m. Thus R(1) < R(0) iff κ2 < 6σ2, while R(1) < R(2) iff ∆(1) > 0 iff
+κ2 > 3σ2/20; the latter also implies ∆(m) > 0 for all m ≥1. Therefore, under (A1)–(A3),
+3
+20σ2 < κ2 < 6σ2
+=⇒
+m⋆= 1, |S⋆
+j | = 3.
+(28)
+23
+
+
+and m⋆= 1 is unique throughout the open interval; an endpoint gives a tie. This is a conditional
+characterization, and one forward pass does not identify κ2/σ2.
+Weights. At m = 1, linear exactness gives w±1 = u, w0 = 1 −2u and
+u⋆=
+2σ2
+t,cj
+κ2 + σ2
+t,cj−1 + σ2
+t,cj+1 + 4σ2
+t,cj
+.
+(29)
+This optimum requires unknown κ and enforces symmetric neighbors. For the implemented weights
+we therefore use, only here, (A4) local stationarity: Gt,j = Ht,j = 0 on Sj = {cj −1, cj, cj +
+1}. Minimizing P
+l w2
+l σ2
+t,l subject to P
+l wl = 1 then gives w⋆
+l ∝σ−2
+t,l ; the nonstationary bias is
+quantified next.
+Estimating the variances. Under (A4), let ¯Yt,j = 1
+3
+P
+l∈Sj Yt,l and dt,j,l = ∥Yt,l −¯Yt,j∥2
+F . Then
+E[dt,j,l] = 1
+3σ2
+t,l + 1
+9
+X
+r∈Sj
+σ2
+t,r,
+i.e.
+E[dt,j] = A σ2
+t,j,
+A = 1
+3I3 + 1
+911⊤.
+(30)
+The vectors use the order (cj−1, cj, cj+1). Thus raw dispersion contains a common offset, whereas
+A−1 = 3I3 −1
+211⊤yields the unbiased method-of-moments estimator
+bσ2
+t,j,l = 3dt,j,l −1
+2
+X
+r∈Sj
+dt,j,r,
+(31)
+under (A2),(A4). Under the quadratic mean (A1), its exact bias is
+E
+bσ2
+t,j −σ2
+t,j
+
+=
+
+2γ2
+t,j, 1
+4κ2
+t,j −γ2
+t,j, 2γ2
+t,j
+⊤
+.
+(32)
+Hence the estimate is approximately unbiased only when these terms are small relative to the layer
+variances. The resulting parameter-free fusion is
+wt,j,l =
+max(bσ2
+t,j,l, εt,j)−1
+P
+r∈Sj max(bσ2
+t,j,r, εt,j)−1 ,
+[ eKv
+t,j; eV v
+t,j] =
+X
+l∈Sj
+wt,j,lYt,l.
+(33)
+Here εt,j > 0 combines a fixed fraction of mean dispersion with a positive machine floor. Indeed,
+bσ2
+l ≤0 iff dl ≤1
+5
+P
+r̸=l dr, while P
+l bσ2
+l = 3
+2
+P
+l dl ≥0; the floor therefore keeps all weights finite
+even when all caches coincide.
+For the instantiation of (ρp, Sj) actually used with Lv = 18 and Lp = 6, see Appendix A.1.1.
+E.2
+CALIBRATED SOURCE: WELL-POSEDNESS
+Degeneracy and projection. Suppress (t, k) and write d = da. Equation 9 scores eC against one
+residual br. For u = br/∥br∥when br̸ = 0 (any unit u otherwise), set B = sue⊤
+1 . Then
+br⊤eC−1br = ∥br∥2(d + s2)
+d(1 + s2)
+−→∥br∥2
+d
+,
+(34)
+log det eC = d log
+d
+d + s2 + log(1 + s2) = O(1) −2(d −1) log s.
+(35)
+Thus the unconstrained pointwise objective is unbounded below; trace normalization fixes scale
+but not conditioning. An amortized empirical head would additionally need enough capacity to
+align with each residual, but the following projection removes the degeneracy without that capacity
+assumption:
+Π(B) = B min
+
+1,
+√Smax
+∥B∥F
+
+,
+Π(0) := 0,
+(36)
+24
+
+
+followed by B ←Π(B), so ∥B∥2
+F ≤Smax. If si are the singular values of B, then r < d leaves
+d −r unit eigenvalues and
+κ( eCt,k) = 1 + max
+i
+s2
+i ≤1 +
+X
+i
+s2
+i ≤1 + Smax.
+(37)
+Recomputing αt,k = d/(d + ∥B∥2
+F ) after projection preserves tr Ct,k = dσ2
+t,k. Moreover, Ca
+t,k =
+DaCt,kD⊤
+a is positive definite and κ(Ca
+t,k) ≤κ(Da)2(1 + Smax); the sharper 1 + Smax bound
+applies in normalized coordinates.
+Lower bound. Let S = ∥B∥2
+F = P
+i s2
+i . Since Q
+i(1 + s2
+i ) ≥1 + S,
+log det eC = d log
+d
+d + S +
+X
+i
+log(1 + s2
+i )
+≥g(S) := d log
+d
+d + S + log(1 + S),
+g′(S) = −
+(d −1)S
+(d + S)(1 + S) ≤0.
+(38)
+Using S ≤Smax and the nonnegative Mahalanobis term gives
+LB ≥1
+2
+
+da log
+da
+da + Smax
++ log(1 + Smax)
+
+.
+(39)
+For da = 7, Smax = 5, the bound is −0.991. Equality requires zero residual, S = Smax, and one
+nonzero singular direction; a nonzero residual has a strictly higher sample-wise minimum. Thus
+negative losses are possible, but divergence to −∞is excluded.
+For the O(dar2) evaluation and sampling that this projection enables, see Appendix A.1.2.
+F
+LIMITATIONS AND FUTURE WORK
+While PROACT improves generative action prediction by calibrating motion-informed proposals
+with prospective world representations, several limitations remain.
+Counterfactual supervision. The current formulation is trained primarily from factual expert tra-
+jectories, where each action sequence is paired with the future evolution that actually occurred.
+As a result, the model does not explicitly observe the counterfactual world evolution that would
+be induced by alternative or erroneous proposals. The calibration module therefore learns how a
+proposal should be adjusted under expert future supervision, rather than directly comparing the pre-
+dicted consequence of a proposal against the desired task-consistent future. A promising direction
+is to incorporate proposal perturbations, simulator rollouts, or action-conditioned world models to
+provide explicit counterfactual supervision and enable consequence-aware calibration.
+Fixed-horizon prospective reasoning. Although PROACT is supervised with a temporal future
+sequence rather than a single endpoint, its prospective reasoning is currently performed over a fixed
+horizon aligned with the action chunk. However, different manipulation stages may require different
+temporal scales: fine-grained contact and alignment can often be resolved from short-term evolution,
+whereas the consequences of decisions in long-horizon tasks may only become evident after several
+action chunks. Extending the current formulation toward multi-scale or adaptive-horizon world
+reasoning could allow the policy to calibrate proposals using both immediate interaction cues and
+longer-term task progress across diverse manipulation phases and tasks.
+25

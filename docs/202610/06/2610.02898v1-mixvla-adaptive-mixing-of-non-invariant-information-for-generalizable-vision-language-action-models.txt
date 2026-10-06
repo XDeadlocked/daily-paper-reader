@@ -1,0 +1,1583 @@
+MixVLA: Adaptive Mixing of Non-Invariant
+Information
+for
+Generalizable
+Vision-
+Language-Action Models
+Pingrui Zhang1,2, Yu Zhang3, Pengyuan Wu2, Bin Wang2, Haoming Song2,
+Xianqiang Gao2, ZhaxiZhuoma2, Zhigang Wang2, Dong Wang2, Bin Zhao2,4,
+Xuelong Li5†
+1Fudan University
+2Shanghai AI Laboratory
+3Harbin Institute of Technology, Shenzhen, China
+4Northwestern Polytechnical University
+5TeleAI, China Telecom Corp Ltd
+zhangpingrui@pjlab.org.cn
+xuelong li@ieee.org
+Abstract
+Vision-Language-Action (VLA) models have achieved remarkable advances
+in robotic manipulation, yet their zero-shot generalization under out-
+of-distribution (OOD) conditions remains limited.
+These models often
+entangle task-relevant invariant structure with environment-specific non-
+invariant factors, causing policies to rely on spurious appearance cues dur-
+ing action prediction. In this work, we propose MixVLA, a model-agnostic
+training framework that improves the generalization of VLA models with-
+out requiring additional OOD data or architectural modifications. The key
+component of MixVLA is Adaptive Mixing of Non-Invariant Infor-
+mation (AMI). AMI stochastically mixes non-invariant representations
+to regularize distribution-specific variability while preserving complemen-
+tary predictive cues. The mixed non-invariant features are then fused with
+invariant representations for final action prediction, resulting in improved
+robustness without sacrificing policy expressiveness. Extensive experiments
+across challenging manipulation settings, including LIBERO, LIBERO-
+Plus, the RoboTwin perturbation suite, and real-world tasks, demonstrate
+that MixVLA improves overall zero-shot robustness while retaining strong
+in-domain performance.
+1
+Introduction
+Vision-Language Models (VLMs) (Achiam et al., 2023; Bai et al., 2023) have advanced
+rapidly in recent years and are increasingly applied to robotic manipulation. This trend has
+led to the emergence of Vision-Language-Action (VLA) models (Kim et al., 2024; Brohan
+et al., 2022) that map multimodal observations and language instructions into low-level
+control actions. Benefiting from rich cross-modal representations learned by VLMs, these
+models achieve competitive task success rates across both simulated (Liu et al., 2023; Chen
+et al., 2025) and real-world (Walke et al., 2023) manipulation benchmarks.
+Despite strong performance on in-distribution benchmarks, VLA models still struggle to
+achieve robust zero-shot generalization under out-of-distribution (OOD) shifts (Li et al.,
+2025a; Zhou et al., 2025; Wang et al., 2026). Recent studies (Fei et al., 2025b) show that
+even mild variations in lighting, appearance, or camera viewpoint can cause substantial
+performance degradation. Some prior works (Zitkovich et al., 2023; Team, 2025) attempt
+to improve robustness through large-scale and diverse data collection, but they incur sub-
+stantial labor and financial costs. Other approaches (Abouzeid et al., 2025; Wu et al., 2025)
+enhance specific aspects of generalization by introducing model-specific modifications, which
+often limit their general applicability. In this work, we instead focus on improving zero-shot
+generalization through a model-agnostic training strategy that does not rely on additional
+1
+arXiv:2610.02898v1  [cs.RO]  2 Oct 2026
+
+
+Data Scaling
+(Large-scale & Diverse Data Collection)
+Extra Modules
+(Model-Specific Modifications)
+Specific Aspect
+Enhancement Module
+(e.g.,Camera Rotation,
+GeoAware)
+Robust but
+Expensive
+ Model
+Limited General Applicability
+Proposed Latent Mixing
+(Model-Agnostic Training)
+Robust Zero-Shot Action Prediction
+(Low cost, Generalizable)
+VLA Model
+VLA Model
+Latent Representation Space
+Invariant
+Correlations
+(Stable Cues)
+Non-Invariant
+Signals
+(Lighting,Texture,
+Viewpoint-Contains
+Nuisance &
+Predictive Info)
+Massive Raw
+Data Collection
+ 
+High Labor &
+Financial Costs
+（e.g.,RT-2,PaLM-E）
+Explicitly
+Regularize
+Variability
+&Mix
+Figure 1: Left: Data scaling improves robustness by collecting massive and diverse demon-
+strations, but incurs substantial labor and financial costs. Middle: Some works improve
+generalization with task-specific modules (e.g., camera rotation or geometric awareness),
+which limits general applicability across VLA architectures. Right: MixVLA is a model-
+agnostic training framework that explicitly regularizes and mixes non-invariant signals in
+the latent representation space, enabling robust zero-shot action prediction without addi-
+tional data or architectural modifications.
+out-of-distribution data. As illustrated in figure 1, our key idea is to explicitly regularize
+the variability of non-invariant signals in the latent representation space.
+To better understand this intuition, we analyze the problem from a representation learning
+perspective. Policies trained with empirical risk minimization (ERM) (Vapnik, 1999) tend
+to capture both task-relevant invariant correlations and environment-specific non-invariant
+signals. While invariant features provide stable cues for action prediction, non-invariant
+factors such as lighting, texture, and viewpoint often contain both nuisance variations and
+complementary predictive information. Under ERM training, directly relying on raw non-
+invariant features can introduce spurious dependencies under distribution shifts. Conversely,
+enforcing strict invariance may be overly conservative, as it can discard informative signals
+that remain useful for action prediction. This observation motivates explicitly regularizing
+the variability of non-invariant signals rather than relying on invariant features alone.
+Building on the above insights, we propose MixVLA, a model-agnostic training framework
+that improves zero-shot generalization of Vision-Language-Action models, without modi-
+fying model architectures or requiring additional data. The core of MixVLA is Adaptive
+Mixing of Non-Invariant Information (AMI). Specifically, we first disentangle invariant
+and non-invariant representations using an information-theoretic objective. We then per-
+form stochastic mixing within the non-invariant feature space to regularize environment-
+specific variability while preserving complementary predictive cues. The resulting mixed
+non-invariant representation is subsequently fused with invariant features for final action
+prediction, enabling a more favorable balance between robustness and policy expressive-
+ness. We evaluate MixVLA across a range of challenging manipulation settings, including
+the LIBERO and LIBERO-Plus benchmarks, the RoboTwin perturbation suite, and real-
+world robotic manipulation tasks. The results show that MixVLA substantially improves
+the robustness of VLA policies under diverse observation shifts without requiring additional
+data collection.
+Our key contributions are three-fold:
+• A model-agnostic framework for generalized VLA models.
+We present
+MixVLA, a model-agnostic training framework that improves the zero-shot general-
+ization of Vision-Language-Action models under out-of-distribution (OOD) data without
+additional data collection or architectural redesign.
+2
+
+
+• Adaptive mixing of non-invariant information (AMI). We propose AMI, which
+adaptively mixes non-invariant representations and fuses them with invariant features to
+improve robustness under distribution shifts.
+• Consistent zero-shot gains on challenging manipulation benchmarks. Experi-
+ments on LIBERO, LIBERO-Plus, RoboTwin, and real-world manipulation tasks demon-
+strate that MixVLA consistently improves zero-shot task success rates under diverse
+perturbations.
+2
+Related Work
+2.1
+Vision-Language-Action Model
+Recent Vision-Language-Action (VLA) models build upon large-scale Vision-Language Mod-
+els (VLMs) (Bai et al., 2023; Team et al., 2025; Achiam et al., 2023; Comanici et al., 2025;
+Zhang et al., 2026b;c) and are fine-tuned on diverse robot trajectory datasets to learn
+language-conditioned visuomotor policies (Brohan et al., 2022; Zitkovich et al., 2023; Walke
+et al., 2023; Ebert et al., 2021; O’Neill et al., 2024). RT-1 and RT-2 (Brohan et al., 2022;
+Zitkovich et al., 2023) demonstrate that scaling cross-modal pretraining together with large
+robot datasets can substantially improve manipulation performance and semantic ground-
+ing. Following this paradigm, OpenVLA (Kim et al., 2024) discretizes robot actions into
+rarely used vocabulary tokens and performs autoregressive action generation on top of the
+Prismatic-7B backbone (Karamcheti et al., 2024). The π0 family (Black et al., 2024; Intelli-
+gence et al., 2025) further introduces a dual-system design that augments a VLM backbone
+with a dedicated action expert to jointly model high-level reasoning and low-level control.
+Beyond architectural scaling, recent efforts explore richer spatial representations (Zhen et al.,
+2024; Bhat et al., 2026; Zhang et al., 2025a; 2026a), intermediate supervision such as sub-
+task decomposition and trajectory prediction (Zheng et al., 2024; Zhao et al., 2025; Zhang
+et al., 2025c; Zhong et al., 2025; Cen et al., 2025; Lee et al., 2025; Zhang et al., 2025b), and
+post-training optimization via planning or reinforcement learning (Guo et al., 2025; Zhang
+et al., 2025d; Lu et al., 2025; Fei et al., 2025a; Huang et al., 2025) to enhance VLA capa-
+bility. Despite these advances in scaling and architectural design, improving robustness to
+observation variations in unseen environments remains an open challenge for VLA policies.
+This motivates our focus on enhancing the intrinsic generalization ability of VLA models
+through a model-agnostic training strategy.
+2.2
+Generalization in Robotic Manipulation
+Recent work has explored multiple directions to improve generalization in robotic manipu-
+lation. One common line of work (Brohan et al., 2022; Driess et al., 2023; Zitkovich et al.,
+2023; Zhaxizhuoma et al., 2025; Team, 2025) seeks to enhance robustness through large-
+scale and diverse data collection. By expanding the coverage of training distributions, these
+approaches aim to improve policy generalization across varied environments. However, such
+strategies often incur substantial human and financial costs, and the practical boundary
+of data-driven generalization for embodied models remains insufficiently understood (Team,
+2025). Complementary to data scaling, another line of research improves robustness by intro-
+ducing additional architectural modules or auxiliary components. For example, GeoAware-
+VLA (Abouzeid et al., 2025) incorporates VGGT (Wang et al., 2025) to improve robustness
+to camera viewpoint changes. AffordDP (Wu et al., 2025) enhances cross-scene manipula-
+tion through affordance retrieval and transfer, while 3DS-VLA (Li et al., 2025b) improves
+robustness to appearance and viewpoint variations by introducing a 3D point cloud per-
+ception module. While these designs can improve robustness under specific perturbations,
+they often introduce additional system complexity and may not generalize well to diverse
+out-of-distribution scenarios, where realistic shifts are typically multifaceted rather than iso-
+lated. A separate line of work (Yang et al., 2024a;b; Seo et al., 2024; Ryu et al., 2023) seeks
+to improve policy generalization by learning robust visual representations or incorporating
+structured equivariant priors.
+These approaches typically integrate mechanisms such as
+associative memory or geometric equivariance to maintain policy consistency under object-
+level transformations, including scaling, rotation, and translation. However, such methods
+3
+
+
+Regularization
+Batch Dimension
+Normal VLA 
+Invariant VLA
+Non-Invariant VLA
+Action 
+Chunk
+...
+...
+Decomposition
+...
+...
+...
+...
+...
+...
+...
+Latent Tokens
+Mixing
+...
+Policy
+Head
+(Few Steps)
+...
+Figure 2: Overview of MixVLA. Left (Decomposition): A standard VLA policy is
+trained with the base objective to obtain WNormal, while an Invariant VLA is trained with
+an information bottleneck objective to obtain WInv. The Non-Invariant VLA is then derived
+via weight arithmetic. Right (Regularization): Non-invariant embeddings are randomly
+mixed within the mini-batch using AMI. The mixed representation
+˜
+NIe is concatenated
+with the invariant embedding Ie and passed to the policy head for training.
+primarily focus on object-centric variations and do not explicitly address variability arising
+from environment-level nuisance factors, such as lighting changes, background appearance,
+or camera viewpoint shifts.
+In contrast to these directions, our work improves VLA robustness through a model-agnostic
+training strategy that explicitly regularizes non-invariant environmental variability without
+requiring additional data or specialized architectural modules.
+3
+Method
+3.1
+Preliminaries
+VLA policy.
+We consider a VLA policy that maps an observation–instruction pair to
+robot actions. Let X denote the visual observation and L the language instruction. A stan-
+dard VLA backbone produces a latent representation Z = fθ(X, L), which is subsequently
+consumed by the policy head π(·) to predict the action A. MixVLA operates at this latent
+level without modifying the backbone or the action head.
+Invariant and non-invariant factors.
+We hypothesize that Z entangles task-relevant
+invariant structure shared across environments with environment-dependent non-invariant
+factors.
+MixVLA learns an Invariant Net and derives a complementary Non-Invariant
+Net to extract the corresponding embeddings Ie and NIe, respectively. Adaptive mixing
+regularizes NIe into
+˜
+NIe, yielding the fused representation h = [Ie ∥
+˜
+NIe], which is fed to
+the original policy head for action prediction. We denote the parameters of the Invariant,
+Normal, and Non-Invariant Nets by WInv, WNormal, and WNonInv, respectively (see figure 2).
+3.2
+Invariant and Non-Invariant Decomposition
+Invariant Net via Information Bottleneck.
+The Invariant Net aims to extract task-
+critical features that remain stable across environments while suppressing redundant cor-
+relations. We adopt the Information Bottleneck (IB) principle to learn Ie by minimizing
+I(X; Ie) while maximizing I(Ie; A), balancing input compression and action predictability.
+Using the identity
+I(Ie; A) = H(A) −H(A|Ie),
+(1)
+to maximize I(Ie; A) is equivalent to minimizing the conditional entropy H(A|Ie), which
+corresponds to improving action predictability. Combining sufficiency and minimality yields
+4
+
+
+the classical IB objective:
+LIB = βI(X; Ie) −I(Ie; A).
+(2)
+In practice, we optimize the following surrogate:
+LInv = E(X,A)
+
+Lbase(π(Ie), A)
+
++ β ˆI(X; Ie),
+(3)
+where π(·) denotes the original policy head, Lbase is the standard VLA training loss, and
+ˆI(X; Ie) is estimated using a neural mutual information estimator (Belghazi et al., 2018).
+The first term approximates the sufficiency constraint by reducing H(A|Ie), while the sec-
+ond term enforces information compression. As a result, the Invariant Net captures stable
+correlations that better transfer under observation shifts.
+Non-Invariant Net via Weight Subtraction.
+While the Invariant Net is encouraged
+to capture task-stable structure, the standard policy may retain complementary information
+that varies across environments. To capture such complementary information, we construct
+a Non-Invariant Net using weight arithmetic. Let WNormal denote the weights of the
+standard policy trained with Lbase, and WInv denote the Invariant Net weights obtained by
+minimizing equation 3. We define
+WNonInv = WNormal −WInv.
+(4)
+The term Non-Invariant Net denotes this candidate complementary branch, without as-
+suming an exact separation of non-invariant information. Appendix A provides a local-
+linearization perspective on parameter differences, while the utility of the resulting branch
+is evaluated empirically. We then compute the non-invariant embedding as
+NIe = fWNonInv(X, L),
+(5)
+where fWNonInv denotes the network parameterized by WNonInv.
+3.3
+Adaptive Mixing of Non-Invariant Information
+Purely invariant representations can be overly conservative, while exploiting non-invariant
+features may introduce spurious dependencies.
+We propose Adaptive Mixing of Non-
+Invariant Information (AMI) to improve robustness to shifts in the environment-conditioned
+non-invariant feature distribution P(NIe | E), where E denotes the environment. AMI
+couples non-invariant features across samples through controlled, structure-aware mixing,
+thereby smoothing environment-conditioned variations in the latent space.
+In-batch Pairing.
+For each sample i in a mini-batch, we randomly sample a partner index
+j̸ = i and obtain non-invariant embeddings (NIei, NIej). This pairing constructs a mixed
+embedding
+˜
+NIei used for training, while leaving the invariant embedding Iei unchanged.
+Soft Mixing via Adaptive Normalization.
+We first introduce a soft mixing strategy
+based on Adaptive Instance Normalization (AdaIN) (Huang & Belongie, 2017; Zhou et al.,
+2021). We interpolate the feature statistics of two embeddings:
+γmix = λσ(NIei) + (1 −λ)σ(NIej),
+(6)
+βmix = λµ(NIei) + (1 −λ)µ(NIej),
+(7)
+where λ ∼Beta(α, α). The mixed embedding is
+˜
+NIei = γmix
+NIei −µ(NIei)
+σ(NIei) + ε
++ βmix.
+(8)
+By interpolating feature statistics while retaining the normalized source features, soft mixing
+perturbs sample-specific statistics without directly interpolating the full embeddings.
+Hard Mixing via Embedding Interpolation.
+We further consider a stronger mixing
+variant that directly interpolates embeddings:
+˜
+NIei = λNIei + (1 −λ)NIej,
+(9)
+which explicitly enforces convex interpolation between non-invariant features from different
+samples, thereby mitigating over-reliance on environment-specific feature modes. In prac-
+tice, soft mixing stabilizes feature statistics, while hard mixing imposes stronger cross-sample
+coupling; the two variants provide complementary regularization effects.
+5
+
+
+Q1: Zero-shot Generalization
+Q2: Representation Analysis
+Q3: Cross Policy and Environment
+LIBERO-plus
+Robotwin Randomized
+Attention Visualization
+t-SNE
+Cross Policy
+Real World
+Training 
+Procedure
+Self Non-Invariant Net Extraction
+Q4: Training Cost
+Self-MixVLA
+Figure 3: Experimental Setup. Our experiments cover zero-shot generalization (Q1),
+representation analysis (Q2), cross-policy and real-world applicability (Q3), and training
+efficiency with Self-MixVLA (Q4).
+Table 1: Performance on the LIBERO-Plus benchmark (out-of-distribution eval-
+uation).
+Method
+Camera
+Robot
+Language
+Light
+Background
+Noise
+Layout
+Total
+OpenVLA (Kim et al., 2024)
+0.8
+3.5
+23.0
+8.1
+34.8
+15.2
+28.5
+15.6
+WorldVLA (Cen et al., 2025)
+0.1
+27.9
+41.6
+43.7
+17.1
+10.9
+38.0
+25.0
+NORA (Hung et al., 2025)
+2.2
+37.0
+65.1
+45.7
+58.6
+12.8
+62.1
+39.0
+UniVLA (Bu et al., 2025)
+1.8
+46.2
+69.6
+69.0
+81.0
+21.2
+31.9
+42.9
+π0 (Black et al., 2024)
+13.8
+6.0
+58.8
+85.0
+81.4
+79.0
+68.9
+53.6
+π0-Fast (Pertsch et al., 2025)
+65.1
+21.6
+61.0
+73.2
+73.2
+74.4
+68.8
+61.6
+RIPT-VLA (Tan et al., 2025)
+55.2
+31.2
+77.6
+88.4
+91.6
+73.5
+74.2
+68.4
+OpenVLA-OFT (Kim et al., 2025)
+56.4
+31.9
+79.5
+88.7
+93.3
+75.8
+74.2
+69.6
+MixVLA
+49.6
+63.3
+82.6
+96.1
+93.9
+82.3
+76.8
+76.2
+3.4
+Training Objective and Integration with VLA
+Fusion and Prediction.
+Given the invariant embedding Iei and the mixed non-invariant
+embedding
+˜
+NIei, we fuse them as hi = [Iei ∥
+˜
+NIei], and feed hi into the original policy head
+π(·) for action prediction. This design preserves the base policy interface and requires no
+architectural changes.
+Stage-2 Training Objective.
+During the AMI training, we optimize the base VLA ob-
+jective on the fused representation:
+LMixVLA = E(X,A)
+
+Lbase(π(h), A)
+
+,
+(10)
+where h depends on AMI through
+˜
+NIe.
+By exposing the policy head to the invariant
+structure together with regularized non-invariant cues, the model learns to reduce reliance
+on sample-specific correlations while retaining useful predictive information.
+4
+Experiment
+Our experiments assess whether regularizing, rather than discarding, non-invariant informa-
+tion improves zero-shot robustness to distribution shifts while retaining strong in-domain
+performance. Beyond overall performance, we investigate the role of non-invariant informa-
+tion in generalization, the applicability of MixVLA across policy architectures and real-world
+settings, and the potential to reduce training requirements while preserving robustness gains
+As outlined in Figure 3, our experiments address the following four questions:
+Q1.
+Robust Generalization.
+Can MixVLA improve zero-shot robustness to unseen
+distribution shifts while retaining strong in-domain performance?
+Q2. Representation Analysis. What does regularized non-invariant information con-
+tribute beyond invariant features alone?
+Q3. General Applicability. Do the robustness gains extend across policy architectures
+and to real-world manipulation?
+Q4. Training Cost. Can MixVLA retain its robustness benefits using a single Invariant
+Net training run, without training a separate standard policy?
+Benchmarks. We evaluate MixVLA across simulation and real-world manipulation set-
+tings. For simulation, we train on LIBERO (Liu et al., 2023) and evaluate both in-domain
+6
+
+
+Table 2: Comparison on the LIBERO benchmark (in-domain setting).
+Model
+Spatial
+Object
+Goal
+Long
+Avg
+OpenVLA (Kim et al., 2024)
+84.7
+88.4
+79.2
+53.7
+76.5
+WorldVLA (Cen et al., 2025)
+85.6
+89.0
+82.6
+59.0
+79.1
+NORA (Hung et al., 2025)
+92.2
+95.4
+89.4
+74.6
+87.9
+UniVLA (Bu et al., 2025)
+96.5
+96.8
+95.6
+92.0
+95.2
+π0 (Black et al., 2024)
+90.0
+86.0
+95.0
+73.0
+86.0
+π0-Fast (Pertsch et al., 2025)
+96.4
+96.8
+88.6
+60.2
+85.5
+OpenVLA-OFT (Kim et al., 2025)
+97.6
+98.4
+97.9
+94.5
+97.1
+MixVLA
+98.4
+97.2
+97.4
+93.6
+96.7
+Table 3: Clean-to-clean and clean-to-randomized evaluation on RoboTwin 2.0.
+Method
+C2C
+C2R
+Avg.
+Fast-WAM (Yuan et al., 2026)
+77.8
+1.9
+39.9
+X-VLA (Zheng et al., 2026)
+68.0
+20.9
+44.5
+X-WAM (Guo et al., 2026)
+70.0
+25.8
+47.9
+Spatial Forcing (Li et al., 2026)
+77.2
+26.7
+52.0
+π0.5 (Intelligence et al., 2025)
+70.7
+46.0
+58.4
+4D-WAM (Yang et al., 2026)
+81.5
+41.8
+61.6
+MixVLA
+75.6
+62.4
+69.0
+performance and zero-shot robustness under distribution shifts using LIBERO-Plus (Fei
+et al., 2025b). We further conduct clean-to-clean (C2C) and clean-to-randomized (C2R)
+evaluations on RoboTwin (Chen et al., 2025), where policies are trained only with clean
+demonstrations to assess generalization to unseen randomized environments. Finally, we
+deploy policies on real robots and evaluate robustness.
+Implementation details. We implement MixVLA on two representative VLA architec-
+tures: OpenVLA-OFT (Kim et al., 2025), which predicts continuous action chunks through
+parallel decoding, and π0.5 (Intelligence et al., 2025), which generates continuous actions
+through flow matching. For the main simulation experiments, the Normal Net and the In-
+variant Net are each trained for 100K steps on LIBERO or clean RoboTwin demonstrations.
+In Stage 2, we perform AMI training for 1K steps on LIBERO and 10K steps on RoboTwin.
+Detailed training configurations are provided in the Appendix B.
+4.1
+Robustness to Unseen Distribution Shifts
+Robustness from LIBERO to LIBERO-Plus. We build MixVLA on OpenVLA-OFT
+and train it on LIBERO, evaluating on LIBERO and LIBERO-Plus. As shown in Table 1,
+MixVLA achieves the highest overall success rate of 76.2% among the compared methods,
+surpassing OpenVLA-OFT by 6.6%. However, its lower performance under camera per-
+turbations suggests that non-invariant feature mixing alone may be insufficient to address
+viewpoint-induced geometric shifts. On LIBERO, MixVLA retains strong in-domain perfor-
+mance, achieving an average success rate of 96.7% compared with 97.1% for OpenVLA-OFT
+(Table 2), with a decrease of only 0.4%.
+Clean-to-randomized generalization on RoboTwin. We build MixVLA on π0.5 and
+train it exclusively on clean demonstrations from RoboTwin 2.0.
+As shown in Table 3,
+MixVLA improves C2R success from 46.0% to 62.4% (+16.4%) over π0.5, while also increas-
+ing C2C success from 70.7% to 75.6% (+4.9%).
+Taken together, these results support a positive answer to Q1: MixVLA improves robustness
+to a range of unseen distribution shifts while retaining strong in-domain performance.
+4.2
+Understanding the Role of Non-Invariant Information
+Beyond invariant representations. We compare the Normal Net, Invariant Net, and
+full MixVLA, using OpenVLA-OFT on LIBERO-Plus and π0.5 on RoboTwin (Table 4).
+7
+
+
+Table 4: Ablation study of IB and AMI on LIBERO-Plus and RoboTwin 2.0.
+Experiments use OpenVLA-OFT on LIBERO-Plus and π0.5 on RoboTwin 2.0.
+IB
+AMI
+LIBERO-Plus
+RoboTwin
+Camera
+Robot
+Language
+Lighting
+Background
+Noise
+Layout
+Total
+C2C
+C2R
+Avg.
+51.2
+30.7
+74.2
+87.8
+92.6
+76.0
+73.7
+67.5
+73.8
+53.8
+63.8
+✓
+48.8
+58.6
+72.7
+91.3
+93.0
+78.8
+74.1
+72.2
+75.8
+59.6
+67.7
+✓
+✓
+49.6
+63.3
+82.6
+96.1
+93.9
+82.3
+76.8
+76.2
+75.6
+62.4
+69.0
+Normal Net
+Invariant Net
+MixVLA
+Frame 0
+Frame 20
+Frame 30
+Frame 60
+End
+Failure
+Failure
+Success
+(a) Grad-CAM on LIBERO-Plus.
+Clean
+Normal Net
+Invariant Net
+AMI
+Non-Invariant Net
+Adjust Bottle
+Click Bell
+Grab Roller
+Hanging Mug
+Beat Block Hammmer
+Dump Bin
+Handover Block
+Lift Pot
+Randomized
+(b) t-SNE on RoboTwin.
+Figure 4: Qualitative analysis under distribution shifts. (a) Grad-CAM visualiza-
+tions along each policy’s own rollout. (b) t-SNE projections of mean-pooled token features
+from eight tasks. Colors indicate tasks; circles and triangles denote clean and randomized
+observations, respectively.
+IB-only (Invariant Net) improves overall OOD performance on both benchmarks, but re-
+duces robustness under camera and language perturbations on LIBERO-Plus relative to
+the standard policy. This uneven behavior highlights the limitations of relying solely on
+invariant representations to handle diverse distribution shifts.
+Complementing invariant
+representations with AMI-regularized non-invariant features yields further gains of 4.0% on
+LIBERO-Plus and 2.8% on RoboTwin C2R over IB-only. MixVLA outperforms Invariant
+Net across all seven LIBERO-Plus perturbation categories while largely preserving clean-
+environment performance on RoboTwin. These results support our central premise that
+non-invariant information need not be discarded: when regularized, it can complement in-
+variant features and improve OOD generalization. Additional analyses of mixing strategies
+are provided in the Appendix C.
+Visual attribution under distribution shifts. Figure 4a presents Grad-CAM visual-
+izations along the respective rollouts of the Normal Net, Invariant Net, and MixVLA on a
+LIBERO-Plus task. The Invariant Net exhibits localized responses around manipulation-
+related regions, whereas MixVLA highlights these regions together with broader nearby
+context at intermediate steps. Both the Normal Net and the Invariant Net fail to com-
+plete the task, while MixVLA succeeds. Figure 4b further visualizes mean-pooled token
+features from eight RoboTwin tasks under clean and randomized conditions. The Normal
+Net forms predominantly task-homogeneous local clusters, whereas the Invariant Net pro-
+jection exhibits a different organization with some regions still dominated by either clean or
+randomized samples. MixVLA retains task-associated neighborhoods alongside local clean–
+randomized interleaving, while the Non-Invariant Net exhibits substantial cross-task overlap.
+These projections illustrate changes in feature organization rather than establish complete
+domain alignment.
+Together with the ablations in Table 4, these qualitative observations support our answer to
+Q2: regularized non-invariant information can complement invariant features and improve
+OOD generalization.
+8
+
+
+4.3
+Generality across Policies and Real-World Deployment
+Applicability across policy architectures.
+As shown in Tables 1 and 3, MixVLA
+improves robustness over the corresponding baselines for both OpenVLA-OFT and π0.5.
+These gains are obtained using the same two-stage training framework, despite their dif-
+ferent action-generation mechanisms: parallel action decoding in OpenVLA-OFT and flow
+matching in π0.5. These results support the model-agnostic design of MixVLA, demonstrat-
+ing its applicability beyond a single policy architecture.
+100%
+80%
+60%
+40%
+20%
+0%
+Success Rate
+Figure 5:
+Real-world
+robustness
+to
+lighting changes.
+Robustness in real-world manipulation.
+We deploy π0.5 and its MixVLA counterpart
+on a Franka robot. We collect 80 demonstra-
+tions for a bread-placement task with two in-
+struction variants, requiring the robot to pick
+up the sixth slice of bread and place it on ei-
+ther the near or far plate, as specified by the
+instruction. We evaluate each policy over 10
+trials under lighting perturbations, counting
+a trial as successful when the specified slice is
+placed on the instructed plate. As shown in
+Figure 5, MixVLA achieves a success rate of
+60%, compared with 20% for π0.5. See Ap-
+pendix C for videos of real-world executions.
+These results complement the cross-architecture simulation findings and provide preliminary
+evidence that MixVLA’s robustness benefits extend to real-world manipulation, supporting
+a positive answer to Q3.
+4.4
+Robustness from a Single Training Run
+Table
+5:
+Single-run
+variant
+on
+RoboTwin 2.0.
+Method
+C2C
+C2R
+Avg.
+Self-MixVLA
+73.0
+60.8
+66.9
+MixVLA
+75.6
+62.4
+69.0
+Reusing intermediate IB checkpoints.
+We explore whether intermediate checkpoints
+from a single Invariant Net training run can
+eliminate the need to train a separate Normal
+Net. Our intuition is that Invariant Net train-
+ing progressively favors invariant information,
+and differences between early and late check-
+points may provide a proxy for complemen-
+tary non-invariant information. Motivated by
+this hypothesis, we introduce Self-MixVLA, which constructs a Self Non-Invariant Net
+from the 10K- and 100K-step checkpoints of the same IB training run:
+W self
+NonInv = W (10K)
+Inv
+−W (100K)
+Inv
+.
+(11)
+The resulting branch is paired with the 100K-step Invariant Net for subsequent AMI train-
+ing, avoiding a separate Normal Net training run.
+These results support a positive answer to Q4: Self-MixVLA reduces training requirements
+by eliminating the separate Normal Net training run, while retaining robustness benefits
+with a modest performance reduction relative to full MixVLA (Table 5). We regard this
+variant as a preliminary exploration of reusing a single IB training trajectory, with further
+opportunities to investigate checkpoint selection and extrapolation strategies for recovering
+complementary information.
+5
+Conclusion
+In this work, we presented MixVLA, a model-agnostic framework that improves VLA
+generalization by regularizing rather than discarding non-invariant information. MixVLA
+learns invariant representations through an information bottleneck objective and derives a
+complementary branch through weight arithmetic. AMI regularizes non-invariant features
+9
+
+
+through stochastic mixing before fusing them with invariant representations for action pre-
+diction.
+Experiments demonstrate improved overall zero-shot robustness while retaining
+strong in-domain performance.
+Our findings suggest that non-invariant information can
+provide useful predictive cues when appropriately regularized, offering a practical direction
+for generalizable embodied policies without additional OOD training data.
+References
+Ali Abouzeid, Malak H. I. Mansour, Zezhou Sun, and Dezhen Song. Geoaware-vla: Implicit
+geometry aware vision-language-action model. ArXiv, abs/2509.14117, 2025.
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni
+Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al.
+Gpt-4 technical report. arXiv preprint arXiv:2303.08774, 2023.
+Alessandro Achille and Stefano Soatto. Emergence of invariance and disentanglement in
+deep representations, 2018. URL https://arxiv.org/abs/1706.01350.
+Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin
+Ge, Yu Han, Fei Huang, et al. Qwen technical report. arXiv preprint arXiv:2309.16609,
+2023.
+Mohamed Ishmael Belghazi, Aristide Baratin, Sai Rajeshwar, Sherjil Ozair, Yoshua Bengio,
+Aaron Courville, and Devon Hjelm. Mutual information neural estimation. In Interna-
+tional conference on machine learning, pp. 531–540. PMLR, 2018.
+Vineet Bhat, Yu-Hsiang Lan, Prashanth Krishnamurthy, Ramesh Karri, and Farshad Khor-
+rami. 3d cavla: Leveraging depth and 3d context to generalize vision language action
+models for unseen tasks, 2026. URL https://arxiv.org/abs/2505.05800.
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn,
+Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim
+Jones, Liyiming Ke, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl
+Pertsch, Lucy Xiaoyang Shi, James Tanner, Quan Vuong, Anna Walling, Haohuan Wang,
+and Ury Zhilinsky. π0: A vision-language-action flow model for general robot control.
+ArXiv, abs/2410.24164, 2024.
+Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea
+Finn, Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, et al. Rt-
+1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817,
+2022.
+Qingwen Bu, Yanting Yang, Jisong Cai, Shenyuan Gao, Guanghui Ren, Maoqing Yao, Ping
+Luo, and Hongyang Li. Univla: Learning to act anywhere with task-centric latent actions.
+arXiv preprint arXiv:2505.06111, 2025.
+Jun Cen, Chaohui Yu, Hangjie Yuan, Yuming Jiang, Siteng Huang, Jiayan Guo, Xin Li,
+Yibing Song, Hao Luo, Fan Wang, Deli Zhao, and Hao Chen. Worldvla: Towards autore-
+gressive action world model. ArXiv, abs/2506.21539, 2025.
+Tianxing Chen, Zanxin Chen, Baijun Chen, Zijian Cai, Yibin Liu, Zixuan Li, Qiwei Liang,
+Xianliang Lin, Yiheng Ge, Zhenyu Gu, et al. Robotwin 2.0: A scalable data generator and
+benchmark with strong domain randomization for robust bimanual robotic manipulation.
+arXiv preprint arXiv:2506.18088, 2025.
+Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, In-
+derjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen, et al. Gemini 2.5:
+Pushing the frontier with advanced reasoning, multimodality, long context, and next gen-
+eration agentic capabilities. arXiv preprint arXiv:2507.06261, 2025.
+Danny Driess, Fei Xia, Mehdi SM Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian
+Ichter, Ayzaan Wahid, Jonathan Tompson, Quan Vuong, Tianhe Yu, et al. Palm-e: An
+embodied multimodal language model. arXiv preprint arXiv:2303.03378, 2023.
+10
+
+
+Frederik Ebert, Yanlai Yang, Karl Schmeckpeper, Bernadette Bucher, Georgios Georgakis,
+Kostas Daniilidis, Chelsea Finn, and Sergey Levine. Bridge data: Boosting generalization
+of robotic skills with cross-domain datasets. ArXiv, abs/2109.13396, 2021.
+Senyu Fei, Siyin Wang, Li Ji, Ao Li, Shiduo Zhang, Liming Liu, Jinlong Hou, Jingjing
+Gong, Xianzhong Zhao, and Xipeng Qiu. Srpo: Self-referential policy optimization for
+vision-language-action models. ArXiv, abs/2511.15605, 2025a.
+Senyu Fei, Siyin Wang, Junhao Shi, Zihao Dai, Jikun Cai, Pengfang Qian, Li Ji, Xinzhe
+He, Shiduo Zhang, Zhaoye Fei, et al. Libero-plus: In-depth robustness analysis of vision-
+language-action models. arXiv preprint arXiv:2510.13626, 2025b.
+Jun Guo, Qiwei Li, Peiyan Li, Zilong Chen, Nan Sun, Yifei Su, Heyun Wang, Yuan Zhang,
+Xinghang Li, and Huaping Liu. Unified 4d world action modeling from video priors with
+asynchronous denoising. arXiv preprint arXiv:2604.26694, 2026.
+Wenkai Guo, Guanxing Lu, Haoyuan Deng, Zhenyu Wu, Yansong Tang, and Ziwei Wang.
+Vla-reasoner: Empowering vision-language-action models with reasoning via online monte
+carlo tree search. ArXiv, abs/2509.22643, 2025.
+Chi-Pin Huang, Yueh-Hua Wu, Min-Hung Chen, Yu-Chiang Frank Wang, and Fu-En Yang.
+Thinkact: Vision-language-action reasoning via reinforced visual latent planning. ArXiv,
+abs/2507.16815, 2025.
+Xun Huang and Serge Belongie. Arbitrary style transfer in real-time with adaptive instance
+normalization. In Proceedings of the IEEE international conference on computer vision,
+pp. 1501–1510, 2017.
+Chia-Yu Hung, Qi Sun, Pengfei Hong, Amir Zadeh, Chuan Li, U-Xuan Tan, Navonil Ma-
+jumder, and Soujanya Poria. Nora: A small open-sourced generalist vision language action
+model for embodied tasks, 2025. URL https://arxiv.org/abs/2504.19854.
+Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny
+Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker,
+Dibya Ghosh, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim
+Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri,
+Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias
+Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Rich Walke, Anna
+Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. π0.5: a vision-language-action model
+with open-world generalization. ArXiv, abs/2504.16054, 2025.
+Siddharth Karamcheti, Suraj Nair, Ashwin Balakrishna, Percy Liang, Thomas Kollar, and
+Dorsa Sadigh.
+Prismatic vlms: Investigating the design space of visually-conditioned
+language models. In International Conference on Machine Learning, 2024.
+Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj
+Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An
+open-source vision-language-action model. arXiv preprint arXiv:2406.09246, 2024.
+Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models:
+Optimizing speed and success. arXiv preprint arXiv:2502.19645, 2025.
+Jason Lee, Jiafei Duan, Haoquan Fang, Yuquan Deng, Shuo Liu, Boyang Li, Bohan Fang,
+Jieyu Zhang, Yi Ru Wang, Sangho Lee, Winson Han, Wilbert Pumacay, Angelica Wu,
+Rose Hendrix, Karen Farley, Eli VanderBilt, Ali Farhadi, Dieter Fox, and Ranjay Krishna.
+Molmoact: Action reasoning models that can reason in space. ArXiv, abs/2508.07917,
+2025.
+Fuhao Li, Wenxuan Song, Han Zhao, Jingbo Wang, Pengxiang Ding, Donglin Wang, Long
+Zeng, and Haoang Li. Spatial forcing: Implicit spatial representation alignment for vision-
+language-action model. In International Conference on Learning Representations, volume
+2026, pp. 132324–132345, 2026.
+11
+
+
+Hao Li, Shuai Yang, Yilun Chen, Xinyi Chen, Xiaoda Yang, Yang Tian, Hanqing Wang, Tai
+Wang, Dahua Lin, Feng Zhao, et al. Cronusvla: Towards efficient and robust manipulation
+via multi-frame vision-language-action modeling. arXiv preprint arXiv:2506.19816, 2025a.
+Xiaoqi Li, Liang Heng, Jiaming Liu, Yan Shen, Chenyang Gu, Zhuoyang Liu, Hao Chen,
+Nuowei Han, Renrui Zhang, Hao Tang, Shanghang Zhang, and Hao Dong. 3ds-vla: A 3d
+spatial-aware vision language action model for robust multi-task manipulation. In Joseph
+Lim, Shuran Song, and Hae-Won Park (eds.), Proceedings of The 9th Conference on
+Robot Learning, volume 305 of Proceedings of Machine Learning Research, pp. 2344–2359.
+PMLR, 27–30 Sep 2025b.
+Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone.
+Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural
+Information Processing Systems, 36:44776–44791, 2023.
+Guanxing Lu, Wenkai Guo, Chubin Zhang, Yuheng Zhou, Haonan Jiang, Zifeng Gao, Yan-
+song Tang, and Ziwei Wang. Vla-rl: Towards masterful and general robotic manipulation
+with scalable reinforcement learning. ArXiv, abs/2505.18719, 2025.
+Abby O’Neill, Abdul Rehman, Abhiram Maddukuri, Abhishek Gupta, Abhishek Padalkar,
+Abraham Lee, Acorn Pooley, Agrim Gupta, Ajay Mandlekar, Ajinkya Jain, et al. Open
+x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collabo-
+ration 0. In 2024 IEEE International Conference on Robotics and Automation (ICRA),
+pp. 6892–6903. IEEE, 2024.
+Karl Pertsch, Kyle Stachowicz, Brian Ichter, Danny Driess, Suraj Nair, Quan Vuong, Oier
+Mees, Chelsea Finn, and Sergey Levine. Fast: Efficient action tokenization for vision-
+language-action models, 2025. URL https://arxiv.org/abs/2501.09747.
+Hyunwoo Ryu, Hong in Lee, Jeong-Hoon Lee, and Jongeun Choi. Equivariant descriptor
+fields: Se(3)-equivariant energy-based models for end-to-end visual robotic manipulation
+learning, 2023.
+Joohwan Seo, Nikhil P. S. Prakash, Xiang Zhang, Changhao Wang, Jongeun Choi,
+Masayoshi Tomizuka, and Roberto Horowitz. Contact-rich se(3)-equivariant robot ma-
+nipulation task learning via geometric impedance control. IEEE Robotics and Automation
+Letters, 9(2):1508–1515, February 2024. ISSN 2377-3774.
+Shuhan Tan, Kairan Dou, Yue Zhao, and Philipp Kr¨ahenb¨uhl. Interactive post-training for
+vision-language-action models, 2025. URL https://arxiv.org/abs/2505.17016.
+Generalist AI Team. Gen-0: Embodied foundation models that scale with physical interac-
+tion. Generalist AI Blog, 2025. https://generalistai.com/blog/nov-04-2025-GEN-0.
+Qwen Team et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388, 6(7):13, 2025.
+Naftali Tishby, Fernando C. Pereira, and William Bialek.
+The information bottleneck
+method, 2000. URL https://arxiv.org/abs/physics/0004057.
+Vladimir N Vapnik. An overview of statistical learning theory. IEEE transactions on neural
+networks, 10(5):988–999, 1999.
+Homer Rich Walke, Kevin Black, Tony Z Zhao, Quan Vuong, Chongyi Zheng, Philippe
+Hansen-Estruch, Andre Wang He, Vivek Myers, Moo Jin Kim, Max Du, et al. Bridgedata
+v2: A dataset for robot learning at scale. In Conference on Robot Learning, pp. 1723–1736.
+PMLR, 2023.
+Guodong Wang, Chenkai Zhang, Qingjie Liu, Jinjin Zhang, Jiancheng Cai, Junjie Liu,
+and Xinmin Liu. Libero-x: Robustness litmus for vision-language-action models. arXiv
+preprint arXiv:2602.06556, 2026.
+12
+
+
+Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea Vedaldi, Christian Rupprecht, and
+David Novotny. Vggt: Visual geometry grounded transformer. In 2025 IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition (CVPR), pp. 5294–5306. IEEE,
+2025.
+Shijie Wu, Yihang Zhu, Yunao Huang, Kaizhen Zhu, Jiayuan Gu, Jingyi Yu, Ye Shi, and
+Jingya Wang. Afforddp: Generalizable diffusion policy with transferable affordance, 2025.
+URL https://arxiv.org/abs/2412.03142.
+Jingyun Yang, Zi ang Cao, Congyue Deng, Rika Antonova, Shuran Song, and Jeannette
+Bohg. Equibot: Sim(3)-equivariant diffusion policy for generalizable and data efficient
+learning, 2024a.
+Jingyun Yang, Congyue Deng, Jimmy Wu, Rika Antonova, Leonidas Guibas, and Jeannette
+Bohg. Equivact: Sim(3)-equivariant visuomotor policies beyond rigid object manipulation,
+2024b.
+Lishan Yang, Wenxuan Song, Xi Wang, Pingyue Sheng, Zheng Fang, Ziyang Zhou, Junjie
+He, Haodong Yan, Jiayi Chen, Nan Sun, et al. 4d-wam: Infusing spatiotemporal awareness
+into world action models through trajectory fields. arXiv preprint arXiv:2608.08023, 2026.
+Tianyuan Yuan, Zibin Dong, Yicheng Liu, and Hang Zhao. Fast-wam: Do world action
+models need test-time future imagination? arXiv preprint arXiv:2603.16666, 2026. URL
+https://arxiv.org/abs/2603.16666.
+Jiahui Zhang, Yurui Chen, Yueming Xu, Ze Huang, Yanpeng Zhou, Yu-Jie Yuan, Xinyue
+Cai, Guowei Huang, Xingyue Quan, Hang Xu, and Li Zhang. 4d-vla: Spatiotemporal
+vision-language-action pretraining with cross-scene calibration, 2025a.
+Pingrui Zhang, Xianqiang Gao, Yuhan Wu, Kehui Liu, Dong Wang, Zhigang Wang, Bin
+Zhao, Yan Ding, and Xuelong Li. Moma-kitchen: A 100k+ benchmark for affordance-
+grounded last-mile navigation in mobile manipulation. In 2025 IEEE/CVF International
+Conference on Computer Vision (ICCV), pp. 6315–6326. IEEE, 2025b.
+Pingrui Zhang, Yifei Su, Pengyuan Wu, Dong An, Li Zhang, Zhigang Wang, Dong Wang,
+and Bin Zhao.
+Cross from left to right brain: Adaptive text dreamer for vision-and-
+language navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pp. 1006–1019, 2026a.
+Wenyao Zhang, Hongsi Liu, Zekun Qi, Yunnan Wang, Xinqiang Yu, Jiazhao Zhang, Runpei
+Dong, Jiawei He, He Wang, Zhizheng Zhang, Li Yi, Wenjun Zeng, and Xin Jin. Dreamvla:
+A vision-language-action model dreamed with comprehensive world knowledge. ArXiv,
+abs/2507.04447, 2025c.
+Yu Zhang, Jinlong Ma, Yongshuai Hou, Xuefeng Bai, Kehai Chen, Yang Xiang, Jun Yu,
+and Min Zhang. Evaluating and steering modality preferences in multi-modal llms. In
+Forty-third International Conference on Machine Learning, 2026b.
+Yu Zhang, Mufan Xu, Xuefeng Bai, Kehai Chen, Pengfei Zhang, Yang Xiang, and Min
+Zhang. Instruction anchor: Dissecting the mechanistic dynamics of modality arbitration.
+arXiv preprint arXiv:2602.03677, 2026c.
+Zijian Zhang, Kaiyuan Zheng, Zhaorun Chen, Joel Jang, Yi Li, Siwei Han, Chaoqi Wang,
+Mingyu Ding, Dieter Fox, and Huaxiu Yao. Grape: Generalizing robot policy via prefer-
+ence alignment, 2025d.
+Qingqing Zhao, Yao Lu, Moo Jin Kim, Zipeng Fu, Zhuoyang Zhang, Yecheng Wu, Zhaoshuo
+Li, Qianli Ma, Song Han, Chelsea Finn, Ankur Handa, Ming-Yu Liu, Donglai Xiang,
+Gordon Wetzstein, and Tsung-Yi Lin.
+Cot-vla: Visual chain-of-thought reasoning for
+vision-language-action models, 2025. URL https://arxiv.org/abs/2503.22020.
+13
+
+
+Zhaxizhuom Zhaxizhuoma, Kehui Liu, Chuyue Guan, Zhongjie Jia, Ziniu Wu, Xin Liu,
+Tianyu Wang, Shuai Liang, Pengan Chen, Pingrui Zhang, et al. Fastumi: A scalable and
+hardware-independent universal manipulation interface with dataset. In Conference on
+Robot Learning, pp. 3069–3093. PMLR, 2025.
+Haoyu Zhen, Xiaowen Qiu, Peihao Chen, Jincheng Yang, Xin Yan, Yilun Du, Yining Hong,
+and Chuang Gan. 3d-vla: A 3d vision-language-action generative world model. ArXiv,
+abs/2403.09631, 2024.
+Jinliang Zheng, Jianxiong Li, Zhihao Wang, Dongxiu Liu, Xirui Kang, Yuchun Feng, Yinan
+Zheng, Jiayin Zou, Yilun Chen, Jia Zeng, et al. X-vla: Soft-prompted transformer as
+scalable cross-embodiment vision-language-action model. In International Conference on
+Learning Representations, volume 2026, pp. 60580–60606, 2026.
+Ruijie Zheng, Yongyuan Liang, Shuaiyi Huang, Jianfeng Gao, Hal Daum’e, Andrey Kolobov,
+Furong Huang, and Jianwei Yang. Tracevla: Visual trace prompting enhances spatial-
+temporal awareness for generalist robotic policies. ArXiv, abs/2412.10345, 2024.
+Zhide Zhong, Haodong Yan, Junfeng Li, Xiangchen Liu, Xin Gong, Tianran Zhang, Wenx-
+uan Song, Jiayi Chen, Xinhu Zheng, Hesheng Wang, and Haoang Li. Flowvla: Visual
+chain of thought-based motion reasoning for vision-language-action models, 2025.
+Kaiyang Zhou, Yongxin Yang, Yu Qiao, and Tao Xiang.
+Domain generalization with
+mixstyle, 2021. URL https://arxiv.org/abs/2104.02008.
+Xueyang Zhou, Yangming Xu, Guiyao Tie, Yongchao Chen, Guowen Zhang, Duanfeng Chu,
+Pan Zhou, and Lichao Sun. Libero-pro: Towards robust and fair evaluation of vision-
+language-action models beyond memorization. arXiv preprint arXiv:2510.03827, 2025.
+Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul
+Wohlhart, Stefan Welker, Ayzaan Wahid, et al.
+Rt-2: Vision-language-action models
+transfer web knowledge to robotic control. In Conference on Robot Learning, pp. 2165–
+2183. PMLR, 2023.
+14
+
+
+MixVLA: Adaptive Mixing of Non-Invariant
+Information for Generalizable Vision-Language-Action
+Models
+Supplementary Material
+Abstract
+This supplementary material expands upon our main paper by provid-
+ing additional theoretical analysis, implementation details, experimental
+results, and discussions to further support the proposed method MixVLA.
+▷Sec. A: We provide theoretical analyses of MixVLA, including the
+information-compression effect of IB, the statistical properties of adaptive
+mixing, and an illustrative regression analysis that characterizes when reg-
+ularizing complementary information can improve OOD robustness.
+▷Sec. B: We provide additional implementation details, including model
+architectures, optimization settings, and training configurations.
+▷Sec. C: We report additional experiments and qualitative results, in-
+cluding ablations on mixing strategies, more visualizations on LIBERO,
+LIBERO-Plus, RoboTwin, and real-world demonstration videos.
+▷Sec. D: We discuss the limitations of the current framework and outline
+several possible directions for future research.
+A
+Theoretical Analysis
+This section analyzes the information-compression effect of the Information Bottleneck (IB),
+the statistical properties of adaptive mixing, and a local-linearization interpretation of
+MixVLA. We also present an illustrative regression model in which mixing improves OOD
+prediction under explicit conditions. These analyses characterize aspects of the proposed
+framework rather than establish unconditional guarantees for nonlinear VLA policies.
+Throughout this section, I(·; ·) and I(·; · | ·) denote mutual information and conditional
+mutual information, respectively. For brevity, we write T = Ie and N = NIe. Importantly,
+the learned complementary representation N is not assumed to contain only nuisance infor-
+mation. All information quantities and moments used below are assumed finite. Language
+instructions are treated as fixed context and omitted from the notation.
+A.1
+Invariant Representation via Information Bottleneck
+The IB objective balances input compression against predictive information retention
+(Tishby et al., 2000).
+Related analyses connect representation minimality with insensi-
+tivity to nuisance factors under suitable assumptions (Achille & Soatto, 2018). Here, we
+characterize the conditional nuisance information controlled by the compression objective.
+Assume the observation is generated as
+X = S(Zinv, Zninv),
+(12)
+where Zinv contains task-relevant latent factors and Zninv contains environment-dependent
+factors. Assume
+A ⊥X | Zinv,
+(13)
+and let T be sampled from an encoder pϕ(T | X), whose sampling randomness is independent
+of the other variables conditional on X.
+We consider the constrained IB objective
+min
+pϕ(T |X) I(X; T)
+s.t.
+I(T; A) ≥κ,
+(14)
+15
+
+
+where κ > 0 is chosen so that the constraint is feasible.
+Proposition A.1 (An upper bound on conditional nuisance information). Under
+the assumptions above,
+I(T; Zninv | Zinv) = I(X; T) −I(T; Zinv)
+≤I(X; T) −I(T; A).
+(15)
+Consequently, any feasible encoder in Eq. equation 14 satisfies
+I(T; Zninv | Zinv) ≤I(X; T) −κ.
+(16)
+Proof. Since X is a deterministic function of (Zinv, Zninv) and the encoder depends on
+these factors only through X,
+I(X; T) = I(Zinv, Zninv; T).
+(17)
+Applying the chain rule gives
+I(X; T) = I(Zinv; T) + I(Zninv; T | Zinv).
+(18)
+Moreover, the action-sufficiency assumption and the encoder construction imply the Markov
+chain A ↔Zinv ↔T. The data processing inequality therefore yields
+I(T; A) ≤I(T; Zinv).
+(19)
+Combining these relations proves the result.
+□
+Interpretation. At a prescribed level of predictive information, reducing I(X; T) tightens
+an upper bound on the information retained about environment-dependent factors beyond
+the task-relevant latent factors. This provides an information-theoretic motivation for IB
+regularization, but does not imply that a practical encoder eliminates all nuisance depen-
+dence or generalizes to arbitrary unseen environments.
+The ideal latent factors Zinv should also be distinguished from the learned representation
+T. Finite-capacity encoders and practical IB optimization need not make T sufficient for
+action prediction. A complementary representation can therefore retain useful information
+that is missing from T, motivating regularization rather than unconditional removal of the
+complementary branch.
+A.2
+Generalization Benefit of Adaptive Mixing
+We first characterize the moments of hard mixing and then identify conditions under which
+it improves prediction in an illustrative regression model.
+Moments of hard mixing. Let Ni and Nj be independent samples from the same source
+feature distribution, with mean µ and covariance Σ. Let λ ∼Beta(α, α), α > 0, be inde-
+pendent of the samples, and define
+e
+Ni = λNi + (1 −λ)Nj.
+(20)
+Write
+mα = E[λ] = 1
+2,
+qα = E
+
+λ2 + (1 −λ)2
+= α + 1
+2α + 1.
+(21)
+Then
+E[ e
+Ni] = µ,
+Cov( e
+Ni) = qαΣ.
+(22)
+To obtain Eq. equation 22, note that the conditional mean given λ is µ, while independence
+gives
+Cov( e
+Ni | λ) =
+
+λ2 + (1 −λ)2
+Σ.
+(23)
+The result follows from the law of total covariance. Since 1/2 < qα < 1, mixing contracts
+the across-sample covariance in this population model.
+This contraction alone does not establish improved prediction: useful signals can also be
+attenuated. The following model makes the resulting trade-off explicit.
+16
+
+
+An illustrative regression model. Consider a scalar action
+A = T + C,
+(24)
+where T is the contribution captured by the invariant representation and C is a comple-
+mentary predictive signal not captured by T. Assume the complementary feature is
+Nsrc = C + ϵsrc,
+Ntgt = C + ϵtgt.
+(25)
+The variables T, C, and the noise terms are mutually independent and centered, with
+Var(C) = v > 0,
+Var(ϵsrc) = σ2
+src,
+Var(ϵtgt) = σ2
+tgt.
+(26)
+The distributions of T and C remain unchanged between source and target environments.
+We restrict attention to predictors
+fw(T, N) = T + wN,
+(27)
+so that invariant-only prediction corresponds to w = 0. ERM minimizes population squared
+error using Nsrc. AMI instead minimizes squared error using e
+Ni from Eq. equation 20, while
+retaining the original target Ai. The partner feature is sampled independently, and unmixed
+features are used at evaluation.
+Define
+Vsrc = v + σ2
+src,
+Vtgt = v + σ2
+tgt,
+rα = mα
+qα
+= 2α + 1
+2α + 2.
+(28)
+Theorem A.2 (Conditional OOD benefit in the regression model).
+Under the
+assumptions above, the population-optimal coefficients are
+wERM =
+v
+Vsrc
+,
+wAMI = rαwERM.
+(29)
+If
+2Vsrc
+1 + rα
+< Vtgt < 2Vsrc
+rα
+,
+(30)
+then AMI has strictly lower target squared error than both ERM and invariant-only predic-
+tion.
+Proof. For the source distribution, E[NsrcC] = v and E[N 2
+src] = Vsrc. Thus,
+wERM = E[NsrcC]
+E[N 2src] =
+v
+Vsrc
+.
+(31)
+For mixed features, independence of the partner sample gives
+E[ e
+NiCi] = mαv,
+E[ e
+N 2
+i ] = qαVsrc.
+(32)
+This proves Eq. equation 29.
+At evaluation, the target risk is
+Rtgt(w) = E
+
+(C −wNtgt)2
+= v −2vw + Vtgtw2.
+(33)
+Let w0 = wERM and r = rα. The risk differences satisfy
+Rtgt(rw0) −Rtgt(w0) = (1 −r)w0 [2v −(1 + r)w0Vtgt] ,
+(34)
+Rtgt(rw0) −Rtgt(0) = rw0 [rw0Vtgt −2v] .
+(35)
+Since 0 < r < 1 and w0 = v/Vsrc, both differences are negative under Eq. equation 30.
+□
+Interpretation and scope. In this model, AMI shrinks reliance on the complementary
+feature without removing it.
+When target noise increases within the stated range, this
+balances the cost of using a noisy signal against the cost of discarding a useful signal. The
+result establishes a setting in which regularized complementary information is beneficial,
+rather than a universal ranking of AMI, ERM, and invariant-only prediction.
+The model assumes independent pairing, population optimization, a linear predictor, and
+a particular noise-variance shift. It does not establish that real VLA features satisfy these
+assumptions, and the benefit for the proposed policies is evaluated empirically.
+17
+
+
+A.3
+Special Cases of AMI
+The two mixing strategies operate on different quantities. Hard mixing interpolates complete
+embeddings, whereas soft mixing interpolates their feature statistics.
+Hard mixing. Equation equation 20 places the mixed representation on the line segment
+joining the two sampled embeddings. Under independent sampling, its covariance satisfies
+Eq. equation 22. This result concerns the source feature distribution; it does not imply
+averaging over unseen environments or preservation of every action-relevant feature. The
+OOD benefit in Theorem A.2 applies only under the additional regression assumptions stated
+there.
+Soft mixing via adaptive normalization. Following the feature-statistic formulation of
+adaptive normalization and statistic mixing (Huang & Belongie, 2017; Zhou et al., 2021),
+let
+µi = µ(Ni),
+σi = σ(Ni),
+Ri = Ni −µi
+σi + ε ,
+(36)
+where the statistics are computed along the specified aggregation dimension and arithmetic
+is elementwise. Soft mixing forms
+µmix = λµi + (1 −λ)µj,
+(37)
+σmix = λσi + (1 −λ)σj,
+(38)
+and reconstructs
+e
+N soft
+i
+= σmix ⊙Ri + µmix.
+(39)
+Define the statistic vector
+si =
+
+µi
+σi
+
+.
+(40)
+Its mixed counterpart is smix = λsi + (1 −λ)sj. If si and sj are independent samples with
+mean µs and covariance Σs, the same moment calculation gives
+E[smix] = µs,
+Cov(smix) = qαΣs.
+(41)
+Thus, soft mixing contracts the across-sample covariance of the statistic vectors in this
+idealized setting, while retaining the normalized source pattern Ri in the reconstruction.
+This does not imply that Cov( e
+N soft
+i
+) equals qα Cov(Ni), because Ri can be statistically
+dependent on the source statistics. Preservation of the normalized pattern also does not, by
+itself, guarantee preservation of task semantics.
+Soft and hard mixing therefore provide distinct forms of feature regularization. Their effec-
+tiveness for action prediction depends on the structure of the learned representations and is
+examined in our experiments.
+B
+Implementation Details
+Backbones
+and
+fine-tuning.
+We
+implement
+MixVLA
+on
+OpenVLA-OFT
+for
+LIBERO/LIBERO-Plus and on π0.5 for RoboTwin and real-world manipulation.
+For
+OpenVLA-OFT, we adapt the pretrained 7B model using LoRA with rank 32, scaling pa-
+rameter 16, and zero dropout, targeting linear layers. The base weights remain frozen, while
+the adapters, continuous action head, and proprioceptive projector are trainable. The model
+receives an external camera image, a wrist camera image, the language instruction, and pro-
+prioceptive state. It predicts chunks of eight 7-dimensional actions using an L1 regression
+objective. Training uses image augmentation and quantile-based action and proprioception
+normalization.
+For π0.5, we fully fine-tune the policy, including the visual encoder, with the flow-matching
+objective. Inputs comprise three RGB views resized to 224×224, the instruction, and robot
+state; The action horizon is 50. Normalization statistics are computed from the correspond-
+ing training split. We use bfloat16 backbone computation, gradient checkpointing, and a
+18
+
+
+training seed of 42. The OpenVLA experiments use eight NVIDIA A100 GPUs with 80
+GB memory each. Training is distributed across eight GPUs. The global batch size is 64
+for π0.5; the OpenVLA configuration uses 64 for BC/IB and 48 for AMI, without gradient
+accumulation.
+Optimization and schedules.
+Normal Net and Invariant Net are independently ini-
+tialized from the pretrained backbone. AMI initializes its main branch from the selected
+Invariant Net checkpoint and uses a newly initialized fusion module and optimizer. Open-
+VLA uses AdamW with (β1, β2) = (0.9, 0.999), ϵ = 10−8, and weight decay 10−2. Its Normal
+Net and Invariant Net schedules have no warmup and reduce the learning rate by a factor
+of ten at step 100k. The AMI learning rate remains constant during its short training stage.
+For π0.5, AdamW uses (β1, β2) = (0.9, 0.95), ϵ = 10−8, weight decay 10−10, and gradient-
+norm clipping at 1.0. Linear warmup is followed by cosine decay to one tenth of the peak
+learning rate at the end of each run.
+Information bottleneck.
+The OpenVLA implementation uses the Donsker–Varadhan
+MINE estimator, with an exponential-moving-average coefficient of 0.01 and three ReLU
+hidden layers of width 400. The critic receives pooled visual-prefix hidden states and flat-
+tened action-token hidden states. The policy IB coefficient is 10−3. The critic is optimized
+separately with Adam at a constant learning rate of 5 × 10−6, with its loss multiplied by
+0.1.
+The π0.5 implementation uses a Jensen–Shannon critic with two SiLU hidden layers of width
+512. Its inputs are the masked mean of context tokens and the mean of action-expert tokens.
+Marginal pairs are formed within each GPU’s minibatch. The critic maximizes the bound,
+while gradient reversal encourages the policy to minimize it. The selected configuration uses
+an IB coefficient of 0.01 and a constant critic learning rate of 10−4. The critic uses AdamW
+with the same coefficients and clipping threshold as the policy, with one critic update per
+policy update.
+Success Rate vs Mix Probability
+Probability
+SR
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+0.790
+0.795
+0.800
+0.805
+0.810
+0.815
+0.820
+0.825
+hard
+soft
+Figure 6: Ablation of mixing probability.
+C
+More Experiments
+Table 6: Comparison of hard mixing and soft mixing on LIBERO-Plus. We com-
+pare two variants of Adaptive Mixing of Non-Invariant Information (AMI): hard mixing,
+which performs direct interpolation between non-invariant embeddings, and soft mixing,
+which mixes feature statistics through adaptive normalization. Results are reported as task
+success rates (%) under different perturbation types.
+Hard
+Soft
+Camera
+Robot
+Language
+Light
+Background
+Noise
+Layout
+Total
+✓
+49.0
+61.7
+82.3
+95.5
+93.9
+82.1
+76.8
+75.7
+✓
+49.6
+63.3
+82.6
+96.1
+93.2
+82.3
+76.1
+76.0
+Ablation of mixing strategies.
+We further investigate the impact of different mixing
+strategies used in AMI. Specifically, we compare two variants: hard mixing, which directly
+19
+
+
+Figure 7: Visualization of manipulation trajectories on the LIBERO benchmark.
+Each row presents a sequence of key frames from a representative task execution, illustrating
+the manipulation progress from the initial state to task completion. Different rows corre-
+spond to different manipulation tasks and scene configurations, demonstrating the policy
+behavior under the standard in-domain setting.
+interpolates non-invariant embeddings, and soft mixing, which performs statistic-level mix-
+ing through adaptive normalization.
+As shown in Table 6, both strategies improve robustness under distribution shifts on the
+LIBERO-Plus benchmark. Hard mixing introduces stronger cross-sample coupling by explic-
+itly interpolating latent representations, which helps suppress environment-specific feature
+modes. In contrast, soft mixing stabilizes feature distributions by aligning feature statistics
+across samples, leading to slightly better overall performance.
+Overall, the results indicate that both strategies are effective for regularizing non-invariant
+representations, while soft mixing achieves the best average performance across perturbation
+types.
+20
+
+
+Effect of mixing strategies and probability.
+We compare hard and soft mixing on a
+LIBERO-Plus subset containing 2,318 evaluation episodes, varying the mixing probability
+from 0.1 to 0.9. As shown in Figure 6, both strategies exhibit a non-monotonic response
+to the mixing probability, with pronounced performance drops at intermediate values of 0.4
+for soft mixing and 0.5 for hard mixing. Soft mixing exhibits smaller fluctuations in the
+higher-probability range of 0.6–0.9, whereas hard mixing shows a more substantial decline.
+Both strategies achieve their highest observed success rates at a mixing probability of 0.1.
+These results indicate that increasing the mixing probability does not necessarily improve
+robustness. Instead, the effectiveness of non-invariant feature regularization depends on the
+interaction between the mixing strategy and its probability, highlighting the importance of
+considering these choices jointly.
+Visualization on LIBERO benchmark.
+As shown in 7, we visualize representative
+manipulation trajectories of the model on the LIBERO benchmark, illustrating the policy
+behavior during task execution under the standard in-domain setting.
+Visualization on LIBERO-plus benchmark.
+As shown in 9, we visualize representa-
+tive manipulation trajectories of the model on the LIBERO-Plus benchmark, illustrating
+the policy behavior under diverse observation perturbations.
+Visualization on RoboTwin 2.0 benchmark.
+As shown in Figure 10, we visualize
+representative observations from RoboTwin 2.0 under the randomized evaluation setting
+used in our clean-to-randomized (C2R) experiments.
+Left
+Wrist
+Right
+Figure 8: Three-camera observations for real-world manipulation. Representative
+views from one wrist-mounted camera and two side-view cameras used in our Franka exper-
+iments.
+Real-world demo
+Warning. The middle segment of the supplementary video contains
+high-frequency flashing lights that may cause discomfort. Viewers with epilepsy or sensitiv-
+ity to flashing lights should avoid this segment.
+For the real-world experiments, we deploy π0.5 and MixVLA on a Franka robot using three
+cameras: one wrist-mounted camera and two side-view cameras. Figure 8 shows represen-
+tative observations from the three camera views. The task requires the robot to pick up
+the sixth slice of bread and place it on the nearest or farthest plate, as specified by the
+language instruction. We consider two lighting perturbations shown in the supplementary
+video: low-frequency white flashing and high-frequency multicolored flashing. Each policy is
+evaluated over five trials per condition, for a total of ten trials. Under low-frequency white
+flashing, MixVLA succeeds in all five trials, whereas π0.5 succeeds in two. High-frequency
+multicolored flashing is substantially more challenging for both policies: MixVLA succeeds
+in only one of five trials, while π0.5 fails in all five. Aggregated across the two conditions,
+MixVLA achieves a success rate of 60%, compared with 20% for π0.5.
+The final segment of the video additionally presents our earlier implementation of the frame-
+work on Diffusion Policy (DP), referred to as MixDP, deployed on an xArm 6 robot. These
+executions provide a qualitative illustration of the framework’s applicability to Diffusion
+Policy. Our investigation was initially motivated by early DP deployments, during which
+21
+
+
+Figure 9: Visualization of manipulation trajectories under LIBERO-Plus pertur-
+bations. Each row presents a sequence of key frames from a representative task execution
+in the LIBERO-Plus benchmark. The scenes contain various observation perturbations such
+as changes in background textures, lighting conditions, and visual noise. The visualization
+illustrates how the policy performs manipulation under out-of-distribution environments
+from the initial state to task completion.
+we observed frequent execution failures when ambient lighting differed from that during
+demonstration collection. These observations motivated us to investigate training strategies
+for improving policy robustness to visual distribution shifts.
+D
+Discussion
+Limitations under Large Geometric Shifts.
+Limitations arise under perturbations
+that induce large geometric changes in observations, such as significant camera viewpoint
+shifts. As shown in our experiments, the improvement under the Camera perturbation is less
+pronounced compared with other appearance-related perturbations. This may be because
+viewpoint changes introduce discontinuous variations in the observation space, where latent-
+22
+
+
+Figure 10: Visualization of RoboTwin.
+space vicinal smoothing becomes less effective. Addressing such geometric shifts may require
+incorporating explicit spatial reasoning or multi-view representations.
+Future Research Directions.
+Several directions may further extend the proposed frame-
+work. First, more advanced mixing strategies could be explored to better capture the struc-
+ture of non-invariant representations.
+For instance, structure-aware or attention-guided
+mixing may provide finer control over how non-invariant information is regularized.
+Second, integrating AMI with test-time adaptation or online representation updates may
+further improve robustness in highly dynamic environments.
+Third, Self-MixVLA motivates further exploration of the model’s own optimization tra-
+jectory for improving generalization. Future work could investigate how to identify and
+reuse parameter-update directions across training checkpoints to construct more effective
+complementary representations. Adaptive checkpoint selection and trajectory-based weight
+extrapolation may help narrow the robustness gap to full MixVLA while avoiding a separate
+Normal Net training run.
+23

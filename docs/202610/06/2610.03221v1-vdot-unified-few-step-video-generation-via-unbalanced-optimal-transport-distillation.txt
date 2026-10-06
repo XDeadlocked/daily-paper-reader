@@ -1,0 +1,3353 @@
+PREPRINT
+1
+VDOT++: Unified Few-Step Video Generation
+via Unbalanced Optimal Transport Distillation
+Yutong Wang, Xingtong Ge, Enhuai Liu, Yunke Wang, Tianfan Xue, Yu Qiao, Senior Member, IEEE,
+Yaohui Wang, Xinyuan Chen, and Chang Xu, Senior Member, IEEE
+Abstract—Video creation spans text-to-video (T2V), image-to-video (I2V), and condition-based generation, yet modern video diffusion
+models remain costly because they repeatedly evaluate large backbones during sampling. Distribution matching distillation (DMD)
+reduces this cost, but its reverse Kullback–Leibler (KL) objective can provide unstable or incomplete guidance when the student and
+teacher distributions have limited overlap. A preliminary version of this work, VDOT (CVPR 2026), addressed this issue by adding
+optimal transport distillation (OTD), whose explicit coupling supplies geometric directions for condition-based generation. Balanced
+OTD, however, performs full-mass matching between the spatial tokens of each corresponding student–teacher frame pair. This
+assumption weakens for T2V and I2V, where one condition admits many valid outputs and spatial content need not align across
+different realizations. We present VDOT++, a unified distillation framework that applies the same training recipe separately to
+task-specific generators for the three task families. It makes OTD robust to output diversity through an asymmetric unbalanced
+formulation that allows unreliable student tokens to carry less mass while maintaining coverage of the teacher tokens. An ℓ1 ground
+cost further replaces mean-based aggregation with a more mode-preserving, coordinate-wise weighted median that limits the influence
+of distant transport targets. The two changes respectively determine whom to match and how the selected targets should be
+aggregated. We additionally combine distribution matching and adversarial refinement through sequential backward passes, and
+exploit the decoupled score networks for cross-scale distillation, where larger auxiliary score networks improve a compact generator. A
+scalable multi-task data pipeline and the UVCBench benchmark support evaluation across heterogeneous conditions. Experiments on
+UVCBench, VBench, VBench-I2V, and the VACE benchmark show that the resulting four-step generators are competitive with
+many-step teachers and strong few-step baselines across all three task families.
+Index Terms—Video generation, diffusion distillation, optimal transport, distribution matching, few-step sampling.
+✦
+1
+INTRODUCTION
+V
+IDEO creation spans generation and editing from text,
+reference images, source videos, and spatial masks.
+Unified models such as VACE [1] and UNIC [2] support
+these conditions within a shared architecture, but their large
+diffusion backbones still require many denoising evalu-
+ations. Few-step distillation can reduce this cost, yet its
+supervision must remain reliable across tasks with very
+different degrees of output ambiguity.
+Distribution matching distillation (DMD) [3], [4] uses an
+approximate reverse-KL gradient to align a few-step student
+with a many-step teacher. When their distributions overlap
+poorly, this signal may miss teacher modes or become
+unstable on unsupported student samples. Our conference
+method, VDOT [5], supplements DMD with optimal trans-
+port distillation (OTD), whose explicit coupling supplies
+geometric directions for condition-based generation.
+Balanced OTD, however, solves a full-mass spatial-token
+matching problem independently within each correspond-
+ing student–teacher frame pair. Dense conditions such as
+depth or pose make these within-frame correspondences
+reliable, whereas T2V and single-frame I2V admit many
+•
+Yutong Wang, Enhuai Liu, Yunke Wang and Chang Xu are with the
+University of Sydney.
+•
+Tianfan Xue, Yu Qiao, Yaohui Wang and Xinyuan Chen are with
+Shanghai AI Laboratory.
+•
+Xingtong Ge is with the Hong Kong University of Science and Technology.
+Tianfan Xue is with the Chinese University of Hong Kong.
+•
+Corresponding authors: Xinyuan Chen, Chang Xu.
+valid appearances and motions. In the latter regime, hard
+marginals force every student token to carry prescribed
+mass even when no reliable teacher match exists (whom to
+match), while the squared-ℓ2 cost induces mean-based ag-
+gregation over potentially incompatible teacher tokens (how
+to aggregate). The challenge is to retain geometric guidance
+without treating diversity among valid outputs as error.
+VDOT++ addresses the two failure modes with asym-
+metric unbalanced OT and an ℓ1 ground cost. A relaxed
+student marginal downweights unreliable student tokens,
+while a strongly constrained teacher marginal maintains
+coverage of the teacher tokens. The ℓ1 cost replaces mean-
+based aggregation with a coordinate-wise weighted me-
+dian that is less sensitive to distant targets. We further
+combine distribution matching and adversarial refinement
+through memory-efficient sequential backward passes, and
+use larger auxiliary score networks during distillation to
+strengthen a compact generator. Our evaluation covers sin-
+gle and composite condition-based tasks from UVCBench,
+as well as established benchmarks for T2V and I2V.
+Experiments reveal a consistent conditioning-dependent
+pattern: the relaxed objective behaves similarly to balanced
+OTD when dense inputs establish reliable correspondences,
+but better preserves valid motion and detail as the ad-
+missible output space widens. Controlled ablations isolate
+matching, cost, relaxation direction, adversarial refinement,
+and score-network scale.
+A
+preliminary
+version
+of
+this
+work
+appeared
+at
+CVPR 2026 [5]. Compared with the conference version, this
+arXiv:2610.03221v1  [cs.CV]  2 Oct 2026
+
+
+PREPRINT
+2
+article makes three main extensions:
+•
+We extend VDOT from condition-based video cre-
+ation to T2V and I2V, establishing a unified few-step
+distillation framework across all three task families.
+When the student and teacher distributions over-
+lap poorly, OTD complements DMD’s potentially
+unreliable score-difference gradients by constructing
+explicit token-level transport plans between their
+outputs.
+•
+We identify forced correspondence and mean-based
+aggregation as two distinct failures of balanced,
+squared-cost OTD under output diversity, and re-
+place it with asymmetric unbalanced transport and
+an ℓ1 ground cost. The former addresses whom
+to match by relaxing unreliable student-token mass
+while preserving teacher-token coverage; the latter
+addresses how to aggregate by limiting averaging
+across incompatible targets. Controlled ablations val-
+idate their complementary roles across conditioning
+strengths.
+•
+We introduce a scalable training design that com-
+bines distribution matching and adversarial refine-
+ment through sequential backward passes, accumu-
+lating a joint update within the memory budget of
+large video backbones. We further exploit the decou-
+pling between the generator and score networks for
+cross-scale distillation, using larger auxiliary score
+networks to provide stronger supervision and im-
+prove the generation quality of a compact generator.
+2
+RELATED WORK
+2.1
+Unified Video Generation and Editing
+Unified generative models encode heterogeneous controls
+through a shared conditioning interface. Image methods
+attach reusable control branches or unify generation and
+editing within one architecture
+[6]–[11]. Recent video
+systems extend this idea across multiple creation tasks.
+VACE [1] represents text, images, videos, and masks as
+aligned context frames and masks, whereas UNIC [2] maps
+heterogeneous inputs into shared token categories. Because
+these methods build on large diffusion backbones [12], [13],
+they retain the cost of iterative sampling. Our focus is
+complementary: rather than designing a unified backbone,
+we develop a unified distillation framework that accelerates
+pretrained models for VACE-style controllable creation, T2V,
+and I2V.
+2.2
+Few-Step Diffusion Distillation
+Video diffusion acceleration has been explored through
+model pruning [14]–[16], quantization [17]–[19], sparse at-
+tention [20]–[23], feature caching [24]–[26], and efficient
+sampling [3], [4], [27]. Among sampling acceleration ap-
+proaches, few-step distillation trains a student to approxi-
+mate many-step generation with a small number of denois-
+ing steps. Few-step diffusion distillation spans three rele-
+vant families. Consistency distillation compresses the teacher
+trajectory or enforces consistent predictions along it [28],
+[29]. rCM further scales continuous-time consistency train-
+ing to large image and video models by introducing score
+regularization [30]. Distribution matching instead aligns the
+student and teacher output distributions. DMD and DMD2
+estimate a reverse-KL gradient using teacher and fake score
+networks [3], [4]; CausVid, Self-Forcing, and Salt adapt
+distribution-level training to autoregressive video genera-
+tion [31]–[33], while TDM matches few-step transition tra-
+jectories [34]. Adversarial distillation uses discriminators and
+real or teacher-synthesized data to restore perceptual detail,
+as in ADD, APT, ADP, and AccVideo [35]–[38]. Among
+these objectives, DMD provides distribution-level supervi-
+sion through score differences, but this signal can become
+unreliable when student samples lie far from the teacher dis-
+tribution. Our conference method, VDOT [5], complements
+DMD with a token-level OT coupling, providing geometric
+guidance even under poor distribution overlap. The present
+work further revisits its marginal constraints and ground
+cost for tasks with different degrees of output ambiguity.
+2.3
+Optimal Transport for Distribution Alignment
+Optimal transport (OT) compares distributions through
+both a ground cost and an explicit transport plan [39],
+with entropic regularization enabling efficient Sinkhorn op-
+timization [40]. Transport geometry has supported genera-
+tive modeling [41]–[44], assignment [45]–[47], and one-step
+image editing [48]. Balanced OT requires all mass to par-
+ticipate. Partial OT can leave costly mass unmatched [49],
+whereas unbalanced OT replaces hard marginal equalities
+with divergence penalties [50], [51]. Although UOT permits
+distinct penalties for the two marginals, generic distribution
+alignment does not determine which side should be relaxed
+more. Distillation supplies this directionality: the evolving
+student may contain unreliable tokens, whereas the fixed
+teacher remains the coverage target. This asymmetry moti-
+vates different marginal penalties, while an ℓ1 ground cost
+limits averaging over incompatible teacher tokens.
+3
+PRELIMINARIES
+We review distribution matching distillation (DMD) and the
+optimal transport (OT) formulations on which our method
+builds. Throughout, c denotes the task-specific condition:
+text for T2V, text and an initial image for I2V, or, following
+VACE [1], text, context frames, and aligned masks for con-
+trollable creation. These tasks range from text-only genera-
+tion with broad output ambiguity to densely conditioned
+generation with reliable spatial correspondence between
+paired frames.
+3.1
+Distribution Matching Distillation
+DMD [3], [4] distills a pretrained diffusion model into a
+few-step generator Gθ. A frozen teacher score network Fψ
+represents the target distribution preal, while a trainable fake
+score network Fϕ tracks the evolving student distribution
+pfake. DMD minimizes their reverse Kullback–Leibler (KL)
+divergence:
+DKL(pfake ∥preal) =
+Z
+pfake(x) log pfake(x)
+preal(x) dx.
+(1)
+We suppress the shared condition c in the densities for
+clarity. Let ˆx0 = Gθ(z, c) be a generated video latent and
+
+
+PREPRINT
+3
+Fig. 1: Reverse-KL failure modes and the role of OT. When
+the student and teacher distributions are initially separated,
+reverse KL can neglect uncovered teacher modes or produce
+unstable gradients on unsupported student samples. An OT
+coupling supplies explicit transport directions that guide
+the student toward the teacher support. Adapted from the
+conference version [5].
+xt = αt ˆx0+σtξ, with ξ ∼N(0, I), its noised version at dif-
+fusion time t. Denote the corresponding noised distributions
+by pfake,t and preal,t, with scores sy(xt, t) = ∇xt log py,t(xt)
+for y ∈{real, fake}. DMD approximates the KL gradient
+using the weighted score difference
+∇KL(xt, t) = wtαt
+ sfake(xt, t) −sreal(xt, t)
+,
+(2)
+where wt is a time-dependent scalar that normalizes the gra-
+dient magnitude across noise levels. This pseudo-gradient is
+injected into the generator through the regression loss
+LDMD(θ) = Ez,c,t,ξ
+hˆx0 −sg
+ ˆx0 −∇KL(xt, t)
+2
+2
+i
+,
+(3)
+where sg(·) denotes stop-gradient.
+Reverse KL is mode-seeking, which is especially prob-
+lematic early in few-step distillation when the student
+and teacher distributions have little overlap [5], [37]. If
+pfake(x) →0 while preal(x) > 0, the local contribution
+pfake log(pfake/preal) tends to zero. Teacher-supported re-
+gions that the student has not yet reached therefore ex-
+ert vanishing pressure, yielding the zero-forcing behavior
+illustrated in Fig. 1. In the opposite case, pfake(x) > 0
+while preal(x) →0, the local contribution diverges and can
+produce excessively large, unstable gradients. Thus, reverse
+KL alone provides weak coverage of missing teacher modes
+while penalizing unsupported student samples extremely
+sharply. This motivates a geometric constraint that explicitly
+couples the two distributions.
+3.2
+Optimal Transport Discrepancies
+Given sample matrices A ∈RI×D and B ∈RJ×D repre-
+senting two empirical distributions, their discrete OT dis-
+crepancy [39] is
+DOT(A, B) =
+min
+T ∈Π(u,µ)⟨C, T ⟩,
+(4)
+where Cij = d(ai, bj) is the ground cost and Π(u, µ) =
+{T ≥0 | T 1J = u, T⊤1I = µ} is the set of plans with
+prescribed marginals, typically chosen to be uniform. The
+optimal plan T ∗specifies both which samples should be
+coupled and how much mass each pair should exchange.
+The conventional squared-ℓ2 cost is d(a, b) = 1
+2∥a −b∥2
+2.
+For efficient, differentiable optimization, we use the en-
+tropic OT (EOT) discrepancy. Define the negative-entropy
+TABLE 1: Core notation. The complete list is in Appendix A.
+Symbol
+Meaning
+Gθ; Fψ, Fϕ
+generator; teacher and fake score networks
+pfake, preal
+student and teacher video distributions
+At,q, Bt,q
+spatial-token sets in temporal frame q at dif-
+fusion time t
+u, µ
+prescribed student and teacher marginals
+C
+pairwise ground-cost matrix
+Tt,q, T ∗
+t,q
+within-frame transport plan and its optimum
+rt,q, ct,q
+row and column projections of T ∗
+t,q
+ϵ; τs, τt
+entropy; marginal-penalty strengths
+ρs, ρt; κ
+damping factors; total plan mass
+functional E(T ) = P
+i,j Tij(log Tij −1), with 0 log 0 = 0.
+The problem can be solved in O(IJ) per iteration with
+the Sinkhorn algorithm [40]. The regularization strength ϵ
+controls the diffuseness of the resulting plan.
+Dϵ
+EOT(A, B) =
+min
+T ∈Π(u,µ)⟨C, T ⟩+ ϵ E(T ),
+(5)
+Both Eqs. (4) and (5) are balanced: their hard marginal
+constraints require all mass on both sides to participate.
+Partial OT [49] instead transports only a prescribed fraction
+κPOT ∈(0, 1] of the mass and leaves costly correspon-
+dences unmatched. Unbalanced OT [50] achieves a related
+relaxation by replacing the marginal equalities with diver-
+gence penalties, so that mass may deviate from the pre-
+scribed marginals where matching is unreliable. Balanced
+OT is recovered when all mass participates in partial OT
+(κPOT = 1) or when the unbalanced marginal penalties
+become arbitrarily strong. Together, these formulations sep-
+arate the coupling constraints from the choice of ground
+cost. Section 4 specializes both components for OTD across
+different conditioning strengths.
+4
+METHODOLOGY
+4.1
+Overview
+VDOT++ distills a pretrained many-step video diffusion
+model into a few-step generator using a shared training
+objective across task-specific conditioning interfaces. We
+instantiate it with VACE-Wan2.1-14B [1] for condition-based
+generation and Wan2.1-14B [13] for T2V and I2V. As in
+DMD, a frozen teacher score network Fψ and a trainable
+fake-score network Fϕ guide the generator Gθ. The con-
+ference version introduced balanced OTD to supplement
+the reverse-KL signal with explicit geometric correspon-
+dences [5]. We extend that formulation in three respects:
+partial matching avoids forcing unreliable correspondences,
+asymmetric marginal penalties preserve the distinct roles of
+student and teacher, and an ℓ1 ground cost makes aggre-
+gation robust to diverse targets. A lightweight adversarial
+head further corrects local appearance errors. These losses
+are accumulated through sequential backward passes and
+applied in a single generator update. Figure 3 summarizes
+the framework; the remainder of this section develops each
+component and the resulting training procedure.
+4.2
+Notation and Problem Setup
+Networks. Training uses the few-step generator Gθ, the
+frozen teacher score network Fψ, and the trainable fake
+
+
+PREPRINT
+4
+Fig. 2: Symmetric versus asymmetric unbalanced OT. Under balanced OT, the hard student marginal gives ri/ui = 1
+for every token, producing a uniformly yellow map that cannot distinguish reliable from unreliable student tokens. With
+the frames, latent features, and ground costs fixed, symmetric UOT relaxes both marginals using (τs, τt) = (0.1, 0.1)
+(left), whereas our asymmetric variant uses (τs, τt) = (0.1, 10) (right) to relax the student side while preserving teacher
+coverage. Colored anchors and lines connect selected teacher tokens to their mass-weighted student matches under T ∗. The
+heat maps show relative student-token mass ri/ui, where ri = P
+j T ∗
+ij: red, yellow, and green indicate suppressed, near-
+uniform, and emphasized mass, and red contours mark ri/ui < 0.5. Asymmetric relaxation preserves teacher coverage
+while selectively downweighting unreliable student regions.
+score network Fϕ, which estimate sreal and sfake, respec-
+tively. A lightweight discriminator head Dω is embedded in
+Fϕ (Sec. 4.7).
+Generation and noising. Given Gaussian noise z and condi-
+tion c, the generator produces ˆx0 = Gθ(z, c) in four steps.
+At a sampled diffusion time t, we re-noise the output as
+xt = αt ˆx0 + σtξ with ξ ∼N(0, I) under the base-model
+noise schedule, and both score networks evaluate xt.
+Frame-wise spatial-token empirical distributions. The
+score predictions retain their temporal and spatial axes.
+For each frame q at diffusion time t, we spatially pool
+the feature maps and flatten their spatial axes into student
+tokens At,q = [at,q,1; . . . ; at,q,I] ∈RI×D and teacher to-
+kens Bt,q = [bt,q,1; . . . ; bt,q,J] ∈RJ×D. With marginals
+u ∈∆I−1 and µ ∈∆J−1 (uniform by default), a ground
+metric d defines Ct,q,ij = d(at,q,i, bt,q,j) and hence the
+within-frame cost matrix Ct,q. Its transport plan is Tt,q, with
+optimum T ∗
+t,q. We solve transport independently for each
+frame, and omit t, q when unambiguous.
+4.3
+Optimal Transport Distillation
+We use the gradient of the EOT objective in Eq. (5) as
+a geometric distillation signal between pfake and preal. A
+classical envelope result makes this signal practical: the
+derivative of the optimal transport value with respect to
+each pairwise cost is simply the corresponding entry of the
+optimal plan [39].
+Proposition 1 (Envelope property of entropic OT). Fix ϵ > 0
+and let W(C) denote the optimal value of the entropic problem (5)
+(or of its unbalanced generalization (13) with τs, τt > 0) as a
+function of the cost matrix. Then W is concave and differentiable,
+and ∂W/∂Cij = T ∗
+ij, where T ∗is the unique minimizer of the
+corresponding problem.
+Applying the chain rule through Cij = d(ai, bj), the gradi-
+ent of W with respect to a student spatial token ai is
+∇aiW =
+J
+X
+j=1
+T ∗
+ij ∇aid(ai, bj)
+(6)
+With the squared-ℓ2 ground cost d(a, b) = 1
+2∥a −b∥2
+2, this
+becomes:
+∇aiW =
+X
+j
+T ∗
+ij (ai −bj).
+(7)
+Each teacher token bj pulls the student token ai in a
+direction and with a strength determined by T ∗
+ij. By the
+envelope property, the implicit dependence of T ∗on ai
+contributes no additional first-order term, so the Sinkhorn
+iterations need not be differentiated through.
+Backpropagation to the generator. Using the OT gradient
+(7) as a pseudo-gradient signal analogous to the KL score
+difference in DMD, we define ∇OT(xt, t) as the result of
+backpropagating Eq. (7) from ai through the fake-score
+network to xt. The OTD loss then mirrors the DMD loss (3):
+LOTD(θ) = Ez,c,t,ξ
+hˆx0 −sg
+ ˆx0 −αOT ∇OT(xt, t)
+2
+2
+i
+,
+(8)
+where αOT aligns the magnitudes of the OT and DMD
+signals. Unlike the unconstrained score difference, the OT
+gradient couples student and teacher spatial tokens through
+an explicit within-frame plan. The plans are computed inde-
+pendently for all paired temporal frames and their gradients
+are averaged over the batch and frame axes. OTD therefore
+supplies geometric directions that reverse KL lacks when
+the two distributions have limited overlap (Fig. 1). This
+objective, used with uniform marginals and the squared
+cost, is the formulation of our conference version [5].
+
+
+PREPRINT
+5
+Fig. 3: Overview of VDOT++. Top: Given the conditioning signal, the few-step generator is jointly optimized by the DMD
+score-difference loss, frame-wise optimal-transport matching, and an adversarial loss through two sequential backward
+passes followed by one optimizer step. Bottom: The OT diagrams show one paired temporal frame. For clarity, the diffusion-
+time and frame indices (t, q) are omitted. DMD provides a score-difference signal at corresponding spatiotemporal
+coordinates; balanced OTD explicitly couples spatial tokens within each paired frame but enforces rigid full-mass matching;
+and symmetric UOT relaxes both marginals. Our asymmetric UOT instead uses a loose student-side penalty and a tight
+teacher-side penalty, selectively suppressing unreliable student-token mass while retaining coverage of teacher tokens.
+4.4
+Why Balanced OTD Weakens under Output Diver-
+sity
+Balanced OTD is reliable when dense conditions align spa-
+tial content within corresponding frames, but restrictive for
+T2V and single-frame I2V, where two valid videos need
+not share the same spatial layout. Its balanced, squared-
+ℓ2 formulation can therefore match unrelated tokens and
+aggregate diverse targets poorly.
+Pathology A (whom to match): forced correspondence. The
+constraints T 1 = u and T⊤1 = µ require every spatial
+token to send and receive its prescribed mass. When two
+valid videos differ in spatial content, unrelated token pairs
+still contribute displacement vectors to Eq. (7). Soft partial
+matching instead reduces the influence of costly token pairs
+and marginals.
+Pathology B (how to aggregate): mean-based averaging.
+The ground cost determines how each student token aggre-
+gates its matched teacher tokens.
+Proposition 2 (Squared cost pulls toward the weighted
+mean). For a fixed transport plan T ∗, consider any row with
+positive transported mass ri = P
+j T ∗
+ij > 0, the squared-ℓ2 OT
+gradient (7) is proportional to the difference between the student
+token and the transport-weighted mean of the teacher tokens:
+∇aiW =
+X
+j
+T ∗
+ij (ai −bj)
+= ri
+
+ai −
+P
+j T ∗
+ij bj
+P
+j T ∗
+ij
+|
+{z
+}
+¯bi (weighted mean)
+
+,
+(9)
+where ri is the total mass leaving ai. Consequently, ∇aiW = 0
+if and only if ai = ¯bi, the weighted mean of its transport targets
+under the plan at that point.
+For a fixed transport plan, visually distinct targets can
+yield a weighted mean between modes and blur localized
+high-frequency features. Marginal relaxation and a robust
+cost are therefore complementary: the former selects reli-
+able pairs, while the latter changes how their targets are
+aggregated.
+4.5
+Partial Matching: Addressing Whom to Match
+We use unbalanced OT to implement soft mass reweighting.
+Specifically, the hard equalities T 1 = u and T⊤1 = µ
+are replaced by soft KL penalties, where KL denotes the
+generalized KL divergence for nonnegative measures (Ap-
+pendix C). The symmetric relaxed problem is
+
+
+PREPRINT
+6
+Dϵ,τ
+UOT(A, B) = min
+T ≥0 ⟨C, T ⟩+ ϵE(T )
++ τ
+KL(T 1 ∥u) + KL(T⊤1 ∥µ)
+.
+(10)
+Role of the penalty weight τ. The parameter τ > 0 interpo-
+lates between two extremes. As τ →0, the marginal penalties
+vanish and the solution approaches the uncoupled Gibbs
+plan, so it no longer meaningfully preserves the source or
+target mass. At moderate τ, the plan can softly suppress
+costly rows, columns, and pairwise couplings rather than
+enforcing the prescribed marginals exactly. We monitor its
+total optimized mass by
+κ(τ) =
+X
+i,j
+T ∗
+ij > 0,
+(11)
+where the prescribed marginals have unit total mass.
+Proposition 3 (Recovery of balanced OT). Let Tτ denote the
+minimizer of (10) (or of the asymmetric variant (13) with τs, τt →
+∞jointly). Then, as τ →∞,
+Dϵ,τ
+UOT(A, B) ↗Dϵ
+EOT(A, B),
+Tτ →T ∗
+bal,
+(12)
+where T ∗
+bal is the unique optimizer of the balanced entropic
+problem (5).
+The proof is provided in Appendix B.
+Solving the relaxed problem. Eq. (10) is solved with the
+scaling algorithm of Chizat et al. [50], a Sinkhorn-type block-
+coordinate ascent on the concave dual whose only change
+relative to balanced Sinkhorn is that each log-domain dual
+update is damped by the factor ρ = τ/(τ + ϵ) ∈(0, 1);
+the limit ρ →1 recovers the balanced iteration. Under
+the standard assumptions of generalized Sinkhorn scaling,
+the iterates converge to the relaxed solution [50]; a few
+dozen iterations suffice for our problem sizes (Sec. 5.1).
+The updates for the asymmetric variant we actually use are
+given below.
+Partial matching relaxes only the frame-wise spatial-
+token OTD term; DMD and the adversarial loss still con-
+strain the complete generated distribution. Downweighted
+token mass therefore attenuates unreliable local correspon-
+dence rather than global supervision.
+Asymmetric relaxation for distillation. The symmetric for-
+mulation in Eq. (10) treats both marginals alike, although the
+student is optimized and the teacher is fixed. Unreliable stu-
+dent tokens should be allowed to carry reduced row mass,
+whereas difficult teacher modes should remain represented.
+We therefore assign separate marginal penalties:
+Dϵ,τs,τt
+AUOT(A, B) = min
+T ≥0 ⟨C, T ⟩+ ϵE(T )
++ τs KL(T 1 ∥u) + τt KL(T⊤1 ∥µ),
+(13)
+where larger τs and τt impose tighter student and teacher
+marginals, respectively. We use a small τs to attenuate
+unreliable student gradients and a large τt to prevent the
+plan from strongly downweighting difficult teacher content.
+Asymmetric Sinkhorn iterations. In the scaling algo-
+rithm [50], the asymmetry simply assigns separate damping
+factors to the row and column updates. Defining
+ρs =
+τs
+τs + ϵ,
+ρt =
+τt
+τt + ϵ,
+(14)
+the log-domain scaling updates read
+f (ℓ+1)
+i
+= ρs
+
+log ui −log
+X
+j exp
+  log Kij + g(ℓ)
+j
+
+,
+(15)
+g(ℓ+1)
+j
+= ρt
+
+log µj −log
+X
+i exp
+  log Kij + f (ℓ+1)
+i
+
+,
+(16)
+where Kij = exp(−Cij/ϵ) is the Gibbs kernel, f ∈RI
+and g ∈RJ are log-domain scaling variables (equivalently,
+ϵ-rescaled dual potentials), and the plan is recovered as
+T ∗
+ij = exp(fi + gj + log Kij). The updates follow a Gauss–
+Seidel order: the source scaling is updated from g(ℓ), after
+which the target scaling is updated using the newly com-
+puted f (ℓ+1). When ρs = ρt = 1, Eqs. (15)–(16) reduce
+to the standard balanced Sinkhorn iterations. When ρs is
+small (small τs), the row update applies only a fraction
+of the correction, allowing the source marginal to deviate
+from u; when ρt is close to 1 (large τt), the column update
+nearly enforces µ, keeping the target marginal almost exact.
+Setting τs = τt recovers the symmetric case, and sending
+both τs, τt →∞recovers balanced OT (Proposition 3). This
+update is the asymmetric counterpart of the generalized
+Sinkhorn scaling of [50].
+Gradient modulation. Equation (9) shows that the gradient
+scale is proportional to ri = P
+j T ∗
+ij. A student spatial token
+without a reliable match can have ri < ui, attenuating its
+OT gradient, while the tight teacher marginal maintains
+coverage of teacher tokens. The asymmetry thus encodes
+the roles of the evolving student and fixed teacher directly
+in the plan.
+4.6
+ℓ1 Ground Cost: Addressing How to Aggregate
+We replace the squared-ℓ2 ground cost with the ℓ1 (Man-
+hattan) cost d(a, b) = ∥a −b∥1. By the envelope property,
+the first-order derivative is evaluated at the optimal plan
+while holding that plan fixed. Because the ℓ1 norm is
+non-smooth, its sub-gradient is the component-wise sign
+function: ∂d/∂a = sign(a −b). Substituting into the OT
+gradient (6) gives
+∇aiW =
+J
+X
+j=1
+T ∗
+ij sign(ai −bj).
+(17)
+For a fixed transport plan, changing the ground cost
+changes the stationary target from the weighted mean to
+the weighted median:
+Proposition 4 (ℓ1 cost pulls toward the weighted me-
+dian). Fix a plan T , a row with positive transported mass
+ri = P
+j Tij > 0, and a coordinate d ∈{1, . . . , D}. The convex
+function φ(a) = P
+j Tij |a −b(d)
+j | is minimized exactly at the
+weighted medians of {b(d)
+j } with weights {Tij}; in particular,
+away from ties the gradient (17) vanishes if and only if the
+transported mass on the two sides of a is equal.
+Why the median is robust under diversity. For a fixed
+plan, the weighted mean is sensitive to the magnitude of
+distant targets, so a small amount of transported mass can
+exert a disproportionately large pull. The coordinate-wise
+weighted median instead depends on how mass is ordered
+around each coordinate and has bounded sensitivity to
+
+
+PREPRINT
+7
+target magnitude. When most transported mass forms a
+coherent cluster, the median remains governed by that clus-
+ter rather than being displaced toward an extreme target.
+The ℓ1 cost thus reduces averaging across incompatible
+content, complementing partial matching: the latter reduces
+the influence of unreliable pairs, while the former limits the
+influence of diverse targets that remain in the plan.
+Behavior across conditioning strengths and final objective.
+Strong conditions align the spatial-token sets of correspond-
+ing student and teacher frames, so the optimized marginals
+are expected to remain close to their prescribed values and
+weighted means and medians become similar. The relaxed
+objective therefore approaches the behavior of balanced
+OTD when correspondences are reliable, while remaining
+robust as the valid output space widens (Sec. 5.3). The final
+matching objective is
+Lmatch(θ) = wDMD LDMD(θ) + wOT LOTD(θ),
+(18)
+where LOTD uses the asymmetric partial plan of Eq. (13)
+with the ℓ1 cost; the weights are shared across all experi-
+ments (Sec. 5.1).
+4.7
+Adversarial Discriminator
+Relying on distribution matching alone, however, leaves
+score-approximation errors that surface as texture artifacts.
+We therefore introduce a relativistic adversarial objective.
+Discriminator architecture. We adopt the register-token dis-
+criminator design of APT [36], also used by Self-Forcing [32].
+A lightweight head Dω embeds register tokens in Fϕ, cross-
+attends to selected backbone features, and predicts one logit
+without a separate encoder. Architecture details are given in
+Appendix C.
+Relativistic GAN losses. Following the relativistic frame-
+work [52], the generator and discriminator losses are de-
+fined relative to the difference between real and fake logits:
+LGAN-G(θ) = Ez,t
+h
+sp
+ Dω(xreal
+t
+, t) −Dω(xfake
+t
+, t)
+i
+,
+(19)
+LGAN-D(ω) = Ez,t
+h
+sp
+ Dω(xfake
+t
+, t) −Dω(xreal
+t
+, t)
+i
+,
+(20)
+where sp(x) = log(1+ex), and xfake
+t
+and xreal
+t
+are generated
+and real videos noised to the same t. This formulation
+compares their logits within each batch. We additionally
+use the finite-difference R1 penalty of APT
+[36], [53]; its
+definition and parameters are provided in Appendix C.
+4.8
+Model Learning
+The full training procedure operates over three networks:
+the generator Gθ, the fake-score network Fϕ (with embed-
+ded discriminator head Dω), and the frozen teacher score
+Fψ. The critic is updated at every step and the generator
+every R critic steps, each with a joint objective that combines
+its distillation and adversarial terms. We use task-specific
+indicators aG(step), aD(step) ∈{0, 1} to encode the adver-
+sarial warm-up and update intervals for the generator and
+critic, respectively. The overall generator objective is:
+LG(θ; step) = wDMD LDMD(θ) + wOT LOTD(θ)
++ aG(step) wGAN-G LGAN-G(θ),
+(21)
+Algorithm 1: Training procedure of VDOT++.
+Input: Generator Gθ, teacher Fψ, fake-score Fϕ with
+discriminator head Dω, critic-update ratio R,
+task-specific adversarial schedules aG, aD
+1 for step = 1, 2, . . . do
+2
+Sample data (c, xreal) and noise z;
+// Generator update
+3
+if step mod R = 0 then
+4
+ˆx0 ←Gθ(z, c);
+5
+Compute T ∗
+t,q for every frame q via Sinkhorn
+(Eqs. 15–16);
+6
+Lmatch (Eq. 18).backward(); free graph;
+7
+if aG(step) = 1 then
+8
+Re-run ˆx0 ←Gθ(z, c) ;
+// same z
+9
+wGAN-G LGAN-G (Eq. 19).backward() ;
+// accum.
+10
+end
+11
+Update Gθ;
+12
+end
+// Critic update
+13
+ˆx0 ←Gθ(z, c) ;
+// no grad
+14
+Ldenoise (Eq. 22).backward(); free graph;
+15
+if aD(step) = 1 then
+16
+ wGAN-D LGAN-D (Eq. 20) +
+LR1 (Appendix C)
+.backward() ;
+// accum.
+17
+end
+18
+Update Fϕ, Dω;
+19 end
+where OTD uses Eq. (13) with the ℓ1 cost and the GAN
+weight is kept small so it acts as refinement. The critic adds
+Eq. (20) when aD(step) = 1 to the denoising loss:
+Ldenoise(ϕ) = Ez,c,t,ξ
+hˆx0 −Fϕ(xt, t)
+2
+2
+i
+,
+(22)
+The transport plan is computed only during training. The
+task-specific definitions of aG and aD, including their warm-
+up and update intervals, are provided in Appendix C.
+Algorithm 1 summarizes the resulting framework.
+Fused updates under memory constraints. At the 14B
+scale, we avoid retaining two live computation graphs by
+backpropagating the distillation loss, freeing its graph, and
+then re-running the same sample for the adversarial loss on
+scheduled adversarial updates. The two gradients accumu-
+late before one optimizer step, preserving the joint objective
+with the peak memory of a single backward pass. The critic
+is handled analogously. This gradient-fused schedule replaces
+the alternating updates of the conference version [5] and is
+ablated in Sec. 5.3.
+5
+EXPERIMENTS
+We evaluate VDOT++ on three task families: text-to-video
+(T2V), image-to-video (I2V), and condition-based (VACE-
+style) generation to answer three questions. (Q1) does the
+few-step VDOT++ match or surpass many-step baselines
+across all three families (Sec. 5.2)? (Q2) does each proposed
+component contribute, and does the gain arise precisely
+where the diagnosis of Sec. 4.4 predicts (Sec. 5.3)? (Q3) does
+
+
+PREPRINT
+8
+TABLE 2: Quantitative comparison on representative single-condition tasks of UVCBench. We bold the best results and
+underline the second-best results.
+Type
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+Pose
+ControlVideo [54]
+SD-1.5
+100
+63.32%
+96.82%
+10.00%
+69.88%
+98.50%
+94.45%
+72.16%
+Follow-Your-Pose [55]
+SD-1.4
+50
+50.36%
+88.61%
+40.00%
+68.73%
+91.78%
+77.81%
+69.55%
+VACE [1]
+LTX-0.9B
+80
+59.72%
+95.67%
+45.00%
+69.12%
+98.10%
+94.80%
+77.06%
+VACE [1]
+Wan-14B
+100
+64.99%
+95.48%
+55.00%
+69.15%
+98.64%
+94.07%
+79.56%
+VDOT (Ours)
+Wan-14B
+4
+63.50%
+95.88%
+60.00%
+70.65%
+98.69%
+94.53%
+80.54%
+VDOT++ (Ours)
+Wan-14B
+4
+64.97%
+95.94%
+60.00%
+70.14%
+98.55%
+93.73%
+80.55%
+Flow
+FLATTEN [56]
+SD-2.1
+100
+63.86%
+96.68%
+60.00%
+53.28%
+96.35%
+93.39%
+77.26%
+VACE [1]
+LTX-0.9B
+80
+55.47%
+95.97%
+65.00%
+57.51%
+97.62%
+92.90%
+77.41%
+VACE [1]
+Wan-14B
+100
+62.78%
+95.78%
+75.00%
+58.01%
+97.77%
+92.75%
+80.35%
+VDOT (Ours)
+Wan-14B
+4
+62.78%
+96.36%
+70.00%
+59.22%
+98.84%
+93.93%
+80.18%
+VDOT++ (Ours)
+Wan-14B
+4
+61.52%
+95.63%
+75.00%
+58.23%
+98.23%
+93.11%
+80.29%
+Grey
+VACE [1]
+LTX-0.9B
+80
+60.64%
+98.09%
+5.00%
+58.29%
+99.37%
+97.14%
+69.75%
+VACE [1]
+Wan-14B
+100
+63.76%
+98.11%
+15.00%
+60.90%
+99.30%
+97.56%
+72.44%
+VDOT (Ours)
+Wan-14B
+4
+62.13%
+98.11%
+15.00%
+60.60%
+99.34%
+97.62%
+72.13%
+VDOT++ (Ours)
+Wan-14B
+4
+63.84%
+98.36%
+15.00%
+60.25%
+99.33%
+97.65%
+72.41%
+Outpaint
+Follow-Your-Canvas [57]
+SD-2.1
+80
+51.98%
+97.13%
+25.00%
+66.95%
+98.92%
+95.55%
+72.59%
+VACE [1]
+LTX-0.9B
+80
+58.78%
+98.07%
+25.00%
+70.74%
+99.20%
+97.35%
+74.86%
+VACE [1]
+Wan-14B
+100
+62.66%
+98.13%
+25.00%
+70.56%
+99.18%
+97.41%
+75.49%
+VDOT (Ours)
+Wan-14B
+4
+63.18%
+98.22%
+30.00%
+71.38%
+99.16%
+97.34%
+76.54%
+VDOT++ (Ours)
+Wan-14B
+4
+60.95%
+97.99%
+40.00%
+71.33%
+99.15%
+96.83%
+77.71%
+R2V
+Keling1.6 [58]
+-
+-
+63.61%
+93.85%
+90.00%
+64.46%
+98.95%
+90.11%
+83.50%
+Vidu2.0 [59]
+-
+-
+60.79%
+93.22%
+85.00%
+54.26%
+97.54%
+87.42%
+79.71%
+VACE [1]
+LTX-0.9B
+80
+50.18%
+91.31%
+50.00%
+55.88%
+98.84%
+85.49%
+71.95%
+VACE [1]
+Wan-14B
+100
+67.39%
+95.39%
+80.00%
+62.82%
+97.96%
+91.70%
+82.54%
+VDOT (Ours)
+Wan-14B
+4
+69.70%
+94.34%
+70.00%
+65.93%
+98.15%
+89.88%
+81.32%
+VDOT++ (Ours)
+Wan-14B
+4
+69.33%
+97.45%
+70.00%
+67.04%
+98.73%
+95.08%
+82.94%
+the decoupled score-network design enable cross-scale dis-
+tillation (Sec. 5.4)?
+5.1
+Experimental Setup
+Training setup. We distill VACE-Wan2.1-14B [1], Wan2.1-
+T2V-14B, and Wan2.1-I2V-14B [13] into four-step generators
+with one recipe. By default, the generator and both score
+networks use the 14B architecture. We use the asymmet-
+ric ℓ1 objective and introduce adversarial training after a
+warm-up. Appendix C gives all optimization details. The
+condition-based experiments use the multi-task corpus from
+our conference version [5], described in Appendix D.
+Benchmarks and baselines. For T2V and I2V we report
+VBench [68] and VBench-I2V [69]; for condition-based tasks
+we use the VACE benchmark [1] and UVCBench, introduced
+in our conference version [5]. We report six VBench di-
+mensions and their normalized average. Table 2 presents
+representative single-condition tasks; the remaining results
+and protocols appear in Appendices D and E. Tables 2–
+4 include many-step teachers and public models, same-
+backbone few-step methods [4], [5], [30], [31], [38], task-
+specific methods [54]–[57], [70], and commercial systems
+[58], [59]. We implement DMD2 on Wan2.1-14B with the
+Self-Forcing codebase [32], as no official video implemen-
+tation is available.
+5.2
+Main Results
+With four denoising steps, VDOT++ remains competitive
+with its many-step teachers across all three task families.
+As conditioning weakens, its gains concentrate on motion
+and imaging quality while temporal and subject consistency
+remain stable. This task-dependent profile matches the mo-
+tivation for relaxing only unreliable correspondences.
+Unified evaluation on UVCBench. Table 2 shows that
+VDOT++ remains close to VDOT on the dense pose, flow,
+and greyscale conditions, but improves the normalized av-
+erage on outpainting and R2V. In the latter tasks, observed
+content provides an anchor while partial matching leaves
+unspecified regions and frames flexible. The full results
+in Appendix E show a task-dependent balance between
+appearance and dynamics: increased motion can accompany
+lower imaging quality, with lower normalized averages on
+several dense and composite tasks.
+Condition-based generation on the VACE benchmark. Ta-
+ble 12 shows the same trend: gains concentrate on R2V, out-
+painting, and extension, while structure-heavy tasks remain
+close to the teacher. Figure 4 shows coherent motion under
+flow and outpainting constraints. In multi-reference R2V,
+VDOT++ combines all three references while preserving their
+identities. These examples indicate that the extra flexibility
+improves scene evolution without weakening adherence to
+the provided controls.
+Text-to-video generation. On T2V (Table 3), VDOT++ im-
+proves motion and imaging quality while maintaining con-
+
+
+PREPRINT
+9
+TABLE 3: Quantitative evaluations on VBench (T2V). We compare VDOT++ with the many-step teacher and few-step
+baselines. We bold the best results and underline the second-best results.
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+VideoCrafter2 [60]
+1.4B
+50×2
+66.34
+98.48
+17.48
+68.46
+98.42
+98.16
+74.56
+LTX-Video [61]
+13B
+40
+66.80
+97.76
+23.93
+69.97
+99.07
+98.42
+75.99
+CogVideoX1.5 [62]
+5B
+50×2
+62.81
+94.95
+46.11
+62.81
+96.96
+92.66
+76.05
+HunyuanVideo [12]
+13B
+50×2
+65.11
+95.16
+47.67
+65.70
+99.07
+92.66
+77.56
+HunyuanVideo-1.5 [63]
+8.3B
+50×2
+65.50
+94.72
+80.98
+67.55
+99.10
+92.31
+83.36
+Wan2.1-T2V [13]
+Wan-1.3B
+50×2
+66.26
+97.16
+33.89
+67.49
+98.52
+96.91
+76.70
+Wan2.1-T2V [13] (teacher)
+Wan-14B
+50×2
+68.76
+97.49
+36.20
+68.20
+98.59
+96.99
+77.70
+CausVid [31]
+Wan-14B
+4
+68.54
+97.17
+34.17
+69.14
+98.36
+97.34
+77.45
+AccVideo [38]
+Wan-14B
+4
+69.32
+97.85
+30.06
+62.29
+98.85
+97.13
+75.92
+rCM [30]
+Wan-14B
+4
+69.87
+97.20
+32.54
+69.30
+98.66
+96.92
+77.42
+DMD2 [4]
+Wan-14B
+4
+68.00
+96.16
+40.66
+70.54
+98.36
+95.38
+78.18
+VDOT [5]
+Wan-14B
+4
+69.03
+97.73
+32.52
+70.25
+99.01
+97.18
+77.62
+VDOT++ (Ours)
+Wan-14B
+4
+69.14
+97.22
+54.91
+72.83
+98.56
+96.89
+81.59
+TABLE 4: Quantitative evaluations on VBench-I2V. We compare VDOT++ with the many-step teacher and few-step
+baselines. We bold the best results and underline the second-best results.
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+SEINE [64]
+0.9B
+250×2
+59.21
+95.75
+25.63
+70.55
+96.65
+95.02
+73.80
+I2VGen-XL [65]
+1.4B
+50×2
+65.45
+97.27
+20.28
+69.49
+98.43
+96.65
+74.60
+DynamiCrafter [66]
+1.4B
+50×2
+66.38
+95.39
+31.97
+69.09
+97.46
+95.39
+75.94
+CogVideoX1.5 [62]
+5B
+50×2
+62.20
+95.13
+34.49
+69.44
+98.35
+94.53
+75.69
+Step-Video-TI2V [67]
+30B
+50×2
+63.74
+96.12
+37.34
+68.38
+97.40
+95.36
+76.39
+HunyuanVideo-1.5 [63]
+8.3B
+50×2
+65.78
+96.24
+50.85
+70.86
+98.52
+96.33
+79.76
+Wan2.1-I2V [13] (teacher)
+Wan-14B
+50×2
+65.03
+96.05
+42.54
+70.47
+98.19
+95.23
+77.92
+CausVid [31]
+Wan-14B
+4
+64.87
+95.03
+38.12
+70.85
+97.35
+94.32
+76.76
+AccVideo [38]
+Wan-14B
+4
+63.09
+96.02
+18.21
+69.28
+97.88
+95.62
+73.35
+DMD2 [4]
+Wan-14B
+4
+63.74
+95.00
+38.59
+69.64
+97.47
+94.00
+76.40
+VDOT [5]
+Wan-14B
+4
+65.42
+96.95
+21.41
+70.07
+98.53
+96.76
+74.86
+VDOT++ (Ours)
+Wan-14B
+4
+65.25
+95.38
+45.07
+71.64
+97.91
+95.03
+78.38
+sistency, producing the best normalized average among
+both few-step baselines and the many-step teacher. This
+agrees with the method design: a text prompt fixes se-
+mantics but not trajectory, so partial matching preserves
+plausible motion and the ℓ1 cost avoids averaging distinct
+futures. Figure 5 shows clear motion without distorting the
+locomotive or viaduct. Fine steam and snow details also
+remain stable.
+Image-to-video generation. I2V follows the same pattern
+(Table 4): the first frame anchors appearance but not future
+motion, making partial matching preferable to copying one
+arbitrary continuation. VDOT++ exceeds the teacher and
+other few-step methods in normalized average, with the
+largest gain appearing in motion rather than static appear-
+ance preservation. Figure 6 shows that VDOT++ preserves
+the locomotive and forest layout while generating forward
+motion. It avoids the near-static behavior and appearance
+drift visible in competing few-step results.
+TABLE 5: Controlled objective factorial with adversarial re-
+finement: matching (balanced vs. partial) × cost (ℓ2 vs. ℓ1),
+evaluated on the strongly-conditioned VACE tasks and the
+loosely-conditioned T2V (UVCBench and VBench normal-
+ized average).
+Matching
+Cost
+VACE (strong)↑
+T2V (loose)↑
+Balanced
+ℓ2
+78.31
+77.62
+Balanced
+ℓ1
+78.08
+80.41
+Partial
+ℓ2
+78.11
+79.47
+Partial
+ℓ1 (ours)
+78.56
+81.59
+5.3
+Ablation Studies
+We ablate the asymmetric partial-OT objective and adversar-
+ial training on VACE and T2V, testing both their individual
+effects and the design choices within each component.
+5.3.1
+Asymmetric Partial-OT Objective
+Controlled
+factorial:
+matching
+×
+cost
+×
+condition
+strength. Table 5 varies matching ({balanced, partial}) and
+
+
+PREPRINT
+10
+Fig. 4: Qualitative comparison on controllable video generation. We compare the 100-NFE VACE teacher with 4-NFE
+VDOT and VDOT++ on (a) flow-conditioned video-to-video generation, (b) video outpainting, and (c) multi-reference image-
+to-video generation. The top row shows the input conditions, and each method row shows frames at 0, 2.5, and 5 seconds.
+Fig. 5: Qualitative comparison on text-to-video generation. Each row shows the first, middle, and last frames of the
+generated video. Zoom in for more details.
+cost ({ℓ2, ℓ1}) while fixing adversarial refinement. All vari-
+ants remain close on strongly conditioned VACE. On T2V,
+partial matching removes unreliable pairs, while ℓ1 avoids
+averaging distinct modes; either change improves over bal-
+anced ℓ2, and their combination is strongest. The contrast
+across task families supports the two-pathology diagnosis:
+the proposed changes matter most when the condition ad-
+mits diverse valid outputs rather than acting as a uniform
+regularizer.
+Figure 7 illustrates the complementary effects in a surf-
+ing example. Balanced ℓ2 shows little change in the panda’s
+pose across the sampled frames and does not clearly depict
+the requested blue vest. Balanced ℓ1 produces more visible
+wave evolution, but the blue garment is largely confined to
+the panda’s back. Both partial variants make the garment
+more apparent; partial ℓ1 also retains a clear torso and
+surfboard outline as the surrounding waves change. This
+example complements the aggregate T2V gains by showing
+how the combined objective can preserve local appearance
+while allowing changes in pose and scene content.
+Asymmetric vs. symmetric relaxation. Table 6 compares
+TABLE 6: Effect of marginal-relaxation direction on T2V
+under the controlled protocol of Table 5. τs and τt penalize
+deviations from the student and teacher marginals, respec-
+tively. Dynamic Degree measures motion freedom, while
+Imaging Quality measures visual degradation.
+Relaxation
+(τs, τt)
+Dynamic↑Imaging↑Avg.↑
+Balanced
+(∞, ∞)
+45.84
+70.73
+80.41
+Symmetric
+(0.1, 0.1)
+29.75
+72.95
+78.26
+Target relaxed
+(10, 0.1)
+35.89
+69.49
+77.84
+Source relaxed (ours)
+(0.1, 10)
+54.91
+72.83
+81.59
+balanced, symmetric, and opposite assignments of the two
+marginal penalties. Source-side relaxation lets unreliable
+student tokens carry reduced mass while retaining teacher-
+token coverage, yielding the highest Dynamic Degree and
+normalized average. Its Imaging Quality (72.83) remains
+close to the best value of 72.95 under symmetric relaxation.
+Symmetric and target-side relaxation instead underweight
+difficult teacher tokens. Their lower averages, including the
+
+
+PREPRINT
+11
+Fig. 6: Qualitative comparison on image-to-video generation. Each row shows the first, middle, and last frames of the
+generated video. Zoom in for more details.
+Fig. 7: Qualitative ablation of matching and ground cost on T2V. Balanced and partial matching are compared with
+squared-ℓ2 and ℓ1 costs for the panda-on-a-surfboard prompt shown below the panels. Each variant shows three sampled
+frames from left to right. The example complements the controlled factorial in Table 5.
+TABLE 7: Effect of adversarial refinement and its update
+schedule on VACE and T2V. We report Imaging Quality and
+Aesthetic Quality, the two dimensions most directly targeted
+by adversarial refinement.
+VACE
+T2V
+Training
+Imaging↑Aesthetic↑Imaging↑Aesthetic↑
+No GAN
+64.56
+61.99
+69.80
+70.25
+Alternating
+65.59
+62.71
+69.85
+68.44
+Joint (ours)
+65.76
+62.02
+72.83
+69.14
+degradation from symmetric relaxation relative to balanced
+OT, show that relaxing both marginals is not sufficient; the
+direction of relaxation matters.
+In the library example (Fig. 8), source-side relaxation
+preserves the seated reader, open book, and surrounding
+library structure across the sampled frames, with modest
+changes in framing and the reader’s posture. The result
+illustrates appearance preservation under relaxed student-
+side matching. The higher Dynamic Degree in Table 6 pro-
+vides the aggregate evidence for improved dynamics, which
+is less readily assessed from these sparsely sampled frames.
+5.3.2
+Training Strategy
+Adversarial refinement and update schedule. Table 7 com-
+pares training without a GAN, alternating updates, and the
+TABLE 8: Same-scale and cross-scale distillation on T2V,
+evaluated by the VBench normalized average.
+Method
+Generator Scores #NFE↓VBench Avg.↑
+Wan2.1 (teacher)
+14B
+–
+50×2
+77.70
+Wan2.1 (original)
+1.3B
+–
+50×2
+76.70
+DMD2
+1.3B
+1.3B
+4
+77.87
+DMD2
+1.3B
+14B
+4
+78.15
+VDOT++
+1.3B
+1.3B
+4
+79.98
+VDOT++ (Ours)
+1.3B
+14B
+4
+80.51
+joint objective of Sec. 4.8. Adversarial refinement mainly
+improves imaging quality. Joint accumulation is more sta-
+ble than alternating updates because distribution matching
+preserves structure while the discriminator refines local
+texture. Aesthetic Quality is less consistent across schedules,
+supporting our use of the GAN as a weak appearance-
+refinement signal rather than the primary training objective.
+5.4
+Cross-Scale Distillation
+Because score networks are discarded after training, they
+can exceed the deployed generator in size. We fix a Wan2.1-
+T2V-1.3B generator and compare 1.3B and 14B score net-
+works for DMD2 and VDOT++. As shown in Table 8, larger
+score networks improve the normalized average from 77.87
+
+
+PREPRINT
+12
+Fig. 8: Qualitative ablation of marginal-relaxation direction. Three sampled frames are shown for each T2V variant under
+the library prompt. The settings are balanced OT, symmetric relaxation (τs, τt) = (0.1, 0.1), target-side relaxation (10, 0.1),
+and source-side relaxation (0.1, 10), corresponding to Table 6.
+Fig. 9: Qualitative comparison of same-scale and cross-scale distillation on T2V. The top row shows the original Wan2.1
+models; the middle and bottom rows show the DMD2 baseline and VDOT++, respectively. In distilled variants, A →B
+denotes the score-network and generator sizes: all generators are 1.3B, with 1.3B scores on the left and 14B scores on the
+right. Each variant shows three sampled frames for the guitar-playing prompt below the panels.
+to 78.15 for DMD2 and from 79.98 to 80.51 for VDOT++. The
+larger gain for VDOT++ is consistent with its use of teacher
+information in both score matching and transport-based
+supervision. With 14B score networks, the 1.3B VDOT++ gen-
+erator surpasses the 14B many-step teacher in normalized
+average. The larger networks are used only during training;
+deployment remains a four-step 1.3B generator, so inference
+cost is unchanged.
+Figure 9 complements this comparison with a guitar-
+playing scene. Both VDOT++ variants retain the red-and-gold
+armor and guitar across the sampled frames. With 14B score
+networks, the fretboard, armor boundaries, and surround-
+ing stage beams are clearly delineated as the performer’s
+pose changes. The example shows that a 1.3B generator
+can retain fine foreground and background structure under
+cross-scale supervision; the aggregate comparison in Table 8,
+rather than this single scene, establishes the benefit of in-
+creasing score-network capacity.
+6
+CONCLUSION
+This paper extends few-step OTD across T2V, I2V, and
+condition-based video creation by accounting for their
+different output ambiguity. VDOT++ uses asymmetric un-
+balanced transport to suppress unreliable student corre-
+spondences while retaining teacher coverage, and an ℓ1
+cost to avoid mean-based aggregation of incompatible tar-
+gets. Experiments and controlled ablations support this
+conditioning-dependent design: it behaves similarly to bal-
+anced OTD under dense control, but better preserves valid
+motion and detail as the output space widens. Joint adver-
+sarial refinement improves local appearance, while cross-
+scale distillation uses larger auxiliary score networks to
+strengthen a compact generator.
+Limitations and future work. The current method solves
+spatial-token
+OT
+independently
+within
+corresponding
+temporal-frame pairs. It therefore models fine spatial cor-
+respondence but does not transport tokens across frames or
+jointly optimize a spatiotemporal plan. Spatiotemporal or
+trajectory-aware transport could capture motion-level cor-
+respondence, while adaptive marginal penalties could tune
+relaxation from condition strength or transport confidence.
+Extending the current four-step bidirectional setting to one-
+step, streaming, or autoregressive generation also requires
+handling stronger rollout errors and support mismatch.
+
+
+PREPRINT
+13
+REFERENCES
+[1]
+Z. Jiang, Z. Han, C. Mao, J. Zhang, Y. Pan, and Y. Liu, “Vace: All-
+in-one video creation and editing,” in 2025 IEEE/CVF International
+Conference on Computer Vision (ICCV).
+IEEE, 2025, pp. 17 191–
+17 202.
+[2]
+Z. Ye, X. He, Q. Liu, Q. Wang, X. Wang, P. Wan, D. Zhang, K. Gai,
+Q. Chen, and W. Luo, “Unic: Unified in-context video editing,”
+arXiv preprint arXiv:2506.04216, 2025.
+[3]
+T. Yin, M. Gharbi, R. Zhang, E. Shechtman, F. Durand, W. T. Free-
+man, and T. Park, “One-step diffusion with distribution matching
+distillation,” in 2024 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR).
+IEEE, 2024, pp. 6613–6623.
+[4]
+T. Yin, M. Gharbi, T. Park, R. Zhang, E. Shechtman, F. Durand,
+and W. T. Freeman, “Improved distribution matching distillation
+for fast image synthesis,” Advances in neural information processing
+systems, vol. 37, pp. 47 455–47 487, 2024.
+[5]
+Y. Wang, H. Zhang, T. Xue, Y. Qiao, Y. Wang, C. Xu, and X. Chen,
+“Vdot: Efficient unified video creation via optimal transport dis-
+tillation,” in Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, 2026, pp. 9273–9283.
+[6]
+L. Zhang, A. Rao, and M. Agrawala, “Adding conditional control
+to text-to-image diffusion models,” in 2023 IEEE/CVF International
+Conference on Computer Vision (ICCV).
+IEEE, 2023, pp. 3813–3824.
+[7]
+C. Mou, X. Wang, L. Xie, Y. Wu, J. Zhang, Z. Qi, and Y. Shan, “T2i-
+adapter: Learning adapters to dig out more controllable ability
+for text-to-image diffusion models,” in Proceedings of the AAAI
+conference on artificial intelligence, vol. 38, no. 5, 2024, pp. 4296–4304.
+[8]
+S. Xiao, Y. Wang, J. Zhou, H. Yuan, X. Xing, R. Yan, C. Li, S. Wang,
+T. Huang, and Z. Liu, “Omnigen: Unified image generation,” in
+2025 IEEE/CVF Conference on Computer Vision and Pattern Recogni-
+tion (CVPR).
+IEEE, 2025, pp. 13 294–13 304.
+[9]
+Z. Tan, S. Liu, X. Yang, Q. Xue, and X. Wang, “Ominicontrol:
+Minimal and universal control for diffusion transformer,” in
+2025 IEEE/CVF International Conference on Computer Vision (ICCV).
+IEEE, 2025, pp. 14 940–14 950.
+[10] C. Wei, Q. Liu, Z. Ye, Q. Wang, X. Wang, P. Wan, K. Gai, and
+W. Chen, “Univideo: Unified understanding, generation, and edit-
+ing for videos,” in International Conference on Learning Representa-
+tions, vol. 2026, 2026, pp. 113 905–113 933.
+[11] X. Wang, H. Yuan, S. Zhang, D. Chen, J. Wang, Y. Zhang, Y. Shen,
+D. Zhao, and J. Zhou, “Videocomposer: Compositional video syn-
+thesis with motion controllability,” Advances in Neural Information
+Processing Systems, vol. 36, pp. 7594–7611, 2023.
+[12] W. Kong, Q. Tian, Z. Zhang, R. Min, Z. Dai, J. Zhou, J. Xiong,
+X. Li, B. Wu, J. Zhang et al., “Hunyuanvideo: A systematic
+framework for large video generative models,” arXiv preprint
+arXiv:2412.03603, 2024.
+[13] T. Wan, A. Wang, B. Ai, B. Wen, C. Mao, C.-W. Xie, D. Chen, F. Yu,
+H. Zhao, J. Yang et al., “Wan: Open and advanced large-scale video
+generative models,” arXiv preprint arXiv:2503.20314, 2025.
+[14] A. Karnewar, D. Korzhenkov, I. Lelekas, A. Karjauv, N. Fathima,
+H. Xiong, V. Vaidyanathan, W. Zeng, R. Esteves, T. Singhal
+et al., “Neodragon: Mobile video generation using diffusion trans-
+former,” arXiv preprint arXiv:2511.06055, 2025.
+[15] Y. Wang, Y. Wang, T. Xue, Y. Qiao, Y. Wang, X. Chen, and C. Xu,
+“Pare: Pruning and adaptive routing for efficient video genera-
+tion,” arXiv preprint arXiv:2605.27336, 2026.
+[16] S. Su, J. Liu, L. Gao, and J. Song, “F3-pruning: a training-free
+and generalized pruning strategy towards faster and finer text-to-
+video synthesis,” in Proceedings of the AAAI Conference on Artificial
+Intelligence, vol. 38, no. 5, 2024, pp. 4961–4969.
+[17] Z. Li, H. Li, J. Wu, K. Liu, H. Qin, L. Kong, G. Chen, Y. Zhang, and
+X. Yang, “Dvd-quant: data-free video diffusion transformers quan-
+tization,” in International Conference on Learning Representations, vol.
+2026, 2026, pp. 35 463–35 475.
+[18] X. Li, S. Tesfai, Z. Zhang, H. Xi, S. Yang, L. Zhang, Y. Sun,
+K. Peng, M. Agrawala, I. Stoica, K. Keutzer, J.-Y. Zhu, S. Han,
+Y. Lin, and M. Li, “DeltaQuant: 4-bit video diffusion models with
+spatiotemporal delta smoothing,” in Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, 2026, pp.
+43 578–43 588.
+[19] Y. Wang, X. Ge, E. Liu, Y. Wang, T. Xue, X. Chen, and C. Xu, “Pulse-
+quant: Propagation-guided subspace correction for 4-bit video
+diffusion transformers,” arXiv preprint arXiv:2609.33384, 2026.
+[20] H. Xi, S. Yang, Y. Zhao, C. Xu, M. Li, X. Li, Y. Lin, H. Cai,
+J. Zhang, D. Li et al., “Sparse videogen: Accelerating video dif-
+fusion transformers with spatial-temporal sparsity,” arXiv preprint
+arXiv:2502.01776, 2025.
+[21] S. Yang, H. Xi, Y. Zhao, M. Li, J. Zhang, H. Cai, Y. Lin, X. Li, C. Xu,
+K. Peng et al., “Sparse videogen2: Accelerate video generation
+with sparse attention via semantic-aware permutation,” Advances
+in Neural Information Processing Systems, vol. 38, pp. 96 965–96 991,
+2026.
+[22] X. Li, D. Zou, S. Zhang, J. Chen, H. Xi, L. Zhang, J.-Y. Zhu, S. Han,
+Z. Zhang, Y. Lin et al., “Vc-attention: Value smoothing and softmax
+casting for low-bit attention,” arXiv preprint arXiv:2609.15810, 2026.
+[23] E. Liu, Y. Wang, Y. Wang, C. Sun, and C. Xu, “Losa: Near-lossless
+sparse attention for training-free video diffusion acceleration,”
+arXiv preprint arXiv:2608.12032, 2026.
+[24] F. Liu, S. Zhang, X. Wang, Y. Wei, H. Qiu, Y. Zhao, Y. Zhang, Q. Ye,
+and F. Wan, “Timestep embedding tells: It’s time to cache for video
+diffusion model,” in 2025 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR).
+IEEE, 2025, pp. 7353–7363.
+[25] E. Liu, Y. Wang, C. Sun, and C. Xu, “D2cache: Second-order delta
+caching for higher video diffusion acceleration,” in Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2026, pp. 43 589–43 599.
+[26] J. Liu, C. Zou, Y. Lyu, J. Chen, and L. Zhang, “From reusing to
+forecasting: Accelerating diffusion models with taylorseers,” in
+2025 IEEE/CVF International Conference on Computer Vision (ICCV).
+IEEE, 2025, pp. 15 853–15 863.
+[27] X. Ge, Y. Wang, L. Zhu, H. Lin, F. Lin, Y. Huang, X. Zhang,
+Y. Zhang, Y. Liu, and J. Zhang, “Salt++: Context-aligned post-
+training for few-step streaming multimodal generation,” arXiv
+preprint arXiv:2609.36995, 2026.
+[28] T. Salimans and J. Ho, “Progressive distillation for fast sampling
+of diffusion models,” arXiv preprint arXiv:2202.00512, 2022.
+[29] Y. Song, P. Dhariwal, M. Chen, and I. Sutskever, “Consistency
+models,” arXiv preprint arXiv:2303.01469, 2023.
+[30] K. Zheng, Y. Wang, Q. Ma, H. Chen, J. Zhang, Y. Balaji, J. Chen, M.-
+Y. Liu, J. Zhu, and Q. Zhang, “Large scale diffusion distillation via
+score-regularized continuous-time consistency,” in International
+Conference on Learning Representations, vol. 2026, 2026, pp. 2582–
+2603.
+[31] T. Yin, Q. Zhang, R. Zhang, W. T. Freeman, F. Durand, E. Shecht-
+man, and X. Huang, “From slow bidirectional to fast autoregres-
+sive video diffusion models,” in 2025 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR).
+IEEE, 2025, pp.
+22 963–22 974.
+[32] X. Huang, Z. Li, G. He, M. Zhou, and E. Shechtman, “Self forcing:
+Bridging the train-test gap in autoregressive video diffusion,”
+Advances in Neural Information Processing Systems, vol. 38, pp.
+167 283–167 308, 2026.
+[33] X. Ge, Y. Zhang, Y. Huang, D. He, X. Wang, B. Ma, G. Song,
+Y. Liu, and J. Zhang, “Salt: Self-consistent distribution matching
+with cache-aware training for fast video generation,” arXiv preprint
+arXiv:2604.03118, 2026.
+[34] Y. Luo, T. Hu, J. Sun, Y. Cai, and J. Tang, “Learning few-
+step diffusion models by trajectory distribution matching,” in
+2025 IEEE/CVF International Conference on Computer Vision (ICCV).
+IEEE, 2025, pp. 17 719–17 728.
+[35] A. Sauer, D. Lorenz, A. Blattmann, and R. Rombach, “Adversarial
+diffusion distillation,” in European Conference on Computer Vision.
+Springer, 2024, pp. 87–103.
+[36] S. Lin, X. Xia, Y. Ren, C. Yang, X. Xiao, and L. Jiang, “Diffusion
+adversarial post-training for one-step video generation,” arXiv
+preprint arXiv:2501.08316, 2025.
+[37] Y. Lu, Y. Ren, X. Xia, S. Lin, X. Wang, X. Xiao, A. J. Ma,
+X. Xie, and J.-H. Lai, “Adversarial distribution matching for diffu-
+sion distillation towards efficient image and video synthesis,” in
+2025 IEEE/CVF International Conference on Computer Vision (ICCV).
+IEEE, 2025, pp. 16 818–16 829.
+[38] H. Zhang, X. Chen, Y. Wang, X. Liu, Y. Wang, and Y. Qiao,
+“Accvideo: Accelerating video diffusion model with synthetic
+dataset,” arXiv preprint arXiv:2503.19462, 2025.
+[39] P. Gabriel and C. Marco, “Computational optimal transport with
+applications to data sciences,” Foundations and trends® in machine
+learning, vol. 11, no. 5-6, pp. 355–607, 2019.
+[40] M. Cuturi, “Sinkhorn distances: Lightspeed computation of opti-
+mal transport,” Advances in neural information processing systems,
+vol. 26, 2013.
+[41] I. Tolstikhin, O. Bousquet, S. Gelly, and B. Schoelkopf, “Wasser-
+stein auto-encoders,” arXiv preprint arXiv:1711.01558, 2017.
+
+
+PREPRINT
+14
+[42] M. Arjovsky, S. Chintala, and L. Bottou, “Wasserstein generative
+adversarial networks,” in International conference on machine learn-
+ing.
+Pmlr, 2017, pp. 214–223.
+[43] G. Tartavel, G. Peyr´e, and Y. Gousseau, “Wasserstein loss for image
+synthesis and restoration,” SIAM Journal on Imaging Sciences, vol. 9,
+no. 4, pp. 1726–1755, 2016.
+[44] Y. Wang, S. Zhu, H. Xu, and D. Luo, “An inverse partial opti-
+mal transport framework for music-guided trailer generation,” in
+Proceedings of the 32nd ACM International Conference on Multimedia,
+2024, pp. 9739–9748.
+[45] Z. Ge, S. Liu, F. Wang, Z. Li, and J. Sun, “Yolox: Exceeding yolo
+series in 2021,” arXiv preprint arXiv:2107.08430, 2021.
+[46] D. Luo, Y. Wang, A. Yue, and H. Xu, “Weakly-supervised temporal
+action alignment driven by unbalanced spectral fused gromov-
+wasserstein distance,” in Proceedings of the 30th ACM International
+Conference on Multimedia, 2022, pp. 728–739.
+[47] Y. Wang, H. Xu, and D. Luo, “Self-supervised video summariza-
+tion guided by semantic inverse optimal transport,” in Proceedings
+of the 31st ACM International Conference on Multimedia, 2023, pp.
+6611–6622.
+[48] L. Lu, X. Chen, M. Guo, S. Li, J. Wang, and Y. Shi, “Chordedit:
+One-step low-energy transport for image editing,” arXiv preprint
+arXiv:2602.19083, 2026.
+[49] A. Figalli, “The optimal partial transport problem,” Archive for
+rational mechanics and analysis, vol. 195, no. 2, pp. 533–560, 2010.
+[50] L. Chizat, G. Peyr´e, B. Schmitzer, and F.-X. Vialard, “Scaling algo-
+rithms for unbalanced optimal transport problems,” Mathematics
+of computation, vol. 87, no. 314, pp. 2563–2609, 2018.
+[51] J. Choi, J. Choi, and M. Kang, “Generative modeling through the
+semi-dual formulation of unbalanced optimal transport,” Advances
+in Neural Information Processing Systems, vol. 36, pp. 42 433–42 455,
+2023.
+[52] A. Jolicoeur-Martineau, “The relativistic discriminator: a key ele-
+ment missing from standard gan,” arXiv preprint arXiv:1807.00734,
+2018.
+[53] L. Mescheder, A. Geiger, and S. Nowozin, “Which training meth-
+ods for gans do actually converge?” in International conference on
+machine learning.
+PMLR, 2018, pp. 3481–3490.
+[54] Y. Zhang, Y. Wei, X. ZHANG, W. Zuo, Q. Tian et al., “Con-
+trolvideo: Training-free controllable text-to-video generation,” in
+International Conference on Learning Representations, vol. 2024, 2024,
+pp. 54 441–54 461.
+[55] Y. Ma, Y. He, X. Cun, X. Wang, S. Chen, X. Li, and Q. Chen,
+“Follow your pose: Pose-guided text-to-video generation using
+pose-free videos,” in Proceedings of the AAAI Conference on Artificial
+Intelligence, vol. 38, no. 5, 2024, pp. 4117–4125.
+[56] Y. Cong, M. Xu, C. Simon, S. Chen, J. Ren, Y. Xie, J.-M. Perez-
+Rua, B. Rosenhahn, T. Xiang, and S. He, “Flatten: optical flow-
+guided attention for consistent text-to-video editing,” in Interna-
+tional Conference on Learning Representations, vol. 2024, 2024, pp.
+52 086–52 106.
+[57] Q. Chen, Y. Ma, H. Wang, J. Yuan, W. Zhao, Q. Tian, H. Wang,
+S. Min, Q. Chen, and W. Liu, “Infinite-canvas: Higher-resolution
+video outpainting with extensive content generation,” in Proceed-
+ings of the AAAI Conference on Artificial Intelligence, vol. 39, no. 2,
+2025, pp. 2150–2158.
+[58] KLING AI, “KLING AI.” [Online]. Available: https://klingai.
+com/
+[59] Vidu, “Vidu.” [Online]. Available: https://vidu.cn/
+[60] H. Chen, Y. Zhang, X. Cun, M. Xia, X. Wang, C. Weng, and
+Y. Shan, “Videocrafter2: Overcoming data limitations for high-
+quality video diffusion models,” in 2024 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR).
+IEEE, 2024, pp.
+7310–7320.
+[61] Y. HaCohen, N. Chiprut, B. Brazowski, D. Shalem, D. Moshe,
+E. Richardson, E. Levin, G. Shiran, N. Zabari, O. Gordon
+et al., “Ltx-video: Realtime video latent diffusion,” arXiv preprint
+arXiv:2501.00103, 2024.
+[62] Z. Yang, J. Teng, W. Zheng, M. Ding, S. Huang, J. Xu, Y. Yang,
+W. Hong, X. Zhang, G. Feng et al., “Cogvideox: Text-to-video
+diffusion models with an expert transformer,” in International
+Conference on Learning Representations, vol. 2025, 2025, pp. 83 048–
+83 077.
+[63] B. Wu, C. Zou, C. Li, D. Huang, F. Yang, H. Tan, J. Peng, J. Wu,
+J. Xiong, J. Jiang et al., “Hunyuanvideo 1.5 technical report,” arXiv
+preprint arXiv:2511.18870, 2025.
+[64] X. Chen, Y. Wang, L. Zhang, S. Zhuang, X. Ma, J. Yu, Y. Wang,
+D. Lin, Y. Qiao, and Z. Liu, “Seine: Short-to-long video diffusion
+model for generative transition and prediction,” in The Twelfth
+International Conference on Learning Representations, 2023.
+[65] S. Zhang, J. Wang, Y. Zhang, K. Zhao, H. Yuan, Z. Qin,
+X. Wang, D. Zhao, and J. Zhou, “I2vgen-xl: High-quality image-
+to-video synthesis via cascaded diffusion models,” arXiv preprint
+arXiv:2311.04145, 2023.
+[66] J. Xing, M. Xia, Y. Zhang, H. Chen, W. Yu, H. Liu, G. Liu, X. Wang,
+Y. Shan, and T.-T. Wong, “Dynamicrafter: Animating open-domain
+images with video diffusion priors,” in European Conference on
+Computer Vision.
+Springer, 2024, pp. 399–417.
+[67] H. Huang, G. Ma, N. Duan, X. Chen, C. Wan, R. Ming, T. Wang,
+B. Wang, Z. Lu, A. Li et al., “Step-video-ti2v technical report:
+A state-of-the-art text-driven image-to-video generation model,”
+arXiv preprint arXiv:2503.11251, 2025.
+[68] Z. Huang, Y. He, J. Yu, F. Zhang, C. Si, Y. Jiang, Y. Zhang, T. Wu,
+Q. Jin, N. Chanpaisit et al., “Vbench: Comprehensive benchmark
+suite for video generative models,” in 2024 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR).
+IEEE, 2024,
+pp. 21 807–21 818.
+[69] Z. Huang, F. Zhang, X. Xu, Y. He, J. Yu, Z. Dong, Q. Ma,
+N. Chanpaisit, C. Si, Y. Jiang et al., “Vbench++: Comprehensive
+and versatile benchmark suite for video generative models,” IEEE
+Transactions on Pattern Analysis and Machine Intelligence, 2025.
+[70] W. Chen, Y. Ji, J. Wu, H. Wu, P. Xie, J. Li, X. Xia, X. Xiao,
+and L. Lin, “Control-a-video: Controllable text-to-video diffusion
+models with motion prior and reward feedback learning,” arXiv
+preprint arXiv:2305.13840, 2023.
+[71] Artgrid, “Artgrid.” [Online]. Available: https://artgrid.io/
+[72] Z. Chen, J. Wu, W. Wang, W. Su, G. Chen, S. Xing, M. Zhong,
+Q. Zhang, X. Zhu, L. Lu et al., “Internvl: Scaling up vision foun-
+dation models and aligning for generic visual-linguistic tasks,” in
+Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition, 2024, pp. 24 185–24 198.
+[73] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao,
+C. Huang, C. Lv et al., “Qwen3 technical report,” arXiv preprint
+arXiv:2505.09388, 2025.
+[74] C. Wu, J. Li, J. Zhou, J. Lin, K. Gao, K. Yan, S.-m. Yin, S. Bai,
+X. Xu, Y. Chen et al., “Qwen-image technical report,” arXiv preprint
+arXiv:2508.02324, 2025.
+
+
+PREPRINT
+15
+TABLE 9: Main notation used throughout the paper.
+Symbol
+Meaning
+Networks and generation
+Gθ
+few-step generator (deployed at inference)
+Fψ / Fϕ
+frozen teacher (real) / trainable fake score
+network
+Dω
+discriminator head embedded in Fϕ
+z, ξ
+generator-input noise; re-noising noise
+c
+heterogeneous generation condition
+ˆx0
+generator output Gθ(z, c)
+t, (αt, σt)
+diffusion time; noise schedule
+xt
+re-noised output αt ˆx0 + σtξ
+Optimal transport
+pfake, preal
+student (fake) / teacher (real) video distri-
+butions
+q
+temporal-frame index
+At,q, Bt,q
+student / teacher spatial-token sets [at,q,i]
+/ [bt,q,j] in frame q at diffusion time t
+u, µ
+marginal weights in ∆I−1 / ∆J−1 (uni-
+form)
+d(·, ·), C = [Cij]
+ground metric; cost matrix Cij = d(ai, bj)
+Tt,q, T ∗
+t,q
+within-frame plan between At,q and Bt,q;
+optimum
+rt,q, ct,q
+row
+/
+column
+projections
+T ∗
+t,q1J
+/
+(T ∗
+t,q)⊤1I
+ϵ
+entropic regularization strength
+τs, τt
+student
+/
+teacher
+marginal-penalty
+strengths
+ρs, ρt
+Sinkhorn scaling factors τ/(τ + ϵ)
+f, g, K
+dual potentials; Gibbs kernel e−C/ϵ
+κ
+total optimized mass P
+ij T ∗
+ij
+Training
+wDMD, wOT
+distribution-matching loss weights
+wGAN-G, wGAN-D
+generator
+/
+discriminator
+adversarial
+weights
+R
+critic-update ratio
+sg(·), sp(·)
+stop-gradient; softplus log(1 + ex)
+APPENDIX A
+NOTATION
+Table 9 consolidates the symbols defined throughout the
+main paper.
+APPENDIX B
+PROOFS
+Proof of Proposition 1. W is a pointwise infimum of
+functions affine in C, hence concave. The strictly convex
+entropy makes T ∗unique, and Danskin’s theorem yields
+the gradient [39].
+Proof of Proposition 2. Factoring the gradient gives
+X
+j
+T ∗
+ij(ai −bj) =
+ X
+j
+T ∗
+ij
+
+ai −
+X
+j
+T ∗
+ijbj = ri(ai −¯bi).
+(23)
+Because ri > 0, it vanishes exactly at ai = ¯bi.
+Proof of Proposition 3. Balanced-feasible plans incur zero
+penalty, so the value V (τ) of (10) is non-decreasing in τ
+and bounded above by Dϵ
+EOT. This forces the KL penalties
+of Tτ to vanish as τ →∞. Every accumulation point of
+the bounded family {Tτ} is therefore balanced-feasible with
+objective at most Dϵ
+EOT, and hence optimal for (5). Strict
+convexity of the entropy gives uniqueness, convergence of
+the whole family, and V (τ) ↗Dϵ
+EOT.
+Proof of Proposition 4. φ is convex and piecewise lin-
+ear. The optimality condition 0 ∈∂φ(a) is precisely the
+weighted-median condition.
+APPENDIX C
+IMPLEMENTATION DETAILS
+Discriminator architecture and regularization. The dis-
+criminator head uses K learnable register tokens, which
+cross-attend to feature maps from selected layers S of Fϕ
+and are pooled with the time embedding by a small MLP
+into one logit. This reuses the fake-score backbone without
+a separate encoder. We regularize real logits with the finite-
+difference R1 approximation of APT [36]:
+∆ω = Dω(xreal
+t
++ σr1δ, t) −Dω(xreal
+t
+, t),
+LR1(ω) = wr1 Exreal
+t
+,δ
+"∆ω
+σr1
+2#
+,
+(24)
+where δ ∼N(0, I).
+Optimization. The default generator and both score net-
+works use the 14B architecture. The real-score teacher re-
+mains frozen throughout training. We optimize the genera-
+tor, fake-score network, and discriminator head with FSDP
+for 2,100 steps on four NVIDIA H200 GPUs, with one
+sample per GPU. We use AdamW (β1 = 0, β2 = 0.999),
+generator and critic learning rates of 2 × 10−6 and 4 × 10−7,
+respectively, and a critic-update ratio R = 5.
+Transport. We use ϵ = 0.1, τs = 0.1, τt = 10.0, αOT = 10.0,
+and 60 Sinkhorn iterations at 2× spatial downsampling. The
+DMD and OT weights are wDMD = 0.9 and wOT = 0.1. For
+nonnegative measures, we use the generalized KL diver-
+gence
+KL(p ∥q) =
+X
+k
+
+pk log pk
+qk
+−pk + qk
+
+,
+with the standard continuous extension at zero. Algorithm 2
+gives the complete log-domain solver used to compute the
+asymmetric transport plan. It optimizes Eq. (13) under the
+negative-entropy convention E(T ) = P
+i,j Tij(log Tij −1)
+and the generalized KL defined above.
+Adversarial training. The head uses K = 4 register tokens
+of dimension dr = 512, cross-attending to layers 15, 25, 35,
+and 39 of the fake-score network. For Wan2.1-14B, the back-
+bone hidden dimension is 5120. We use wGAN−G = 0.05,
+wGAN−D = 0.01, critic timestep shift 12, wr1 = 30, and
+σr1 = 0.1. Adversarial training begins after 900 warm-up
+steps; GAN-G and GAN-D are applied every fifth generator
+step and every tenth critic step, respectively. These settings
+are shared across T2V, I2V, and VACE. For cross-scale dis-
+tillation, we scale the discriminator learning rate by 0.2, set
+wr1 = 60, and reduce wGAN−G to 0.02.
+APPENDIX D
+MULTI-TASK DATA AND UVCBENCH CONSTRUC-
+TION
+We follow the automated data and benchmark construction
+pipeline introduced in our conference version [5]; the details
+required to reproduce the training corpus and UVCBench
+are summarized below.
+
+
+PREPRINT
+16
+TABLE 10: Additional
+single-condition
+results
+on
+UVCBench. We bold the best
+results and underline the
+second-best results.
+Type
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+Depth
+Control-A-Video [70]
+SD-1.5
+100
+57.22%
+92.89%
+20.00%
+66.95%
+98.06%
+91.85%
+71.16%
+ControlVideo [54]
+SD-1.5
+100
+64.50%
+97.99%
+5.00%
+71.76%
+98.10%
+97.41%
+72.46%
+VACE [1]
+LTX-0.9B
+80
+58.62%
+98.18%
+30.00%
+70.14%
+99.29%
+97.81%
+75.67%
+VACE [1]
+Wan-14B
+100
+64.36%
+97.63%
+35.00%
+70.29%
+99.17%
+97.58%
+77.34%
+VDOT (Ours)
+Wan-14B
+4
+64.28%
+98.18%
+40.00%
+71.24%
+99.35%
+97.96%
+78.50%
+VDOT++ (Ours)
+Wan-14B
+4
+63.04%
+97.75%
+40.00%
+71.06%
+99.29%
+97.85%
+78.17%
+Scribble
+ControlVideo [54]
+SD-1.5
+100
+54.79%
+96.19%
+5.00%
+64.30%
+98.53%
+94.64%
+68.91%
+VACE [1]
+LTX-0.9B
+80
+44.69%
+96.88%
+40.00%
+61.06%
+99.17%
+93.51%
+72.55%
+VACE [1]
+Wan-14B
+100
+55.70%
+96.91%
+55.00%
+58.69%
+98.99%
+94.51%
+76.63%
+VDOT (Ours)
+Wan-14B
+4
+54.24%
+97.13%
+50.00%
+65.19%
+98.90%
+95.20%
+76.77%
+VDOT++ (Ours)
+Wan-14B
+4
+53.86%
+96.59%
+50.00%
+62.32%
+98.92%
+94.70%
+76.06%
+Extension
+VACE [1]
+LTX-0.9B
+80
+51.54%
+96.48%
+20.00%
+62.22%
+99.21%
+94.67%
+70.68%
+VACE [1]
+Wan-14B
+100
+57.52%
+95.46%
+55.00%
+63.36%
+98.99%
+92.27%
+77.10%
+VDOT (Ours)
+Wan-14B
+4
+58.93%
+94.18%
+75.00%
+65.11%
+99.21%
+91.09%
+80.59%
+VDOT++ (Ours)
+Wan-14B
+4
+58.68%
+94.51%
+72.50%
+65.71%
+98.75%
+91.83%
+80.33%
+Algorithm 2: Log-domain generalized Sinkhorn al-
+gorithm for asymmetric unbalanced OT in Eq. (13).
+Here LSEk(zk) = log P
+k exp(zk).
+Input: Cost matrix C ∈RI×J; marginals u ∈RI
++
+and µ ∈RJ
++; ϵ, τs, τt > 0; tolerance tol;
+maximum iterations L
+Output: Asymmetric unbalanced transport plan
+T ∗∈RI×J
++
+1 log K ←−C/ϵ;
+2 ρs ←τs/(τs + ϵ), ρt ←τt/(τt + ϵ);
+3 f ←0I, g ←0J;
+4 for ℓ= 1, . . . , L do
+5
+fold ←f, gold ←g;
+6
+for i = 1, . . . , I do
+7
+fi ←ρs[log ui −LSEj(log Kij + gj)];
+8
+end
+9
+for j = 1, . . . , J do
+10
+gj ←ρt[log µj −LSEi(log Kij + fi)];
+11
+end
+12
+if ∥f −fold∥1 + ∥g −gold∥1 < tol then
+13
+break;
+14
+end
+15 end
+16 T ∗
+ij ←exp(fi + log Kij + gj) for all (i, j);
+17 return T ∗;
+Training data. We collect 250 000 4K Artgrid videos [71],
+rescale them to 832 × 480, and caption them with In-
+ternVL [72]. Captions serve as both prompts and filtering
+criteria. We express the first frame for I2V and automati-
+cally extracted depth, pose, optical flow, scribble, and mask
+signals for VACE-style tasks in the shared condition format.
+For pose, for example, Qwen3 [73] filters captions with-
+out human subjects; extracted pose sequences are ranked
+by weighted inter-frame keypoint displacement, and the
+highest-ranked samples are retained. Analogous curation is
+applied to each condition type.
+Benchmark construction. UVCBench contains 8 single-
+condition and 10 composite tasks, with 20 videos per
+task. Single-condition tasks cover pose, depth, optical flow,
+greyscale, scribble, face/object reference, canvas outpaint-
+ing, and temporal extension. Composite tasks pair a refer-
+ence image or first frame with pose, depth, flow, greyscale,
+or scribble. Qwen3-Max expands task descriptions into can-
+didate prompts; Wan2.1-14B synthesizes V2V/MV2V exem-
+plars, while VACE-14B uses Qwen-Image [74] references for
+R2V and composite tasks. The corresponding inputs and
+masks are derived automatically, then manually verified
+and regenerated when necessary.
+Evaluation protocol. Generated videos on UVCBench are
+scored using six VBench dimensions: Aesthetic Quality,
+Background Consistency, Dynamic Degree, Imaging Qual-
+ity, Motion Smoothness, and Subject Consistency. We ad-
+ditionally report their normalized average as a compact
+overall measure while retaining the individual dimensions
+to expose quality–motion trade-offs.
+APPENDIX E
+FULL RESULTS ON THE UVCBENCH BENCHMARK
+Table 10 complements the representative single-condition
+results in Sec. 5.2 with depth, scribble, and temporal ex-
+tension. On the densely specified depth and scribble tasks,
+VDOT++ has slightly lower normalized averages than VDOT;
+on extension, it preserves a comparable overall score while
+improving imaging and subject consistency. Table 11 fur-
+ther reports the full comparison on all ten composite
+tasks of UVCBench [5]. Relative to VDOT, VDOT++ ob-
+tains higher normalized averages on some tasks and lower
+ones on others, with lower imaging quality on most com-
+posite tasks. FirstFrame+Flow illustrates the appearance–
+dynamics trade-off, combining higher Dynamic Degree with
+lower Imaging Quality.
+
+
+PREPRINT
+17
+TABLE 11: Quantitative evaluations of composite tasks on UVCBench. We compare the automated score metrics of our
+VDOT with VACE on the dimensions of video quality and video consistency.
+Condition1
+Condition2
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+FirstFrame
+Depth
+VACE [1]
+LTX-0.9B
+80
+64.78%
+96.90%
+40.00%
+66.19%
+98.96%
+94.49%
+76.89%
+VACE [1]
+Wan-14B
+100
+68.28%
+96.74%
+40.00%
+68.43%
+98.92%
+94.38%
+77.79%
+VDOT (Ours)
+Wan-14B
+4
+67.34%
+96.67%
+45.00%
+70.09%
+98.97%
+94.64%
+78.78%
+VDOT++ (Ours)
+Wan-14B
+4
+67.68%
+96.75%
+40.00%
+67.35%
+99.05%
+94.40%
+77.54%
+Pose
+VACE [1]
+LTX-0.9B
+80
+64.75%
+96.29%
+15.00%
+63.90%
+99.13%
+94.63%
+72.28%
+VACE [1]
+Wan-14B
+100
+66.66%
+95.91%
+40.00%
+66.99%
+98.94%
+94.70%
+77.19%
+VDOT (Ours)
+Wan-14B
+4
+66.26%
+96.20%
+30.00%
+68.63%
+99.08%
+94.22%
+75.73%
+VDOT++ (Ours)
+Wan-14B
+4
+66.78%
+96.01%
+40.00%
+66.76%
+99.06%
+94.18%
+77.13%
+Flow
+VACE [1]
+LTX-0.9B
+80
+54.38%
+95.19%
+70.00%
+52.16%
+98.21%
+91.05%
+76.83%
+VACE [1]
+Wan-14B
+100
+59.80%
+94.66%
+85.00%
+53.41%
+97.80%
+91.62%
+80.38%
+VDOT (Ours)
+Wan-14B
+4
+59.27%
+95.01%
+85.00%
+55.75%
+97.92%
+91.58%
+80.75%
+VDOT++ (Ours)
+Wan-14B
+4
+60.24%
+94.59%
+90.00%
+52.75%
+97.89%
+91.08%
+81.09%
+Scribble
+VACE [1]
+LTX-0.9B
+80
+55.16%
+96.57%
+35.00%
+66.52%
+99.05%
+94.36%
+74.44%
+VACE [1]
+Wan-14B
+100
+58.26%
+96.78%
+50.00%
+66.91%
+98.91%
+94.89%
+77.63%
+VDOT (Ours)
+Wan-14B
+4
+57.54%
+96.64%
+50.00%
+68.23%
+98.97%
+94.94%
+77.72%
+VDOT++ (Ours)
+Wan-14B
+4
+58.33%
+96.91%
+45.00%
+66.91%
+99.06%
+95.04%
+76.88%
+Grey
+VACE [1]
+LTX-0.9B
+80
+66.45%
+97.97%
+10.00%
+63.60%
+99.34%
+97.85%
+72.54%
+VACE [1]
+Wan-14B
+100
+68.87%
+98.25%
+15.00%
+66.11%
+99.30%
+98.02%
+74.25%
+VDOT (Ours)
+Wan-14B
+4
+69.08%
+98.01%
+20.00%
+65.92%
+99.30%
+98.08%
+75.07%
+VDOT++ (Ours)
+Wan-14B
+4
+68.99%
+98.25%
+20.00%
+65.11%
+99.36%
+98.16%
+74.98%
+Reference
+Depth
+VACE [1]
+LTX-0.9B
+80
+52.92%
+87.63%
+60.00%
+63.22%
+98.82%
+77.83%
+73.40%
+VACE [1]
+Wan-14B
+100
+70.07%
+96.53%
+65.00%
+67.61%
+98.39%
+94.97%
+82.09%
+VDOT (Ours)
+Wan-14B
+4
+69.49%
+96.64%
+65.00%
+67.85%
+98.44%
+95.05%
+82.08%
+VDOT++ (Ours)
+Wan-14B
+4
+70.44%
+96.71%
+60.00%
+66.00%
+98.71%
+95.12%
+81.33%
+Pose
+VACE [1]
+LTX-0.9B
+80
+49.89%
+85.24%
+65.00%
+52.74%
+98.43%
+71.46%
+70.46%
+VACE [1]
+Wan-14B
+100
+71.05%
+95.38%
+75.00%
+67.72%
+97.77%
+93.40%
+83.38%
+VDOT (Ours)
+Wan-14B
+4
+70.81%
+95.97%
+75.00%
+67.81%
+98.19%
+94.24%
+83.67%
+VDOT++ (Ours)
+Wan-14B
+4
+70.77%
+96.23%
+75.00%
+66.84%
+98.33%
+94.48%
+83.61%
+Flow
+VACE [1]
+LTX-0.9B
+80
+52.33%
+83.37%
+85.00%
+58.50%
+98.36%
+66.36%
+73.98%
+VACE [1]
+Wan-14B
+100
+65.92%
+96.30%
+90.00%
+66.74%
+97.71%
+93.01%
+84.94%
+VDOT (Ours)
+Wan-14B
+4
+65.31%
+96.67%
+80.00%
+66.54%
+98.00%
+93.78%
+83.38%
+VDOT++ (Ours)
+Wan-14B
+4
+65.93%
+96.83%
+85.00%
+64.38%
+98.00%
+94.01%
+84.02%
+Scribble
+VACE [1]
+LTX-0.9B
+80
+51.64%
+89.42%
+50.00%
+56.96%
+98.70%
+73.25%
+69.99%
+VACE [1]
+Wan-14B
+100
+65.57%
+96.43%
+75.00%
+66.20%
+98.19%
+93.18%
+82.42%
+VDOT (Ours)
+Wan-14B
+4
+64.10%
+96.78%
+75.00%
+65.35%
+98.30%
+93.41%
+82.16%
+VDOT++ (Ours)
+Wan-14B
+4
+66.23%
+97.17%
+70.00%
+63.09%
+98.81%
+93.72%
+81.50%
+Grey
+VACE [1]
+LTX-0.9B
+80
+58.04%
+95.46%
+25.00%
+60.91%
+99.06%
+95.68%
+72.35%
+VACE [1]
+Wan-14B
+100
+72.00%
+97.60%
+30.00%
+64.43%
+98.75%
+97.45%
+76.70%
+VDOT (Ours)
+Wan-14B
+4
+71.98%
+97.66%
+30.00%
+64.52%
+98.81%
+97.48%
+76.74%
+VDOT++ (Ours)
+Wan-14B
+4
+72.35%
+97.71%
+30.00%
+64.62%
+98.95%
+97.73%
+76.89%
+APPENDIX F
+FULL RESULTS ON THE VACE BENCHMARK
+Table 12 reports the full per-task comparison on the VACE
+benchmark [1], complementing the UVCBench results in
+Sec. 5.2. Despite using only four NFEs, VDOT++ remains
+competitive with the many-step VACE variants across
+the densely constrained depth, pose, flow, scribble, and
+greyscale tasks. The differences become more pronounced
+on extension, outpainting, and R2V, where the inputs spec-
+ify only part of the target video. On these tasks, the stronger
+normalized averages are driven mainly by increased dy-
+namics while the consistency metrics remain high. This
+pattern supports the intended role of the relaxed student
+marginal: uncertain regions need not be forced into arbitrary
+matches, allowing plausible content and motion to develop
+around the observed evidence.
+
+
+PREPRINT
+18
+TABLE 12: Quantitative evaluations on VACE-Benchmark. We compare the automated score metrics of our VDOT++ with
+VACE on the dimensions of video quality and video consistency.
+Type
+Method
+Base Model
+#NFE↓
+Video Quality & Video Consistency
+Aesthetic
+Quality
+Background
+Consistency
+Dynamic
+Degree
+Imaging
+Quality
+Motion
+Smoothness
+Subject
+Consistency
+Normalized
+Average
+Depth
+VACE [1]
+LTX-0.9B
+80
+55.73%
+96.06%
+60.00%
+67.53%
+98.92%
+93.90%
+78.69%
+VACE [1]
+Wan-14B
+100
+62.34%
+96.10%
+65.00%
+68.85%
+98.57%
+94.25%
+80.85%
+VDOT (Ours)
+Wan-14B
+4
+62.46%
+95.81%
+65.00%
+69.69%
+98.39%
+94.53%
+80.98%
+VDOT++ (Ours)
+Wan-14B
+4
+62.81%
+96.29%
+65.00%
+70.16%
+98.45%
+94.40%
+81.19%
+Pose
+VACE [1]
+LTX-0.9B
+80
+59.97%
+94.80%
+85.00%
+66.85%
+98.93%
+94.91%
+83.41%
+VACE [1]
+Wan-14B
+100
+66.69%
+95.32%
+75.00%
+68.48%
+98.56%
+94.19%
+83.04%
+VDOT (Ours)
+Wan-14B
+4
+66.71%
+94.99%
+80.00%
+70.40%
+98.45%
+94.26%
+84.13%
+VDOT++ (Ours)
+Wan-14B
+4
+66.64%
+94.99%
+85.00%
+68.27%
+98.26%
+93.57%
+84.45%
+Flow
+VACE [1]
+LTX-0.9B
+80
+55.36%
+95.99%
+75.00%
+64.30%
+99.07%
+94.14%
+80.64%
+VACE [1]
+Wan-14B
+100
+60.44%
+96.09%
+75.00%
+66.99%
+98.48%
+94.71%
+81.95%
+VDOT (Ours)
+Wan-14B
+4
+60.24%
+95.65%
+75.00%
+70.02%
+98.42%
+94.26%
+82.27%
+VDOT++ (Ours)
+Wan-14B
+4
+60.96%
+95.97%
+75.00%
+68.81%
+98.50%
+95.08%
+82.39%
+Scribble
+VACE [1]
+LTX-0.9B
+80
+53.81%
+96.57%
+45.00%
+66.05%
+99.21%
+95.23%
+75.98%
+VACE [1]
+Wan-14B
+100
+59.44%
+96.49%
+50.00%
+67.01%
+98.46%
+95.44%
+77.80%
+VDOT (Ours)
+Wan-14B
+4
+57.99%
+96.75%
+50.00%
+69.16%
+98.60%
+95.79%
+78.05%
+VDOT++ (Ours)
+Wan-14B
+4
+58.53%
+96.58%
+50.00%
+67.51%
+98.72%
+95.72%
+77.84%
+Grey
+VACE [1]
+LTX-0.9B
+80
+58.63%
+95.65%
+55.00%
+59.93%
+98.89%
+92.39%
+76.75%
+VACE [1]
+Wan-14B
+100
+62.87%
+95.46%
+60.00%
+66.35%
+98.40%
+92.91%
+79.33%
+VDOT (Ours)
+Wan-14B
+4
+62.25%
+95.64%
+65.00%
+66.74%
+98.40%
+92.88%
+80.15%
+VDOT++ (Ours)
+Wan-14B
+4
+63.10%
+95.48%
+60.00%
+64.92%
+98.45%
+93.08%
+79.17%
+Extension
+VACE [1]
+LTX-0.9B
+80
+57.82%
+96.06%
+35.00%
+68.15%
+99.34%
+94.06%
+75.07%
+VACE [1]
+Wan-14B
+100
+61.34%
+95.05%
+60.00%
+69.55%
+98.75%
+92.83%
+79.59%
+VDOT (Ours)
+Wan-14B
+4
+61.25%
+95.94%
+45.00%
+70.01%
+99.04%
+93.86%
+77.52%
+VDOT++ (Ours)
+Wan-14B
+4
+60.54%
+94.44%
+70.00%
+68.68%
+98.67%
+92.53%
+80.81%
+Outpaint
+VACE [1]
+LTX-0.9B
+80
+56.98%
+96.47%
+45.00%
+69.39%
+99.17%
+95.50%
+77.08%
+VACE [1]
+Wan-14B
+100
+58.53%
+96.83%
+40.00%
+68.55%
+99.03%
+95.34%
+76.38%
+VDOT (Ours)
+Wan-14B
+4
+58.86%
+96.84%
+50.00%
+69.18%
+99.00%
+95.48%
+78.23%
+VDOT++ (Ours)
+Wan-14B
+4
+58.27%
+96.72%
+55.00%
+69.04%
+98.88%
+95.25%
+78.86%
+R2V
+VACE [1]
+LTX-0.9B
+80
+62.57%
+97.85%
+17.50%
+72.32%
+99.47%
+97.91%
+74.60%
+VACE [1]
+Wan-14B
+100
+65.99%
+98.77%
+15.00%
+71.19%
+99.38%
+98.67%
+74.83%
+VDOT (Ours)
+Wan-14B
+4
+65.47%
+98.58%
+20.00%
+71.94%
+99.32%
+98.48%
+75.63%
+VDOT++ (Ours)
+Wan-14B
+4
+66.51%
+97.83%
+37.50%
+70.90%
+99.00%
+97.43%
+78.20%

@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-04</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-06</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-04 22:28:45 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 01:14:33 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-10-04 日报完成：共筛出 17 篇论文，精读 6 篇、速读 11 篇，重点覆盖 VLA 与视频生成等方向。</p>
-<p>最值得看的是两篇 9.0 分精读：AeroManip-VLA 用 RL 生成示范做空中操作的可扩展 VLA 学习，以及 Rollout-Marginal Distillation 面向长时程自回归视频生成；速读中也有 VLA 加速评测基准缺陷的提醒。</p>
-<p>普通读者可先读这两篇精读的摘要与结论，再结合速读里的基准评测问题，判断 VLA 加速方案是否真“更快更好”。</p>
+<p>今日筛读18篇论文，精读7篇、速读11篇，焦点锁定视觉-语言-动作模型与视频生成评测。</p>
+<p>最值得看的是两篇9分精读《Quantile Head for Vision-Language-Action Models》和《World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models》，速读可顺带关注VTR-Bench、DiVid和ActiveWAM。</p>
+<p>普通读者建议先读这两篇VLA精读，再用VTR-Bench等速读文章补齐视频生成评测视角。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="AeroManip-VLA: Scalable Vision-Language-Action Learning for Aerial Manipulation with RL-Generated Demonstrations">AeroManip-VLA: Scalable Vision-Language-Action Learning for Aerial Manipulation with RL-Generated Demonstrations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Rollout-Marginal Distillation for Long-Horizon Autoregressive Video Generation">Rollout-Marginal Distillation for Long-Horizon Autoregressive Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="SemanTok: Predictable Semantic Tokens for Efficient Autoregressive Video Generation">SemanTok: Predictable Semantic Tokens for Efficient Autoregressive Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Quantile Head for Vision-Language-Action Models">Quantile Head for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models">World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="MixVLA: Adaptive Mixing of Non-Invariant Information for Generalizable Vision-Language-Action Models">MixVLA: Adaptive Mixing of Non-Invariant Information for Generalizable Vision-Language-Action Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,7 +89,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Faster and Better? Benchmark Bugs and Design Limitations Distort the Evaluation of Vision-Language-Action Acceleration">Faster and Better? Benchmark Bugs and Design Limitations Distort the Evaluation of Vision-Language-Action Acceleration</span></li><li><span class="dpr-home-dashboard-paper-title" title="In-Distribution Imagination for Model-Based Offline Reinforcement Learning">In-Distribution Imagination for Model-Based Offline Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Beyond Prediction: Steering VLM Agents with Retrospective World Modeling">Beyond Prediction: Steering VLM Agents with Retrospective World Modeling</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation">VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models">DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActiveWAM: Evidence-Aware Active Vision for World-Action Models">ActiveWAM: Evidence-Aware Active Vision for World-Action Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
