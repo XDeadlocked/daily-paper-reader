@@ -1,0 +1,1679 @@
+Title: Reachability-Aware Diffusion Policy Optimization
+
+URL Source: https://arxiv.org/pdf/2610.05969v1
+
+Published Time: Tue, 06 Oct 2026 02:33:05 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# REACHABILITY -A WARE DIFFUSION POLICY OPTI -
+
+# MIZATION 
+
+Hikmet Simsir ∗
+
+, Kutay Demiray ∗
+
+& Ozgur S. Oguz 
+
+Department of Computer Engineering, Bilkent University 
+
+{hikmet.simsir,kutay.demiray,ozgur.oguz }@bilkent.edu.tr 
+
+## ABSTRACT 
+
+Diffusion policies provide expressive action distributions for continuous-control reinforcement learning. However, safety-aware online diffusion policy optimiza-tion remains underexplored, particularly methods that use predictive reachability information without an explicit dynamics model. We propose Reachability-Aware Diffusion Policy Optimization (RADPO), a model-free method that combines pre-dictive first-hit safety estimation with cumulative-cost budget feedback. RADPO learns a discounted first-hit reachability value that captures the discounted risk of a cost event, assigns larger weight to events that occur sooner, and uses this signal to shape the reward. A separate dual-like multiplier adjusts the shaping strength according to realized episodic costs relative to a prescribed budget. The diffu-sion actor improves through weighted denoising regression on candidate actions scored by the reward critic. Our approach requires neither a learned dynamics model, action gradients through the critics, nor differentiation through the reverse diffusion sampler. We establish theoretical properties of the reachability value and show that accumulated reachability penalty provides a conservative surrogate for future discounted cumulative cost. Across ten continuous-control safety tasks, RADPO achieves competitive reward-cost trade-offs, with substantial reductions in constraint violations on several tasks relative to the compared baselines. Our theoretical and empirical analysis supports that combining reachability with cu-mulative budget feedback is a viable approach to safety-aware diffusion policies. 
+
+## 1 INTRODUCTION 
+
+A common formulation of safe reinforcement learning aims to maximize task performance while keeping expected cumulative safety cost below some budget (Achiam et al., 2017; Stooke et al., 2020). A central challenge is anticipating unsafe outcomes: an action may incur no immediate cost yet move the agent toward future violations. Cost critics address this by estimating accumulated future cost (Liu et al., 2022; Wu et al., 2024), which captures violation magnitude and repeated exposure but does not explicitly isolate when the first cost encounter occurs. Reachability-based safety estimation provides a complementary perspective by explicitly predicting future constraint violations (Yu et al., 2022; Ganai et al., 2023) instead. Discounted first-hit reachability captures whether a cost will be encountered while assigning greater weight to earlier encounters. We inves-tigate whether this predictive signal can guide policy improvement while cumulative-cost feedback separately regulates the safety budget. Diffusion policies provide expressive action distributions for continuous control (Wang et al., 2023; Chi et al., 2024) and can be optimized online through value-weighted denoising regression (Ma et al., 2025). However, most online diffusion-policy optimization methods focus on reward maximiza-tion (Yang et al., 2023; Psenka et al., 2024; Ren et al., 2024; Ma et al., 2025), while incorporating predictive safety information without an explicit dynamics model is relatively underexplored. We therefore propose Reachability-Aware Diffusion Policy Optimization (RADPO) , a model-free approach that combines discounted first-hit reachability with cumulative-cost budget feedback. RADPO learns a discounted first-hit reachability value and uses the predicted reachability of succes-sor states to shape the reward. An adaptive safety multiplier controls the shaping strength accord-
+
+> ∗Equal contribution.
+
+1arXiv:2610.05969v1 [cs.LG] 5 Oct 2026 −1.0 −0.5 0.0 0.5 1.0 1.5 2.0 X (m) −2.0 −1.5 −1.0 −0.5 0.0 0.5 1.0 1.5 Y (m) 
+
+> RADPO SAC-Lag RADPO (reward only) hazard vase goal start
+
+B RADPO training loop                                                                             
+
+> 1Reachability critic
+> 012τH
+> ⋯s′first cost
+> Vreach (s′) = [γτH
+> c] ∈ [0, 1]
+> likelihood and timing of the first cost
+> 4Safety multiplier
+> λ← Π [0, λmax ][λ+ηλ̂Jc−dd]
+> over budget,  ̂ Jc>d:λ↑
+> under budget,  ̂ Jc<d:λ↓̂
+> Jc: recent episodic cost
+> 2Shaped reward critic ̃
+> r=r−βλ V reach (s′)
+> yr=̃ r+γ(1 − dt)Q−
+> r(s′, a′)
+> penalty even when c= 0
+> 3Diffusion actor update
+> Kcandidates ai∼πθ(⋅ | s′) + noise
+> wi∝ exp( zi/τ),zi: normalized qi
+> π=[
+> 1
+> K
+> K
+> ∑
+> i= 1
+> wiℓdiff (θ;s′, ai)]
+> no ∇aQr, no sampler backprop
+> Vreach (s′)
+> λ
+> qi= min jQr,j(s′, ai)
+> replay buffer :(s,a,r,c,s′, dt)̂Jc
+> act online with πθ
+
+A Paths on PointGoal1 Figure 1: (A) Evaluation paths obtained from fully trained policies on the same fixed PointGoal1 layout. See Figure 6 for clearance distribution of these paths. (B) Illustrative diagram for the RADPO algorithm. ing to realized episodic costs relative to the prescribed budget, preserving information about cost magnitudes and repeated violations. The diffusion actor then improves through weighted denoising regression on candidate actions scored by the reward critic. This requires neither a learned dynamics model, action gradients through the critics, nor differentiation through the reverse diffusion sampler. This mechanism guides learning toward safer behavior. Figure 1.A illustrates this behavior in a nav-igation scenario. SAC-Lag follows a greedier path close to the hazard boundaries and occasionally enters them, whereas RADPO takes a more conservative route with greater clearance. Our main contributions are: • We introduce RADPO, a novel algorithm that combines discounted first-hit reachability with cumulative-cost budget feedback and integrates these signals into online diffusion policy optimization through value-weighted denoising regression. • We provide theoretical results for the discounted reachability value, including its first-hit interpretation and bounds relating accumulated reachability to discounted cumulative cost and repeated cost exposure. We further establish finite-candidate mirror-descent guarantees and analyze the safety-multiplier controller’s response to observed budget violations. • We evaluate RADPO on ten continuous-control safety tasks, showing competitive reward– cost trade-offs and substantial reductions in constraint violations on several tasks relative to the compared baselines, complemented by design ablations. 
+
+## 2 RELATED WORK 
+
+Constrained reinforcement learning. Safe reinforcement learning is commonly formulated us-ing constrained Markov decision processes (CMDPs), where expected return is maximized subject to cumulative-cost constraints. Some methods (Achiam et al., 2017; Yang et al., 2020; Zhang et al., 2020; Liu et al., 2022; Milosevic et al., 2025) enforce these constraints through constrained or trust-region policy updates, while primal-dual approaches (Tessler et al., 2018; Stooke et al., 2020; Wu et al., 2024) adapt Lagrange multipliers according to observed constraint violations. Beyond chang-ing the policy update itself, other works modify the learned safety signal used by the optimizer; for example, USPC (Demiray et al., 2026) replaces standard cost estimates with uncertainty-aware conservative safety surrogates. RADPO follows a similar approach, but instead introduces a distinct predictive reachability value alongside the cumulative-cost signal: episodic costs adapt the safety multiplier, while reachability shapes the reward used for policy improvement. 
+
+Reachability-based safety and control. Reachability analysis attempts to determine whether tar-get or unsafe sets can be reached under a dynamical system. Classical Hamilton-Jacobi (HJ) meth-ods compute backward reachable or viable sets from known dynamics (Mitchell et al., 2005; Bansal 2et al., 2017), with subsequent work connecting reachability analysis to learning-based control and reinforcement learning (Fisac et al., 2018; Akametalu et al., 2024; Li et al., 2025). More recently, 
+
+λ-Reachability (Chen et al., 2026) introduces geometric-horizon Bellman targets that interpolate be-tween discounted local updates and long-horizon max-over-trajectory safety values. In model-free safe RL, RCRL (Yu et al., 2022) learns a reachability-based safety value to characterize feasible states, while RESPO (Ganai et al., 2023) extends this idea to stochastic systems using a learned esti-mate of future constraint violation. RADPO instead targets a policy-conditional discounted first-hit cost value, assigning greater weight to violations occurring sooner. This predictive signal shapes the reward, while cumulative episodic cost is handled separately through budget feedback. 
+
+Online diffusion policy optimization. Several recent methods optimize diffusion policies using online reinforcement learning. DIPO (Yang et al., 2023) and Q-Score Matching (Psenka et al., 2024) use critic gradients to improve actions or policy scores, respectively. Other approaches optimize a Q-weighted variational objective (Ding et al., 2024), backpropagate critic gradients through the diffusion sampling process (Wang et al., 2024), or apply PPO-style policy-gradient optimization to the denoising process (Ren et al., 2024; Zou et al., 2026; Liu et al., 2026). Most closely related to RADPO, DPMD (Ma et al., 2025) derives diffusion-policy improvement from policy mirror descent using value-weighted denoising regression, avoiding both critic action gradients and differentiation through the reverse sampler. RADPO builds on this policy-improvement mechanism but evaluates candidate actions using a reward critic learned from rewards shaped by predictive reachability and an adaptive safety multiplier. 
+
+Constrained and safety-aware diffusion policies. Safety and constraints have also been incor-porated into diffusion-based decision making. Offline methods use cost-conditioned or feasibility-guided trajectory generation (Lin et al., 2024; Zheng et al., 2024), while barrier- and constraint-guided planners incorporate safety directly into diffusion sampling or denoising (Xiao et al., 2025; Mizuta & Leung, 2024; Zhang et al., 2025). In the online setting, ALGD (Cheng et al., 2026) uses an augmented-Lagrangian energy to guide diffusion-policy optimization under safety costs. Beyond en-vironmental safety, diffusion policies have also been subject to behavior- or trust-region constraints that limit deviation during offline or online optimization (Gao et al., 2025; Le et al., 2026; Simsir & Oguz, 2026). RADPO instead combines fully online model-free diffusion-policy learning with a policy-conditional first-hit signal, separate episodic budget feedback, and value-weighted denoising without critic gradients or reverse-sampler differentiation. 
+
+## 3 PRELIMINARIES 
+
+Constrained Markov Decision Processes We consider a CMDP with states s ∈ S , actions a ∈ A ,transition kernel P , reward r, nonnegative cost c, and initial-state distribution ρ0. For a policy π,reward discount γ ∈ [0 , 1) , and episode length T , define 
+
+Jr (π) = Eπ
+
+"T −1X
+
+> t=0
+
+γtrt
+
+#
+
+, Jc(π) = Eπ
+
+"T −1X
+
+> t=0
+
+ct
+
+#
+
+. (1) The objective is to maximize Jr (π) subject to Jc(π) ≤ d, where d > 0 is the episodic budget. A Lagrangian formulation uses J (π, λ ) = Jr (π) − λ Jc(π) − d, λ ≥ 0. RADPO instead uses an adaptive safety multiplier to scale predictive reward shaping, instead of directly optimizing J (π, λ ).
+
+Diffusion Policies and Policy Mirror Descent A diffusion policy πθ (a | s) generates actions through iterative denoising (Ho et al., 2020). We denote its state-conditioned denoising loss by 
+
+ℓdiff (θ; s, a ). Let Q(s, a ) denote the action-value function used for policy improvement. For a reference policy πold , KL-regularized πMD (a | s) = πold (a|s) exp( Q(s,a )/τ ) 
+
+> Z(s)
+
+, where τ > 0 is the temperature and Z(s) = Ea∼πold [exp( Q(s, a )/τ )] . This update motivates value-weighted denoising regression (Ma et al., 2025): 
+
+LMD (θ) = E s∼μa∼πold (·| s)
+
+ exp( Q(s, a )/τ )
+
+Z(s) ℓdiff (θ; s, a )
+
+
+
+, (2) where μ is the state-sampling distribution. Actions and weights are detached during regression, avoiding differentiation through critics or the reverse diffusion sampler. 3Discounted Cost Reachability Define the binary cost indicator ht = 1{ct > 0}. For a fixed policy π and discount γc ∈ [0 , 1) , discounted first-hit reachability satisfies 
+
+V π
+
+> reach
+
+(st) = Eπ [ht + (1 − ht)(1 − dt)γcV π
+
+> reach
+
+(st+1 ) | st] , (3) where dt indicates termination and terminal values are zero. This value weights the first future cost by γc raised to its arrival time, with zero contribution if no cost occurs before termination. It therefore captures both cost likelihood and timing, while remaining distinct from Jc, which counts cost magnitudes and repeated violations. 
+
+## 4 REACHABILITY -A WARE DIFFUSION POLICY OPTIMIZATION 
+
+RADPO combines predictive safety shaping with value-weighted diffusion policy optimization. A learned reachability critic predicts future cost exposure, while an adaptive safety multiplier controls the shaped penalty strength using realized episodic costs. The diffusion actor learns from candidates scored by the resulting reward critic. We describe these components below and describe some theoretical properties. All proofs for theoretical results are provided in Appendix A. A simplified illustrative diagram is available in Figure 1.B and the full pseudocode is available in Appendix F.2. 4.1 PREDICTIVE SAFETY SHAPING 
+
+Standard cost critics propagate future violations backward through Bellman updates, thus safe states leading to unsafe outcomes can already receive high predicted cost. However, cumulative cost does not explicitly distinguish how soon the next cost may be incurred. RADPO instead shapes the reward using discounted first-hit reachability, which is higher when constraint violation is more likely or expected to occur sooner. Repeatedly applying this penalty along the trajectory can thus discourage behavior that approaches violations, even when the immediate cost is zero. We learn an ensemble of bounded reachability critics Vreach,m (s) ∈ [0 , 1] , m = 1 , . . . , M . For a replay transition (st, a t, r t, c t, s t+1 , d t), each head minimizes binary cross entropy against the target 
+
+yct,m = ht + (1 − ht)(1 − dt)γcV −
+
+> reach,m
+
+(st+1 ), (4) where V − 
+
+> reach,m
+
+denotes its target network and ht = 1{ct > 0}. The following proposition describes the exact fixed-policy value counterpart of this update. 
+
+Proposition 1 (First-hit interpretation) . Fix a stationary policy π and 0 < γ c < 1. Let 
+
+τH = inf {k ≥ 0 : hk = 1 }, inf ∅ := ∞,
+
+and let τend ∈ N ∪ {∞} denote the number of transitions before termination, with τend = ∞
+
+for a nonterminating trajectory. Then the unique bounded fixed point of Equation 3 satisfies 0 ≤
+
+V π
+
+> reach
+
+(s) ≤ 1 and is 
+
+V π
+
+> reach
+
+(s) = Eπs [γτH 
+
+> c
+
+1{τH < τ end }] . (5) Proposition 1 shows that discounted first-hit reachability combines the likelihood and timing of a future constraint violation. A smaller value can reflect either a lower violation probability or a more distant violation. The proof is given in Appendix A.1. The shaping signal uses the online ensemble mean Vreach (s) = 1
+
+> M
+
+PMm=1 Vreach,m (s):
+
+ert = rt − βλV reach (st+1 ), (6) where β > 0 is a fixed shaping coefficient, and λ ≥ 0 is the adaptive safety multiplier (Sec. 4.3). Twin reward critics are trained against 
+
+yrt = ert + (1 − dt)γQ − 
+
+> r
+
+(st+1 , a t+1 ), (7) where Q− 
+
+> r
+
+(s, a ) = min j∈{ 1,2} Q− 
+
+> r,j
+
+(s, a ) and at+1 denotes the bootstrap action. The actor uses no separate cost term in its reweighting logits; safety is incorporated through the shaped reward. 4Relation to cumulative cost. To understand how reachability shaping relates to the original safety objective, consider exact evaluation under a fixed policy π. Define accumulated reachability and discounted cumulative cost: 
+
+Gπγ,γ c (s, a ) = Eπs,a 
+
+X
+
+> k≥0
+
+γkV π
+
+> reach
+
+(St+k+1 )
+
+ , Q π,δ c (s, a ) = Eπs,a 
+
+X
+
+> k≥0
+
+δkct+k
+
+ , 0 < δ < 1, (8) with zero continuation after termination. 
+
+Theorem 1 (Conservative cumulative-cost surrogate) . Assume 0 ≤ ct ≤ cmax ht, with cmax > 0,and δ ≤ γ < 1. Then 
+
+Qπ,δ c (s, a ) ≤ E[ct | s, a ] + cmax δG πγ,γ c (s, a ). (9) 
+
+If ct = 0 almost surely for the initial (s, a ), then 
+
+Gπγ,γ c (s, a ) ≥ Qπ,δ c (s, a )
+
+cmax δ . (10) Theorem 1 shows that, after separating the immediate cost, the accumulated reachability signal provides a conservative surrogate for future discounted cumulative cost: a large future cost must be accompanied by a correspondingly large accumulated reachability penalty, up to a fixed factor. When ct = 0 , we obtain a bound relating Gπγ,γ c with Qπ,δ c . Consequently, reachability can also assign predictive penalties to safe predecessor states before the cost is incurred. The proof is in Appendix A.2. Each reachability value depends only on the first subsequent cost, but RADPO applies this signal repeatedly along the trajectory. To show how this relates to repeated cost exposure, let 
+
+Dπ, + 
+
+> h
+
+(s, a ) = Eπs,a 
+
+X
+
+> k≥1
+
+γk−1ht+k
+
+ . (11) 
+
+Corollary 1 (Repeated cost exposure) . If 0 ≤ γc < γ < 1, then 
+
+Dπ, + 
+
+> h
+
+(s, a ) ≤ Gπγ,γ c (s, a ) ≤ Dπ, + 
+
+> h
+
+(s, a )1 − γc/γ . (12) Corollary 1 shows that accumulated reachability is bounded above and below by discounted repeated cost exposure, up to a fixed scaling factor. Thus, although each reachability value is first-hit, repeat-edly applying it preserves sensitivity to multiple future violations. Its proof is in Appendix A.3. 4.2 DIFFUSION POLICY IMPROVEMENT BY CANDIDATE REWEIGHTING 
+
+Critic regression uses replay state-action pairs, whereas actor targets are generated at replay next states s′. For each s′, we sample K candidates ¯ai ∼ πθ (· | s′) and perturb them before scoring, i.e. ai = Π A(¯ ai + ϵi), ϵ i ∼ N (0 , σ 2exp I), where ΠA clips actions to their bounds. The exploration scale is σexp = σ0 exp( ξ), with fixed σ0 and a learned log-scale ξ adapted toward a target Gaussian entropy. Candidates receive scores qi = min j∈{ 1,2} Qr,j (s′, a i). Let ¯q = 1
+
+> K
+
+P 
+
+> i
+
+qi and σ = max( σA, 10 −6),where σA is the advantage-normalization scale. We center, normalize, and clip the scores: zi =clip   qi−¯qσ , −3, 3 , bAi = zi/τ, where τ > 0 controls the reweighting strength. The regression weights are wi = K exp( bAi)    
+
+> P
+> jexp( bAj)
+
+, 1
+
+> K
+
+P 
+
+> i
+
+wi = 1 . The actor minimizes the weighted denoising objec-tive 
+
+Lπ (θ) = E
+
+"
+
+1
+
+K
+
+> K
+
+X
+
+> i=1
+
+wi ℓdiff (θ; s′, a i)
+
+#
+
+, (13) where the expectation covers replay successor states and candidate generation. Candidates and weights are detached, thus the update requires neither action gradients through critics nor differen-tiation through the reverse diffusion sampler. 5Finite-candidate improvement. Building on the policy-mirror-descent interpretation underlying DPMD (Ma et al., 2025), we describe the finite-candidate reweighting used by RADPO. Although the subsequent diffusion regression is approximate, candidate reweighting step itself admits a mirror-descent interpretation over the sampled actions. 
+
+Theorem 2 (Finite-candidate mirror descent) . For a fixed candidate set, let pi = wi/K , ui = 1 /K ,and let ∆K denote the probability simplex. Then 
+
+p = arg max 
+
+> v∈∆K
+
+(X
+
+> i
+
+vizi − τ D KL (v∥u)
+
+)
+
+. (14) 
+
+Moreover, X
+
+> i
+
+piqi − 1
+
+K
+
+X
+
+> i
+
+qi ≥ τ σ [DKL (p∥u) + DKL (u∥p)] ≥ 0. (15) Theorem 2 shows that the weights implement a KL-regularized mirror-descent update over the sam-pled candidates, starting from uniform weights. Moreover, despite normalization and clipping of the scores used to compute the weights, reweighted candidates cannot have a lower mean reward-critic score than the original candidate set. Safety affects this improvement through the reward critic, which is trained on the reachability-shaped reward. The proof is given in Appendix A.4. 4.3 ADAPTIVE SAFETY MULTIPLIER 
+
+The reachability signal predicts first-hit cost exposure, while the safety-multiplier controller uses the original undiscounted episodic costs, including their magnitudes and repeated violations. Let bJc
+
+denote a recent-window estimate of episodic cost constructed from completed training episodes, as detailed in Appendix F.1. The safety multiplier follows the projected update 
+
+λ ← Π[0 ,λ max ]
+
+"
+
+λ + ηλ
+
+bJc − dd
+
+#
+
+, (16) where ηλ > 0 is the controller step size. The multiplier increases when observed cost exceeds the budget and decreases below budget, subject to projection. 
+
+Budget-tracking property. The controller admits a pathwise bound on the average episodic-cost statistic supplied to it, without requiring convergence of the actor or critics. 
+
+Proposition 2 (Average observed-budget tracking) . Let λ0 ∈ [0 , λ max ] and let bJc,j denote the controller statistic at safety-multiplier update j. If upper clipping remains inactive for the first N
+
+updates, then 
+
+1
+
+N 
+
+> N−1
+
+X
+
+> j=0
+
+bJc,j ≤ d + d(λmax − λ0)
+
+ηλN . (17) 
+
+If upper clipping remains inactive for all updates, then 
+
+lim sup  
+
+> N→∞
+
+1
+
+N 
+
+> N−1
+
+X
+
+> j=0
+
+bJc,j ≤ d. (18) Proposition 2 shows that, as long as the upper bound is not active, sustained average budget viola-tions cannot persist: the average controller statistic exceeds d by at most an O(1 /N ) term and is asymptotically no greater than d. Note that this result applies only to the statistic supplied to the controller and does not imply per-policy or per-episode feasibility. The proof and the corresponding bound when upper clipping occurs are given in Appendix A.5. 
+
+## 5 EXPERIMENTS 
+
+5.1 EXPERIMENTAL SETUP 
+
+We evaluate RADPO on ten continuous-control safety tasks in Safety Gymnasium (Ji et al., 2024) against CAL (Wu et al., 2024), SAC-Lag, PPO-Lag, RESPO (Ganai et al., 2023), ALGD (Cheng 6020 40                                  
+
+> Training return
+> CarCircle1
+> −20 020
+> CarGoal1
+> 050 100
+> PointCircle1
+> 020
+> PointGoal1
+> 01M 2M 3M 050 100
+> Training cost
+> 01M 2M 3M 020 40 60
+> 01M 2M 3M 050 100 150
+> 01M 2M 3M 020 40 60
+> 02000 4000 6000
+> Training return
+> Ant
+> 05000 10000
+> HalfCheetah
+> 01000 2000 3000 Hopper
+> 02000 4000 6000
+> Humanoid
+> −50 050 100
+> Swimmer
+> 01000 2000 3000
+> Walker2d
+> 0500k 1M 050 100 150
+> Training cost
+> 0500k 1M 050 100
+> 0500k 1M 025 50 75
+> 01M 2M 3M 020 40 60
+> 0500k 1M 020 40
+> 0500k 1M 020 40
+> Environment steps Environment steps
+> RADPO RESPO ALGD CAL SAC-Lag PPO-Lag RADPO reward-only budget d = 25
+
+Figure 2: Training performance across ten continuous-control safety tasks. Episodic return (top rows) and episodic cost (bottom rows) for RADPO and baseline methods. Curves show empirical means across six random seeds; shaded regions denote one standard deviation. Dashed horizontal lines indicate the safety budget d = 25 .et al., 2026) 1 and an unconstrained reward-only RADPO ablation. The experimental protocol eval-uates six random seeds per configuration. The episodic cost budget is set to d = 25 , except for RESPO, which still enforces a zero-cost threshold by its formulation but is included as a hard-safety baseline. We report the mean and standard deviation of episodic return and episodic cost across seeds. The full list of hyperparameters is available in Appendix H. 5.2 MAIN RESULTS 
+
+Figure 2 shows that RADPO substantially reduces constraint violations relative to reward-only RADPO while maintaining competitive returns, especially on the navigation tasks. The reward-only variant attains high returns but generally incurs severe constraint violations. Figure 3 summarizes the corresponding late-training reward–cost trade-offs. RADPO achieves both higher mean return and lower mean cost than the evaluated baselines on the two Circle tasks, and the highest mean return on both Goal tasks. On the Velocity tasks, RADPO is non-dominated on HalfCheetah, Hu-manoid, Swimmer, and Walker2d, while baselines attain better operating points on Ant and Hopper. Overall, RADPO provides favorable trade-offs across most evaluated tasks. 5.3 ABLATION STUDIES 
+
+We investigate two key design decisions in adapting diffusion policies to safe reinforcement learn-ing: the choice of safety signal and the structural placement of the safety penalty. Using CarGoal1, PointCircle1, and HalfCheetah, we compare RADPO against three ablations: (1) replacing reach-ability estimation with a standard discounted cost critic, (2) applying cost-only reward shaping, and (3) enforcing a Lagrangian safety penalty directly within candidate action weights. Additional ablation studies for hyperparameter values are available in Appendix C. 
+
+> 1
+
+We compare against ALGD using the authors’ released code, which includes Lagrangian energy itself as an auxiliary loss term not described in the paper. Removing it prevents useful learning in our reproduction, therefore we report the released implementation and note this discrepancy. 
+
+70 20 40 20 30 40                 
+
+> Training return
+> CarCircle1
+> d = 25
+> 20 40 10 20 30
+> CarGoal1
+> d = 25
+> 020 40 60 80 100
+> PointCircle1
+> d = 25
+> 20 40 60 0510 15 20 25
+> PointGoal1
+> d = 25
+> 050 1000 2000 3000
+> Training return
+> Ant
+> d = 25
+> 020 1500 2000 2500 3000
+> HalfCheetah
+> d = 25
+> 050 750 1000 1250 1500 1750 2000 Hopper
+> d = 25
+> 050 1000 2000 3000 4000 5000 6000
+> Humanoid
+> d = 25
+> 020 010 20 30 40 50
+> Swimmer
+> d = 25
+> 025 1000 2000 3000
+> Walker2d
+> d = 25
+> Training cost Training cost
+> RADPO RESPO ALGD CAL SAC-Lag PPO-Lag
+
+Figure 3: Late-training return versus safety cost. Markers indicate mean performance across seeds, computed over the final ten logged training points per run. Error bars represent one standard deviation across seed averages. Optimal performance lies toward the top-left quadrant (high return, low cost). Vertical dashed lines denote the budget d = 25 and the shaded region is infeasible. 0 500k 1M 1.5M 2M 2.5M 3M −10 010 20 30                                          
+
+> Training return
+> CarGoal1
+> 0500k 1M 1.5M 2M 2.5M 3M 25 50 75 100 125
+> PointCircle1
+> 0200k 400k 600k 800k 1M 02000 4000 6000 8000
+> HalfCheetah
+> 0500k 1M 1.5M 2M 2.5M 3M
+> Environment steps
+> 20 40 60 80
+> Training cost
+> 0500k 1M 1.5M 2M 2.5M 3M
+> Environment steps
+> 0200 400 600 800
+> 1M 1.5M 2M 2.5M 3M 020 40
+> 0200k 400k 600k 800k 1M
+> Environment steps
+> 0200 400 600 800 1000
+> 400k 600k 800k 1M 020 40
+> RADPO discounted critic cost-only shaping lag-style shaping budget d= 25
+
+Figure 4: Ablations on safety-signal formulation and penalty placement. Training return (top) and episodic cost (bottom). Curves depict means across evaluated seeds with one standard deviation shaded. Solid lines show smoothing over raw trajectories (faint curves). Inset axes provide magni-fied views around the cost budget d = 25 .
+
+Safety-signal formulation. On CarGoal1, RADPO recovers target task returns while maintain-ing asymptotic costs close to the constraint boundary. Cost-only shaping yields higher returns but consistently breaches the safety limit, whereas discounted cost estimates result in worse returns and elevated violation rates. On PointCircle1, all three variants reach comparable asymptotic returns, but RADPO maintains lower late-training violation rates. On HalfCheetah, RADPO enforces the most conservative behavior, achieving the lowest cost among all variants at the expense of peak re-turn. These results indicate that predictive reachability shaping offers an effective middle ground on obstacle avoidance tasks and robust constraint satisfaction in high-dimensional locomotion. 
+
+Penalty placement in diffusion optimization. Penalizing candidate action weights directly via Lagrangian multipliers causes severe optimization instability: returns plummet sharply before par-tially recovering on CarGoal1, and drop permanently on PointCircle1. In contrast, incorporating safety into reward shaping stabilizes policy learning, yielding superior returns and tighter constraint 8adherence across both domains. On HalfCheetah, candidate-weight penalization preserves higher returns while operating near the constraint boundary. 
+
+## 6 DISCUSSION 
+
+Reachability interpretation. RADPO uses reachability as a policy-conditional prediction of cost exposure rather than as a certificate that costs can be avoided under an optimal controller. Proposi-tion 1 shows that the value combines the probability of a positive-cost event with the timing of its first occurrence. Consequently, a smaller value can indicate either a less likely or a later violation, and should not be interpreted as an undiscounted violation probability. The discount γc controls this temporal emphasis. RADPO therefore uses reachability as a predictive learning signal rather than as a safety certificate, since such guarantees would generally require additional assumptions in the model-free setting. 
+
+Separating reachability and budget feedback. A first-hit value does not encode violation sever-ity or the number of subsequent violations, hence it cannot directly represent an episodic cost budget. RADPO instead uses the original episodic costs to adapt λ, while reachability determines the predic-tive penalty used to shape the reward. Repeated shaping nevertheless remains sensitive to repeated exposure: Equation 21 decomposes accumulated reachability into discounted cost exposure and an additional nonnegative predictive term assigned to safe predecessor states. Theorem 1 and Corol-lary 1 further relate this accumulated signal to cumulative cost and repeated violations under exact policy evaluation. Budget feedback adjusts the strength of this surrogate but does not recover the cost-magnitude information discarded by binarization. Because λ is updated from episodic cost but scales a reachability-based surrogate, it acts as a feedback multiplier rather than as a standard dual variable for the actor’s objective. 
+
+Constraint structure and predictive reachability. We expect reachability shaping to be most useful when violations can be anticipated and avoided before cost is incurred, as in localized obstacle avoidance. In such settings, first-hit risk can distinguish trajectories that approach costs from those that maintain greater clearance, even when both have low immediate cost. The behavior in Figure 1 is consistent with this interpretation. Its benefit may diminish when unsafe behavior persists for many steps, thus cumulative cost already provides a strong signal, or when safety directly conflicts with reward. The stronger CarGoal1 benefit and the smaller HalfCheetah effect in Figure 4 are consistent with this hypothesis. 
+
+Limitations. Our theoretical analysis establishes properties of individual RADPO components rather than an end-to-end feasibility result. Such a result would require stronger assumptions, for ex-ample on function approximation, data coverage, and optimization convergence, than we make here for RADPO. In particular, the reachability analysis assumes exact fixed-policy evaluation, whereas the implemented state-only reachability critic is deliberately trained from replay for off-policy data reuse, so its population target reflects the replay behavior mixture rather than exactly the current policy. Likewise, the candidate-improvement guarantee applies before approximate diffusion re-gression, and the multiplier bound applies only to the observed cost statistic. Reachability remains a surrogate rather than an exact representation of the CMDP cost. Successor-state shaping does not directly penalize the current transition cost, and first-hit shaping changes the temporal weighting of violations. For nonbinary costs, ht = 1{ct > 0} also discards magnitude information, although per-step costs are binary in all ten tasks considered here. Finally, budget regulation is indirect: episodic cost adjusts λ, which scales reachability shaping and influences the policy only through subsequent critic and actor updates. Transient violations and sensitivity to the controller timescale or multiplier cap can therefore still occur, as in primal-dual methods. 
+
+## 7 CONCLUSION 
+
+We introduced Reachability-Aware Diffusion Policy Optimization (RADPO), a model-free approach to the relatively unexplored setting of safe online diffusion-policy optimization under cumulative-cost constraints. RADPO combines predictive first-hit reachability with episodic budget feedback, 9while retaining candidate reweighting without dynamics models, critic action gradients, or reverse-process differentiation. Our theoretical analysis relates accumulated reachability to cumulative cost and repeated violations, and our experiments show substantial reductions in constraint violations on several tasks while maintaining competitive returns. AI U SE STATEMENT 
+
+We used Generative AI tools to assist with parts of the conceptual and methodological development, mathematical claim formulation and refinement, and proof development and writing, as well as with experimental-design feedback and software implementation and debugging. In addition, they were used for literature search and summarization, manuscript drafting, and editing for typos, clarity and structure. AI tools were not used to propose or refine research hypotheses, interpret experimental results, generate, clean, or reformat datasets, perform translation, or conduct qualitative or thematic data analysis. All AI-assisted content, including mathematical arguments, code, and citations, was reviewed and verified by the authors. We take responsibility for the final content of our work. REPRODUCIBILITY STATEMENT 
+
+Complete proofs of the theoretical results are provided in Appendix A. Task definitions are given in Appendix B, algorithmic and implementation details in Appendix F, and the complete experimental protocols, hyperparameters, baseline adaptations, and ablation configurations in Appendix H. We additionally provide the code used for the experiments as supplementary material. 10 REFERENCES 
+
+Joshua Achiam, David Held, Aviv Tamar, and Pieter Abbeel. Constrained policy optimization, 2017. URL https://arxiv.org/abs/1705.10528 .Anayo K. Akametalu, Shromona Ghosh, Jaime F. Fisac, Vicenc Rubies-Royo, and Claire J. Tomlin. A minimum discounted reward hamilton-jacobi formulation for computing reachable sets. IEEE Transactions on Automatic Control , 69(2):1097–1103, February 2024. ISSN 0018-9286. doi: 10.1109/TAC.2023.3327159. Publisher Copyright: © 1963-2012 IEEE. Somil Bansal, Mo Chen, Sylvia Herbert, and Claire J. Tomlin. Hamilton-jacobi reachability: A brief overview and recent advances, 2017. URL https://arxiv.org/abs/1709.07523 .Rui Chen, Shangtao Li, Yifan Sun, and Changliu Liu. λ-reachability: Geometric-horizon safety bell-man equations for humanoid safety, 2026. URL https://arxiv.org/abs/2606.16022 .Xiaoyuan Cheng, Wenxuan Yuan, Boyang Li, Yuanchao Xu, Yiming Yang, Hao Liang, Bei Peng, Robert Loftin, Zhuo Sun, and Yukun Hu. How does the lagrangian guide safe reinforcement learning through diffusion models? In Forty-third International Conference on Machine Learn-ing , 2026. URL https://openreview.net/forum?id=mK3xWE7p2T .Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion, 2024. URL 
+
+https://arxiv.org/abs/2303.04137 .Kutay Demiray, Efe Eren Ceyani, and Ozgur S. Oguz. Uncertainty-aware safety propagation critics for safe reinforcement learning. Transactions on Machine Learning Research , 2026. ISSN 2835-8856. URL https://openreview.net/forum?id=b8GWqgLEHh .Shutong Ding, Ke Hu, Zhenhao Zhang, Kan Ren, Weinan Zhang, Jingyi Yu, Jingya Wang, and Ye Shi. Diffusion-based reinforcement learning via q-weighted variational policy optimization. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. URL 
+
+https://arxiv.org/abs/2405.16173 .Jaime F. Fisac, Anayo K. Akametalu, Melanie N. Zeilinger, Shahab Kaynama, Jeremy Gillula, and Claire J. Tomlin. A general safety framework for learning-based control in uncertain robotic systems, 2018. URL https://arxiv.org/abs/1705.01292 .Milan Ganai, Zheng Gong, Chenning Yu, Sylvia Herbert, and Sicun Gao. Iterative reachability estimation for safe reinforcement learning, 2023. URL https://arxiv.org/abs/2309. 13528 .Chen-Xiao Gao, Chenyang Wu, Mingjun Cao, Chenjun Xiao, Yang Yu, and Zongzhang Zhang. Behavior-regularized diffusion policy optimization for offline reinforcement learning, 2025. URL 
+
+https://arxiv.org/abs/2502.04778 .Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. arXiv preprint arxiv:2006.11239 , 2020. Jiaming Ji, Borong Zhang, Jiayi Zhou, Xuehai Pan, Weidong Huang, Ruiyang Sun, Yiran Geng, Yifan Zhong, Juntao Dai, and Yaodong Yang. Safety-gymnasium: A unified safe reinforcement learning benchmark, 2024. URL https://arxiv.org/abs/2310.12567 .Huy Le, Onur Celik, Denis Blessing, Tai Hoang, Claas A Voelcker, Axel Brunnbauer, Felix Richter, Michael Volpp, and Gerhard Neumann. Trust-region diffusion policies for massively parallel on-policy RL. In Forty-third International Conference on Machine Learning , 2026. URL https: //openreview.net/forum?id=mGu2fs7kJt .Jiaxing Li, Hanjiang Hu, Yujie Yang, and Changliu Liu. Verifiable safety q-filters via hamilton-jacobi reachability and multiplicative q-networks, 2025. URL https://arxiv.org/abs/ 2506.15693 .Qian Lin, Bo Tang, Zifan Wu, Chao Yu, Shangqin Mao, Qianlong Xie, Xingxing Wang, and Dong Wang. Safe offline reinforcement learning with real-time budget constraints, 2024. URL https: //arxiv.org/abs/2306.00603 .11 Ben Liu, Shunpeng Yang, and Hua Chen. Diffusion policy through conditional proximal policy optimization, 2026. URL https://openreview.net/forum?id=sOSdvn2sM2 .Zuxin Liu, Zhepeng Cen, Vladislav Isenbaev, Wei Liu, Zhiwei Steven Wu, Bo Li, and Ding Zhao. Constrained variational policy optimization for safe reinforcement learning, 2022. URL https: //arxiv.org/abs/2201.11927 .Haitong Ma, Tianyi Chen, Kai Wang, Na Li, and Bo Dai. Efficient online reinforcement learning for diffusion policy. arXiv preprint arXiv:2502.00361 , 2025. Nikola Milosevic, Johannes M¨ uller, and Nico Scherf. Embedding safety into RL: A new take on trust region methods. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id=4zRb89SbzG .I.M. Mitchell, A.M. Bayen, and C.J. Tomlin. A time-dependent hamilton-jacobi formulation of reachable sets for continuous dynamic games. IEEE Transactions on Automatic Control , 50(7): 947–957, 2005. doi: 10.1109/TAC.2005.851439. Kazuki Mizuta and Karen Leung. Cobl-diffusion: Diffusion-based conditional robot planning in dynamic environments using control barrier and lyapunov functions. In IEEE/RSJ International Conference on Intelligent Robots and Systems , 2024. Michael Psenka, Alejandro Escontrela, Pieter Abbeel, and Yi Ma. Learning a diffusion model policy from rewards via q-score matching. In Proceedings of the 41st International Conference on Machine Learning , 2024. Allen Z. Ren, Justin Lidard, Lars L. Ankile, Anthony Simeonov, Pulkit Agrawal, Anirudha Majum-dar, Benjamin Burchfiel, Hongkai Dai, and Max Simchowitz. Diffusion policy policy optimiza-tion. In arXiv preprint arXiv:2409.00588 , 2024. Hikmet Simsir and Ozgur S. Oguz. Lagrangian perturbation diffusion steering: Latent reinforcement learning for generative policies, 2026. URL https://arxiv.org/abs/2606.01151 .Adam Stooke, Joshua Achiam, and Pieter Abbeel. Responsive safety in reinforcement learning by pid lagrangian methods, 2020. URL https://arxiv.org/abs/2007.03964 .Chen Tessler, Daniel J. Mankowitz, and Shie Mannor. Reward constrained policy optimization, 2018. URL https://arxiv.org/abs/1805.11074 .Yinuo Wang, Likun Wang, Yuxuan Jiang, Wenjun Zou, Tong Liu, Xujie Song, Wenxuan Wang, Liming Xiao, Jiang Wu, Jingliang Duan, et al. Diffusion actor-critic with entropy regulator. 
+
+Advances in Neural Information Processing Systems , 37:54183–54204, 2024. Zhendong Wang, Jonathan J Hunt, and Mingyuan Zhou. Diffusion policies as an expressive policy class for offline reinforcement learning. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=AHvFDPi-FA .Zifan Wu, Bo Tang, Qian Lin, Chao Yu, Shangqin Mao, Qianlong Xie, Xingxing Wang, and Dong Wang. Off-policy primal-dual safe reinforcement learning. In The Twelfth International Confer-ence on Learning Representations , 2024. URL https://openreview.net/forum?id= vy42bYs1Wo .Wei Xiao, Tsun-Hsuan Wang, Chuang Gan, Ramin Hasani, Mathias Lechner, and Daniela Rus. Safediffuser: Safe planning with diffusion probabilistic models. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum? id=ig2wk7kK9J .Long Yang, Zhixiong Huang, Fenghao Lei, Yucun Zhong, Yiming Yang, Cong Fang, Shiting Wen, Binbin Zhou, and Zhouchen Lin. Policy representation via diffusion probability model for rein-forcement learning, 2023. URL https://arxiv.org/abs/2305.13122 .Tsung-Yen Yang, Justinian Rosca, Karthik Narasimhan, and Peter J. Ramadge. Projection-based constrained policy optimization, 2020. URL https://arxiv.org/abs/2010.03152 .12 Dongjie Yu, Haitong Ma, Shengbo Eben Li, and Jianyu Chen. Reachability constrained reinforce-ment learning, 2022. URL https://arxiv.org/abs/2205.07536 .Jichen Zhang, Liqun Zhao, Antonis Papachristodoulou, and Jack Umenberger. Constrained diffusers for safe planning and control. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum?id=tahkGZjjWA .Yiming Zhang, Quan Vuong, and Keith W. Ross. First order constrained optimization in policy space, 2020. URL https://arxiv.org/abs/2002.06506 .Yinan Zheng, Jianxiong Li, Dongjie Yu, Yujie Yang, Shengbo Eben Li, Xianyuan Zhan, and Jingjing Liu. Safe offline reinforcement learning with feasibility-guided diffusion model. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview. net/forum?id=j5JvZCaDM0 .Guowei Zou, Weibing Li, Hejun Wu, Yukun Qian, Yuhang Wang, and Haitao Wang. D2PPO: Diffusion policy policy optimization with dispersive loss. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI) , volume 40, pp. 18891–18899, 2026. doi: 10.48448/e05v-4059. URL https://ojs.aaai.org/index.php/AAAI/article/ download/38959/42921 .
+
+## A THEORETICAL ANALYSIS 
+
+A.1 DISCOUNTED REACHABILITY AS A STOPPING -TIME VALUE 
+
+For a fixed policy π, define the Bellman operator 
+
+(T π U )( s) := Eπ [h0 + (1 − h0)(1 − d0)γcU (S1) | S0 = s] . (19) 
+
+Lemma 1 (Contraction) . For 0 ≤ γc < 1,
+
+∥T π U − T π W ∥∞ ≤ γc∥U − W ∥∞.
+
+Proof. For every state s,
+
+|(T π U )( s) − (T π W )( s)|
+
+= γc Eπ
+
+(1 − h0)(1 − d0) U (S1) − W (S1) | S0 = s
+
+≤ γcEπ [|U (S1) − W (S1)| | S0 = s]
+
+≤ γc∥U − W ∥∞.
+
+Taking the supremum over s proves the claim. Since γc < 1, the operator is a contraction and therefore admits a unique bounded fixed point. 
+
+Proof of Proposition 1. By Lemma 1, T π has a unique bounded fixed point. Moreover, T π maps functions with values in [0 , 1] to functions with values in [0 , 1] . Iterating from the zero function therefore shows that 
+
+0 ≤ V π
+
+> reach
+
+(s) ≤ 1.
+
+Unrolling Equation 3 for n transitions gives 
+
+V π
+
+> reach
+
+(s) = Eπs
+
+" n−1X
+
+> k=0
+
+γkc hkk−1Y
+
+> j=0
+
+(1 − hj )(1 − dj )+ γnc V π
+
+> reach
+
+(Sn)
+
+> n−1
+
+Y
+
+> j=0
+
+(1 − hj )(1 − dj )
+
+#
+
+.
+
+The absolute value of the final term is bounded by 
+
+γnc ∥V π
+
+> reach
+
+∥∞,
+
+13 which converges to zero as n → ∞ because 0 < γ c < 1. Hence 
+
+V π
+
+> reach
+
+(s) = Eπs
+
+X
+
+> k≥0
+
+γkc hkk−1Y
+
+> j=0
+
+(1 − hj )(1 − dj )
+
+ .
+
+On any realized trajectory, if the first cost occurs at transition τH = k < τ end , then all terms vanish except the one at k, which equals γkc . If no cost occurs before termination, or if neither a cost nor termination ever occurs, every first-hit term is zero. Therefore 
+
+V π
+
+> reach
+
+(s) = Eπs [γτH 
+
+> c
+
+1{τH < τ end }] .
+
+For the random-horizon interpretation, let Lγc be independent of the trajectory with 
+
+Pr( Lγc = ℓ) = (1 − γc)γℓc , ℓ = 0 , 1, 2, . . . . 
+
+Then 
+
+Pr( Lγc ≥ k) = γkc .
+
+Conditioning on τH = k therefore gives 
+
+> π
+
+Pr  
+
+> s
+
+(τH ≤ Lγc , τ H < τ end )= X
+
+> k≥0
+> π
+
+Pr  
+
+> s
+
+(τH = k, τ H < τ end ) Pr( Lγc ≥ k)= X
+
+> k≥0
+
+γkcπ
+
+Pr  
+
+> s
+
+(τH = k, τ H < τ end )= V π
+
+> reach
+
+(s).
+
+Lemma 2 (Population consistency under fixed-policy sampling) . Fix a stationary policy π and a target function ¯V : S → [0 , 1] . Suppose that, conditional on St = s, the transition (At, h t, d t, S t+1 )
+
+is generated under policy π and the environment dynamics. Define 
+
+Y := ht + (1 − ht)(1 − dt)γc ¯V (St+1 ).
+
+For a fixed state s, the minimizer of the conditional population binary-cross-entropy loss 
+
+Eπ [−Y log v − (1 − Y ) log(1 − v) | St = s]
+
+is 
+
+v∗(s) = Eπ [Y | St = s] = ( T π ¯V )( s).
+
+Proof. Let 
+
+m(s) := Eπ [Y | St = s].
+
+Linearity of expectation gives 
+
+Ls(v) = −m log v − (1 − m) log(1 − v).
+
+Subtracting the value at v = m,
+
+Ls(v) − L s(m) = DKL 
+
+ Ber( m)∥Ber( v) ≥ 0.
+
+Hence the population minimizer is v = m. Under the fixed-policy sampling assumption of the lemma, m(s) = ( T π ¯V )( s) by Equation 19. 
+
+Off-policy replay. Lemma 2 explains population regression under fixed-policy sampling. RADPO instead trains the state-only reachability critic from replay, consistent with its off-policy backbone. Let βD (a | s) denote the effective conditional behavior distribution represented in the replay buffer. For fixed ¯V , the same BCE argument gives 
+
+v∗D (s) = ED [Y | St = s] = ( T βD ¯V )( s),
+
+which generally differs from (T π ¯V )( s) for the current policy. This is a deliberate trade-off: replay permits reuse of safety transitions and retains previously observed cost encounters that may become sparse as the policy improves. Since RADPO uses Vreach as a predictive shaping signal rather than as a safety certificate, the implementation favors this data reuse over exact on-policy evaluation. The resulting discrepancy should therefore be viewed as replay-distribution approximation error. 14 A.2 CONSERVATIVE RELATION TO CUMULATIVE COST 
+
+Proof of Theorem 1. Start from the cumulative cost value: 
+
+Qπ,δ c (s, a ) = E[ct | s, a ] + X
+
+> k≥1
+
+δkE[ct+k | s, a ].
+
+Because 
+
+0 ≤ ct+k ≤ cmax ht+k,
+
+we obtain 
+
+Qπ,δ c (s, a ) ≤ E[ct | s, a ] + cmax 
+
+X
+
+> k≥1
+
+δkE[ht+k | s, a ]. (20) The reachability Bellman equation implies 
+
+V π
+
+> reach
+
+(s) ≥ E[ht | St = s],
+
+because its continuation term is nonnegative. Applying the tower property, 
+
+E [V π
+
+> reach
+
+(St+k) | s, a ] ≥ E[ht+k | s, a ].
+
+Furthermore, δ ≤ γ implies, for k ≥ 1,
+
+δk = δδ k−1 ≤ δγ k−1.
+
+Hence X
+
+> k≥1
+
+δkE[ht+k | s, a ] ≤ δ X
+
+> k≥1
+
+γk−1E [V π
+
+> reach
+
+(St+k) | s, a ]= δG πγ,γ c (s, a ).
+
+Substituting into Equation 20 proves Equation 9. If ct = 0 almost surely under (s, a ), the immediate term vanishes and Equation 10 follows by rearranging. The source of the additional conservatism can be made explicit. Applying the reachability Bellman equation yields 
+
+Gπγ,γ c (s, a ) = Dπ, + 
+
+> h
+
+(s, a ) + γcP π
+
+> pred
+
+(s, a ), (21) 
+
+P π
+
+> pred
+
+(s, a ) := Eπs,a 
+
+X
+
+> k≥0
+
+γk(1 − ht+k+1 )(1 − dt+k+1 )V π
+
+> reach
+
+(St+k+2 )
+
+ ≥ 0.
+
+Thus the difference between accumulated reachability and immediate discounted cost exposure con-sists of a nonnegative predictive term assigned to safe predecessor states. A.3 REPEATED COST EXPOSURE 
+
+Proof of Corollary 1. From the reachability Bellman recursion, 
+
+V π
+
+> reach
+
+(St+k) ≥ E [ht+k | St+k] .
+
+Taking conditional expectation from the initial (s, a ), multiplying by the corresponding powers of 
+
+γ, and summing gives 
+
+Gπγ,γ c (s, a ) ≥ Dπ, + 
+
+> h
+
+(s, a ).
+
+For the upper bound, first-hit reachability is pathwise bounded by the discounted sum of all future costs: 
+
+V π
+
+> reach
+
+(Sn) ≤ E
+
+X
+
+> j≥0
+
+γjc hn+j Sn
+
+ .
+
+15 Therefore 
+
+Gπγ,γ c (s, a ) ≤ X
+
+> k≥0
+
+X
+
+> j≥0
+
+γkγjc Eπs,a [ht+k+1+ j ].
+
+Set u = k + 1 + j. For each fixed u ≥ 1, the coefficient multiplying E[ht+u] is 
+
+> u−1
+
+X
+
+> j=0
+
+γu−1−j γjc = γu−1
+
+> u−1
+
+X
+
+> j=0
+
+ γc
+
+γ
+
+j
+
+.
+
+Since γc < γ , u−1X
+
+> j=0
+
+ γc
+
+γ
+
+j
+
+≤ 11 − γc/γ .
+
+Hence 
+
+Gπγ,γ c (s, a ) ≤ 11 − γc/γ Dπ, + 
+
+> h
+
+(s, a ),
+
+which proves the result. A.4 FINITE -CANDIDATE MIRROR DESCENT 
+
+Lemma 3 (Empirical Gibbs variational identity) . Let 
+
+pi = exp( zi/τ )
+
+P 
+
+> j
+
+exp( zj /τ ) , ui = 1
+
+K .
+
+Then 
+
+p = arg max 
+
+> v∈∆K
+
+{⟨ v, z ⟩ − τ D KL (v∥u)} ,
+
+and 
+
+⟨p − u, z ⟩ = τ [DKL (p∥u) + DKL (u∥p)] .
+
+Proof. Let 
+
+Zu := 1
+
+K
+
+X
+
+> i
+
+exp( zi/τ ).
+
+Then 
+
+pi = ui exp( zi/τ )
+
+Zu
+
+,
+
+so 
+
+log pi
+
+ui
+
+= zi
+
+τ − log Zu.
+
+For arbitrary v ∈ ∆K ,
+
+DKL (v∥p) = DKL (v∥u) − 1
+
+τ ⟨v, z ⟩ + log Zu.
+
+Rearranging, 
+
+⟨v, z ⟩ − τ D KL (v∥u) = τ log Zu − τ D KL (v∥p),
+
+which is uniquely maximized at v = p.Moreover, 
+
+DKL (p∥u) + DKL (u∥p)= X
+
+> i
+
+(pi − ui) log pi
+
+ui
+
+= 1
+
+τ
+
+X
+
+> i
+
+(pi − ui)zi,
+
+because P
+
+> i
+
+(pi − ui) = 0 .16 Proof of Theorem 2. The first statement follows directly from Lemma 3. For the raw-Q bound, define 
+
+σ := max( σA, 10 −6), Ri := qi − σz i.
+
+Then 
+
+qi = σz i + Ri.
+
+For fixed ¯q, the scalar function 
+
+R(q) = q − σ clip 
+
+ q − ¯qσ , −3, 3
+
+
+
+is non-decreasing in q. The softmax probability pi is also non-decreasing with qi, because both clipping and exponentiation preserve order. Consequently, 
+
+(pi − pj )( Ri − Rj ) ≥ 0 ∀i, j. 
+
+Using the pairwise covariance identity, 
+
+X
+
+> i
+
+(pi − ui)Ri = 1
+
+K
+
+X
+
+> i<j
+
+(pi − pj )( Ri − Rj ) ≥ 0.
+
+Therefore X
+
+> i
+
+(pi − ui)qi = σ X
+
+> i
+
+(pi − ui)zi + X
+
+> i
+
+(pi − ui)Ri
+
+≥ σ X
+
+> i
+
+(pi − ui)zi.
+
+Applying Lemma 3, 
+
+X
+
+> i
+
+(pi − ui)qi ≥ τ σ [DKL (p∥u) + DKL (u∥p)] ≥ 0.
+
+This is Equation 15. A.5 SAFETY -MULTIPLIER BUDGET TRACKING 
+
+For update index j, define the normalized observed budget error 
+
+ej := bJc,j − dd .
+
+Define the amount discarded by upper clipping as 
+
+uj := [ λj + ηλej − λmax ]+ .
+
+Proposition 3 (Capped budget-tracking bound) . For every N ≥ 1,
+
+1
+
+N 
+
+> N−1
+
+X
+
+> j=0
+
+bJc,j ≤ d + dηλN
+
+λmax − λ0 + 
+
+> N−1
+
+X
+
+> j=0
+
+uj
+
+ . (22) 
+
+Proof. Let 
+
+xj := λj + ηλej
+
+be the unprojected update and define the lower-projection correction 
+
+ℓj := [ −xj ]+.
+
+Projection onto [0 , λ max ] can be written exactly as 
+
+λj+1 = λj + ηλej + ℓj − uj .
+
+17 Rearranging and summing, 
+
+ηλN −1X
+
+> j=0
+
+ej = λN − λ0 − 
+
+> N−1
+
+X
+
+> j=0
+
+ℓj + 
+
+> N−1
+
+X
+
+> j=0
+
+uj
+
+≤ λmax − λ0 + 
+
+> N−1
+
+X
+
+> j=0
+
+uj ,
+
+because λN ≤ λmax and ℓj ≥ 0. Substituting 
+
+ej = bJc,j − dd
+
+and rearranging proves Equation 22. If the upper projection never activates, then uj = 0 for all j,reducing Equation 22 exactly to Equation 17. At any converged interior fixed point, 0 < λ ∗ < λ max , with limiting controller statistic bJ∗ 
+
+> c
+
+, the projection is inactive. Therefore 
+
+λ∗ = λ∗ + ηλ
+
+bJ∗ 
+
+> c
+
+− dd
+
+implies bJ∗ 
+
+> c
+
+= d. Boundary fixed points instead satisfy the corresponding one-sided conditions: 
+
+λ∗ = 0 ⇒ bJ∗ 
+
+> c
+
+≤ d, λ∗ = λmax ⇒ bJ∗ 
+
+> c
+
+≥ d. 
+
+These conditions resemble complementary slackness, but λ is not a standard Lagrange multiplier for the same objective optimized by the actor, consequently we use them only as an interpretation of the controller equilibrium. 
+
+## B TASK DETAILS 
+
+We evaluate on ten environments from Safety Gymnasium (Ji et al., 2024): four safe-navigation tasks obtained by combining the Point and Car agents with the Goal1 and Circle1 tasks, and six velocity-constrained MuJoCo locomotion tasks. 
+
+Navigation agents. The Point agent is a simple planar robot with two control inputs: for-ward/backward motion and rotation about the vertical axis. The Car agent uses two independently actuated parallel wheels together with a free-rolling rear wheel, such that steering and forward mo-tion must be coordinated through the two wheel controls. We evaluate both agents on the Goal1 and Circle1 tasks. 
+
+Navigation tasks. In Goal1 , the agent is rewarded for reducing its distance to a target and receives an additional reward when the target is reached, after which a new target is generated. The Level-1 environment contains eight hazard regions and one movable vase; entering a hazard produces safety cost, whereas the vase is not part of the safety constraint. In Circle1 , the agent is rewarded for moving around a prescribed circular path while remaining close to its radius. Two virtual boundary walls restrict the admissible region, and crossing from the interior to the exterior produces safety cost. 
+
+Velocity-constrained locomotion. The remaining six environments augment the standard Gym-nasium MuJoCo locomotion tasks with a velocity constraint. We consider Ant , a 3D quadruped; 
+
+HalfCheetah , a planar running robot; Hopper , a planar monoped; Humanoid , a 3D biped; Swim-mer , an articulated swimming agent; and Walker2d , a planar biped. The underlying task rewards locomotion according to the corresponding MuJoCo environment, while Safety Gymnasium pro-duces a binary cost whenever the agent’s velocity exceeds an environment-specific threshold. For Swimmer the constraint is applied to the x-axis velocity; for the other agents the relevant planar velocity magnitude is used. 18 02000 4000 6000                      
+
+> Training return
+> Reachability discount γc
+> 0500k 1M 050 100
+> Training cost
+> 02500 5000 7500 10000
+> Shaping coe ffi cient β/β*
+> 0500k 1M 0250 500 750 1000 02000 4000 6000
+> Candidates per state K
+> 0500k 1M 050 100 010 20
+> Training return
+> 01M 2M 3M 010 20 30 40
+> Training cost
+> 010 20 01M 2M 3M 020 40 010 20 01M 2M 3M 010 20 30 40
+> HalfCheetah PointGoal1
+> Environment steps
+> γc
+> 0.5 0.99 0.9 (default) 0.95
+> β/β*¼2½41 (default)
+> K
+> 864 16 32 (default) default, seed spread (±1 sd) budget d = 25
+
+Figure 5: Ablations on hyperparameter values. Ablation results for reachability discount γc,shaping coefficient β and candidates per state K. Curves depict means across evaluated seeds with one standard deviation shaded. 
+
+## C ADDITIONAL ABLATIONS 
+
+To justify our hyperparameter choices, we show our ablations for reachability discount γc, shaping coefficient β and candidates per state K in Figure 5. As expected, higher values of γc yield a more conservative policy, especially for HalfCheetah. Similarly, higher β results in a more conservative policy; for PointGoal1, when β is too high the reward signal is drowned out and the policy fails to learn. Finally for K, we only possibly see a slight improvement in safety for higher values in exchange for a higher computational cost. 
+
+## D COMPUTATIONAL COSTS 
+
+Table 1 shows computational cost comparison of ALGD, Lagrangian-style shaping and RADPO on PointGoal1. Runs were taken on a computer with one RTX 3090 Ti and i9-12900F. Lagrangian-style and RADPO runs were taken with our codebase. ALGD uses the official implementation provided by their authors, modified only to use Safety Gymnasium and log the timing details shown in this table. Note that these runs retain the 10/0.25/0.25 actual learner updates per transition for ALGD, Lagrangian-style and RADPO respectively, as described in their default configurations, which means that ALGD has 40 × more updates per environment step, hence the significantly longer times. 
+
+## E ADDITIONAL FIGURES 
+
+Figure 6 shows the state distribution of the paths shown in Figure 1. 19 Time per environment transition (ms) Method Sample acquisition Critic optimization Diffusion-policy optimization Other learning Overall ALGD 3.298 16.057 78.892 41.524 139.771 Lagrangian-style 0.418 0.545 0.459 3.387 4.809 RADPO 0.616 0.423 0.406 2.697 4.142 
+
+Table 1: Computational cost on PointGoal1. All entries are ms per environment step. −0.2 −0.1 0.0 0.1 0.2 0.3 0.4 0.5 0.6  
+
+> clearance to nearest hazard boundary (m)
+> 012345678
+> density along the path
+> Hazard clearance
+> inside hazard RADPO 0.0% inside SAC-Lag 9.5% inside reward only 19.6% inside
+
+Figure 6: Distribution of states for trajectories in Figure 1.A. 
+
+## F IMPLEMENTATION DETAILS 
+
+F.1 SAFETY -MULTIPLIER COST ESTIMATE 
+
+The safety-multiplier controller operates on completed training episodes. For each collection event 
+
+j with a nonempty set of completed episodes Ej , we compute the mean undiscounted episodic cost 
+
+¯Cj = 1
+
+|E j |
+
+X
+
+> e∈E j
+> Le−1
+
+X
+
+> t=0
+
+c(e) 
+
+> t
+
+. (23) The controller statistic averages these completion-batch means over a recent window W:
+
+bJc = 1
+
+|W| 
+
+X
+
+> j∈W
+
+¯Cj . (24) F.2 PSEUDOCODE 
+
+We present the pseudocode for RADPO training in Algorithm 1. 
+
+## G EXTENSION TO GRADED COSTS AND MULTIPLE CONSTRAINTS 
+
+Since the RADPO algorithm as described assumes a single constraint with a binary per-step cost signal, in this section we discuss extension of RADPO to graded (continuous) costs and multiple constraint settings. Note that our Safety Gymnasium tasks have single constraints with binary costs by default. G.1 GRADED COSTS 
+
+The bounded-cost assumption in Theorem 1 does not require binary costs. For any nonnegative graded cost ct ∈ [0 , c max ] and ht = 1{ct > 0}, the condition ct ≤ cmax ht holds automati-20 Algorithm 1 Reachability-Aware Diffusion Policy Optimization (RADPO) 
+
+Require: Cost budget d, candidate count K 
+
+> 1:
+
+Initialize actor, critics, target networks, replay buffer D, and safety multiplier λ 
+
+> 2:
+
+while training do  
+
+> 3:
+
+Collect experience using candidate selection and exploration  
+
+> 4:
+
+Store transitions in D 
+
+> 5:
+
+Adapt λ using recent episodic costs Equation 16  
+
+> 6:
+
+for each gradient update do  
+
+> 7:
+
+Sample (s, a, r, c, s ′, d t) from D 
+
+> 8:
+
+Compute reachability targets Equation 4  
+
+> 9:
+
+Shape rewards: er = r − βλV reach (s′) 
+
+> 10:
+
+Compute reward-critic targets Equation 7  
+
+> 11:
+
+Sample and perturb K actor candidates at s′ 
+
+> 12:
+
+Score candidates with Qr and compute weights wi 
+
+> 13:
+
+Update reachability and reward critics  
+
+> 14:
+
+Update actor using Lπ = Es′ [ 1
+
+> K
+
+PKi=1 wi ℓdiff (θ; s′, a i)] with detached candidates and weights  
+
+> 15:
+
+Update exploration scale, statistics, and targets as scheduled  
+
+> 16:
+
+end for  
+
+> 17:
+
+end while 
+
+cally. Thus, the cumulative-cost bound continues to apply without modification. Binarization only removes cost-magnitude information from the predictive reachability signal; the original graded episodic costs are still retained by the safety-multiplier update. Hence RADPO can be applied directly to bounded graded costs, although its reachability shaping distinguishes the timing and like-lihood of positive-cost events rather than their severity. G.2 MULTIPLE CONSTRAINTS 
+
+For constraints Jci (π) ≤ di, i = 1 , . . . , m , RADPO can be extended by maintaining a reacha-bility critic and adaptive safety multiplier for each constraint. Each multiplier is updated from its corresponding realized episodic cost and budget, while reward shaping becomes 
+
+ert = rt −
+
+> m
+
+X
+
+> i=1
+
+βiλiV ireach (st+1 ). (25) The reachability and cumulative-cost relations of Theorem 1 then apply separately to each constraint. This preserves the individual budgets and predictive safety signals rather than collapsing multiple constraints into a single scalarized cost. 
+
+## H EXPERIMENTAL DETAILS AND HYPERPARAMETERS 
+
+This appendix specifies every setting used to produce Figures 2–4. Section H.1 fixes the tasks, bud-gets and evaluation protocol shared by all methods; Section H.2 gives RADPO’s hyperparameters, split into settings that are constant across all ten tasks and the small set that varies per task; Sec-tion H.3 gives the baseline configurations; and Section H.4 gives the ablation arms of Section 5.3. H.1 INTERACTION BUDGETS AND EVALUATION PROTOCOL 
+
+All experiments use Safety Gymnasium (Ji et al., 2024): six MuJoCo velocity-constrained locomo-tion tasks and four navigation tasks, described in Appendix B. Every task uses an episode horizon of T = 1000 steps and the episodic cost budget d = 25 , except where a baseline’s own formulation prescribes otherwise (Section H.3). Per-step costs are binary on all ten tasks, so the binarisation 
+
+ht = 1{ct > 0} discards no magnitude information here. 
+
+Evaluation. Training curves report the episodic return and cost of the on-policy training roll-outs; the latter are used to construct the safety-multiplier statistic. Deterministic evaluation runs 20 
+
+21 episodes at the cadence in Table 2. The late-training scatter of Figure 3 averages each run’s final ten logged training points, then reports the mean and standard deviation over the runs of an arm. Table 2: Tasks, interaction budgets and evaluation cadence.                                    
+
+> Family Task Horizon TEnv. steps Eval. every Velocity SafetyAntVelocity-v1 1000 1M 25k
+> SafetyHalfCheetahVelocity-v1 1000 1M 25k
+> SafetyHopperVelocity-v1 1000 1M 25k
+> SafetyHumanoidVelocity-v1 1000 3M 25k
+> SafetySwimmerVelocity-v1 1000 1M 25k
+> SafetyWalker2dVelocity-v1 1000 1M 25k
+> Navigation SafetyCarCircle1-v0 1000 3M 100k
+> SafetyCarGoal1-v0 1000 3M 100k
+> SafetyPointCircle1-v0 1000 3M 100k
+> SafetyPointGoal1-v0 1000 3M 100k
+
+Implementation and compute. All methods except RESPO and ALGD are implemented in a single JAX code base that shares the environment wrappers, replay buffer, vectorised sampler, eval-uation loop and logging, hence cross-method differences come from the algorithms and not from the harness. RESPO and ALGD are run from their authors’ released implementations. Runs were exe-cuted on a heterogeneous pool of consumer and workstation NVIDIA GPUs (GTX 1080, RTX 4090, RTX 5090, RTX 6000 Ada/Pro), one run per GPU. H.2 RADPO H.2.1 SETTINGS SHARED BY ALL TEN TASKS 
+
+Table 3 lists every RADPO hyperparameter that is identical on all ten tasks; Algorithm 1 in Ap-pendix F.2 gives the update order these settings parameterise. The diffusion actor, the twin reward critics and the reachability critics are all 3 × 256 MLPs with Mish activations; the actor addition-ally takes the denoising-step embedding as input (Section 3). Updates are Adam. The actor’s learning rate is linearly annealed from 3 × 10 −4 to 3 × 10 −5 between gradient steps 2.5 × 10 4
+
+and 7.5 × 10 4; the critic learning rates are constant. The exploration scale is σexp = σ0 exp( ξ),with ξ adapted every 250 gradient steps toward a fixed Gaussian entropy target proportional to the action dimension. Safety enters RADPO only through reachability shaping of the reward critic, 
+
+ert = rt − βλV reach (st+1 ), on every task; the candidate weights of Equation 4.2 carry no separate cost term. H.2.2 PER -TASK SETTINGS 
+
+Table 4 lists the settings that vary across tasks. We tune the update-to-data ratio, initial exploration temperature α0, exploration scale σ0, shaping coefficient β, and controller step size ηλ.Among these, ηλ is the least transferable across tasks. The update 
+
+λ ← Π[0 ,λ max ]
+
+"
+
+λ + ηλ
+
+ˆJc − dd
+
+#
+
+scales with the relative budget violation ( ˆJc − d)/d , which depends on the task. For example, Car-Goal1 requires ηλ = 0 .055 , whereas the Circle tasks use 0.005 . Swimmer also requires a relatively large value, ηλ = 0 .10 , because its episodes do not terminate early. The controller, which updates only when episodes are completed, therefore receives substantially fewer updates during training, and a smaller step size adapts too slowly within the available interaction budget. 22 Table 3: RADPO hyperparameters held constant across all ten tasks. 
+
+Group Hyperparameter Value Networks Critic / reachability-critic MLP 3 × 256 , Mish Diffusion actor MLP 3 × 256 , Mish Denoising steps 20 
+
+Noise schedule cosine Reward critics (twin) 2
+
+Optimisation Optimiser Adam Critic learning rate 3 × 10 −4
+
+Actor learning rate 3 × 10 −4 → 3 × 10 −5 (linear) Replay capacity 10 6 transitions Batch size 256 
+
+Warm-up (uniform-random) transitions 30k 
+
+Actor / target update period every 2 gradient steps Target smoothing τPolyak 0.005 
+
+Candidate reweighting Candidates per state K 32 
+
+Reweighting temperature τ 1.0
+
+Score clip [−3, 3] 
+
+Advantage scale σA EMA of batch std, coefficient 10 −3
+
+Exploration Entropy-target update period every 250 gradient steps 
+
+ξ learning rate 3 × 10 −4
+
+Action projection ΠA clip to box bounds Safety Shaping signal Vreach (st+1 ) (reachability) Reachability ensemble size M 8
+
+Reachability loss binary cross-entropy Reachability discount γc 0.9
+
+Reward discount γ 0.99 
+
+Multiplier controller Budget d 25 
+
+λ initialisation 0
+
+λ lower bound 0
+
+λ cap λmax 10 
+
+Cost window |W| 10 completion batches (App. F.1) Update trigger each collection event with ≥ 1 completed episode Evaluation Deterministic episodes 20 
+
+Candidate selection at deployment highest reward-critic score 
+
+Table 4: Per-task RADPO hyperparameters. UTD is the number of optimiser updates per collected transition, α0 the initial exploration temperature ( σexp = σ0α0 at initialisation), σ0 the exploration scale, β the shaping coefficient and ηλ the controller step size. Everything else is as in Table 3. 
+
+Task UTD α0 σ0 β ηλ
+
+Ant 1.0 0.2 0.5 1.5 0.010 
+
+HalfCheetah 1.0 0.2 0.5 1.5 0.010 
+
+Hopper 0.6 0.2 0.5 0.8 0.002 
+
+Humanoid 1.0 0.2 0.1 2.4 0.120 
+
+Swimmer 0.2 0.2 0.5 0.025 0.100 
+
+Walker2d 0.2 0.2 0.5 1.5 0.010 
+
+CarCircle1 1.0 0.5 0.1 0.05 0.005 
+
+CarGoal1 1.0 0.5 0.1 0.05 0.055 
+
+PointCircle1 1.0 0.5 0.1 0.05 0.005 
+
+PointGoal1 0.25 0.5 0.1 0.10 0.005 
+
+23 H.3 BASELINES 
+
+All baselines use the same budget d = 25 and the same interaction budgets as Table 2, except RESPO (which enforces a zero-cost threshold by formulation). Each baseline is initialized from its published configuration; any adaptations or tuning are stated below. H.3.1 SAC-L AGRANGIAN 
+
+Soft actor–critic with a Lagrangian multiplier updated by Adam on log λ from the realised episodic cost. Two backbones are used, matching the two task families (Table 5): the velocity family uses the standard SAC backbone; the Goal tasks use the slower actor of the reference safe-RL implementa-tions, which we verified is necessary on these tasks (raising the actor learning rate from 5 × 10 −6 to 
+
+3 × 10 −4 collapses PointGoal1 to approximately zero return). The cost critic is floored at zero: be-cause the actor minimises λQ c without a lower bound, an unfloored cost critic diverges (we observed 
+
+Qc ≈ − 800 against a theoretical range of [0 , 100] , with the run’s return collapsing). Table 5: SAC-Lagrangian. “Velocity” covers the six velocity tasks and the two Circle tasks; “Goal” covers CarGoal1 and PointGoal1.                                                                        
+
+> Hyperparameter Velocity / Circle Goal Critic / actor MLP 3×256 , GELU 2×256 , ReLU Actor learning rate 3×10 −45×10 −6
+> Critic learning rate 3×10 −41×10 −3
+> Entropy temperature αlearned, α0= 0 .2fixed 10 −5
+> αlearning rate 3×10 −4—Policy delay 12
+> Gradient-norm clip —40
+> Multiplier learning rate 1×10 −41×10 −5
+> Multiplier initialisation 10 −30
+> Multiplier upper bound 100 100
+> Multiplier update per completed episode per gradient step after 100k steps Cost window 110
+> Non-negative cost critic yes yes Batch size / replay 256 /10 6256 /10 6
+> UTD ratio 0.25 0.25
+> Warm-up transitions 30k 10k
+> Discounts γ, γ c0.99 ,0.99 0.99 ,0.99
+> Polyak τ0.005 0.005
+
+H.3.2 CAL CAL (Wu et al., 2024) is initialized from its published configuration. Because the published navi-gation experiments use fixed layouts, we retune the SAC backbone for the randomized Circle tasks. Specifically, we change the actor learning rate from 5 × 10 −6 to 3 × 10 −4, replace the fixed entropy temperature α = 10 −5 with a learned temperature, increase the network depth from two to three hidden layers, change the policy delay from 2 to 1, and adjust the discounted per-step cost threshold from 1.0 to 0.5. CAL’s safety-specific coefficients and multiplier update are otherwise unchanged. The Goal tasks retain the published backbone. Common settings are a four-member cost-critic ensemble with ReLU activations, target updates every two gradient steps, multiplier initialization at zero, discounts γ = γc = 0 .99 except γc = 0 .9
+
+on the Circle tasks, batch size 256 , replay capacity 10 6, UTD ratio 0.25 , and Polyak coefficient 
+
+τ = 0 .005 . Table 6 gives the per-task settings. H.3.3 PPO-L AGRANGIAN 
+
+The on-policy reference is run at its published settings, except that we reduce the number of epochs for the navigation tasks so that their total interaction budget matches the 3M environment steps used by the other methods. No per-task hyperparameter tuning is applied. Table 7 lists the resulting 24 Table 6: CAL per-task settings. k is the cost-critic UCB coefficient, c the rectification coefficient. “done-mask” indicates that termination is masked in the cost backup; “ Qc ≥ 0” that the cost critic is floored at zero. 
+
+Task k c Multiplier LR Internal d Extra Ant 0.0 0.01 1 × 10 −5 25 —HalfCheetah 0.0 0.3 1 × 10 −4 25 Qc ≥ 0
+
+Hopper 0.5 0.2 1 × 10 −5 25 done-mask, Qc ≥ 0
+
+Humanoid 0.0 0.01 1 × 10 −5 25 done-mask Swimmer 0.0 0.01 1 × 10 −5 25 —Walker2d 0.0 0.2 1 × 10 −4 25 done-mask CarCircle1 0.0 0.05 5 × 10 −7 25 retuned backbone, cost threshold 0.5
+
+CarGoal1 0.0 0.3 5 × 10 −7 25 published backbone PointCircle1 0.0 10 .0 5 × 10 −7 25 retuned backbone, cost threshold 0.5
+
+PointGoal1 0.0 10 .0 5 × 10 −7 25 published backbone 
+
+configuration; rollout lengths follow the published protocol, while the navigation interaction budget differs only through this change in the number of epochs. Table 7: PPO-Lagrangian. 
+
+Hyperparameter Velocity Humanoid Navigation Policy / value MLP 2 × 64 , tanh 2 × 64 , tanh 2 × 64 , tanh Learning rate 3 × 10 −4 3 × 10 −4 3 × 10 −4
+
+Steps per epoch 2048 6000 20000 
+
+Epochs 500 500 150 
+
+Total environment steps 1.024M 3M 3M 
+
+Update iterations / epoch 40 40 40 
+
+Minibatch size 64 64 64 
+
+Clip ratio 0.2 0.2 0.2
+
+Target KL (early stop) 0.02 0.02 0.02 
+
+γ / GAE λ 0.99 / 0.95 0.99 / 0.95 0.99 / 0.95 
+
+Cost GAE λ 0.95 0.95 0.95 
+
+Entropy coefficient 0 0 0
+
+Gradient-norm clip 40 40 40 
+
+Critic ℓ2 coefficient 10 −3 10 −3 10 −3
+
+Multiplier learning rate 0.035 0.035 0.035 
+
+Multiplier initialisation 10 −3 10 −3 10 −3
+
+Lagrange window 100 epochs 100 epochs 100 epochs 
+
+H.3.4 RESPO We adapt the authors’ released PyTorch RESPO implementation (Ganai et al., 2023) to Safety Gym-nasium, preserving its policy objective, reachability targets, and multiplier update. The Gaussian actor and three value networks use two 256-unit tanh layers. Training uses four MPI workers, full-batch updates, and linearly decaying learning rates. We performed hyperparameter tuning on selected tasks, varying the actor learning rate, rollout size, target KL, and initial policy standard deviation. We additionally used observation normalization for Humanoid, which improves the per-formance compared to the default setting. The selected settings in Table 8 were then held fixed across the subsequent training seeds. All tasks use a 1,000-step episode limit and action repeat one; observation normalization is applied only to Humanoid. We retain RESPO’s released training constraint of zero. The common episodic cost threshold d = 25 
+
+is used only for reporting and assessing feasibility, not for its multiplier update. Learning curves show training-rollout return and cost. 25 Table 8: RESPO per-task settings. Budgets and rollout sizes count total environment transitions across four workers. Actor LR and σ0 are the initial learning rate and policy standard deviation. Observation normalization is used only for Humanoid.                                                                            
+
+> Task Budget Rollout Actor LR σ0Target KL Ant 1M 10,000 6×10 −40.20.03
+> HalfCheetah 1M 10,000 6×10 −40.20.03
+> Hopper 1M 10,000 6×10 −40.20.03
+> Humanoid 3M 5,000 1×10 −40.20.03
+> Swimmer 1M 10,000 6×10 −40.20.03
+> Walker2d 1M 10,000 3×10 −40.20.03
+> CarCircle1 3M 30,000 1×10 −40.20.01
+> CarGoal1 3M 30,000 1×10 −4e−0.50.01
+> PointCircle1 3M 30,000 3×10 −4e−0.50.01
+> PointGoal1 3M 30,000 3×10 −4e−0.50.01
+
+H.3.5 ALGD We run ALGD (Cheng et al., 2026) from the authors’ released PyTorch implementation (commit 
+
+1f6820b ), with the training harness adapted so that ALGD sees the same environments, horizons, budgets and evaluation as the other methods (Table 9). Table 10 lists the released hyperparameters, which we keep, and Table 11 the per-task settings. Table 9: ALGD: released training protocol versus the protocol used here.                    
+
+> Released code This paper Environments Safety-Gym ( Safexp-* ), MuJoCo Safety Gymnasium (all ten tasks) Navigation layout fixed for every episode and seed resampled every episode Episode horizon 400 (navigation) 1000
+> Goal reached episode terminates new goal spawned, episode continues Cost budget 10 (navigation) / raw velocity d= 25 on all tasks Evaluation 1episode 20 deterministic episodes
+
+Cost threshold. ALGD constrains a discounted cost critic, and its released code converts an episodic budget into a per-step threshold h = d (1 − γHc )/ (1 − γc)H. We apply this conver-sion on all ten tasks with d = 25 , γc = 0 .99 and H the number of decisions per episode, giving 
+
+h ≈ 2.50 for the Goal and velocity tasks ( H = 1000 ) and h ≈ 9.19 for the Circle tasks ( H = 250 
+
+at action repeat 4). H.4 ABLATION CONFIGURATIONS 
+
+The ablations of Figure 4 are one-factor changes to the corresponding constrained arm of Table 4; every other hyperparameter is held fixed. • Discounted critic. Replaces the reachability critic with a standard discounted cost critic, keeping the same successor-state reward-shaping structure. • Cost-only shaping. Shapes with the realised cost, ˜rt = rt − βλc t, instead of the predicted reachability of the successor state. • Lag-style shaping. Removes reward shaping entirely and puts the cost term into the candi-date weights, i.e. the logits become ˆAi −λ ˆAci with the cost advantage clipped symmetrically to [−3, 3] to match the reward advantage’s clip. 
+
+Gain matching. The shaping coefficient β deliberately differs between arms, because the quantity it multiplies differs in scale: a reachability value is a probability in [0 , 1] , whereas a discounted cost value and a realised cost are not. Holding β fixed would therefore run the alternatives at a different 26 Table 10: ALGD hyperparameters (released defaults, shared by the DDPM and VE-SDE agents). 
+
+Group Hyperparameter Value Networks Reward critics (twin) 2 × 256 , ReLU Cost-critic ensemble 4 members, 2 × 256 , SiLU Score / noise network 3 × 128 , ReLU, time embedding Denoising steps K 5
+
+Diffusion DDPM noise schedule linear β ∈ [10 −4, 0.02] 
+
+VE-SDE noise scale geometric σ ∈ [0 .01 , 1.0] 
+
+Augmented Lagrangian Penalty coefficient ρ 1.0
+
+Multiplier initialisation λ0 = 0 .6931 
+
+Multiplier update Adam on log λ, lr 3 × 10 −4
+
+Score estimation Monte-Carlo samples 4
+
+Score temperature β 1.0
+
+Optimisation Optimiser Adam Actor / critic / cost-critic lr 3 × 10 −4
+
+Batch size / replay 256 / 10 6
+
+Discounts γ, γ c 0.99 , 0.99 
+
+Polyak τ / target period 0.005 / every 2 updates Warm-up (uniform-random) steps 5k 
+
+Updates per environment step 10 (default), see Table 11 
+
+Table 11: ALGD per-task settings. UTD is gradient updates per environment step. 
+
+Task Agent UTD Ant DDPM 10 
+
+HalfCheetah DDPM 10 
+
+Hopper DDPM 10 
+
+Humanoid DDPM 10 
+
+Swimmer DDPM 10 
+
+Walker2d DDPM 10 
+
+CarCircle1 VE-SDE 10 
+
+CarGoal1 DDPM 10 
+
+PointCircle1 VE-SDE 10 
+
+PointGoal1 VE-SDE 10 
+
+penalty magnitude and measure “too much penalty” rather than “worse safety signal”. We instead measured the realised magnitude of each shaping term on a matched run and set β so that the mean penalty matches RADPO’s; Table 12 reports the resulting β.H.5 DETERMINISTIC -EVALUATION CURVES 
+
+Figure 2 in the main text plots the on-policy training rollouts, which are the statistics the safety-multiplier controller regulates. Figure 7 plots the deterministic-evaluation counterpart over the same interaction budgets: 20 evaluation episodes at every checkpoint, with exploration noise disabled. The two views can differ appreciably in absolute cost, thus we report both rather than choosing one. 27 Table 12: Ablation arms. Every arm shares its task’s ηλ, σ0, α0, UTD and interaction budget with the RADPO arm beside it, and all settings of Table 3. 
+
+Task Arm Cost critic Shaping target β
+
+CarGoal1 RADPO reachability Vreach (s′) 0.05 
+
+discounted critic discounted Vc(s′) 0.01 
+
+cost-only shaping - ct 0.05 
+
+lag-style shaping discounted none (cost in weights) —PointCircle1 RADPO reachability Vreach (s′) 0.05 
+
+discounted critic discounted Vc(s′) 0.01 
+
+cost-only shaping - ct 0.05 
+
+lag-style shaping discounted none (cost in weights) —HalfCheetah RADPO reachability Vreach (s′) 1.5
+
+discounted critic discounted Vc(s′) 0.254 
+
+cost-only shaping - ct 2.467 
+
+lag-style shaping discounted none (cost in weights) —020 40                                
+
+> Evaluation return
+> CarCircle1
+> 020
+> CarGoal1
+> 050 100
+> PointCircle1
+> −20 020
+> PointGoal1
+> 01M 2M 3M 050 100
+> Evaluation cost
+> 01M 2M 3M 020 40 60 01M 2M 3M 050 100
+> 01M 2M 3M 050 100 02500 5000
+> Evaluation return
+> Ant
+> 05000 10000
+> HalfCheetah
+> 02000
+> Hopper
+> 02000 4000 6000
+> Humanoid
+> 050 100
+> Swimmer
+> 02000 4000
+> Walker2d
+> 0500k 1M 0100 200
+> Evaluation cost
+> 0500k 1M 0100 200
+> 0500k 1M 050 100 150
+> 01M 2M 3M 050 100 150
+> 0500k 1M 020 40 60
+> 0500k 1M 025 50 75
+> Environment steps Environment steps
+> RADPO ALGD CAL SAC-Lag PPO-Lag RADPO reward-only budget d = 25
+
+Figure 7: Deterministic-evaluation return and cost across the ten tasks. Evaluation return (upper row of each block) and evaluation cost (lower row), measured over 20 deterministic episodes per checkpoint; the training-rollout counterpart is Figure 2. Curves are means over the runs of an arm with one standard deviation shaded, and dashed horizontal lines mark the budget d = 25 .28

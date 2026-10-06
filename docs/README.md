@@ -44,14 +44,14 @@
       <span class="dpr-home-dashboard-kicker">2026-10-06</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 18 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 32 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>15</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 01:14:33 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 23:24:52 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日筛读18篇论文，精读7篇、速读11篇，焦点锁定视觉-语言-动作模型与视频生成评测。</p>
-<p>最值得看的是两篇9分精读《Quantile Head for Vision-Language-Action Models》和《World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models》，速读可顺带关注VTR-Bench、DiVid和ActiveWAM。</p>
-<p>普通读者建议先读这两篇VLA精读，再用VTR-Bench等速读文章补齐视频生成评测视角。</p>
+<p>2026-10-06 日报精选32篇视频生成与视觉-语言-动作模型研究，精读17篇、速读15篇。最值得看的是满分论文 SUAVE 用掩码扩散统一视频与动作建模，以及 9.0 分的世界校准“提议到动作”流方法。普通读者可先从这两篇切入，再结合 VTR-Bench 等速读工作了解视频生成的评测与多样性问题。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">17 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Quantile Head for Vision-Language-Action Models">Quantile Head for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models">World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="MixVLA: Adaptive Mixing of Non-Invariant Information for Generalizable Vision-Language-Action Models">MixVLA: Adaptive Mixing of Non-Invariant Information for Generalizable Vision-Language-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SUAVE: Unified Video-Action Models via Masked Diffusion">SUAVE: Unified Video-Action Models via Masked Diffusion</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models">World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Imagine the Future, Internalize the Gist: Efficient VLA Reasoning via Internalized Spatiotemporal Imagination">Imagine the Future, Internalize the Gist: Efficient VLA Reasoning via Internalized Spatiotemporal Imagination</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>7</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>17</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -86,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">11 篇</strong>
+    <strong class="dpr-home-dashboard-count">15 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation">VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models">DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="ActiveWAM: Evidence-Aware Active Vision for World-Action Models">ActiveWAM: Evidence-Aware Active Vision for World-Action Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Bootstrapping Video Interaction Generation with Synthetic State Transitions">Bootstrapping Video Interaction Generation with Synthetic State Transitions</span></li><li><span class="dpr-home-dashboard-paper-title" title="VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation">VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models">DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>15</strong></span></div>
 </section>
 </div>
 
