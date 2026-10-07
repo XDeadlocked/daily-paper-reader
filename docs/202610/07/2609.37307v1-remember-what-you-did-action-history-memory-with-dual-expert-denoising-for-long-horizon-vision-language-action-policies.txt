@@ -1,0 +1,264 @@
+Title: Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies
+
+URL Source: https://arxiv.org/pdf/2609.37307v1
+
+Published Time: Wed, 30 Sep 2026 02:04:41 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies 
+
+Yaxin Zhao 1,2, Dianye Huang 2,†, Chenwei Wang 2, Chenguang Yang 3, and Zhongliang Jiang 2(a) Memoryless VLA (b) Memory-augmented VLA ( c ) ActMem-VLA(Ours) Current observation VLA Fine-tuned VLA Fine-tuning-based methods Keyframes / latent memory 1. Picked 2. Weighed 3. Re-grasped Weighed. Move to the basket. Have I weighed it? Weigh? Place? Similar views, ambiguous progress Key vision frames resolve vision ambiguity. Executed action resolve vision ambiguity. Executed-action history Grasp Place &release Re-grasp & lift Current view Frozen Frozen VLM Action Expert I remember what I did. Precise execution Progress guidance Early denoising P r e A c t i o n E x p e r t Mamba handover Lightweight · Trainable 
+
+Fig. 1. Motivation: similar observations can require different actions depending on task progress. In the apple-weighing task, holding the apple above the scale occurs both before weighing and after re-grasping, despite requiring different subsequent actions. (a) A memoryless VLA lacks the history needed to distinguish these stages. (b) Representative memory-augmented approaches that fine-tune the base VLA incorporate historical context to resolve the ambiguity. (c) ActMem-VLA instead uses executed-action history as compact progress-aware memory to steer early denoising through a lightweight PreAction Expert, before handing the intermediate action state to the frozen Action Expert for refinement. 
+
+Abstract — Vision-language-action (VLA) models have driven rapid progress in robotic manipulation, demonstrating strong fine-grained control and promising performance on long-horizon tasks. However, many existing VLAs lack explicit access to interaction history, making them vulnerable to perceptual aliasing: similar current observations and robot states at different task stages may induce action ambiguity and lower success rate. Existing methods incorporate temporal or progress cues through feature conditioning, action-prior modification, or sampling guidance. However, methods that jointly fine-tune memory modules and the base VLA incur additional policy-training costs, motivating the separation of trainable history-conditioned steering from frozen base-policy refinement. We propose ActMem-VLA, a dual-expert handover architecture that augments a frozen, fine-tuned VLA with a memory plugin comprising a Mamba-based memory module and a lightweight PreAction Expert (PAE). Specifically, Mamba encodes executed-action history into memory that conditions PAE alongside current context. With these inputs, PAE steers task progression during early, high-noise denoising, then passes the partially denoised action to the frozen Action Expert (AE) to refine action details during the remaining low-noise steps. The fine-tuned base VLA remains frozen throughout training, while only the Mamba module and PAE are jointly optimized. On  
+
+> †
+
+Corresponding author (email: dianye.huang@hku.hk)  
+
+> 1
+
+Harbin Institute of Technology, Harbin, China.  
+
+> 2
+
+Medical Intelligence and Robotic Cognition (MIRoC) Lab, Department of Mechanical Engineering, The University of Hong Kong (HKU), Hong Kong SAR, China.  
+
+> 3
+
+Department of Computing, The Hong Kong Polytechnic University, Hong Kong SAR, China 
+
+LIBERO-Mem, ActMem-VLA achieves 80.8% average success across all ten tasks, compared with 65.2% for π0.5 and 49.5% for MemoryVLA, while introducing only 3.45% additional parameters. Across four real-world tasks, it improves the average success rate over π0.5 by 28.8%. 
+
+I. I NTRODUCTION 
+
+Vision-language-action (VLA) models [1], [2] combine vision-language representations with robot action generation, enabling language-conditioned manipulation. Recent flow-matching VLAs [3]–[6] further demonstrate strong fine-grained control and promising performance on long-horizon tasks. However, reliable execution of such tasks requires not only accurate control but also awareness of what has already been done [7]–[9]. Many existing VLAs [4], [10], [11] generate actions based solely on the current observation and robot state, without explicitly incorporating interaction history. Consequently, when visually similar observations recur at different stages of a task [12], [13], the model may be unable to distinguish the current task progress, creating ambiguity in determining the appropriate next action for continued execution. Consider a robot tasked with picking an apple from a pile, weighing it on a scale, and then placing it in a basket (Fig. 1). At two different stages, the robot may find itself holding the apple just above the scale: once before weighing it and again after weighing is complete. Although these two situations arXiv:2609.37307v1 [cs.RO] 29 Sep 2026 Task: “ Weigh the mango.”           
+
+> Frozen VLM Frozen Trainable Execution Memory
+> Pre-Trained VLM SigLIP(400M)+Gemma(2.6B)
+> Pre Action Expert (PAE)
+> (100M)
+> Executed Action History
+> 𝐀𠀀𝐀 𝐀−1
+> 𝐀𠀀𝐀 𝐀
+> 4 Steps Shared KV Cache
+> Handover
+> Mamba-2 Next Query Remaining 6 Steps
+> (300M)
+> Execution Context Noise [ a tat+1 …at+H ]Executed Actions Only
+> Action Expert (AE)
+> Pre Action Expert (PAE)
+> 4 denoising steps
+> Action Expert (AE)
+> Remaining 6 denoising steps
+> Coarse-to-Fine Denoising
+> Random Noise Coarse Action Trend Fine Action
+> VLM KV Cache Mamba Output
+> Proprioception External View Wrist View
+> (𝐀 𝐀 ,1:𝐀 , 𝐀 𝐀 )
+
+Fig. 2. Overview of ActMem-VLA. The Execution Memory module encodes previously executed actions into a compact execution context. Conditioned on this context and the current observation, the PreAction Expert performs early, high-noise denoising. The partially denoised action state is then handed to the frozen Action Expert, which performs the remaining low-noise steps to produce the action chunk. It is noted that only Mamba and the lightweight PreAction Expert are optimized; the base VLM and original Action Expert remain frozen. 
+
+can appear nearly identical in the current observation and robot state, they require opposite next actions—the robot should first lower the apple onto the scale, but later move it away toward the basket. Without knowing what has already happened, the robot cannot reliably distinguish between these two stages. This perceptual aliasing can result in repeated actions, skipped steps, or hesitation during long-horizon execution. To address this challenge, recent studies have explored incorporating historical context into action generation, as insufficient temporal awareness can weaken dependencies between consecutive actions, resulting in fragmented tra-jectories and reduced task-level coherence. Recent efforts mainly incorporate interaction history in three ways: directly conditioning action generation on historical observations [7], [14]–[17], storing and retrieving task-relevant information through memory-conditioned features [18]–[21], or recur-sively compressing past interactions into recurrent latent representations [22]–[26]. These strategies respectively pre-serve history explicitly, selectively retain it through external memory, or implicitly summarize it into an evolving internal state. Directly incorporating historical observations suffers from two major limitations. First, processing multiple past frames substantially increases computational cost and inference la-tency, hindering real-time control. Second, historical frames contain considerable redundancy, both across temporally adjacent frames and among static pixels within each frame, which can obscure the task-relevant changes that actually characterize interaction progress. To represent history more precisely and efficiently, recent approaches therefore focus on compact dynamic information rather than raw visual observations. HiF-VLA [27] uses inter-frame motion as a compact proxy for interaction dynamics, capturing state changes while discarding redundant static content, whereas Chen et al. [18] adopts an object-centric representation that tracks task-relevant points over time to summarize historical interactions. Despite these advances in efficient history representation, existing methods typically inject historical information into the policy input or internal features, tightly coupling memory modeling with action generation. As a result, equipping an already fine-tuned VLA with memory generally requires additional policy training to jointly adapt the memory and action-generation components [14], [22], [28], [29]. This coupling limits the flexibility of extending existing VLAs with memory, particularly when retraining the action expert is costly or undesirable. In contrast, recent approaches show that a frozen policy can be steered through separately learned guidance [8], [30], opening an alternative pathway for incor-porating historical context without modifying the underlying action expert. Motivated by this paradigm, we introduce a lightweight memory plugin that learns to extract guidance from interaction history and steer action generation, while keeping the pretrained action expert entirely frozen. In this study, we propose ActMem-VLA, a dual-expert handover architecture that augments a frozen, fine-tuned VLA with a Mamba-based memory module and a lightweight PreAction Expert (PAE), as illustrated in Fig. 2. We con-struct memory solely from executed actions, as mixing high-dimensional visual observations with low-dimensional actions can lead to modality imbalance, allowing redun-dant visual content to dominate the memory representation and obscure the action dynamics that directly reflect task progress. The Mamba module encodes the history of exe-cuted actions into a compact representation of task progress, which, together with the current context, conditions the PAE. During action generation, the PAE handles the early, high-noise denoising steps, steering the generative trajectory toward actions consistent with the interaction history. The partially denoised action state is then handed over to the original, frozen Action Expert (AE), which completes the remaining low-noise steps for fine-grained action refine-ment. This dual-expert handover decouples trainable, history-aware steering from frozen policy refinement within a single denoising trajectory, enabling temporal adaptation without modifying the base action expert. Practically, ActMem-VLA provides a plug-and-play mechanism for equipping existing VLAs with temporal memory, enabling parameter-efficient adaptation to new tasks while retaining their previously learned action-generation capabilities. This design leverages the executed-action history as a compact source of task-progress information while confining all adaptation to the memory plugin. The fine-tuned base VLA remains entirely frozen during training, with only the Mamba memory module and PAE jointly optimized. In our implementation, the plugin introduces only 3.45% additional parameters relative to the base VLA, providing history-aware action generation with minimal trainable overhead. The main contributions of this work are summarized as follows: 1) We introduce an executed-action memory mechanism that encodes interaction history into compact, progress-relevant context, enabling a frozen, fine-tuned VLA to resolve perceptual aliasing without relying on redun-dant historical visual observations. 2) We develop a dual-expert handover mechanism that uses a lightweight, memory-conditioned PAE for early history-aware denoising and the frozen AE for sub-sequent fine-grained refinement, enabling plug-and-play temporal adaptation with only 3.45% additional parameters relative to the base VLA. To evaluate the effectiveness of the proposed ActMem-VLA, we conduct experiments in both simulated and real-world settings. On LIBERO-Mem, ActMem-VLA achieves an average success rate of 80.8% across all ten tasks, substantially outperforming π0.5 (65.2%) and MemoryVLA (49.5%). Across four real-world tasks, ActMem-VLA further improves the average success rate over π0.5 by 28.8%, demonstrating its effectiveness in solving perceptual aliasing in robotic manipulation. II. R ELATED WORK 
+
+A. Vision-Language-Action Policies 
+
+Vision-language-action (VLA) models combine visual and language representations with robot action generation [1], [2]. Flow-matching VLAs [3]–[6] generate continuous action chunks through iterative denoising. Policies without explicit historical context can encounter ambiguity when similar current inputs recur at different task stages [9], [13], [31], [32]. Our work builds on an already fine-tuned flow-matching VLA [4] and introduces history-conditioned early denoising followed by a handover to the original action expert (AE). Both the vision-language model (VLM) and original AE remain frozen during this adaptation. 
+
+B. Memory Mechanisms in Robotic Policies 
+
+Temporal memory helps robotic policies resolve ambigu-ities that cannot be determined from the current observa-tion alone. Existing methods preserve historical information through multi-frame observations, salient events, retrieval, or compact latent memories [7], [14]–[17], [19], [20], [23]. Recurrent mechanisms further compress interaction history across successive decisions [23]–[26]. Since the visual con-tent of past observations is largely redundant, costly to process, and can itself introduce ambiguity, ActMem-VLA instead uses the robot’s executed-action history as a progress-relevant signal. A lightweight Mamba [33] module com-presses previous actions into memory that conditions the PreAction Expert during early denoising, while the original VLM and AE remain frozen. 
+
+C. Structured Denoising for Action Generation 
+
+Recent studies increasingly exploit the internal structure of iterative action generation [34], [35]. Different denoising stages can capture different levels of action information, motivating noise-dependent training or guidance [8], [30], [34]. In contrast, ActMem-VLA partitions a single denoising trajectory across two experts: a memory-conditioned PAE handles early high-noise steps before handing the intermedi-ate action state to the frozen AE for low-noise refinement. This design enables history-aware steering at the stage where the overall action trajectory is formed, while preserving the fine-grained control capability of the pretrained action expert. III. M ETHOD 
+
+A. Problem Description 
+
+For a given language instruction, let π(At | ot) denote an action-chunking policy conditioned on the current observa-tion ot. At each policy query, it predicts an action chunk 
+
+At = [ at, at+1 , . . . , at+H−1] with prediction horizon H.The first s ≤ H actions are executed before the next query, where s is the execution horizon. We consider flow-matching VLAs, such as π0.5 [4], whose action expert (AE) transforms Gaussian noise A0 
+
+> t
+
+∼ N (0 , I ) into an action chunk using a learned velocity field vπ . With flow time increasing from 
+
+τ = 0 (noise) to τ = 1 (actions), generation proceeds through 
+
+n Euler updates: 
+
+Aτ + 1 
+
+> n
+> t
+
+= Aτt + vπ (Aτt , ot, τ )/n, (1) where τ ∈ { 0, 1/n, . . . , (n − 1) /n } and A1 
+
+> t
+
+= At.In manipulation tasks that are non-Markovian with respect to the current observation, similar observations ot ≈ ot′ may occur at different task stages yet require different subsequent actions. Let Ht denote the action history executed before time t. Although Ht and Ht′ can provide different evidence of task progress, the memoryless policy, such as π0.5, does not condition on these histories. Consequently, it may select stage-inconsistent actions or alternate between competing behaviors across successive queries. As illustrated in Fig. 2, ActMem-VLA addresses this ambiguity by augmenting a frozen flow-matching VLA with Bowl ×1 Bottle ×1 Bowl ×3 Bottle ×3 Bowl ×5 
+
+Bowl ×7 Bowl swap Bowl rotation Move filled basket Move empty basket T1 T2 T3 T4 T5 T6 T7 T8 T9 T10 20% 40% 60% 80% 100%       
+
+> π0.5 MemoryVLA ActMem-VLA Fig. 3. Left: Ten simulation tasks in LIBERO-Mem. Right: Success rates of different methods across these tasks.
+
+T1 (180) T2 (220) T3 (320) T4 (340) T5 (460) T6 (600) T7 (480) T8 (600) T9 (360) T10 (360) Avg. 020 40 60 80 100 Success rate (%) 76.7 90.0 51.7 40.0 81.7 35.0 25.0 51.7   
+
+> 100.0 100.0
+> 65.2
+> 98.3
+> 88.3 15.0 20.0 3.3 0.0
+> 33.3
+> 53.3 91.7 91.7 49.5 93.3
+> 92.8 81.1 85.6 95.0 75.6 33.3 55.0
+> 97.2 98.9
+> 80.8
+> Fig. 4. Simulation comparison results on LIBERO-Mem. Success rates under task-specific step limits on T1 -T10 . The number in parentheses below each task indicates the step limit. Episodes that do not complete the task within this limit are counted as failures.
+
+an Execution Memory module and a lightweight PreAction Expert (PAE). The memory module encodes Ht into a mem-ory representation mt, which conditions the PAE together with the current observation context. For a handover point 
+
+r ∈ (0 , 1) , the PAE performs early denoising over τ ∈ [0 , r ).The frozen AE then continues from the resulting intermediate action state to τ = 1, without reinitializing noise. This introduces execution-history conditioning into the same n-step denoising process while retaining the original AE for subsequent refinement. Only the execution memory module and PAE are trained; the base vision-language model (VLM) and AE remain frozen. 
+
+B. Mamba-Based Execution Memory 
+
+We use an N -layer Mamba-2 module [33] with hidden width dm to encode executed-action history. At time t, the most recently executed s actions form the block Aexec  
+
+> t−s
+
+=[at−s, . . . , at−1]. Given the recurrent state St−s, the memory is updated as 
+
+(mt, St) = Mamba2  Aexec  
+
+> t−s
+
+, St−s
+
+ , (2) where St is the updated recurrent state and mt ∈ Rdm is the memory representation at time t. We project mt into history keys and values that condition the PAE during early denoising. 
+
+C. PreAction Expert and Denoising Handover 
+
+We initialize the lightweight PAE with P Transformer blocks copied from selected layers of the fine-tuned AE. The original AE remains frozen. Each PAE block receives the history KV derived from mt and the prefix KV produced by the corresponding frozen VLM layer when processing the current observation and instruction [36]. During inference, the PAE predicts the velocity field vπ
+
+and performs denoising updates using Eq. (1) over 0 ≤ τ < r. At τ = r, the intermediate action state Art is passed directly to the frozen AE, which continues denoising to 
+
+τ = 1 .
+
+D. Joint Training and Efficient Implementation 
+
+We jointly train the memory module and PAE on demon-stration episodes while keeping the VLM and AE frozen. Within each episode, mt is computed from actions preceding time t. Memory updates follow the same s-action blocks as inference, with padding for incomplete blocks. For each training query, we sample a flow time τ ∈ [0 , r ]
+
+and Gaussian noise ϵ ∼ N (0 , I ), and construct noisy actions 
+
+Aτt = (1 −τ )ϵ+τ At. Conditioned on the current observation context and mt, the PAE predicts the velocity field vπ . The memory module and PAE are optimized using the flow-matching loss: 
+
+Lflow = Et,τ, ϵ
+
+h
+
+∥vπ (Aτt , ot, mt, τ ) − (At − ϵ)∥22
+
+i
+
+, (3) averaged over valid action positions. To accelerate training, the selected prefix KV from the frozen VLM can be precom-puted and reused. Fig. 5. Overview of the hardware setup and representative execution sequences for the four real-world evaluation tasks. 
+
+IV. EXPERIMENTS In this section, we evaluated ActMem-VLA across ten simulation and four real-world tasks. Ablation studies were also conducted to assess the contributions of the proposed components and investigate the effects of key hyperparameter choices. 
+
+A. Experimental Settings 
+
+Simulation setup. As illustrated in Fig. 3, we evaluate ActMem-VLA on LIBERO-Mem [9], a simulation bench-mark comprising ten memory-dependent manipulation tasks denoted as T1 -T10 . All simulation experiments and model training were conducted on a computing cluster equipped with eight NVIDIA H100 GPUs. 
+
+Real-world setup. For the real-world experiments, we em-ployed a DOBOT Nova robotic arm equipped with wrist- and head-mounted cameras. The robot was controlled through the ROS framework running on a workstation equipped with an NVIDIA RTX5090 GPU. For each task, we collected 50 training demonstrations via the GELLO [37] leader-follower teleoperation device. As illustrated in Fig. 5, the robotic arm was tasked with four real-world tasks, denoted as R1 -R4 :1) R1: Two-Cycle Bowl Return. Lifting the bowl and returning it to the plate twice, then pressing the button once; 2) R2: Mango Weighing. Picking up the mango, weighing it on the scale, and placing it in the basket; 3) R3: Triple Button Press. Pressing the but-ton three times, then moving the arm aside; 4) R4: Three-Cycle Bowl Return. Performing three bowl lift-and-return cycles, then pressing the button once; where R2 evaluates whether the policy can distinguish differ-ent task stages when similar robot-object configurations recur before and after weighing. In contrast, R1 , R3 , and R4 focus on repetition-dependent task progress with a distinct terminal action, requiring the policy to both complete the prescribed number of repetitions and transition to the subsequent action rather than continuously repeating the same behavior. 
+
+Baselines. To validate the effectiveness of ActMem-VLA in leveraging historical action context, we compared it against two baselines: (i) Memory-free π0.5 [4], which conditions action prediction solely on the current observation, and (ii) Memory-augmented MemoryVLA [22], which maintains a memory bank of historical observations and retrieves task-relevant information to condition action generation. In sim-ulation, both baselines were fine-tuned on the full LIBERO-Mem dataset. For the real-world experiments, each baseline was fine-tuned separately using the training demonstrations collected for the corresponding task. 
+
+Evaluation Protocol. For the simulation comparison, we evaluate all three methods. Each method is trained with three random seeds, and each resulting checkpoint is evaluated using three evaluation seeds. For each evaluation seed, we conduct 20 trials per task, resulting in 180 trials per task for each method. For the ablation study, we use a single training seed and three evaluation seeds, with 20 trials per task for each seed. In the real-world experiments, we compare π0.5
+
+with ActMem-VLA, with each method evaluated over 20 trials per task. 
+
+B. Simulation Results 1) Comparison under the LIBERO-Mem 600-Step Episode Limit: Following the standard LIBERO-Mem evaluation protocol, each episode is allowed up to 600 steps for task completion. As shown in the radar plot of Fig 3, ActMem-VLA achieves comparable or superior performance in suc-cess rates against the two baselines, with substantial gains on 
+
+T6 . However, even the memoryless π0.5 baseline achieves nearly 100% success on several tasks, for instance, T1 -
+
+T3 , which highlights a limitation of the current LIBERO-Mem task completion criterion: a policy may satisfy the success condition through executing cyclic action sequences. Consequently, success rates under the standard protocol do not reliably reveal whether a policy uses memory to track task progress. 
+
+2) Comparison under Task-Specific Step Limits: To ac-count for the substantial variation in task execution lengths, we derive a task-specific step limit from the training-demonstration length distribution of each task. Let Di denote the collection of full training-demonstration lengths for task i. We define its step limit as 
+
+Bi = min 
+
+
+
+600 , 20 
+
+ Q0.95 (Di)20 
+
+ 
+
+, (4) where Q0.95 (·) denotes taking the 95th percentile element of the collection. This percentile is rounded upward to the nearest multiple of 20 and capped at 600 steps. All methods use the same limit for a given task. An episode is counted as successful only if it satisfies the original task-success condition within the assigned limit. Under task-specific step limits, ActMem-VLA achieves an average success rate of 80.8% across the ten tasks, outper-forming π0.5 and MemoryVLA by 15.6 and 31.3 percentage points, respectively (Fig. 4). It achieves the highest success rate on six tasks and ties with MemoryVLA on T7 . The clear-est gains occur on T3 -T6 . For example, on T4 , ActMem-VLA achieves 85.6% success, compared with 40.0% for π0.5
+
+and 20.0% for MemoryVLA. On T5 , it reaches 95.0%, while MemoryVLA achieves only 3.3%. The advantage is task-dependent: MemoryVLA performs best on T1 , while π0.5
+
+leads on T9 and T10 . Overall, these results demonstrate stronger task-completion performance under demonstration-derived task-specific step limits. 
+
+C. Ablation Studies 
+
+We evaluate component contributions and hyperparameter sensitivity on three challenging tasks: T6 , performing seven repetitions of picking up a bowl and placing it on a plate; 
+
+T7 , swapping two bowls between their plates using an empty plate; and T8 , cyclically shifting three bowls from left to right using an empty plate. These tasks cover repetition tracking and multi-stage object rearrangement. 
+
+1) Component Ablations: We evaluate two variants to examine the contributions of execution memory and the train-able PAE. (i). “w/o Execution Memory” removes Mamba and trains the PAE using only the current context, without executed-action history. The base VLA remains frozen. (ii). “w/o PreAction Expert” removes the PAE and directly conditions the original frozen AE on Mamba memory during the first four denoising steps. The same AE completes the remaining six steps without direct memory conditioning. Only the memory branch is trained. This variant tests whether direct memory conditioning of the frozen AE can replace the trainable early-denoising expert. As shown in Table I, removing execution memory reduces average success from 55.0% to 40.6%, whereas removing the PAE reduces it to 53.3%. Both ablations have their largest effects on the repetition-intensive T6 task: success falls from 80.0% to 38.3% without memory and to 58.3% without the PAE. These drops of 41.7 and 21.7 percentage points support the contributions of both executed-action history and a trainable early-denoising expert to this task. The gains on T7 are smaller, with the full model achieving 40.0%, compared with 33.3% without memory and 38.3% without the PAE. On T8 , however, both ablations outperform the full model: success increases from 45.0% to 50.0% without memory and to 63.3% without the PAE. The component benefits are therefore task-dependent, with particularly strong gains on repetition tracking and mixed results on object rear-rangement. Across the three tasks, the full model achieves the highest average success rate among the evaluated component variants, supporting the combined use of execution memory and a trainable early-denoising expert. 
+
+2) Hyperparameter Sensitivity: The default configuration uses a handover point of r = 0 .4, a two-layer Mamba execu-                   
+
+> TABLE I COMPONENT ABLATIONS ON T6 –T8 (SUCCESS RATE , %).
+> Variant T6 T7 T8 Avg.
+> w/o Execution Memory 38.3 33.3 50.0 40.6 w/o PreAction Expert 58.3 38.3 63.3 53.3
+> ActMem-VLA 80.0 40.0 45.0 55.0
+> Each ablation removes the indicated component from the full model.
+> Bold and underline indicates the top and second highest success rates in each column.
+
+tion memory module with width 1024, and a four-layer PAE. Each configuration in Table II varies one hyperparameter while keeping the others fixed. 
+
+Expert handover. The handover point r determines the fraction of the ten denoising steps assigned to the memory-conditioned PAE before the frozen AE takes over. Ratios of 0.3, 0.4, 0.5, and 0.6 yield average success rates of 48.3%, 55.0%, 45.0%, and 47.2%, respectively. The default 
+
+r = 0 .4 performs best on all three tasks among the tested ratios. A smaller ratio allocates fewer steps to memory-conditioned denoising, while a larger ratio leaves fewer refinement steps to the frozen AE. These results favor an intermediate allocation of four PAE steps followed by six AE denoising steps. 
+
+Execution memory capacity. Increasing Mamba depth from two to four reduces average success from 55.0% to 43.3%. Increasing its width from 1024 to 1536 raises the average to 55.6%, although success on T6 decreases from 80.0% to 76.7%. Given this small numerical gain of 0.6 percent-age points, we retain the narrower, two-layer configuration, which achieves a similar average success rate with less computation burden. 
+
+PAE capacity. Reducing PAE depth from four to two lowers average success from 55.0% to 43.9%. Increasing the depth to six improves T8 from 45.0% to 55.0%, but reduces success on T6 and T7 , yielding an average of 53.9%. We therefore retain the four-layer PAE, which achieves the highest average success rate among the tested depths. The capacity experiments indicate that increasing model size does not consistently improve performance in these settings.                                                                   
+
+> TABLE II HYPERPARAMETER SENSITIVITY ON T6 –T8 (S UCCESS RATE , %).
+> Parameter Default →Tested T6 T7 T8 Avg.
+> Handover point 0.4→0.365.0 36.7 43.3 48.3
+> 0.4→0.566.7 25.0 43.3 45.0
+> 0.4→0.671.7 28.3 41.7 47.2 Mamba depth 2→458.3 25.0 46.7 43.3 Mamba width 1024 →1536 76.7 40.0 50.0 55.6
+> PAE depth 4→270.0 21.7 40.0 43.9
+> 4→671.7 35.0 55.0 53.9
+> Default cfg. –80.0 40.0 45.0 55.0
+> Default configuration: r= 0 .4, Mamba width/depth = 1024 /2, and PAE depth = 4 .Each ablation changes only the indicated parameter from the default configuration.
+> Bold and underline indicates the top and second highest success rates in each column.
+
+R1 R2 R3 R4 020 40 60 80 100 Success rate (%)  85.0 10.0 15.0 30.0 100.0 65.0 35.0 55.0 
+
+π0.5 ActMem-VLA Fig. 6. Success rates on four real-world manipulation tasks. R1: Two-Cycle Bowl Return. R2: Mango Weighing. R3: Triple Button Press. R4: 
+
+> Three-Cycle Bowl Return.
+
+D. Real-World Results 
+
+The real-world tasks extend the simulation evaluation by requiring explicit transitions after weighing or a prescribed number of repetitions. In R1 , R3 , and R4 , successful com-pletion requires both performing the specified repetitions and switching to a distinct terminal action at the appropriate stage. Indefinite repetition alone therefore cannot satisfy the task requirements. As shown in Fig. 6, ActMem-VLA outperforms the mem-oryless π0.5 baseline on all four tasks. Success increases from 85% to 100% on R1 , from 10% to 65% on R2 , from 15% to 35% on R3 , and from 30% to 55% on R4 . With 20 trials per task, ActMem-VLA succeeds in 51 of 80 trials, compared with 28 of 80 for π0.5. The average success rate thus rises from 35.0% to 63.75%, an improvement of 28.8 percentage points. The largest gain occurs on R2 , where the policy must distinguish between similar robot-object configurations be-fore and after weighing. This improvement is consistent with better discrimination between task stages that cannot be reliably identified from the current observation alone. Gains on R1 , R3 , and R4 further support the usefulness of execution history for tasks requiring repetition tracking followed by a change in action. Reliable execution of the three-repetition tasks remains challenging, with success rates of 35% on R3 and 55% on R4 , compared with 100% on the two-cycle R1 task (Fig. 6). The improvements across all four tasks support the effectiveness of ActMem-VLA for real-world manipulation requiring both repetition tracking and appropriate stage transitions. V. C ONCLUSION 
+
+In this work, we presented ActMem-VLA, a memory-augmented VLA framework designed to address task-progress ambiguity in long-horizon manipulation. ActMem-VLA leverages executed-action history as compact progress-aware memory, encoded by Mamba to condition alightweight PreAction Expert (PAE). The PAE steers the early, high-noise denoising process toward history-consistent actions before handing the intermediate action state to the frozen Action Expert (AE) for fine-grained refinement. By training only the memory module and PAE while keeping the fine-tuned base VLA entirely frozen, ActMem-VLA enables parameter-efficient temporal adaptation without com-promising the learned action-generation capabilities of the base policy. This design provides a practical pathway for equipping existing VLAs with temporal memory to sup-port more coherent and reliable long-horizon manipulation. Experiments on ten simulated tasks and four real-world tasks demonstrate improved overall task completion. Under demonstration-based task-specific step limits, ActMem-VLA achieves 80.8% average success in simulation, exceeding 
+
+π0.5 and MemoryVLA by 15.6 and 31.3 percentage points, respectively. In real-world experiments, it improves success on all four tasks and raises the average from 35.0% to 63.75% relative to π0.5.These results support its effectiveness on tasks requir-ing stage discrimination, repetition tracking, and transitions to subsequent actions. Component ablations support the combined use of execution memory and a trainable early-denoising expert, while revealing task-dependent benefits. The proposed separation of trainable history-conditioned action generation from frozen policy refinement provides a practical approach to incorporating execution memory into existing VLAs. REFERENCES [1] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi et al. , “Open-vla: An open-source vision-language-action model,” arXiv preprint arXiv:2406.09246 , 2024. [2] M. J. Kim, C. Finn, and P. Liang, “Fine-tuning vision-language-action models: Optimizing speed and success,” arXiv preprint arXiv:2502.19645 , 2025. [3] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter et al. , “ π0: A vision-language-action flow model for general robot control,” arXiv preprint arXiv:2410.24164 , 2024. [4] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai et al. , “ π0.5: a vision-language-action model with open-world generalization,” arXiv preprint arXiv:2504.16054 , 2025. [5] P. Intelligence, B. Ai, A. Amin, R. Aniceto, A. Balakrishna, G. Balke, K. Black, G. Bokinsky, S. Cao, T. Charbonnier et al. , “ π0.7: a steerable generalist robotic foundation model with emergent capabilities,” arXiv preprint arXiv:2604.15483 , 2026. [6] J. Bjorck, F. Casta˜ neda, N. Cherniadev, X. Da, R. Ding, L. Fan, Y. Fang, D. Fox, F. Hu, S. Huang et al. , “Gr00t n1: An open foundation model for generalist humanoid robots,” arXiv preprint arXiv:2503.14734 , 2025. [7] H. Jang, S. Yu, H. Kwon, H. Jeon, Y. Seo, and J. Shin, “Contextvla: Vision-language-action model with amortized multi-frame context,”           
+
+> arXiv preprint arXiv:2510.04246 , 2025. [8] Z. Li, B. Hu, R. Shao, G. Chen, D. Jiang, P. Xie, J. Hao, and L. Nie, “Global prior meets local consistency: Dual-memory aug-mented vision-language-action model for efficient robotic manipula-tion,” arXiv preprint arXiv:2602.20200 , 2026. [9] N. Chung, T. Hanyu, T. Nguyen, H. Le, F. Bumgarner, D. M. H. Nguyen, K. Vo, K. Yamazaki, C. Rainwater, T. Kieu et al. , “Rethinking progression of memory state in robotic manipulation: An object-centric perspective,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 40, no. 5, 2026, pp. 3407–3415. [10] R. Cai, J. Guo, X. He, P. Jin, J. Li, B. Lin, F. Liu, W. Liu, F. Ma, K. Ma
+> et al. , “Xiaomi-robotics-0: An open-sourced vision-language-action model with real-time execution,” arXiv preprint arXiv:2602.12684 ,2026. [11] X. Lin, T. Lin, Y. Du, H. Xie, Y. Jin, J. Li, S. Wu, Q. Wang, M. Li, M. Zhao et al. , “Holobrain-0 technical report,” arXiv preprint arXiv:2602.12062 , 2026.
+
+[12] Q. Hu, Z. Qiu, Z. Xu, K. Zhang, X. Bu, Z. Sun, B. Zhang, J. Zhao, Z. Gan, and W. Ding, “Resolving state ambiguity in robot manipu-lation via adaptive working memory recoding,” IEEE Robotics and Automation Letters , 2026. [13] T. Chen, Y. Wang, M. Li, Y. Qin, H. Shi, Z. Li, Y. Hu, Y. Zhang, K. Wang, Y. Chen et al. , “Rmbench: Memory-dependent robotic manipulation benchmark with insights into policy design,” arXiv preprint arXiv:2603.01229 , 2026. [14] G. Yang, Z. Tu, Y. Yang, S. Mao, J. Dong, T. Chen, J. Peng, J. Xiong, J. Cao, J. Dai et al. , “Eventvla: Event-driven visual evidence mem-ory for long-horizon vision-language-action policies,” arXiv preprint arXiv:2606.20092 , 2026. [15] Y. Zeng, M. Ye, Y. Chen, Y. Shentu, P. Wu, Z. Yan, and Z. Li, “Kemo: Event-driven keyframe memory for long-horizon robot manipulation with vla policies,” arXiv preprint arXiv:2606.23589 , 2026. [16] M. Torne, K. Pertsch, H. Walke, K. Vedder, S. Nair, B. Ichter, A. Z. Ren, H. Wang, J. Tang, K. Stachowicz et al. , “Mem: Multi-scale embodied memory for vision language action models,” arXiv preprint arXiv:2603.03596 , 2026. [17] R. Shah, Y. Li, F. Bello, Y. Zhu, and R. Mart´ ın-Mart´ ın, “Memory retrieval in visuomotor policies for long-horizon robot control,” arXiv preprint arXiv:2606.25136 , 2026. [18] J. Chen, H. Fang, C. Wang, S. Wang, and C. Lu, “History-aware visuomotor policy learning via point tracking,” arXiv preprint arXiv:2509.17141 , 2025. [19] H. Qu, J. Gao, X. Hu, S. Yang, X. Yu, R. Yan, W. Wang, X. Shu, and S. Yan, “Dual latent memory in vision-language-action models for robotic manipulation,” arXiv preprint arXiv:2607.07608 , 2026. [20] H. Wang, Z. Jing, J. Ao, S. Song, X. Li, G. Huang, and C. Bai, “Beyond short-horizon: Vq-memory for robust long-horizon manip-ulation in non-markovian simulation benchmarks,” arXiv preprint arXiv:2603.09513 , 2026. [21] Y.-L. Wei, H. Liao, Y. Lin, P. Wang, Z. Liang, G. Liu, and W.-S. Zheng, “Cyclemanip: Enabling cyclic task manipulation via effective historical perception and understanding,” arXiv preprint arXiv:2512.01022 , 2025. [22] H. Shi, B. Xie, Y. Liu, L. Sun, F. Liu, T. Wang, E. Zhou, H. Fan, X. Zhang, and G. Huang, “Memoryvla: Perceptual-cognitive memory in vision-language-action models for robotic manipulation,” in Inter-national Conference on Learning Representations , vol. 2026, 2026, pp. 18 567–18 602. [23] H. Li, F. Shen, D. Chen, L. Yang, X. Wang, J. Shi, Z. Bing, Z. Liu, and A. Knoll, “Remem-vla: Empowering vision-language-action model with memory via dual-level recurrent queries,” arXiv preprint arXiv:2603.12942 , 2026. [24] Y. Huang, W. Bu, Z. Xiong, J. Wu, F. Huang, J. Jiang, and Z. Wang, “Chainvla: Chaining vision-language-action queries through a uni-fied execution state for long-horizon manipulation,” arXiv preprint arXiv:2608.02326 , 2026. [25] Y. Zhou, Q. Liang, S. Zhuang, J. Li, X. Wang, B. Cai, Y. Mo, and R. Xu, “Action-effect memory pretraining for robot manipulation,” 
+
+arXiv preprint arXiv:2606.12499 , 2026. [26] Z. Wang, Y. Wang, M. Ren, P. Li, Y. Liu, Y. Nie, L. Long, Y. Ye, X. Wang, Z. Zhu et al. , “Tacmamba: A tactile history compression adapter bridging fast reflexes and slow vla reasoning,” arXiv preprint arXiv:2603.01700 , 2026. [27] M. Lin, P. Ding, S. Wang, Z. Zhuang, Y. Liu, X. Tong, W. Song, S. Lyu, S. Huang, and D. Wang, “Hif-vla: Hindsight, insight and foresight through motion representation for vision-language-action models,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2026, pp. 20 732–20 742. [28] Z. Wang, M. Shi, C. Ni, J. Yang, M. Li, Z. Su, T. Lin, and H. Li, “Nativemem: Native memory compression for long-horizon robotic manipulation,” arXiv preprint arXiv:2607.06678 , 2026. [29] T. Chen, H. Wu, J. Wang, X. Li, and L. Fang, “Streamvla: Break-ing the reason-act cycle via completion-state gating,” arXiv preprint arXiv:2602.01100 , 2026. [30] M. Du and S. Song, “Dynaguide: Steering diffusion polices with active dynamic guidance,” Advances in Neural Information Processing Systems , vol. 38, pp. 44 192–44 221, 2026. [31] Y. Dai, H. Fu, J. Lee, Y. Liu, H. Zhang, J. Yang, C. Finn, N. Fazeli, and J. Chai, “Robomme: Benchmarking and understanding memory for robotic generalist policies,” arXiv preprint arXiv:2603.04639 , 2026. [32] H. Lei, W. Song, H. Zhang, J. Pei, J. Chen, H. Yan, H. Zhao, P. Ding, Z. Zhang, L. Huang et al. , “Robomemarena: A compre-hensive and challenging robotic memory benchmark,” arXiv preprint arXiv:2605.10921 , 2026. [33] T. Dao and A. Gu, “Transformers are SSMs: Generalized models and efficient algorithms through structured state space duality,” in Proceed-ings of the 41st International Conference on Machine Learning , vol. 235. PMLR, 21–27 Jul 2024, pp. 10 041–10 071. [34] A. Wei, N. Pfaff, T. Cohn, A. K. Dayı, C. Daskalakis, G. Daras, and R. Tedrake, “Ambient diffusion policy: Imitation learning from suboptimal data in robotics,” arXiv preprint arXiv:2606.12365 , 2026. [35] K. Black, M. Galliker, and S. Levine, “Real-time execution of action chunking flow policies,” Advances in Neural Information Processing Systems , vol. 38, pp. 33 383–33 407, 2026. [36] B. Jeon, Y. Choi, and T. Kim, “Shallow-π: Knowledge distillation for flow-based vlas,” 2026. [Online]. Available: https://arxiv.org/abs/ 2601.20262 [37] P. Wu, Y. Shentu, Z. Yi, X. Lin, and P. Abbeel, “Gello: A general, low-cost, and intuitive teleoperation framework for robot manipulators,” in 
+
+2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 12 156–12 163.

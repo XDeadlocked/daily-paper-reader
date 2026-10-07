@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-06</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-07</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 32 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
-    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>2 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>15</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-06 23:24:52 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-07 23:36:38 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-10-06 日报精选32篇视频生成与视觉-语言-动作模型研究，精读17篇、速读15篇。最值得看的是满分论文 SUAVE 用掩码扩散统一视频与动作建模，以及 9.0 分的世界校准“提议到动作”流方法。普通读者可先从这两篇切入，再结合 VTR-Bench 等速读工作了解视频生成的评测与多样性问题。</p>
+<p>今日筛读24篇论文（精读13、速读11），聚焦视觉-语言-动作策略与视频生成两大方向。最值得看的是9.0分的《Remember What You Did》用动作历史记忆加双专家去噪提升长程VLA策略，以及同分的《Custom Forcing》实现免训练的自回归视频主体定制。普通读者可先从这两篇精读入手，再顺带浏览速读中《Fewer Tokens, Better Action》关于token效率与成功率的取舍结论。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">17 篇</strong>
+    <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SUAVE: Unified Video-Action Models via Masked Diffusion">SUAVE: Unified Video-Action Models via Masked Diffusion</span></li><li><span class="dpr-home-dashboard-paper-title" title="World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models">World-Calibrated Proposal-to-Action Flow for Vision-Language-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Imagine the Future, Internalize the Gist: Efficient VLA Reasoning via Internalized Spatiotemporal Imagination">Imagine the Future, Internalize the Gist: Efficient VLA Reasoning via Internalized Spatiotemporal Imagination</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies">Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="Custom Forcing: Training-Free Subject Customization for Autoregressive Video Generation">Custom Forcing: Training-Free Subject Customization for Autoregressive Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VDOT++: Unified Few-Step Video Generation via Unbalanced Optimal Transport Distillation">VDOT++: Unified Few-Step Video Generation via Unbalanced Optimal Transport Distillation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>17</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>13</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -84,12 +84,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">15 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Bootstrapping Video Interaction Generation with Synthetic State Transitions">Bootstrapping Video Interaction Generation with Synthetic State Transitions</span></li><li><span class="dpr-home-dashboard-paper-title" title="VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation">VTR-Bench: A Systematic Benchmark for Evaluating Visual Text Rendering in Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models">DiVid: Diagnosing Dimension-Specific Diversity Collapse in Video Generation Models</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fewer Tokens, Better Action: GPT-6 Astra Robot Agents with 14% Higher Success Rate but 65% Fewer Tokens">Fewer Tokens, Better Action: GPT-6 Astra Robot Agents with 14% Higher Success Rate but 65% Fewer Tokens</span></li><li><span class="dpr-home-dashboard-paper-title" title="PWM: Personalized World Models with Online Reinforcement Learning">PWM: Personalized World Models with Online Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="SemCam: Semantic Camera Motion Control for Video Generation">SemCam: Semantic Camera Motion Control for Video Generation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>15</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>
 </div>
 
