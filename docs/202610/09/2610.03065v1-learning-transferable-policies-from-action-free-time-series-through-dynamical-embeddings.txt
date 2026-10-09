@@ -1,0 +1,1119 @@
+Title: Learning Transferable Policies from Action-free Time Series Through Dynamical Embeddings
+
+URL Source: https://arxiv.org/pdf/2610.03065v1
+
+Published Time: Mon, 05 Oct 2026 01:13:42 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Learning Transferable Policies from Action-free Time Series Through Dynamical Embeddings 
+
+Niklas Emonds niklas.emonds@iwr.uni-heidelberg.de Hector Institute for AI in Psychiatry (HITKIP) & Department of Psychiatry and Psychotherapy, Central Institute of Mental Health (CIMH), Medical Faculty Mannheim, Heidelberg University Interdisciplinary Center for Scientific Computing (IWR), Faculty of Mathematics and Computer Science, Heidelberg University 
+
+Georgia Koppe georgia.koppe@iwr.uni-heidelberg.de IWR, Faculty of Mathematics and Computer Science, Heidelberg University HITKIP & Department of Psychiatry and Psychotherapy, CIMH, Medical Faculty Mannheim, Heidelberg University Hertie Institute for AI in Brain Health, University of Tübingen, Germany 
+
+## Abstract 
+
+Learning control from action-free recordings is challenging because intervention effects are unobserved and policies may exploit errors in reconstructed dynamics. We present a hi-erarchical model-based reinforcement learning framework that uses shared structure across related systems to learn system-specific control policies from action-free recordings. A hi-erarchical dynamical system reconstruction model captures shared dynamics and individ-ual variation through low-dimensional embeddings. These embeddings are then reused to parameterize shared policy and value networks, linking differences in reconstructed dynam-ics to differences in control. Policies are trained entirely via simulation under an explicit intervention model with additive latent perturbations. Piecewise-linear recurrent neural networks enable mechanistic analyses of the controlled dynamics, while decoder-based con-straints make the immediate effects of interventions interpretable in observation space and permit interventions on one modality while protecting another from direct manipulation. On Lorenz-63 and double-pendulum systems, hierarchical policies improve transfer over in-dependently trained policies. On Lorenz-63, they also achieve a higher mean reward than repeated planning with the same reconstructed models, perform comparably to methods trained with controlled interactions, and generalize to systems absent from policy training after embedding inference alone. Applications to neural–behavioral recordings demonstrate suppression of predicted movement under constrained neural perturbations. Together, these findings show how shared dynamical representations support transferable control and mech-anistic hypothesis generation from action-free recordings. 
+
+## 1 Introduction 
+
+Controlling nonlinear dynamical systems (DSs) is central to many fields of science and engineering. In neuroscience, control may involve selecting inputs that steer neural dynamics toward a desired state or behavioral outcome. Yet limited data and safety or ethical constraints often restrict opportunities to ex-perimentally probe the effects of such inputs (Krauss et al., 2021; Chandrabhatla et al., 2023). Neural and behavioral recordings may nevertheless be available across individuals or repeated sessions, providing in-formation about shared dynamics and individual variation. We call these recordings action-free when they contain no responses to the control actions considered here, even though task cues and behavior may be recorded. We study how to learn control policies from these recordings using reconstructed dynamics and an explicitly specified action model, without further interaction with the underlying systems during training. Having a model of the dynamics provides a basis for designing control policies. Two major approaches use such a model to select actions: repeated planning during deployment and prior learning of an explicit policy 1arXiv:2610.03065v1 [cs.LG] 2 Oct 2026 that maps the current state to an action. Model predictive control (MPC) follows the first approach, using the model to optimize a finite sequence of actions at each time step, apply its first action, and repeat the optimization from the next observed state (Richalet et al., 1978; Mayne et al., 2000). While MPC relies on computationally heavy trajectory optimization at every step, model-based reinforcement learning (MBRL) can amortize this cost by using the transition model to train a policy (Sutton, 1990; Moerland et al., 2023). In particular, latent world models allow a policy to be trained entirely on simulated trajectories and deployed with minimal latency (Hafner et al., 2019; 2020; 2025a). Although policy learning occurs in simulation, these methods typically learn action effects from controlled interactions with the real system. Learning from action-free recordings creates two difficulties. First, policies optimized in a learned simulator may exploit reconstruction errors, particularly when actions move the system into regions poorly constrained by the recordings. Without recorded control actions and their outcomes, there is no empirically supported intervention behavior toward which the policy can be regularized (Yu et al., 2020; 2021). Reliable dynamics reconstruction is therefore essential for generating the long simulated trajectories on which policy learning depends, alongside regularization that limits exploitation of model errors. This is particularly challenging for chaotic systems, where small errors can amplify rapidly (Lorenz, 1963). Second, even a model that perfectly reproduces the system’s dynamics without intervention does not tell us how a physical actuator would change its state. This relationship must therefore be specified through prior knowledge or an explicit modeling assumption. To address the reconstruction problem, we build on hierarchical dynamical system reconstruction (DSR). DSR seeks models that recover attractor geometry and characteristic temporal structure beyond short-term prediction accuracy, and excels particularly at learning dynamical systems (Durstewitz et al., 2023; Hess et al., 2023). Hierarchical DSR shares parameters across related systems while representing individual variation through low-dimensional embeddings, improving data efficiency and generalization when per-system data are limited (Brenner et al., 2025; Vermani et al., 2025). We extend this hierarchy to control by reusing reconstruction embeddings to parameterize shared policy and value networks, trained with soft actor-critic (SAC) entirely on simulated transitions (Haarnoja et al., 2018). This incorporates learned dynamical structure into control, with differences between related systems determining corresponding variations within a shared policy family. In the absence of an empirical action distribution toward which policies could be regularized, hierarchical parameter sharing therefore provides an alternative constraint. It reduces the number of trainable parameters and limits specialization to individual world models. Moreover, the controller can be applied to systems not encountered during policy training. Fitting a new embedding to their uncontrolled recordings yields a system-specific policy while shared actor and critic parameters remain fixed. The second problem remains unresolved by observational data alone, since we cannot identify how a physical actuator couples to the system. Here, we therefore ask what changes in measured variables could achieve a desired outcome. To study this question, we model interventions as additive actions that additively perturb the latent state, applied before the learned transition. Linear decoders make their immediate effects explicit in observation space, allowing us to characterize which variables the controller changes and by how much. They also permit modality-specific constraints. For example, interventions can alter decoded neural activity while preserving the immediate behavioral output, so that subsequent behavioral changes arise through the reconstructed dynamics (Emonds et al., 2026). To understand how these changes achieve control, we use Almost Linear Recurrent Neural Networks (AL-RNNs) with piecewise-linear latent dynamics (Durstewitz, 2017; Koppe et al., 2019; Brenner et al., 2024a). Analytic access to fixed points and stability properties allows us to examine how interventions shift dynami-cal mechanisms. Together, these analyses generate mechanistic hypotheses about which changes in observed variables can achieve control and the dynamical mechanisms through which they act. In sum, our contributions are: (i) a formulation for learning control policies from action-free recordings that combines DSR with MBRL under an explicit latent intervention model; (ii) a hierarchical controller that reuses reconstruction embeddings to share SAC across related DSs, enabling adaptation to unseen systems without retraining; (iii) decoder-based action constraints that make interventions interpretable in observation space and permit control across distinct intervention and target modalities; (iv) a mechanistic analysis of 2learned control strategies using regional fixed points and local stability properties; and (v) experiments demonstrating improved transfer to the underlying Lorenz-63 and double-pendulum systems relative to independently trained SAC controllers, embedding-based adaptation to unseen Lorenz-63 systems, and in-silico control of behavior in models fitted to neural–behavioral recordings. 
+
+## 2 Related Work 
+
+Model-predictive control MPC is a standard framework for controlling nonlinear systems by repeatedly solving finite-horizon optimization problems under dynamical and input constraints (Richalet et al., 1978; Mayne et al., 2000). For nonlinear and hybrid systems, piecewise-affine formulations provide an important compromise between expressivity and tractability, since nonlinear dynamics can be represented through collections of locally affine regimes with region-dependent control laws (Mayne & Raković, 2003). This is conceptually close to the piecewise linear (PWL) latent dynamics used in our work. However, classical MPC typically assumes a reliable controlled model and often relies on online optimization at deployment time. Recent learning-based extensions retain the receding-horizon principle while relaxing the requirement of analytically specified dynamics: CEM-MPC optimizes action sequences by sampling and refining them in a learned predictive model, whereas TD-MPC jointly learns a latent dynamics model and value function from controlled interaction data and performs short-horizon latent-space planning with terminal value estimates (Pinneri et al., 2021; Hansen et al., 2022). Our CEM-MPC baseline uses the same reconstructed ALRNN as the proposed method but plans anew at every time step. 
+
+Model-based and offline RL MBRL learns a world model and uses it for planning or policy optimization (Sutton, 1990; Moerland et al., 2023). Latent world models such as the Dreamer framework show that compact state-space models can support policy learning through simulated rollouts (Hafner et al., 2019; 2020; 2025a;b). These methods deal well with high-dimensional observations, but usually assume either online interaction or sufficient logged state-action data. Offline MBRL addresses the resulting distribution-shift problem by penalizing model rollouts or policies that move away from the empirical state-action distribution (Yu et al., 2020; 2021). In our setting, however, no actions are observed, so there is no measured action distribution against which policy behavior can be regularized. We therefore use hierarchical parameter sharing as an implicit regularizer. Multitask and hierarchical reinforcement learning (RL) exploit shared structure across related control problems by sharing policy and value function parameters or conditioning them on task embeddings, thereby improving data efficiency and generalization. Hierarchy here refers to a parametric decomposition into shared and subject-specific components, not to temporal scales, levels of abstraction or option-based control (Dayan & Hinton, 1992; Barto & Mahadevan, 2003; Bacon et al., 2017). 
+
+Reconstruction of families of dynamical systems DSR seeks generative models that learn the true underlying DS by reproducing attractor geometry and long-run temporal structure from time series (Durste-witz et al., 2023; 2026). ALRNNs retain a PWL structure with a parsimonious symbolic code, making local dynamical analysis feasible (Brenner et al., 2024a; Brenner & Koppe, 2026). Hierarchical DSR represents a family of systems through shared parameters and low-dimensional embeddings, which can improve estima-tion from limited per-system data and enable adaptation to unseen systems (Brenner et al., 2025; Vermani et al., 2025). We extend this framework from reconstruction to control by conditioning the policy and value function on the same embedding. 
+
+Control in neuroscience and cross-modal interventions Adaptive neurostimulation provides a chal-lenging application that motivates our setting. Common methods optimize control policies directly, rather than learning a world model of the neural dynamics (Chandrabhatla et al., 2023; Krauss et al., 2021; Horn & Neumann, 2025). Closed-loop, personalized stimulation has to be designed under safety and data constraints that limit collecting interventional data (Ravivarapu et al., 2025). Recent work therefore learns stimulation policies in simulated neurophysiological environments (Kuzmina et al., 2025), or fits state-transition models to observational recordings and applies control theory to them for mechanistic insight (Emonds et al., 2026). In each case the effect of an action is supplied by a simulator or by an assumed perturbation model, as it is here. Our neural experiments constrain that assumption further: actions are restricted to neural decoder directions, so any change in predicted behavior must pass through the learned latent dynamics. 33 Methods 
+
+3.1 Preliminaries and problem setting 
+
+MBRL requires an environment model p(zt+1 , r |zt, a t). We define the reward r by penalizing distance from a target state. Our goal is therefore to construct the transition dynamics p(zt+1 |zt, a t) from short recordings of related systems in which no control actions at were observed. We learn each system’s dynamics without control actions, specify how actions perturb its state, and combine these components into an environment for policy learning. 
+
+3.2 Learning the dynamics from recordings 
+
+We first learn a model that can generate trajectories of each system without control, using established methods for DSR. An ALRNN describes the latent dynamics, observation models connect the latent state to the recordings, and a hierarchical parameterization shares information across related systems (Brenner et al., 2024a;b; 2025). Together, these components provide the environments in which we train the policy (see also figure 1a). 
+
+State transitions For subject j, an encoder maps the observation trajectory to latent states z(j) 
+
+> t
+
+∈ RL.The ALRNN then advances this state according to 
+
+z(j) 
+
+> t+1
+
+= Fφ(j) (z(j) 
+
+> t
+
+, s (j) 
+
+> t
+
+) = A(j)z(j) 
+
+> t
+
++ W (j)σ(z(j) 
+
+> t
+
+) + C(j)s(j) 
+
+> t
+
++ h(j), (1) where A ∈ RL×L is a diagonal self-connection matrix, W ∈ RL×L contains cross-connections, and h ∈ RL is a bias term. The function σ applies a ReLU to P of the L latent coordinates and leaves the others unchanged. This yields a PWL vector field that partitions latent state space into 2 P subregions within which dynamics are linear. The optional input st ∈ RK and its weight C ∈ RL×K represent recorded external signals, such as task cues; it is distinct from the action introduced below. When no external inputs are modeled, this input term is omitted. Observation models decode the latent state into the observations x(j) 
+
+> t
+
+∈ RO . Only a subset of these latent dimensions is decoded. When recordings contain several modalities, such as neural activity and behavior, each modality has its own decoder but shares the same latent dynamics. This lets us learn from the recorded variables and later define control objectives separately in those same variables. 
+
+Sharing information across systems A short recording may not sufficiently constrain a model fitted to one subject alone. We therefore represent subject-specific parameters through shared group-parameters and subject vectors. Specifically, subject-specific parameters φ(j) ∈ R|φ(j)| are obtained by projecting group-level parameters φgroup ∈ RsDSR ×| φ| through low-dimensional subject embeddings S(j) ∈ RsDSR ,
+
+φ(j) = S(j)φgroup . (2) The shared parameters describe a family of possible dynamics; the embedding S(j) selects the subject associated with subject j. Learning them jointly constrains each reconstruction to this common family while allowing systematic differences between systems (Brenner et al., 2025). This is the sense in which we use hierarchy throughout the method. We fit the reconstruction model and embeddings using the recorded trajectories {xt}, before any policy training. We assess whether generated trajectories reproduce the observed state distributions and temporal structure, in addition to prediction accuracy. Sufficient for this is the agreement of the Kullback-Leibler (KL) divergence DKL and temporal consistency using the dimension-wise Hellinger distance DH between power spectra (Koppe et al., 2019; Brenner et al., 2022; Mikhaeil et al., 2022; Hess et al., 2023). Appendix B gives the reconstruction objectives, training procedure, and dataset-specific settings. The resulting model supplies a transition for each subject and an embedding that will also identify that subject to the policy. 43.3 Turning the reconstruction into a control environment / world model 
+
+The learned reconstruction predicts how a system evolves without intervention. We define an action at ∈ RL
+
+as a perturbation of the latent state before the learned transition: 
+
+z(j) 
+
+> t+1
+
+= Fφ(j) (z(j) 
+
+> t
+
++ a(j) 
+
+> t
+
+, s (j) 
+
+> t
+
+). (3) Importantly, actions are only nonzero in the latent dimensions that are decoded (figure 1c). Thus, policy learning can explore the predicted consequences of state perturbations without requiring recorded control actions. Its validity depends on the accuracy of the reconstructed dynamics and on whether the prescribed perturbation represents the intervention of interest. 
+
+Restricting where actions act The allowed perturbations depend on the task. For example, we may want to permit an action to affect neural activity while requiring behavior to change only through the dynamical coupling. Linear observation decoders make such restrictions possible, by projecting policy proposals onto the common null space of the decoder weights for outputs that must remain unchanged by the immediate perturbation: 
+
+a′(j) 
+
+> t
+
+∼ π(j)(·| z(j) 
+
+> t
+
+), a(j) 
+
+> t
+
+= N (j)a′(j) 
+
+> t
+
+. (4) Here, N (j) ∈ RL×L is a projection onto the desired null space. In the synthetic benchmark, this construction restricts which observed state coordinates can be perturbed. In the neural examples, it prevents the policy from changing the behavioral modality directly. Appendix C describes the projection implementation. 
+
+Reward function After applying an action and advancing the model, we decode the next state and evaluate its distance from the target state. Let D(j,m ) denote the decoder for modality m of subject j, and let DT be the set of target decoders , i.e., modalities whose decoded outputs are required to reach predefined targets x(m)target . The reward associated with the transition z(j) 
+
+> t
+
+→ z(j) 
+
+> t+1
+
+is 
+
+r(j)(z(j)
+
+> t+1
+
+, a (j) 
+
+> t
+
+) = − ∑
+
+> m∈DT
+
+E
+
+> x(j,m )
+> t+1
+
+[∥∥∥x(j,m ) 
+
+> t+1
+
+− x(m)target 
+
+∥∥∥22
+
+]
+
+− λpen 
+
+∥∥∥a(j)
+
+> t
+
+∥∥∥1
+
+, (5) where the first term penalizes deviations from target states in the relevant observation modalities, and the second term regularizes control effort. Targets and the action penalty are task-specific hyperparameters. During training, we approximate the decoder expectation with one sample; during evaluation, we use the decoder expected value. The model can now produce a complete transition for RL: propose an action, enforce its constraints, advance the latent dynamics, and evaluate the decoded outcome. 
+
+3.4 Learning a policy shared across systems 
+
+We learn the policy using the SAC algorithm (Haarnoja et al., 2018), which maximizes expected discounted reward with an entropy bonus encouraging exploration. SAC trains a feedforward policy network πψ (a | z)and two action-value networks Qθ1 (z, a ) and Qθ2 (z, a ). The policy maps latent states to action distributions, while the Q-networks estimate the return from taking an action and subsequently following the policy, including the entropy bonus. Training uses transitions ( zt, a t, r t, z t+1 ) stored in a replay buffer D. For the purpose of readability, the subject indices will be omitted from now. Each Q-network minimizes 
+
+LQk (θk) = E(zt,a t,r t,z t+1 )∼D 
+
+[
+
+(Qθk (zt, a t) − yt)2]
+
+, k ∈ { 1, 2}. (6) The target yt combines the immediate reward (equation 5) with an entropy-adjusted estimate of the cumu-lative future reward. The policy minimizes 
+
+Lπ (ψ) = Ezt∼D , a t∼πψ (·| zt)
+
+[
+
+α log πψ (at | zt) − min  
+
+> k∈{ 1,2}
+
+Qθk (zt, a t)
+
+]
+
+. (7) 5Our extension parameterizes πψ and Qθ through shared trainable group-parameters and the subject embed-dings S(j) learned during reconstruction (implicitly assuming that the features which distinguish subjects in their dynamics are also those that matter for control). For instance, the weight matrix of layer i for subject 
+
+j is 
+
+W (j) 
+
+> i
+
+= S(j)PWi , (8) where PWi is a learned group-level matrix. This construction applies to all weights and biases of both networks. Their respective losses update the shared parameters, while the reconstruction model and embed-dings remain fixed. Sharing parameters restricts each controller’s ability to specialize to its reconstructed environment. Training alternates between collecting generated transitions and updating the networks from the replay buffer. We add Gaussian process noise during trajectory generation to reduce sensitivity to deterministic reconstruction errors. Further SAC implementation details are provided in Appendix C. 
+
+Generalization to unseen systems via zero-shot adaptation To control a dynamical system unseen 
+
+by the policy network, we only fit its subject embedding S(j) using its action-free trajectory data, keeping all shared reconstruction parameters fixed. Inserting S(j) into the fixed policy and Q-networks instantly yields a controller without any policy optimization or fine-tuning. Adaptation therefore uses the new system’s observed dynamics to select a policy from the learned family. 
+
+3.5 Understanding how actions modify the dynamics 
+
+Beyond generalization, a major advantage of our approach is that the ALRNN allows us to examine how a trained controller changes the reconstructed dynamics. Its P ReLU units divide state space into 2 P
+
+linear subregions (LSRs), each defined by which units are active. Within each LSR, fixed points (FPs) and their stability can be computed in closed form, providing direct access to mechanistic properties of the reconstructed system (Brenner & Koppe, 2026). To express this, we collect the activation indicators in a diagonal matrix Dt. Its first L − P diagonal entries are one because these units are linear; the remaining ones satisfy 
+
+dt,l = 1{zt,l >0} for l > L − P, Dt = diag(1 , . . . , 1, d t,L −P +1 , . . . , d t,L ). (9) The activation pattern determines the local transition matrix MDt = A + W D t such that we can write 
+
+zt+1 = MDt zt + Cs t + h. (10) For a constant action a, we denote the activation pattern at the perturbed state by Dat . In the absence of external inputs, the controlled transition is 
+
+zt+1 = MDat (zt + a) + h. (11) Solving for FPs zt+1 = zt = z∗ gives 
+
+z∗ = ( I − MDat )−1(MDat a + h), (12) provided the inverse exists. This candidate may be non-virtual , i.e., the FP lies within the same LSR in which it is computed, or virtual , meaning that the FP or the trajectory toward it crosses into another subregion. The effective linear dynamics are thus determined by the occupied LSR through Dat , which itself may change under the applied action. As a result, the effect of actions can be interpreted as pushing the system into an LSR with distinct dynamical properties and subsequently shifting the FPs within this region. We use these properties to examine which regions the controller visits, how close their FPs lie to the target, and the eigenvalues of their transition matrices. 6aHierarchical DSR Hierarchical SAC Train Only Group Parameters Reconstruction Empirical Time Series Subject Vectors Controlled Dynamics  c⋯̃ 
+
+> zt
+> ⋯
+> D(1)
+> D(2)
+> D(i)
+> z1
+> z2
+> z3
+> zL
+> a1
+> a2
+> a3
+> x(1)
+> t
+> +a(1)
+> t
+> x(2)
+> t
+> x(i)
+> t
+
+bFine Tuning Fix Group Parameters Fix Group Parameters Train Only Subject Vectors No Training  dx yzx yz   
+
+> at= (0, ay,az)Control
+
+Figure 1: Framework overview. a : A hierarchical DSR model is trained on multiple related dynamical systems (“subjects”) and used as world model for MBRL. Subject-specific parameters φ(j) are obtained by projecting shared parameters Pφ onto low-dimensional subject embeddings S(j). These embeddings are reused to condition the policy πψ and value networks Qθ by modulating group-level parameters Pψ and Pθ .
+
+b: For unseen subjects, learning only a new embedding via DSR fine-tuning enables insertion into the control model. c: The high-dimensional dynamics are controlled only in the directions that are decoded (˜ zt). To underactuate the problem and for application-specific constraints, actions are constrained to be orthogonal to the target modalities and target dimensions. d: In the Lorenz-63 benchmark, the actions only affect the 
+
+y− and z−directions. 
+
+## 4 Experiments 
+
+We first applied our approach to Lorenz-63 (Lorenz, 1963) and double-pendulum systems, where we could transfer the learned actions directly to the true underlying equations. We then examined whether a trained controller could generalize to unseen Lorenz systems using only action-free observations. Finally, we used neural and behavioral recordings to test in-silico whether the model could predict actions that suppress movement without directly changing the decoded behavioral variables. 
+
+4.1 Evaluation and comparison methods 
+
+For the synthetic benchmarks, we distinguished performance in the learned (world) model from performance on the true system. To test this transfer, we encoded the current true-system observation, obtained an action from the policy, and mapped it back to the permitted system coordinates. We then applied this perturbation to the true system and advanced its equations numerically. We used three comparisons to examine different parts of the approach. First, independent ALRNN-SAC 
+
+learns a separate policy and value function for each system, using the same reconstructed environments, action constraints, and reward as the hierarchical controller. This comparison tests whether hierarchizing SAC parameters and reusing subject embeddings improves performance beyond learning each policy indepen-dently. Second, ALRNN-CEM-MPC uses the same reconstructed dynamics but chooses actions through online planning (Pinneri et al., 2021). This comparison asks how a policy learned in simulation performs against repeated online planning. Neither approach uses action-conditioned transitions from the true system for training. Third, we compared learning without actions against learning with actions, using two estab-lished baselines: DreamerV3 , which learns an explicit policy through imagined trajectories from controlled interactions (Hafner et al., 2025a), and TD-MPC , which selects actions through repeated planning in a learned model during deployment (Hansen et al., 2022). Both baselines were trained separately for each subject. 7Within each synthetic benchmark, methods use the same reward, permitted action space, evaluation horizon, and initial-state distribution. We average reward over initializations and time, excluding the first 15 steps, take the median across subjects, and report the mean and standard deviation across training seeds. Reward scales differ between benchmarks, so numerical comparisons are made within each task. Data generation and reconstruction details are provided in Appendix B, with baseline implementations in Appendix E. 
+
+4.2 Transfer of control in families of benchmark dynamical systems 
+
+a0.0 0.1      
+
+> 0246810
+> World Model
+> 4
+> 0.00 0.05
+> 0246810 4
+> 0.00 0.35
+> 0510 15 20 25
+> True System
+> 4
+> 0.0 0.4 0.8
+> 0510 15 20 25 4
+> Independent  Hierarchical #Subjects Reward
+
+b2.5       
+
+> 0.0 2.5
+> x1
+> 2.5
+> 0.0 2.5
+> x2
+> 0.0 2.5
+> x3
+> 20
+> 0
+> V(z)
+> 0100 200 300 400 500
+> Time Steps
+> 050
+> LSR
+
+c2.5      
+
+> 0.0 2.5
+> x1
+> 2.5
+> 0.0 2.5
+> x2
+> 0.0 2.5
+> x3
+> 0100 200 300 400 500
+> Time Steps
+> 1
+> 0
+> a3
+
+d0.0 0.2 0.4 0.6  
+
+> Frequency
+> 020 40 60
+> LSR Index
+
+e0 2 4 6 8 10  
+
+> FP-Target Distance
+> 020 40 60
+> LSR Index
+
+f200 220 240 260 280 300 
+
+> Time Steps
+> 0.00 0.02 0.04 0.06 0.08 0.10
+> Target Distance  Trajectory FPs
+
+Figure 2: Controlling the Lorenz-63 benchmark. a : Reward histograms for randomly initialized tra-jectories across all subjects for the simulated system (left) and the true system (right) using hierarchically (top) and independently trained models (bottom). Black line denotes uncontrolled baseline. b: Representa-tive Lorenz–63 trajectories with reward = −0.020 generated by the world model under SAC control during uncontrolled and controlled phases (gray shading), with the value function and occupied LSRs shown below. While x2 and x3 are directly controlled and rapidly approach the target (dashed red line), x1 converges to a nearby FP. c: Corresponding trajectories of the true system, demonstrating sim-to-real transfer, with a reward of −0.03. d, e : For the same subject, the most frequently occupied subregions (indices 3 and 5) are those admitting non-virtual FPs (red crosses) close to the target. f : During extended control, the trajectory approaches the target while action-dependent FPs are progressively shifted toward it. 
+
+Lorenz-63 benchmark We first considered 64 Lorenz-63 systems with different parameter combinations (ρ, σ, β ) ∈ { 36 , 66 , 96 , 126 } × { 8, 9, 10 , 11 } × { 1, 2, 3, 4} spanning periodic and chaotic dynamics (equation 13). We treat these as distinct subjects on which we jointly train the hierarchical DSR model, obtaining four-dimensional subject-specific subject vectors S(j). Decoders select the first 3 latent dimensions (Appendix B.2), allowing latent actions to act as direct increments of the Lorenz-63 coordinates, and thus be inter-pretable in original physical units and applicable to the true system without inversion (figures 1a and 1c). The models achieve successful reconstruction, with median KL divergence DKL = 1 .8 and Hellinger distance 
+
+DH = 0 .15 (figures 6 and 13). 8Table 1: Control performance . The reward is reported with mean and standard deviation across seeds.                                                                         
+
+> Lorenz-63 Double-pendulum World Model True Environment World Model True Environment ALRNN-SAC, Hierarchical −0.047 ±0.006 −0.040 ±0.004 −47 .93 ±10 .57 −9.74 ±2.42 ALRNN-SAC, Independent −0.0232 ±4·10 −4−0.171 ±0.017 −51 .00 ±18 .47 −16 .82 ±7.78 ALRNN-CEM-MPC, Independent -0 .02090 ±4·10 −5−0.04424 ±8·10 −5−15 .35 ±0.71 −6.34 ±0.55 Online-TD-MPC, Independent −40 ±2−0.0328 ±9·10 −4−3547 ±323 −27 .94 ±7.21 Online-DreamerV3, Independent −0.034 ±0.002 −0.047 ±0.001 −6.40 ±0.78 −5.87 ±0.30
+
+The control objective was to steer each system toward a target state of xtarget = (0 .5, 0.5, −0.5), while con-straining actions to change only two of its three coordinates and thus underactuating the problem (figure 1c; results obtained from controlling only one dimension are found in figure 7). Independent policies achieved a higher reward ( −0.0232 ± 4 · 10 −4) than the hierarchical policy ( −0.047 ±
+
+0.006). Allowing each controller to specialize therefore improved performance in the models used for training. However, when we applied the policies to the true Lorenz dynamics (sim-to-real transfer), hierarchical SAC achieved −0.040 ± 0.004, whereas independent SAC achieved −0.171 ± 0.017 (figures 2a and 2c). Moreover, hierarchical training reduced the number of trainable parameters by 94% compared to independently trained models. Thus, a single hierarchized policy can successfully control a diverse family of nonlinear dynamics, while parameter sharing avoids overfitting to individual model errors (see figure 9 for all systems). The other methods show how this transfer compares with alternative algorithms. CEM-MPC achieved 
+
+−0.0442 ±8·10 −5 using the same ALRNN reconstructions, placing its performance close to that of hierarchical SAC, but with online planning. TD-MPC achieved the highest reward, −0.0328 ± 9 · 10 −4, and Dreamer achieved −0.047 ±0.001, both after learning from controlled interactions. On this benchmark, the hierarchical policy therefore reached a similar performance range without observing actions during training and without 
+
+online planning at deployment (Table 1). 
+
+Generalization to unseen systems We next asked whether the controller could be reused when the underlying dynamics changed. We generated additional 64 Lorenz-63 systems by shifting parameters: (ρ, σ, β ) ∈ { 51 , 81 , 111 , 141 } × { 8.5, 9.5, 10 .5, 11 .5} × { 1.5, 2.5, 3.5, 4.5}. For each new system, we fitted only its subject vectors S(j) to action-free observations while keeping the shared dynamics parameters fixed (fig-ure 1b). As a baseline, we reused the embedding of the corresponding unshifted training system, without fitting a new embedding (one of its nearest neighbors on the parameter grid). On the true system the model achieved −0.036 ±0.002 using the newly fitted embeddings, and −0.046 ±0.005 using the training embeddings, yielding a significant improvement (paired t-test; t(9) = 6 .59 , p < 0.001). Thus, the hierarchical policy gener-alized to unseen systems through newly fitted embeddings, outperforming the unshifted-embedding baseline and achieving control performance comparable to that on training systems. 
+
+Dynamics exploited by the policy To gain insights into the mechanisms underlying control, we exam-ined how the policy changed the dynamics within the reconstructed Lorenz-63 systems. Without actions, trajectories visited a wide range of LSRs (median of 50). Under control, in contrast, trajectories concentrated on a small subset of regions. Across subjects, 90% of time steps were spent in at most four (figures 2d and 8a), although this concentration was not imposed by the reward structure (since the decoder reads out from units that are not subject to the PWL partitioning), and thus rather represents a dynamical preference induced by the control. To characterize this preference, we analyzed the local linear dynamics within the occupied regions. For each LSR, we compute the FPs implied by the linearized controlled system (equation 12) and measure their distance to the target. We find that the LSRs preferentially occupied under control are those whose local dynamics admit FPs close to the target (figure 8b) and exhibit predominantly stable eigenvalues, indicating saddle-type structure with largely attractive manifolds (figure 8c). This analysis suggests that the policy directs the system into LSRs whose intrinsic dynamics favor convergence (figures 2d and 2e), and shifts the FPs ever more closely to the target over time (figure 2f). 9a0.25 0.00 0.25 0.50 0.3     
+
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3
+> PC 2
+> Colored by Length Ratio
+> 0.25 0.00 0.25 0.50 0.3
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3
+> Colored by Mass Ratio
+> PC 1
+
+b1                
+
+> 01
+> x1
+> 10
+> 0
+> x5
+> 1
+> 01
+> x2
+> 010
+> x6
+> 1
+> 01
+> x3
+> 0100
+> Energy
+> 0200 400 600 800 1000 1200 1400 1600 1
+> 01
+> x4
+> 0200 400 600 800 1000 1200 1400 1600 10 3
+> 10 2
+> V
+> Time Steps
+
+Figure 3: Reconstruction and stabilization of the double-pendulum. a : Colors indicate mass ratios 
+
+m1/m 2 and length ratios l1/l 2, respectively. Analogous to the Lorenz-63 System, subject vectors cluster according to system parameters. b: Example trajectory of the true double-pendulum under control, with the target position indicated by the dashed red line. The 6 variables are sine and cosine of the joint angles as well as the angular velocities. Despite its inherent instability the controlled system converges to the target. 
+
+Double-pendulum benchmark We further evaluated the framework on a challenging family of 16 double-pendulum systems with varying masses and lengths. The state of this system consists of two angles and their angular velocities. Without damping or control, the dynamics are Hamiltonian and conserve energy, while exhibiting both regular and highly chaotic motion. To ensure continuity, we represented each angle by its sine and cosine and retained both angular velocities, yielding O = 6 observation dimensions. The models once more achieved low median KL divergence DKL = 6 .40 and Hellinger distance DH = 0 .22. Principal Component Analysis (PCA) projections of the subject embeddings revealed structure associated with mass and length ratios, which the world model extracted solely from the action-free time series (fig-ure 3a). This structure emerged although the equations of motion depend nonlinearly on these ratios. The control objective was to stabilize the double-pendulum in the upright position with both arms pointing up, an unstable FP of the uncontrolled dynamics. Actions were constrained to affect only the angular velocities. Hierarchical SAC again transferred better than independent SAC ( −9.74 ± 2.42 vs. −16 .82 ±7.78) and stabilized the true pendulum in 49 percent of the trials on average, from random initial states, trained on action-free recordings alone (figure 3b). CEM-MPC achieved higher rewards using the same reconstructions, suggesting a benefit of online planning on this task. Results for methods trained through interaction with the true system were mixed: DreamerV3 outperformed hierarchical SAC, whereas TD-MPC performed worse (Table 1). In contrast to Lorenz-63, all methods performed better on the true systems than in the world models. This suggests that the policies transfer successfully despite imperfect long-horizon world-model fidelity. A likely explanation is that the true system supplies physically consistent states at every step, whereas free-running world-model predictions accumulate model error that lowers the reward attainable in simulation. On unseen double-pendulum systems, controllers using newly fitted embeddings did not significantly differ in performance from controllers using the embeddings of the nearest training systems (paired t(9) = −1.30 , p =0.208). The shared policy thus maintained its performance on systems absent from policy training, although fitting system-specific embeddings yielded no additional benefit, unlike on Lorenz-63. 
+
+4.3 Control in models of neural and behavioral recordings 
+
+Unlike the synthetic benchmarks, where policies can be tested directly on the governing equations, validating control predictions in neuroscience requires additional intervention experiments that may be technically or ethically difficult. For the neural datasets, we therefore tested whether policies could suppress predicted rather than true movement. For evaluation, we initialized trajectories from held-out observations and compared them with and without policy actions under the same recorded task conditions. In both datasets, actions were projected to prevent immediate changes in the targeted behavioral output. 10 a0.1 0.0 0.1  
+
+> PC 1
+> 0200 400 600 800 1000 1200 1400
+> Recording Day
+
+b1      
+
+> 01
+> Index Position
+> 0.0 2.5
+> MRS Position
+> 0.0 2.5 0100 200 300 400 500 0100
+> Control Energy Time steps Neural Activity Ground Truth Without Actions With Actions
+
+c0 20 40 60 80 0.0 0.1 0.2 0.3 0.4 0.5 Actions 0 2 4 6 8 10 12 #Drop-out Channels 2
+
+> 1
+> Median Reward
+> 012345678910 11 12 #Drop-out Channels
+
+Figure 4: Reconstruction and model-based control of the LINK data. a: The first principal component of the subject vectors shows a linear relationship with recording days, indicating that the learned subject representations capture structure across sessions. b: Finger positions of the index and middle, ring and small (MRS) finger groups, neural activity, and control energy for one representative session. Each new goal position, presented to the monkey and provided to the model as external input, triggers a movement in the recorded (red) and simulated (blue) trajectories. Under the learned policy (orange), the simulated finger positions stay at rest. Neural activity follows a quasi-periodic dynamics in the uncontrolled model and changes under control. Control energy is the squared norm of the decoded action. Controlled trajectories are reinitialized from the recorded state every 200 time steps, which produces the visible jumps. c: Action magnitude over time for 0 to 12 excluded channels (color, top) and median reward as a function of the number of excluded channels (bottom). Actions are forced to zero on randomly selected channels. Action magnitude first increases to compensate and is then suppressed entirely once 8 channels are excluded, causing a drop in reward. 
+
+Control across recording sessions We first used 12 sessions from the longitudinal LINK dataset (Tem-mar et al., 2025), which contains neural recordings and finger kinematics from a macaque performing a center-out-reach task, over a period of more than three years. Spiking-band power was measured from 96 channels of Utah arrays in placed motor cortex (see Appendix B.5 for more details on the dataset). In this task, the macaque makes finger movements to match visually presented target positions. We treated each session as a subject and learned a shared reconstruction with four-dimensional subject vectors. The embeddings correlated with recording day ( r = 0 .85 , p < 0.001; figure 4a), suggesting that they captured systematic changes across recording time. The policy was trained to suppress finger movement toward the instructed goal position. Without actions, the model successfully reproduced finger movements in held-out recordings (figure 4b and Appendix B.6). With actions, it predicted reduced movement across sessions, achieving a median reward of −0.090 ± 0.002 (figures 4b and 12). The comparison shows that, in simulation, the shared controller can suppress predicted behavior across session-specific models while respecting the behavioral constraint. Because actions reach the recorded channels through the decoder, the model also determines how many independent directions are available for intervention. Only 10 of the latent dimensions are decoded, so all 96 channels lie in a 10-dimensional subspace, and two of its directions are reserved for the protected finger outputs. Each channel on which the action is forced to zero removes one of the remaining eight directions. Accordingly, action magnitude first increased as randomly selected channels were excluded, and control failed once eight channels were excluded (figure 4c). The rank of the decoder and the set of protected outputs thus determine in advance how many constraints on the intervention the system tolerates. 
+
+Control during delayed reaching To corroborate our findings, we evaluated the modality constraint on a second independent single session from a macaque on a delayed center-out reach task (Pei et al., 2021), with spike recordings from 182 motor-cortical neurons together with hand and eye position (more details in Appendix B.7). As before, the macaque reached toward a target cue, but now cue presentation was followed by a delay period during which the reach had to be withheld until a go cue appeared. The model received 11 a0 20 40 1               
+
+> 01
+> xHand
+> 020 40 1
+> 01
+> yHand
+> 020 40 1
+> 01
+> xEye
+> 020 40
+> Time Steps
+> 1
+> 01
+> yEye
+> 050
+> Spikes
+> 025 50 75 100 125 150 175
+> Neuron Index w/o Actions
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> Hand Eye Goal Position
+> 1.0 0.5 0.0 0.5 1.0
+> X
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> Y
+> 050
+> w/ Actions
+
+b450 500       
+
+> Value Function  w/o Actions w/ Actions
+> 10 1
+> 6 × 10 0
+> 2 × 10 1
+> 3 × 10 1
+> 4 × 10 1
+> Control Energy
+> 010 20 30 40 50
+> Time Steps
+> 10 1
+> 10 0
+> 010 0
+> 10 1
+> Latent State
+
+Figure 5: Behavioral control through neural stimulation. a, left: Predicted trajectories without control. The model receives the goal position cue (black dashed) and go cue (cyan) as external inputs and generates trajectories (solid) that reproduce the empirical test data (dashed). Hand (green) and eye (blue) positions are shown separately. In successful trials, the hand follows the instructed target, whereas eye position is not consistently target-aligned in either the model or the data. center: Two-dimensional trajectories without (top) and with (bottom) control. The policy suppresses hand movement and, to a lesser extent, eye movement despite external inputs driving both toward the target. Color gradients indicate time. 
+
+right: Neural stimulation remains sparse and selective, with no statistically significant changes in mean firing rate ( t = −1.33, p = 0 .18) or Fano factor ( t = 1 .04, p = 0 .30). b: Value function, control energy, and latent states for a representative trial. Actions become effective once the goal-position cue is presented and steer the system into a high-value region of latent space associated with trajectories that remain insensitive to the subsequent go cue. the target location ( x and y position) and the go cue as external inputs. Actions once more operated only on the neural dynamics and the policy was trained to suppress the hand movement in spite of the go cue, holding the hand position at (0 , 0). Without actions, on held-out trials, the model generated a reach following the cue (see figure 5a and Ap-pendix B.8 for reconstruction metrics). With actions, it suppressed predicted hand movement despite the task inputs, achieving a reward of −0.012 ± 0.003 (figure 5). Interestingly, although the control objective concerned only hand position and actions were restricted to the neural state, predicted eye trajectories also changed, appearing more spatially concentrated under control while retaining substantial movement (fig-ure 5a, middle). Furthermore, neural dynamics remained in a physiologically plausible range (figure 5a, right). Figure 5b illustrates the effect of actions on the latent dynamics and the value function. Only sparse actions are required to suppress movement: once the goal cue is presented, actions prevent the system from being particularly sensitive to the go cue. Figure 11 analyzes the controlled dynamics in terms of LSRs. 
+
+## 5 Discussion 
+
+This work presents a hierarchical MBRL framework for learning control policies from action-free recordings, without controlled trajectories or direct interaction with the underlying systems. By combining hierarchical DSR with subject-conditioned SAC policies, the framework shares structure across related systems while preserving subject-specific variation through low-dimensional embeddings. The PWL world model further permits mechanistic analysis of control through occupied LSRs, induced FPs, and local stability properties, 12 extending previous uses of PWL recurrent models for interpreting nonlinear dynamics (Sussillo & Barak, 2013; Linderman et al., 2017; Smith et al., 2021). The Lorenz-63 and double-pendulum experiments demonstrate that policies trained strictly on uncontrolled, autonomous trajectories, within a hierarchical framework, can transfer to true systems. In both bench-marks, the hierarchical policy transferred more reliably than independently trained policies, although these performed as well or better in simulation. This suggests that parameter sharing reduces overfitting to subject-specific world-model inaccuracies. Beyond the gains in data efficiency and generalization known from hierarchical and multitask RL (Dayan & Hinton, 1992; Barto & Mahadevan, 2003; Bacon et al., 2017), parameter sharing plays an additional role here. Since action-free recordings provide no empirical action distribution to constrain the policy (Yu et al., 2020; 2021), the reduced capacity of the hierarchical policy may act as an implicit regularizer that limits specialization to inaccuracies of individual world models. The results on unseen Lorenz systems, that is, subject embeddings the controller was never trained on, further indicate that hierarchical training can help controllers generalize, and that learned embeddings capture dynamical variation relevant to control. On unseen double-pendulum systems, the shared policy maintained its performance, although newly fitted embeddings yielded no gain over those of the nearest training systems. The benefit of embedding-based adaptation may therefore depend on how densely the training systems sample the family of dynamics. Repeated online planning partly improved performance, which makes combining the hierarchical policy with planning at deployment a promising extension. The fact that the policy and value function remain fixed while only the subject-specific representation is adapted indicates that the learned embedding provides a common coordinate system in which both DSR and control can be performed, in line with prior work on transferring control policies on learned representations of system dynamics (Yu et al., 2017; Killian et al., 2017). The PWL structure also clarifies how the policies achieve control. Under control, trajectories concentrate within a small subset of the LSRs visited during autonomous dynamics. These target regions harbor FPs near the goal and exhibit locally attractive dynamics, revealing the mechanistic basis of policy behavior far better than reward values alone. In sum, beyond standard closed-loop neural control (Chandrabhatla et al., 2023; Horn & Neumann, 2025; Krauss et al., 2021; Emonds et al., 2026), our framework handles multimodal systems with mismatched intervention and target modalities. By projecting latent actions onto the behavioral decoder’s null space, we prevent direct behavioral manipulation, forcing changes to emerge entirely through learned neural–behavioral couplings. While learned policies successfully modify predicted hand trajectories with minimal shifts in neural summary statistics, these results reflect world-model simulations. They should be interpreted as proof-of-concept for model-based feasibility rather than validated physiological control. 
+
+Limitations Four points limit the generality of our approach. First, the hierarchical parameterization places subject-specific dynamics in linear subspaces, which regularizes the model but may be too restrictive when systems differ nonlinearly. Second, reusing reconstruction embeddings for control assumes that the factors distinguishing subjects’ dynamics also determine appropriate control. Although supported by the present experiments, this correspondence need not hold in other settings (Lambert et al., 2020). Third, adaptation to unseen systems likely requires sufficient coverage of the system family and reconstruction performance. Finally, representing actions as additive latent perturbations permits decoder-based constraints when no actuator data are available, but leaves open how physical interventions couple to the true system, which distinguishes this work from most MBRL frameworks (Hafner et al., 2025a; Moerland et al., 2023). 
+
+Acknowledgments and Funding Disclosure 
+
+This work was funded by the Hector II foundation, by the German Research Foundation within the Research Unit FOR 5159 (subproject 11), by the Wellcome Trust (FUTURE-D, Z334349/Z/25/Z), by the Federal Min-istry of Research, Technology and Space under the neuroAI initiative (NAILIt, grant number 01GQ2509B), and by the Excellence Strategy of the German Federal and State Governments. 13 References 
+
+Pierre-Luc Bacon, Jean Harb, and Doina Precup. The option-critic architecture. In Proceedings of the Thirty-First AAAI Conference on Artificial Intelligence , AAAI’17, pp. 1726–1734. AAAI Press, 2017. Andrew G. Barto and Sridhar Mahadevan. Recent advances in hierarchical reinforcement learning. Discrete Event Dynamic Systems , 13(4):341–379, Oct 2003. ISSN 1573-7594. doi: 10.1023/A:1025696116075. Manuel Brenner and Georgia Koppe. Uncovering the computational roles of nonlinearity in sequence mod-eling using almost-linear RNNs. Transactions on Machine Learning Research , 2026. Manuel Brenner, Florian Hess, Jonas M Mikhaeil, Leonard F Bereska, Zahra Monfared, Po-Chen Kuo, and Daniel Durstewitz. Tractable dendritic RNNs for reconstructing nonlinear dynamical systems. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato (eds.), Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 2292–2320. PMLR, 17–23 Jul 2022. Manuel Brenner, Christoph Jürgen Hemmer, Zahra Monfared, and Daniel Durstewitz. Almost-linear RNNs yield highly interpretable symbolic codes in dynamical systems reconstruction. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang (eds.), Advances in Neural Information Pro-cessing Systems , volume 37, pp. 36829–36868. Curran Associates, Inc., 2024a. doi: 10.52202/079017-1161. Manuel Brenner, Florian Hess, Georgia Koppe, and Daniel Durstewitz. Integrating multimodal data for joint generative modeling of complex dynamics. In Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (eds.), Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pp. 4482–4516. PMLR, 21–27 Jul 2024b. Manuel Brenner, Elias Weber, Georgia Koppe, and Daniel Durstewitz. Learning interpretable hierarchical dynamical systems models from time series data. In The Thirteenth International Conference on Learning Representations , 2025. Andrew Bukowski, Aditya Kothari, Simba Shi, and Ishir Rao. Prediction is not physics: Learning and evaluating conserved quantities in neural simulators, 2026. Anirudha S Chandrabhatla, I Jonathan Pomeraniec, Taylor M Horgan, Elizabeth K Wat, and Alexander Ksendzovsky. Landscape and future directions of machine learning applications in closed-loop brain stim-ulation. NPJ Digit. Med. , 6(1):79, April 2023. Zhengdao Chen, Jianyu Zhang, Martin Arjovsky, and Léon Bottou. Symplectic recurrent neural networks. In International Conference on Learning Representations , 2020. Peter Dayan and Geoffrey E Hinton. Feudal reinforcement learning. In S. Hanson, J. Cowan, and C. Giles (eds.), Advances in Neural Information Processing Systems , volume 5. Morgan-Kaufmann, 1992. Daniel Durstewitz. A state space approach for piecewise-linear recurrent neural networks for identifying computational dynamics from neural measurements. PLOS Computational Biology , 13:1–33, Jun 2017. doi: 10.1371/journal.pcbi.1005542. Daniel Durstewitz, Georgia Koppe, and Max Ingo Thurm. Reconstructing computational system dynamics from neural data with recurrent neural networks. Nature Reviews Neuroscience , 24(11):693–710, Nov 2023. ISSN 1471-0048. doi: 10.1038/s41583-023-00740-7. Daniel Durstewitz, Christoph Jürgen Hemmer, Florian Hess, Charlotte Ricarda Doll, and Lukas Eisenmann. Position: A dynamical systems perspective is needed to advance time series modeling. In Forty-third International Conference on Machine Learning Position Paper Track , 2026. Niklas Emonds, Evelyn Herberg, Martin Fungisai Gerchen, Marc Pritsch, Joshua Rocha, Vera Zamoscik, Peter Kirsch, Roland Herzog, and Georgia Koppe. A data-driven closed-loop control approach to drive neural state transitions for mechanistic insight. Human Brain Mapping , 47(11):e70600, 2026. doi: 10. 1002/hbm.70600. 14 Sean Gillen, Marco Molnar, and Katie Byl. Combining deep reinforcement learning and local control for the acrobot swing-up and balance task. In 2020 59th IEEE Conference on Decision and Control (CDC) , pp. 4129–4134, 2020. doi: 10.1109/CDC42340.2020.9303878. Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural networks. In Yee Whye Teh and Mike Titterington (eds.), Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics , volume 9 of Proceedings of Machine Learning Research , pp. 249–256, Chia Laguna Resort, Sardinia, Italy, 13–15 May 2010. PMLR. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In Jennifer Dy and Andreas Krause (eds.), 
+
+Proceedings of the 35th International Conference on Machine Learning , volume 80 of Proceedings of Ma-chine Learning Research , pp. 1861–1870. PMLR, 10–15 Jul 2018. Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. In Kamalika Chaudhuri and Ruslan Salakhutdinov (eds.), Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pp. 2555–2565. PMLR, 09–15 Jun 2019. Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations , 2020. Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse control tasks through world models. Nature , 640(8059):647–653, Apr 2025a. ISSN 1476-4687. doi: 10.1038/s41586-025-08744-2. Danijar Hafner, Wilson Yan, and Timothy Lillicrap. Training agents inside of scalable world models, 2025b. Nicklas A Hansen, Hao Su, and Xiaolong Wang. Temporal difference learning for model predictive control. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato (eds.), 
+
+Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 8387–8406. PMLR, Jul 2022. Florian Hess, Zahra Monfared, Manuel Brenner, and Daniel Durstewitz. Generalized teacher forcing for learning chaotic dynamics. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett (eds.), Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pp. 13017–13049. PMLR, 23–29 Jul 2023. Andreas Horn and Wolf-Julian Neumann. From adaptive deep brain stimulation to adaptive circuit targeting. 
+
+Nature Reviews Neurology , 21(10):556–566, Oct 2025. ISSN 1759-4766. doi: 10.1038/s41582-025-01131-5. Taylor Killian, Samuel Daulton, George Konidaris, and Finale Doshi-Velez. Robust and efficient transfer learning with hidden parameter markov decision processes. Advances in Neural Information Processing Systems , 30:6250–6261, Dec 2017. Georgia Koppe, Hazem Toutounji, Peter Kirsch, Stefanie Lis, and Daniel Durstewitz. Identifying nonlinear dynamical systems via generative recurrent neural networks with applications to fMRI. PLOS Computa-tional Biology , 15:1–35, Aug 2019. doi: 10.1371/journal.pcbi.1007263. Joachim K. Krauss, Nir Lipsman, Tipu Aziz, Alexandre Boutet, Peter Brown, Jin Woo Chang, Benjamin Davidson, Warren M. Grill, Marwan I. Hariz, Andreas Horn, Michael Schulder, Antonios Mammis, Peter A. Tass, Jens Volkmann, and Andres M. Lozano. Technology of deep brain stimulation: current status and future directions. Nature Reviews Neurology , 17(2):75–87, Feb 2021. ISSN 1759-4766. doi: 10.1038/ s41582-020-00426-z. Ekaterina Kuzmina, Dmitrii Kriukov, Mikhail Lebedev, and Dmitry V. Dylov. Neurophysiologically realistic environment for comparing adaptive deep brain stimulation algorithms in parkinson’s disease. In Proceed-ings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 , KDD ’25, pp. 5571–5582, New York, NY, USA, 2025. Association for Computing Machinery. ISBN 9798400714542. doi: 10.1145/3711896.3737397. 15 Nathan Lambert, Brandon Amos, Omry Yadan, and Roberto Calandra. Objective mismatch in model-based reinforcement learning. In Alexandre M. Bayen, Ali Jadbabaie, George Pappas, Pablo A. Parrilo, Benjamin Recht, Claire Tomlin, and Melanie Zeilinger (eds.), Proceedings of the 2nd Conference on Learning for Dynamics and Control , volume 120 of Proceedings of Machine Learning Research , pp. 761–770. PMLR, 10–11 Jun 2020. Scott Linderman, Matthew Johnson, Andrew Miller, Ryan Adams, David Blei, and Liam Paninski. Bayesian Learning and Inference in Recurrent Switching Linear Dynamical Systems. In Aarti Singh and Jerry Zhu (eds.), Proceedings of the 20th International Conference on Artificial Intelligence and Statistics , volume 54 of Proceedings of Machine Learning Research , pp. 914–922. PMLR, Apr 2017. Liyuan Liu, Haoming Jiang, Pengcheng He, Weizhu Chen, Xiaodong Liu, Jianfeng Gao, and Jiawei Han. On the variance of the adaptive learning rate and beyond. In International Conference on Learning Representations , 2020. Edward N. Lorenz. Deterministic nonperiodic flow. Journal of Atmospheric Sciences , 20(2):130 – 141, 1963. doi: 10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2. D. Q. Mayne and S. Raković. Model predictive control of constrained piecewise affine discrete-time systems. 
+
+International Journal of Robust and Nonlinear Control , 13(3-4):261–279, 2003. doi: 10.1002/rnc.817. D. Q. Mayne, J.B. Rawlings, C. V. Rao, and P.O.M. Scokaert. Constrained model predictive control: Stability and optimality. Automatica , 36(6):789–814, 2000. ISSN 0005-1098. doi: 10.1016/S0005-1098(99)00214-9. Jonas Mikhaeil, Zahra Monfared, and Daniel Durstewitz. On the difficulty of learning chaotic dynamics with RNNs. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh (eds.), Advances in Neural Information Processing Systems , volume 35, pp. 11297–11312. Curran Associates, Inc., 2022. Thomas M. Moerland, Joost Broekens, Aske Plaat, and Catholijn M. Jonker. Model-based reinforcement learning: A survey. Found. Trends Mach. Learn. , 16(1):1–118, January 2023. ISSN 1935-8237. doi: 10.1561/2200000086. Felix Pei, Joel Ye, David M. Zoltowski, Anqi Wu, Raeed H. Chowdhury, Hansem Sohn, Joseph E. O’Doherty, Krishna V. Shenoy, Matthew T. Kaufman, Mark Churchland, Mehrdad Jazayeri, Lee E. Miller, Jonathan Pillow, Il Memming Park, Eva L. Dyer, and Chethan Pandarinath. Neural latents benchmark ’21: Evalu-ating latent variable models of neural population activity. In Advances in Neural Information Processing Systems (NeurIPS), Track on Datasets and Benchmarks , 2021. Cristina Pinneri, Shambhuraj Sawant, Sebastian Blaes, Jan Achterhold, Joerg Stueckler, Michal Rolinek, and Georg Martius. Sample-efficient cross-entropy method for real-time planning. In Jens Kober, Fabio Ramos, and Claire Tomlin (eds.), Proceedings of the 2020 Conference on Robot Learning , volume 155 of 
+
+Proceedings of Machine Learning Research , pp. 1049–1065. PMLR, 16–18 Nov 2021. Harsh Ravivarapu, Gaurav Bagwe, Xiaoyong Yuan, Chunxiu Yu, and Lan Zhang. Sample-efficient reinforce-ment learning controller for deep brain stimulation in parkinson’s disease, 2025. J. Richalet, A. Rault, J. L. Testud, and J. Papon. Model predictive heuristic control: Applications to industrial processes. Automatica , 14(5):413–428, 1978. ISSN 0005-1098. doi: 10.1016/0005-1098(78) 90001-8. Dominik Schmidt, Georgia Koppe, Zahra Monfared, Max Beutelspacher, and Daniel Durstewitz. Identifying nonlinear dynamical systems with multiple time scales and long-range dependencies. In International Conference on Learning Representations , 2021. Jimmy Smith, Scott Linderman, and David Sussillo. Reverse engineering recurrent neural networks with jacobian switching linear dynamical systems. Advances in Neural Information Processing Systems , 34: 16700–16713, 2021. 16 David Sussillo and Omri Barak. Opening the black box: Low-dimensional dynamics in high-dimensional recurrent neural networks. Neural Computation , 25(3):626–649, 2013. doi: 10.1162/NECO_a_00409. Richard S. Sutton. Integrated architectures for learning, planning, and reacting based on approximating dynamic programming. In Bruce Porter and Raymond Mooney (eds.), Machine Learning Proceedings 1990 , pp. 216–224. Morgan Kaufmann, San Francisco (CA), 1990. ISBN 978-1-55860-141-3. doi: 10.1016/ B978-1-55860-141-3.50030-4. Hisham Temmar, Nina Gill, Yixuan Wang, Nicholas B. Mellon, Chang Liu, Luis Hernan Cubillos, Rio I. Parsons, Joseph T. Costello, Matteo Ceradini, Madison M. Kelberman, Matthew J. Mender, Aren I. Hite, Dylan M. Wallace, Samuel R. Nason-Tomaszewski, Matthew S. Willsey, Parag G. Patil, Anne W. Draelos, and Cynthia A. Chestek. Link: Long-term intracortical neural activity and kinematics, 2025. Ayesha Vermani, Josue Nassar, Hyungju Jeon, Matthew Dowling, and Il Memming Park. Meta-dynamical state space models for integrative neural data analysis. In The Thirteenth International Conference on Learning Representations , 2025. Tianhe Yu, Garrett Thomas, Lantao Yu, Stefano Ermon, James Zou, Sergey Levine, Chelsea Finn, and Tengyu Ma. MOPO: Model-based offline policy optimization. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin (eds.), Advances in Neural Information Processing Systems , volume 33, pp. 14129–14142. Curran Associates, Inc., 2020. Tianhe Yu, Aviral Kumar, Rafael Rafailov, Aravind Rajeswaran, Sergey Levine, and Chelsea Finn. COMBO: Conservative offline model-based policy optimization. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems , volume 34, pp. 28954–28967. Curran Associates, Inc., 2021. Wenhao Yu, Jie Tan, C. Karen Liu, and Greg Turk. Preparing for the unknown: Learning a universal policy with online system identification. In Proceedings of Robotics: Science and Systems , Cambridge, Massachusetts, July 2017. doi: 10.15607/RSS.2017.XIII.048. 17 A Additional Experimental Results and Analyses 
+
+A.1 Lorenz-63 0.8 0.6 0.4 0.2 0.0 0.2 0.4 0.6 
+
+> PC 1
+> 0.4
+> 0.2
+> 0.0 0.2 0.4
+> PC 2
+
+Figure 6: Subject vectors cluster according to Lorenz-63 parameters. PCA projection of the subject vectors. Colors indicate constant values of σ, while vertical and horizontal separation reflect β and ρ. The subject vectors condition SAC training and convey information about subject-specific dynamics. 2.5      
+
+> 0.0 2.5
+> x1
+> 2.5
+> 0.0 2.5
+> x2
+> 02
+> x3
+> 0100 200 300 400 500
+
+Time Steps 
+
+> 1
+> 01
+> a3
+
+Figure 7: Limited controllability under single dimension actuation. Example trajectory of the true Lorenz-63 system with actions applied exclusively to the third state dimension. The dashed line indicates the target state. 18 a0 10 20 30 40 50 60 
+
+Subject Index 
+
+> 020 40
+> #LSRs covering 90%
+
+w/ Actions w/o Actions 
+
+b0.0 0.5 1.0 1.5 2.0 
+
+> Minimal FP-Target Distance
+> 010 20 30 40 50
+> #Subjects LSR w/ Actions LSR w/o Actions
+
+c1 0 1
+
+Real Part 
+
+> 1
+> 01
+> Imaginary Part
+
+Figure 8: Mechanisms underlying Lorenz-63 control. a: Number of LSRs required to cover 90% of time steps for uncontrolled (blue) and controlled (red) trajectories of each subject. Control strongly reduces region occupancy. Subject 54 (cf. figure 2) is highlighted. b: Minimal distance to the target of the non-virtual FPs computed from sampled actions in each occupied LSR (cf. figure 2e). c: Eigenvalues of the Jacobian at the FPs, which depends only on the LSR, indicate stability along most directions. The unit circle is shown in gray. 19 1.0 
+
+0.5 
+
+0.0 0.5 1.0 
+
+0.5 
+
+0.0 0.5 1.0 
+
+0.5 
+
+0.0 0.5 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1
+
+011.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 1
+
+012
+
+1
+
+011
+
+011.0 
+
+0.5 
+
+0.0 0.5 1.0 1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.0 
+
+0.5 
+
+0.0 0.5 1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 1
+
+011.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 2
+
+1
+
+0121
+
+0121
+
+0121
+
+0122
+
+1
+
+0122
+
+1
+
+01232
+
+1
+
+0122
+
+1
+
+0121.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 
+
+1.0 
+
+0.5 
+
+0.0 0.5 1.0 1.0 
+
+0.5 
+
+0.0 0.5 1.0 1
+
+013
+
+2
+
+1
+
+0122
+
+1
+
+0122
+
+1
+
+01231
+
+0123
+
+2
+
+1
+
+01232
+
+1
+
+0122
+
+1
+
+0122
+
+1
+
+0122
+
+023
+
+2
+
+1
+
+01233
+
+2
+
+1
+
+01233
+
+2
+
+1
+
+01231.0 
+
+0.5 
+
+0.0 0.5 1.0 1.5 2.0 1
+
+0122
+
+1
+
+0121
+
+0122
+
+1
+
+0122
+
+1
+
+0122
+
+1
+
+0122
+
+1
+
+0120 100 200 4
+
+2
+
+020 100 200 4
+
+2
+
+0240 100 200 2
+
+020 100 200 3
+
+2
+
+1
+
+01230 100 200 4
+
+2
+
+020 100 200 4
+
+2
+
+0240 100 200 4
+
+2
+
+0240 100 200 4
+
+2
+
+024
+
+Time steps Figure 9: Robust control of heterogeneous nonlinear dynamics. Trajectories of all 64 Lorenz-63 systems under the learned policy. Dashed lines indicate the target state, and gray shading marks the action phase. 20 a2.5       
+
+> 0.0 2.5
+> x1
+> 05
+> x2
+> 024
+> x3
+> 0100 200 300 400 500
+> Time Steps
+> 1.0
+> 0.5
+> 0.0
+> a3
+
+b1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 
+
+> PC 1
+> 0.6
+> 0.4
+> 0.2
+> 0.0 0.2 0.4
+> PC 2
+
+Figure 10: Generalization through fine-tuned subject vectors. On unseen subjects, fine-tuned subject vectors achieved a reward of = −0.036 ± 0.002, compared with −0.046 ± 0.005 for the unchanged vectors of the nearest training subjects. a: Fine-tuned subject vectors inserted into the fixed SAC model control the true, unseen systems without further optimization (cf. figure 2c). b: PCA projection of the subject vectors of the fine-tuned (colored) and original Lorenz-63 systems. Shifted parameter regimes produce corresponding shifts in the PCA embedding (cf. figure 6). 21 A.2 Macaque delayed center-out reach data 
+
+a0.00 0.05 0.10 0.15 
+
+Frequency  
+
+> 020 40 60 80
+> LSR Index
+
+b10 4 10 3 10 2 10 1 10 0 10 1
+
+FP-Target Distance 
+
+> 020 40 60 80
+> LSR Index
+
+Figure 11: Control mechanisms in multimodal neural data. a : Occupancy of LSRs during control. 
+
+b: Minimal distance of non-virtual FPs to the target in each occupied LSR. The regions occupied during control are those that admit a non-virtual FP close to the target, indicating that the policy steers the system into regions of latent space whose linear dynamics favor reaching the goal (cf. figure 2d- 2e). 
+
+A.3 LINK Data 1        
+
+> 01231.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 3
+> 2
+> 1
+> 0121.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 8
+> 6
+> 4
+> 2
+> 022
+> 1
+> 0123
+> 2
+> 1
+> 010200 400 2
+> 1
+> 01230200 400 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 0200 400 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 0200 400 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5
+
+Time steps Finger Position Ground Truth Without Actions With Actions Index Position MRS Position 
+
+Figure 12: Trajectories of all LINK data subjects. 
+
+22 B DSR Training Protocol 
+
+The DSR model is trained by minimizing the mean squared error between predicted and ground truth tra-jectories using the RAdam optimizer (Liu et al., 2020), with subject-specific variance used for normalization. Training uses generalized teacher forcing, which linearly interpolates generated latent states with data-inferred states after loss computation. Since the latent state can be expanded with additional dimensions, the input dimension of the decoder does not necessarily correspond to the latent dimension and is therefore called the forcing dimension(Hess et al., 2023). For non-identity observation models, losses are computed in both latent and observation space, and an additional penalty enforces invertibility of the observation model (Brenner et al., 2022). Parameters are subject to L2-regularization that pushes selected entries of A toward 1 and entries of W and h toward zero (Schmidt et al., 2021). Subject vectors are initialized uniformly on [−1, 1], and group-level parameters use Xavier initialization (Glorot & Bengio, 2010). Reconstruction metrics are reported for the world model subsequently used for control. Further details on hierarchical DSR training are given in Brenner et al. (2025). 
+
+B.1 Lorenz-63 data 
+
+The Lorenz-63 system is a three-dimensional model of atmospheric convection that can exhibit stable fixed points, periodic orbits, and aperiodic chaotic dynamics depending on its parameters. Transitions between these regimes occur through bifurcations, including Hopf and homoclinic bifurcations. The system is defined by the coupled nonlinear ordinary differential equations ˙x = σ(y − x) (13) ˙y = x(ρ − z) − y
+
+˙z = xy − βz 
+
+where σ, ρ and β are positive parameters. For DSR training and testing, and for applying control to the true system, we integrate these equations using odeint from scipy.integrate at a step size of 0 .01 yielding 5000 training and 100000 test time steps per subject. Gaussian noise with a variance of 5% of the subject-specific data variance is added to the training data. The 64 subjects correspond to the parameter configurations (ρ, σ, β ) ∈ { 36 , 66 , 96 , 126 } × { 8, 9, 10 , 11 } × { 1, 2, 3, 4} (figure 13). The time series for all subjects were normalized together. For control, this transformation is reversed for the integration with the ODE. 
+
+B.2 Lorenz-63 training and evaluation 
+
+Encoder and decoder are identity mappings. The three-dimensional observations are stacked with additional states obtained from a subject-specific linear mapping, which lifts them to the latent dimension L = 26. The ReLU nonlinearity acts on P = 12 of these units, yielding at most 2 12 = 4096 LSRs. To assess the validity of the learned world model, we evaluate geometric agreement using the KL divergence 
+
+DKL and temporal agreement using the dimension-averaged Hellinger distance DH between power spectra (Koppe et al., 2019; Brenner et al., 2022; Mikhaeil et al., 2022; Hess et al., 2023). With p(x) the distribution of states in observation space, f i the power spectrum of dimension i, and O the observation dimension, 
+
+DKL =
+
+∫
+
+pgen (x) log pgen (x)
+
+ptrue (x) dx (14) 
+
+DH = 1
+
+O
+
+> O
+
+∑
+
+> i=1
+
+√
+
+1 −
+
+∫ √
+
+f i
+
+> gen
+
+(ω)f i
+
+> true
+
+(ω)dω. (15) and can be estimated using discrete binning and Fast Fourier Transform, respectively. The power spectra are smoothed using a Gaussian filter with standard deviation σ = 20 .0 and cut off frequency f0 = 10 Hz for Lorenz-63 and σ = 5 .0 and f0 = 10 for the double-pendulum. On the test set, the employed world model achieves median test-set values DKL = 1 .8 and DH = 0 .15 across subjects (figure 13). For the 64 fine-tune subjects, DH = 0 .26 remains comparable, while DKL = 5 .3 is higher. 23 Figure 13: Reconstruction of all Lorenz-63 subjects. Ground-truth test trajectories (blue) and recon-structions (orange). 
+
+B.3 Double-pendulum data 
+
+Data for the double-pendulum are generated as for the Lorenz-63, using the equations of motion ˙θ1 = ω1 (16) ˙θ2 = ω2
+
+˙ω1 = 1(m1 + m2)l1 − m2l1 cos 2(θ2 − θ1) (m2l1ω21 sin( θ2 − θ1) cos( θ2 − θ1)+ 
+
+m2g sin( θ2) cos( θ2 − θ1) + m2l2ω22 sin( θ2 − θ1) − (m1 + m2)g sin( θ1)) ˙ω2 = 1(l2/l 1)(( m1 + m2)l1 − m2l1 cos 2(θ2 − θ1)) (−m2l2ω22 sin( θ2 − θ1) cos( θ2 − θ1)+ (m1 + m2)g sin( θ1) cos( θ2 − θ1) − (m1 + m2)l1ω21 sin( θ2 − θ1) − (m1 + m2)g sin( θ2)) 24 where l1 and l2 are the lengths of the two pendulum arms, m1 and m2 the masses at their ends, and g = 9.81 the gravitational acceleration. The observations are then obtained as xt =(sin( θ1,t ), cos( θ1,t ), sin( θ2,t ), cos( θ2,t ), ω 1,t , ω 2,t ). The kinetic and potential energies are 
+
+T = 12 m1(l1ω1)2 + 12 m2(( l1ω1)2 + ( l2ω2)2 + 2 l1l2ω1ω2 cos( θ1 − θ2)) (17) 
+
+V = −(m1 + m2)gl 1 cos( θ1) − m2gl 2 cos( θ2).
+
+We consider the 16 configurations ( l1, l 2, m 1, m 2) ∈ { 0.5, 1} × { 1, 1.5} × { 0.5, 1} × { 1, 1.5} for training and (l1, l 2, m 1, m 2) ∈ { 0.1, 0.6}×{ 0.5, 1.0}×{ 0.25 , 0.75 }×{ 0.75 , 1.25 } for fine tuning. The training data comprise 50 time series of varying energy and 200 time steps per configuration, with initial angles and velocities sampled uniformly from [0 , 2π] and [ −5, 5], respectively. The test set consists of 10000 time steps per subject and training energy. 
+
+B.4 Double-pendulum training and evaluation 
+
+Encoder and decoder are again identity mappings, with latent dimension L = 106 and the nonlinearity applied to P = 84 units. All other settings follow the Lorenz-63 experiments or are listed in Table 2. For SAC, the reward weights each observation dimension by λreward = (1 , 10 , 1, 10 , 1, 1) to account for different scales and for the ambiguity of the sine, which is zero both at the target and at the opposite position. No further reward shaping, curriculum learning, or inductive bias for the Hamiltonian structure of the system is used. Actions act exclusively on the angular velocities ω1 and ω2.A controlled trajectory counts as stabilized if, over the last 100 time steps, the mean absolute distance to the target is below 0 .5 rad for the angles and 5 rad/s, for the angular velocities, and the standard deviation of the angular velocities is below 5 rad/s (cf. Gillen et al. (2020)). Due to its chaotic nature and the heterogeneity of the dynamics across subjects and energy levels, learning a world model for the double pendulum is a challenging task, and the prediction quality is limited (Chen et al., 2020; Bukowski et al., 2026). In terms of DSR metrics, the model achieves a median value of DKL = 6 .4and DH = 0 .22 (figure 14a). These values are higher than for the Lorenz-63 system, although different observation dimensions affect the scale of the KL divergence. Energy is largely conserved at first and fluctuates increasingly over time (figure 14b), a common consequence of accumulating prediction errors in learned physical models (Bukowski et al., 2026; Mikhaeil et al., 2022). However, we emphasize that our model learns purely from data, without any physics-informed inductive biases. 25 a20         
+
+> 10
+> 010 20
+> 10
+> 010 20 10
+> 5
+> 0510 15
+> 10
+> 5
+> 0510 10
+> 5
+> 0520
+> 10
+> 010 10
+> 5
+> 0510 15 15
+> 10
+> 5
+> 0510 10
+> 5
+> 0510 7.5
+> 5.0
+> 2.5
+> 0.0 2.5 5.0 7.5 4
+> 2
+> 02464
+> 2
+> 02460200 400 10
+> 010 0200 400 10
+> 5
+> 0510 15 20 0200 400 2
+> 020200 400 10
+> 5
+> 0510
+
+Time Steps b0 20 40 
+
+Time Steps 
+
+> 40
+> 20
+> 020 40 60
+> Energy
+
+Figure 14: Reconstruction of 16 double-pendulum subjects. a: Ground truth (blue) and reconstructed (orange) trajectories of the θ1, θ 2, ω 1, and ω2 agree closely up to the training sequence length of 30 time steps (red dashed line). b: Energy remains largely constant at first and fluctuates increasingly over time. 26 B.5 LINK data 
+
+The Long-term Intracortical Neural activity and Kinematics dataset (Temmar et al., 2025) contains record-ings from a single nonhuman primate performing a dexterous, two-degree-of-freedom finger movement task. It includes 312 sessions recorded on 303 days over a period of about 3.5 years (1242 days), with data organized by sessions containing around 375 trials each. With a sampling frequency of 50 Hz and recordings from 96 motor cortex channels of a Utah array, the observation dimension is 98 when including the two-dimensional finger positions. We only considered trials with randomly selected targets. The spiking band power was first low-pass filtered using a 5th-order Butterworth filter with a cutoff frequency of 8 Hz. Both finger position and velocity signals were smoothed using a Gaussian filter with a standard deviation of 8 time steps. Following filtering, all signals — both neural and kinematic — were normalized. Finally, the continuous time-series data was segmented into non-overlapping time series of 200 time steps each, forming the final input for our models. 
+
+B.6 LINK training 
+
+We randomly selected 12 of the 312 sessions and treat them as subjects for our hierarchical approach. For each subject, the world model is trained and validated on average on 100 time series per subject and tested on 25. Both the neural data (spiking band power) and the kinematic variables are modeled using a Gaussian decoder. A causal convolutional encoder which performs a sequence of one-dimensional convolutions and whose inputs are padded on the left so that future observations do not influence the current latent state, infers the mean and variance of the latent state (Brenner et al., 2022). In principle, encoders, decoders, and 
+
+C can also be learned hierarchically, although in our case they are learned for each subject. The external input to the latent ALRNN is the target position for both finger groups. The target state for SAC is 0 for both the index and the MRS finger group. On the test set, the median mean squared error across subjects is 0 .81 for the neural data and 0 .09 for the kinematic data (cf. 4b). 
+
+B.7 Macaque delayed center-out reach data 
+
+In the delayed center-out reach task of Pei et al. (2021), a macaque controls a cursor to reach target positions in various maze configurations, while spiking activity of 182 neurons in primary motor and dorsal premotor cortex are recorded at 1000 Hz together with hand and eye position. We consider only mazes without barriers. Spikes are binned at 50 ms and hand and eye positions are normalized to [ −1, 1], giving an observation dimension of 186. 
+
+B.8 Macaque delayed center-out reach training 
+
+The model receives the go cue and the goal position as external inputs to the latent ALRNN: the go cue as a single pulse and the target position during its presentation. A causal convolutional encoder is used and Hand and eye positions are each modeled with a two-dimensional Gaussian decoder. In contrast to LINK data, spike counts are modeled with a zero-inflated negative binomial decoder, which combines a negative binomial distribution for counts with a Bernoulli distribution for excess zeros and thus accounts for sparse, overdispersed data. The hand-position decoder is the sole goal decoder. Of 437 trials with an average duration of about 3 s, 387 are used for training and validation and 50 are held out for testing. On the test set, the model achieves a mean squared error of 0 .04 ± 0.07 for the position variables and a variance-normalized mean squared error of 0 .17 ± 0.06 for spike rates (mean ± standard deviation across test trials; figure 15). 27 0 10 20 30 40 50      
+
+> Ground Truth
+> 025 50 75 100 125 150 175
+> 010 20 30 40 50
+> Reconstruction Time Steps Neurons
+
+Figure 15: Reconstruction of neural spike rates. Empirical (left) and reconstructed (right) spike rates for a representative trial. Across all test trials, the world model achieves a variance-normalized mean squared error of 0 .17 ± 0.06. 
+
+## C SAC implementation 
+
+The SAC implementation largely follows Haarnoja et al. (2018). The Q-functions and policy π are ReLU feedforward networks whose weights and biases are hierarchized as described in the main text. Two indepen-dent Q-networks are trained, and the minimum of their predictions enters the gradient computation. Each 
+
+Q-network has a target network updated by Polyak smoothing. Since all rewards are non-positive, target values are clipped at a maximum of 0, which prevents divergence of the value function. The policy is a Gaussian distribution, which permits the reparametrization trick. The replay buffer is filled exclusively with trajectories generated by the world model (so-called imaginations ), and RL gradients do not propagate back into the world model. To improve robustness on the true system, Gaussian noise is added to the latent state at each generated time step, with its magnitude treated as a hyperparameter (Table 2). During evaluation, the expected values of both policy and the decoders are used. The temperature parameter is kept fixed and not optimized. The expectation over the decoder in the reward function (equation 5) is approximated with a single sample. To prevent actions from directly changing the outputs of goal decoders or other protected dimensions, a subject-specific projection maps latent actions onto the joint null space of the corresponding decoder weights. The relevant rows of the decoder mean weights are stacked, their null space is obtained via singular value decomposition (SVD), and an orthogonal projector onto this null space is formed. Actions are first tanh-squashed to [ −1, 1] and then projected. In experiments with external inputs, the policy additionally receives the current external input, which makes it time-dependent. 
+
+## D Batching protocol 
+
+We implement the training protocol as a measurement-aware batching hierarchy where each batch consists of multiple subbatches, with each subbatch containing samples exclusively from a single subject. For DSR, all subbatches of a batch pass through the encoder and latent dynamics in a single forward pass. Losses are computed per subbatch, averaged, and combined with the global regularization terms. A single backward pass optimizer step then update all model parameters jointly. For SAC, training alternates between two phases. The actor phase collects exactly one batch per epoch, generates actions and rewards through environment interaction, and stores transitions in a replay buffer with-28 out gradient updates. The critic phase then samples multiple batches from this replay buffer and performs separate gradient updates for Q-networks (minimizing 1-step Bellman errors) and policy (minimizing KL divergence) using distinct optimizers, followed by Polyak averaging of target networks after each batch, effec-tively decoupling exploration from exploitation while maintaining the measurement-aware subbatch structure throughout both phases for hierarchical parameter learning. 
+
+## E Baseline implementation 
+
+We compared the proposed hierarchical controller with three baselines that differed in how they use learned dynamics and access to controlled interactions. To ensure comparability, all methods were instantiated independently for each subject and used the same reward function, initial-state distribution, 500-step evaluation horizon, and projected action space. Raw actions were clipped and projected before execution. In the Lorenz-63 environment, only the projected y
+
+and z components were injected into the physical dynamics; in the double-pendulum environment, only the projected components corresponding to the two angular velocities were applied. Thus, all baselines respected the same constrained physical action interface as the proposed method. CEM-MPC (Pinneri et al., 2021) was implemented as a derivative-free receding-horizon planner that operates exclusively in the pretrained subject-specific ALRNN world model. At each evaluation step, candidate projected action sequences were simulated in the ALRNN and ranked by the same reward function as the proposed method, only the first action of the selected sequence was applied to the true system. Thus, CEM-MPC required no additional controller training and did not use controlled true-system trajectories for planning. For CEM-MPC, seeds were planner seeds controlling the stochastic sampling of candidate action sequences; no model or controller parameters were trained. TD-MPC followed the task-oriented latent-dynamics framework of Hansen et al. (2022). For each subject, TD-MPC learned an encoder, latent transition model, reward predictor, twin Q-functions, and policy prior from controlled interactions collected in the true environment. Short-horizon action sequences were optimized in the learned latent model using an MPPI-style planner and evaluated with a learned terminal value estimate. The true environment was used only to execute the first selected action and provide subsequent observations; future true-system trajectories were never available to the planner. The DreamerV3 RSSM agent (Hafner et al., 2025a) was implemented with categorical stochastic latents, observation, reward, and continuation prediction heads, and actor-critic learning through imagined trajecto-ries. Like TD-MPC, DreamerV3 learned exclusively from controlled true-environment interactions and was evaluated in closed loop, with each action selected from the learned model before being applied to the true system. The reported configurations were fixed before final evaluation. DreamerV3 included a restricted validation-search procedure, whereas TD-MPC and CEM-MPC used fixed configurations. 
+
+## F Hyperparameters 
+
+In Table 2, we report all hyperparameters which were either selected or optimized via Bayesian optimization. Learning rates and generalized teacher forcing coefficients follow exponential decay schedules. For evaluation, we complete at least 6 SAC runs with different seeds, with group-level parameters initialized using Xavier initialization (Glorot & Bengio, 2010). 29 Table 2: Hyperparameters. 
+
+Lorenz-63 Double Pendulum Macaque Delayed Center-Out Reach LINK 
+
+DSR 
+
+Latent Dim. 26 106 209 94 
+
+Forcing Dim. 3 6 10 10 Subject Vector Dim. 4 4 1 4
+
+Sequence Length 30 30 60 60 
+
+ReLU Units 12 84 20 29 
+
+Epochs 5000 4000 3000 3000 
+
+Learning Rate 10 −2 - 10 −4 3 · 10 −3- 8 · 10 −5 4.5 · 10 −4 - 4.1 · 10 −5 5 · 10 −3 - 8 · 10 −9
+
+Teacher Forcing 6 · 10 −2 − 5 · 10 −2 4 · 10 −2- 2 · 10 −3 0 0
+
+SAC 
+
+Hidden Dim. Q 29 , 25 139 , 117 235 , 135 165 , 149 
+
+Hidden Dim. π 20 , 18 146 , 51 198 , 190 83 , 76 
+
+Action Penalty 0.1 0.005 0.0005 0.01 
+
+Temperature exp( −0.5) exp(3 .9) exp(0 .1) exp( −4.53) 
+
+Environment Steps 14 38 59 41 
+
+Polyak Coefficient 8 · 10 −3 1.6 · 10 −3 1.7 · 10 −3 1.7 · 10 −3
+
+Reward Discount 0.99 0.99 0.999 0.999 
+
+Noise std 0.05 0.21 0 0
+
+Epochs 5000 5000 5000 5000 
+
+Learning Rate Q 6 · 10 −4 - 2 · 10 −4 4.8·10 −2 - 9·10 −6 4 · 10 −3 - 2 · 10 −4 8 · 10 −3 - 3 · 10 −4
+
+Learning Rate π 2 · 10 −4 - 5 · 10 −5 1.2 · 10 −3 - 10 −5 10 −4 - 10 −5 10 −3 - 2 · 10 −5
+
+Independent SAC 
+
+Hidden Dim. Q 35 , 28 61 , 54 
+
+Hidden Dim. π 25 , 25 78 , 72 
+
+Action Penalty 0.1 0.005 
+
+Temperature exp( −0.5) exp( −4.1) 
+
+Environment Steps 19 26 
+
+Polyak Coefficient 3 · 10 −3 3.8 · 10 −3
+
+Reward Discount 0.99 0.99 
+
+Noise std 0.03 0.17 
+
+Epochs 5000 5000 
+
+Learning Rate Q 7·10 −4 - 1.6·10 −4 8 · 10 −3 - 5 · 10 −3
+
+Learning Rate π 1 · 10 −4 - 2 · 10 −5 1.5·10 −3 - 7·10 −4
+
+30

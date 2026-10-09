@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-07</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-09</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 24 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-07 23:36:38 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-09 00:40:23 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日筛读24篇论文（精读13、速读11），聚焦视觉-语言-动作策略与视频生成两大方向。最值得看的是9.0分的《Remember What You Did》用动作历史记忆加双专家去噪提升长程VLA策略，以及同分的《Custom Forcing》实现免训练的自回归视频主体定制。普通读者可先从这两篇精读入手，再顺带浏览速读中《Fewer Tokens, Better Action》关于token效率与成功率的取舍结论。</p>
+<p>今日共生成 21 篇推荐（精读 10 篇，速读 11 篇）</p>
+<p>精读：《Online Evolution Strategy for Flow-Matching VLA Policies via Self-Supervised Trajectory Distribution Optimization》（9.0/10）, 《Magic-W0: A Structured World-Action Foundation Model for Physical Intelligence》（9.0/10）</p>
+<p>速读：《Continuous Conditioning of VLAs with Augmenting EMG and Visual Task Descriptors》（8.0/10）, 《How To Train Your World Model: Fine-tuning vs RAG for LM-based World Modeling》（8.0/10）, 《Native Action-Prior Learning from Videos for World Action Models》（8.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +74,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies">Remember What You Did: Action-History Memory with Dual-Expert Denoising for Long-Horizon Vision-Language-Action Policies</span></li><li><span class="dpr-home-dashboard-paper-title" title="Custom Forcing: Training-Free Subject Customization for Autoregressive Video Generation">Custom Forcing: Training-Free Subject Customization for Autoregressive Video Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="VDOT++: Unified Few-Step Video Generation via Unbalanced Optimal Transport Distillation">VDOT++: Unified Few-Step Video Generation via Unbalanced Optimal Transport Distillation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Online Evolution Strategy for Flow-Matching VLA Policies via Self-Supervised Trajectory Distribution Optimization">Online Evolution Strategy for Flow-Matching VLA Policies via Self-Supervised Trajectory Distribution Optimization</span></li><li><span class="dpr-home-dashboard-paper-title" title="Magic-W0: A Structured World-Action Foundation Model for Physical Intelligence">Magic-W0: A Structured World-Action Foundation Model for Physical Intelligence</span></li><li><span class="dpr-home-dashboard-paper-title" title="EWAM: Emergent Depth-Wise Specialization in a Unified Embodied Model -- From Semantic Understanding through Visual Foresight to Action">EWAM: Emergent Depth-Wise Specialization in a Unified Embodied Model -- From Semantic Understanding through Visual Foresight to Action</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>13</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>10</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,7 +90,7 @@
     <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Fewer Tokens, Better Action: GPT-6 Astra Robot Agents with 14% Higher Success Rate but 65% Fewer Tokens">Fewer Tokens, Better Action: GPT-6 Astra Robot Agents with 14% Higher Success Rate but 65% Fewer Tokens</span></li><li><span class="dpr-home-dashboard-paper-title" title="PWM: Personalized World Models with Online Reinforcement Learning">PWM: Personalized World Models with Online Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="SemCam: Semantic Camera Motion Control for Video Generation">SemCam: Semantic Camera Motion Control for Video Generation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Continuous Conditioning of VLAs with Augmenting EMG and Visual Task Descriptors">Continuous Conditioning of VLAs with Augmenting EMG and Visual Task Descriptors</span></li><li><span class="dpr-home-dashboard-paper-title" title="How To Train Your World Model: Fine-tuning vs RAG for LM-based World Modeling">How To Train Your World Model: Fine-tuning vs RAG for LM-based World Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="Native Action-Prior Learning from Videos for World Action Models">Native Action-Prior Learning from Videos for World Action Models</span></li></ul>
   </div>
   <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">sr <strong>11</strong></span></div>
 </section>

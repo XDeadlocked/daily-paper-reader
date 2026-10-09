@@ -1,0 +1,410 @@
+Title: Recursive Video In-Context Learning for Agentic Robot
+
+URL Source: https://arxiv.org/pdf/2610.06843v1
+
+Published Time: Tue, 06 Oct 2026 03:33:13 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Recursive Video In-Context Learning for Agentic Robot 
+
+Wenrui Bao 1 Xinxin Liu 1 Bingxin Xu 2 Yuzhang Shang 1*1University of Central Florida 2University of Southern California 
+
+wenrui.bao@ucf.edu  
+
+> Project page Code
+
+Abstract 
+
+LLM agents that orchestrate frozen vision-language-action (VLA) policies improve across episodes through text memory, which records what the agent did but not how the task is done. A demonstration video shows it, but fits poorly into an agent’s context. The full video slows every turn, fixed keyframes lose the contact detail that decides whether a grasp holds, and what the agent needs shifts from the task’s struc-ture while planning to the frames around each contact. We introduce Recursive Video In-Context Learning (RV-ICL) , a training-free method that turns a demonstration into a hier-archy the agent navigates rather than a prompt it receives. The hierarchy is built from the sub-events of the demonstration, such as grasps and releases. Its levels grow finer, from keyframes of the whole task to phases, moments and short clips, and are exposed through read-only tools. The agent reads the coarse levels before plan-ning. During execution it re-enters the hier-archy whenever a step needs more detail and loads only the clip of its current sub-goal. One demonstration per task is enough. Built on RPent, RV-ICL raises success from 92.6% to 96.5% on LIBERO-PRO and from 86.7% to 95.8% on LIBERO-Plus. 
+
+1 Introduction 
+
+Large language models (LLMs) are increasingly deployed as the deliberative layer of robot systems. They decompose instructions, localise objects, and call learned visuomotor policies for the contact-rich steps they cannot perform analytically (Ahn et al., 2022; Liang et al., 2023; Huang et al., 2022). Recent agentic harnesses push this design further. HarnessVLA (Zhang et al., 2026c), released as the RPent framework, exposes a frozen VLA as one retryable primitive among a few analytic ones. A coding agent orchestrates them and improves 
+
+> *Corresponding author.
+
+across episodes through text memory : recipes, lessons and failure rules. Under distribution shift, this design outperforms end-to-end VLAs by a wide margin. How far the agent can improve, however, is bounded by what text can record. The agent writes its memory from its own execution traces, so the memory describes its calls and their outcomes rather than the task itself. It can record that a grasp failed, but not what a successful execution looks like: which object is taken first, from which side the hand approaches, how high the object is lifted, when the gripper opens. Such knowledge is spatial and temporal, and it is hard to put into words. What is hard to put into words is easy to show: a video of the task captures all of it, frame by frame. Such a video is also cheap to obtain. A human demonstration only requires recording a person actually performing the task, with no ac-tion labels or other annotation. Large models can learn from demonstrations placed in their context, in text (Brown et al., 2020) and with interleaved images (Alayrac et al., 2022). This suggests letting the agent watch a demonstration of its task, much as a person watches a how-to video before trying something new. But in what form should the video enter the agent’s memory? The obvious answers fail for three reasons. (i) Length. A demonstration spans hundreds of frames, and the agent re-reads its whole context at each of its tens to hundreds of turns. Long contexts also degrade how well models use their content (Liu et al., 2024). (ii) Resolution. 
+
+A few keyframes are affordable, but they drop the frames around each contact, which decide whether a grasp holds or a placement registers. (iii) Timing. 
+
+What the agent needs changes over the episode: the task’s structure before it acts, and the frames around a particular contact once it reaches that step. No fixed presentation of the video can satisfy all three constraints at once. 1arXiv:2610.06843v1 [cs.RO] 5 Oct 2026 (a) Demonstration hierarchy  “put the yellow and white mug in the microwave and close it”  (b) Recursive access in one episode                                        
+
+> L0
+> keyframes
+> L1
+> phases
+> L2
+> moments
+> L3
+> clips
+> start pre-grasp grasp over target release end
+> P1 approach P2 carry mug →microwave P3 push in, close the door
+> grasp 1 release 1 close microwave
+> agent
+> wrist
+> clip of grasp 1
+> 20 frames from each camera
+> L0–L2are read before planning;
+> clips are loaded on request
+> new layout
+> live view of the robot
+> planner : LLM coding agent
+> memory : text recipes, lessons
+> tools :π0.5 primitive, move_to,
+> back_project, SAM 3
+> plan execute
+> view_task_video (2 pages) L0
+> view_task_map L1,L2
+> back_project ×21, move_to ×2act
+> view_demo_clip(grasp 1) re-enter
+> move_to ×2, pi0_pick(mug handle) act
+> view_demo_clip(grasp 1)
+> move_to ×5 carry to microwave act
+> view_demo_clip(P2, release 1) ×8re-enter
+> back_project ×17, release act
+> view_demo_clip(P3, close) ×9re-enter
+> move_to ×5 push the door act
+> finish task solved ✓
+> re-enter
+> re-enter
+> re-enter
+
+Figure 1: Overview of RV-ICL on a task from the LIBERO-10 suite of LIBERO-PRO. The agent receives one demonstration of the task as a hierarchy (a) and consults it while solving the same task in a new layout (b). (a) The hierarchy has four levels: L0 event-driven keyframes (thin lines mark their time), L1 phases between grasps and releases, L2 moments around each sub-event, and L3 20-frame clips, here of the first grasp. (b) The tool calls of one solved evaluation episode (consecutive calls grouped, robot actions in grey, re-entries in orange). The agent reads 
+
+L0–L2 while planning and loads clips only during execution. Each re-entry loads the clip of the current sub-goal: the grasp, the release or the closing of the door. 
+
+Since each moment of the episode calls for a different part of the demonstration, why not let the agent watch just that part, and only at that moment? Methods for long documents and long videos al-ready take this route: instead of reading everything, the language model navigates a hierarchical in-dex (Sarthi et al., 2024; Wang et al., 2024; Packer et al., 2023). We bring this idea to embodied agents, which decide from their own progress when to look closer: before a delicate contact, at the start of a new sub-goal, or after a step goes wrong. We build such an index over a demonstration and call the method Recursive Video In-Context Learning (RV-ICL) . The index is a tree whose levels grow finer: event-driven keyframes of the whole task, the phases between sub-events, the mo-ments around each sub-event, and short clips from any camera (Figure 1a). The agent reads the coarse levels before planning and does not collect clips up front. Whenever it needs more detail during exe-cution, the agent re-enters the tree at the node of its current sub-goal and pulls only the relevant clip (Figure 1b). The demonstration is thus consulted recursively, at the level of detail and the moment the agent’s progress calls for. 
+
+RV-ICL requires no training, no change to the VLA, and one demonstration per base task. The hierarchy is built from the sub-events of the demon-stration, the instants at which one sub-task ends and the next begins. The same construction therefore applies to any task that decomposes into sub-tasks. We make the following contributions: • We introduce video in-context learning to tool-using robot agents: their text memory cannot record what a successful execution looks like, but a demonstration video shows it frame by frame (§3.1). • We propose Recursive Video In-Context Learning ( RV-ICL ), which lets the agent look only at the part of the demonstration its cur-rent step needs, by giving it recursive access 
+
+to a hierarchy built from the demonstration’s sub-events (§3). • On LIBERO-PRO, RV-ICL raises the success rate of HarnessVLA from 92.6% to 96.5%, above every baseline, and on LIBERO-Plus from 86.7% to 95.8% across seven kinds of perturbation. On the long LIBERO-10 tasks it gains up to 12 points, where keyframes or the whole video of the same demonstration gain at most 2 (§5). 
+
+2 Related Work 
+
+2.1 LLM agents for robot manipulation 
+
+Language models entered robotics as planners over pre-trained skills. SayCan (Ahn et al., 2022) scores LLM proposals by learned affordances, ProgPrompt (Singh et al., 2023) and Code as Poli-cies (Liang et al., 2023) write programs over per-ception and control APIs, and VoxPoser (Huang 2et al., 2023) composes 3D value maps for a mo-tion planner. Inner Monologue (Huang et al., 2022) feeds execution feedback back to the planner, and Voyager (Wang et al., 2023) accumulates a library of verified skills. A recent line of agentic harnesses puts a coding agent in charge of a frozen VLA. Har-nessVLA (Zhang et al., 2026c) exposes the VLA as a retryable primitive and learns its operating range from text memory; Robo-Harness K1 (Li et al., 2026) augments such agents with perception; CaP-X (Fu et al., 2026) benchmarks coding agents for manipulation; RATS (Zhang et al., 2026a) learns through play; and RAPID (Liu et al., 2026) synthe-sises agent programs from demonstrations. The knowledge these systems carry across episodes is textual or programmatic. RV-ICL 
+
+keeps the harness unchanged and adds a visual record of how the task is performed, together with a protocol for consulting it. 
+
+2.2 Learning from demonstrations in context 
+
+In language models, a few demonstrations in the prompt suffice to specify a task (Brown et al., 2020), although models draw mostly on their format and label space rather than the exact input–label mapping (Min et al., 2022). Flamingo (Alayrac et al., 2022) extends in-context learning to interleaved images. In robotics, one-shot imitation has been learned by meta-learning from human videos (Yu et al., 2018) and by video-conditioned policies (Jain et al., 2024). In-context imitation has been achieved by tokenising demonstrations as keypoints for an off-the-shelf LLM (Di Palo and Johns, 2024), by train-ing a policy to continue interleaved demonstration trajectories (Fu et al., 2024), and by conditioning a VLA on structured demonstrations (Xu et al., 2026). When an LLM acts directly as the pol-icy, one-shot demonstrations yield no aggregate gain (Zhang et al., 2026b). All of these present the demonstration once, as a prefix for the next actions. Our agent makes tens to hundreds of decisions per episode, so the question is not only whether to show a demonstration but 
+
+which part, and when .
+
+2.3 Recursion in language-model reasoning and retrieval 
+
+Recursion lets a bounded model handle inputs and problems that exceed its context. Recursive sum-marisation condenses a book into a tree of sum-maries read top-down (Wu et al., 2021), and RAP-TOR (Sarthi et al., 2024) retrieves from such a tree at the level of abstraction a question requires. For long videos, VideoAgent (Wang et al., 2024) and VideoTree (Wang et al., 2025) likewise inspect only the frames or branches a question needs. 
+
+Recursive decomposition splits a problem as needed. ADaPT (Prasad et al., 2024) decomposes a sub-task further only when the executor fails on it, THREAD (Schroeder et al., 2025) spawns child threads that return only what the parent needs, and Recursive Language Models (Zhang et al., 2025) call themselves over slices of a context too long to read at once. Tree of Thoughts (Yao et al., 2023) searches over such trees of intermediate steps. A related family decides when to fetch infor-mation. FLARE (Jiang et al., 2023) retrieves when upcoming tokens are uncertain, and Self-RAG (Asai et al., 2024) learns to request retrieval on demand. Reflexion (Shinn et al., 2023) and Self-Refine (Madaan et al., 2023) feed the outcome of an attempt into the next one, and MemGPT (Packer et al., 2023) pages information between a bounded context and external storage. 
+
+RV-ICL brings recursion to an embodied agent. The demonstration is a tree read at the level each decision requires, and the agent descends whenever its progress in the physical task calls for more de-tail: before a delicate contact, at a new sub-goal, or after a step goes wrong. 
+
+3 Recursive Video In-Context Learning 
+
+3.1 Problem setting 
+
+An agent π, an LLM running as a coding agent, receives an instruction ℓ and interacts with a robot environment through a tool set TR (Figure 2). 
+
+TR contains a VLA primitive for contact-rich steps ( pi0_pick , which calls π0.5), analytic prim-itives for staging, transport and release ( move_to ,
+
+release ), perception (SAM 3 segmentation and 
+
+back_project , which lifts an image pixel to a 3D point), and finish .At turn t the agent conditions on its context ct
+
+and emits a call at = π(ct). The context holds ℓ,the text memory M of HarnessVLA, the current camera images and the history of calls and results. The episode ends when the agent calls finish or reaches its step or time limits. It succeeds if the simulator’s goal predicate holds. 
+
+RV-ICL adds a demonstration D of the same base task, recorded in a different scene, and a sec-3LLM planner             
+
+> coding agent, e.g. Codex or Claude Code
+> context window
+> instruction ℓ + live observations
+> text memory M: task recipes, lessons
+> L0keyframes, before planning
+> L1phase map, L2moments (text)
+> L3clip of node n, on demand
+> L3clip of node n′, on demand
+> ⋮
+> one episode
+> plan act re-enter
+> finish
+> need detail
+
+RPent tool server                
+
+> demonstration tools
+> view_task_video →L0
+> view_task_map →L1,L2
+> view_demo_clip (n,cam) →L3
+> read-only; viewing budget Bper node
+> robot tools
+> VLA: π0.5 (pi0_pick )
+> analytic: move_to ,release , …
+> perception: SAM 3, back_project
+
+demonstration hierarchy  one per base task       
+
+> L0event-driven keyframes
+> L1phases
+> L2moments
+> L3clips (any phase/moment, camera)
+> demonstration Dof the task
+> frames, robot and object states
+> offline : segment at sub-events
+
+environment  
+
+> LIBERO-PRO, LIBERO-Plus …
+> query node n
+> text / frames
+> read
+> tool call
+> result, images
+> actions
+> obs.
+> layout, goal, camera, lighting or noise differ from the demonstration
+
+Figure 2: Architecture of RV-ICL on RPent. Each demonstration is segmented offline at its sub-events into a four-level hierarchy. During an episode the LLM agent acts through the harness. Robot tools execute on the environment, and read-only demonstration tools load a level of the hierarchy into the agent’s context. The agent reads the coarse levels ( L0–L2) before planning and loads a clip whenever its current sub-goal needs more detail. 
+
+ond, read-only tool set TD whose calls return views of D. The design question is which views TD of-fers and when the agent should request them, given that every view stays in ct once loaded. 
+
+3.2 The demonstration hierarchy 
+
+A demonstration D = ( o1: T , x 1: T , g 1: T , s 1: T ) con-sists of multi-camera frames ot, end-effector poses 
+
+xt, a binary gripper command gt and, when avail-able, object and joint states st. We segment D
+
+at its sub-events E, the instants at which one sub-task ends and the next begins. Every task that decomposes into sub-tasks has such instants, so the construction below applies to it unchanged. Manipulation tasks expose their sub-events in the recorded state. An object is grasped when the gripper closes and released when it opens, and a drawer or door is opened or closed when its joint moves. We therefore take E to be the gripper events 
+
+Eg = {t : gt̸ = gt−1} together with the instants at which an articulated fixture opens or closes. The hierarchy has four levels (Figure 1a). 
+
+L0: task keyframes. A fixed number K of frames that span the whole task. They are placed around every grasp and release, and uniform sam-ples fill the rest. Each keyframe shows the third-person and wrist views and is captioned with its time fraction, gripper state, end-effector position and event label. 
+
+L1: phases. The intervals pj = [ ej , e j+1 ) be-tween consecutive gripper events ej ∈ Eg, ren-dered as text . Each phase records its duration, the gripper state, the end-effector travel and lift, and, when object states are recorded, what it achieved: the object it moved and the region it ended in, or the fixture it opened or closed. A fixture event does not split a phase and is reported as part of what that phase achieved. The task’s goal predicates are listed with the phases, so each predicate can be matched to the phase that satisfies it. 
+
+L2: moments. A text index of short windows around every sub-event and at the end of the episode. Each window is named by kind and order (grasp 1 , release 1 , close microwave ). 
+
+L3: clips. A short sequence of frames sampled evenly from any phase or moment, from the third-person view, the wrist view or the two stacked. The hierarchy conveys how the task is done, not 
+
+where . The demonstration was recorded in another scene, so the tool descriptions tell the agent to re-localise every object in its own cameras rather than read positions from the demonstration. 
+
+3.3 Recursive access 
+
+TD exposes the hierarchy through three calls. 
+
+view_task_video (page ) returns L0 one page of keyframes at a time, view_task_map () returns L1
+
+and the L2 index, and view_demo_clip (n, cam )
+
+returns the L3 clip of a phase or moment n. The system prompt tells the agent how to use the three calls, and the agent decides when to make them. Access is recursive: the agent reads the coarse lev-els once and then, at each step that needs detail, returns to the hierarchy for one clip (Algorithm 1). 4Coarse levels before planning. Before its first action the agent reads L0 to L2. It writes its sub-goals from the phase map, with the keyframes as the picture of each stage. It loads no clip yet, be-cause the prompt asks for clips at the point of action rather than up front. 
+
+Re-entry during execution. The agent returns to the hierarchy whenever its current sub-goal calls for more detail. It does so before it closes the gripper on an object or opens it, and when a stretch of motion is unclear. It also does so when a step does not go as planned, such as a grasp that does not close, an object that does not move, or a placement whose goal predicate does not fire. In that case it watches the clip before it changes any parameter or primitive. It does not reread the coarse levels. It maps the current sub-goal g to its phase pj and loads the clip of pj or of the moment it needs. It compares the clip with its current views and adjusts its next action. A re-entry adds one clip to the context, not the whole video. 
+
+Bounding the recursion. The harness can bound the recursion with a viewing budget B per phase or moment. Further requests for the same phase or moment are refused with a message that sends the agent back to acting. A finite budget stops the agent from re-watching a step that a clip cannot fix, as in the failed episodes of §5.3. 
+
+Algorithm 1 One RV-ICL episode. ⊕ appends to the context, and the budget B caps the views of each phase or moment.                                                                
+
+> Input: instruction ℓ, memory M, demonstration D
+> 1c←[ℓ, M, o now ]
+> 2c←c⊕L0(D)⊕L1(D)⊕L2(D)▷coarse levels
+> 3plan ←π. PLAN (c)▷sub-goals from the phases
+> 4for sub-goal gin plan do
+> 5while gnot satisfied and steps remain do
+> 6if πneeds more detail on gthen ▷re-enter
+> 7n←NODE (g, D )
+> 8if VIEWS (n)< B then
+> 9c←c⊕L3(n)
+> 10 a←π(c)
+> 11 c←c⊕EXECUTE (a)
+> 12 return π. FINISH (c)
+
+4 Experimental Setup 
+
+We first test whether RV-ICL improves a strong agentic system under distribution shift (§5.1) and whether recursive access beats showing the agent keyframes or the whole video (§5.2). We then examine how agents use the hierarchy (§5.3) and whether the gains hold on a second benchmark with other kinds of perturbation (§5.4). 
+
+Benchmarks. Our main benchmark is LIBERO-PRO (Zhou et al., 2025), which perturbs the four LIBERO suites (Spatial, Object, Goal, LIBERO-10; Liu et al., 2023) by instruction redirection (T) and position swap (S). Each of the eight cells con-tains 10 tasks. We follow the evaluation protocol of Zhang et al. (2026c), whose reported baselines use 10 seeds per task. We evaluate RV-ICL with 5 seeds per task, so each of our cells aggregates 50 episodes. To test other kinds of perturbation we use LIBERO-Plus (Fei et al., 2025), which per-turbs the LIBERO tasks along seven dimensions: object layout, camera viewpoint, robot initial state, language, lighting, background and sensor noise. LIBERO-Plus contains 10,030 perturbed variants, so we evaluate a stratified subset of 120. It takes three variants of each of the 40 base tasks and ro-tates the seven dimensions over them, which gives 17 or 18 variants per dimension. Variants are drawn from the hardest difficulty levels available, and 105 of the 120 come from the two hardest of the five levels. Both methods use the same initial state for every variant. The agent receives the text memory of the unperturbed base task. On LIBERO-Plus we run HarnessVLA ourselves with the same agent. Since this protocol differs from the official one, these numbers compare the two methods with each other, not with the public leaderboard. 
+
+Demonstrations. We build one hierarchy per LIBERO base task from the first of its human tele-operation demonstrations. The keyframes are re-rendered at 512 px from the recorded simulator states, and the clips use the 128 px frames recorded during teleoperation. Both are shown in the ori-entation of the agent’s own cameras (third-person and wrist), so that demonstration and live views are directly comparable. Replaying the recorded states also gives the object and joint states that L1 uses to state what each phase achieved. Both bench-marks use K=16 keyframes, and a clip holds at most 20 frames (§B). One hierarchy serves every perturbed variant of its base task in LIBERO-PRO and LIBERO-Plus. In the instruction-redirection (T) cells, whose goal differs from the demonstrated one, the agent is told which parts of the demonstra-tion no longer apply. 
+
+Baselines. On LIBERO-PRO we compare with eight VLAs (OpenVLA, π0, π0.5, MolmoAct, 5Method Spat-T Spat-S Obj-T Obj-S Goal-T Goal-S L10-T L10-S Overall                                                                                                                                   
+
+> VLA
+> OpenVLA (Kim et al., 2024) 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+> π0(Black et al., 2025) 0.0 0.0 0.0 2.0 0.0 0.0 0.0 0.0 0.3
+> π0.5(Physical Intelligence et al., 2025) 1.0 20.0 1.0 17.0 2.0 38.0 1.0 8.0 11.0 MolmoAct (Lee et al., 2025) 0.0 0.0 0.0 6.0 0.0 0.0 6.0 0.0 1.5 NORA (Hung et al., 2025) 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 X-VLA (Zheng et al., 2026) 0.0 0.0 8.0 2.0 9.0 1.0 10.0 0.0 3.8 AtomVLA (Sun et al., 2026) 1.0 16.0 0.0 10.0 11.0 2.0 9.0 1.0 6.3
+> πRLinf (Yu et al., 2025) 42.0 59.0 71.0 78.0 45.0 42.0 49.0 14.0 50.0
+> Agent
+> Cap-X (Fu et al., 2026) 14.0 12.0 18.0 22.0 17.0 26.0 //18.2 RATS (Zhang et al., 2026a) 31.0 29.0 63.0 61.0 36.0 43.0 //43.8 HarnessVLA (Codex, GPT-5.5) 81.0 69.0 94.0 91.0 75.0 66.0 52.0 49.0 72.1 HarnessVLA (Claude Code, Opus-4.7) 94.0 80.0 88.0 90.0 87.0 87.0 71.0 62.0 82.4 HarnessVLA (Codex, GPT-6 Astra, low) 100.0 98.0 100.0 99.0 88.0 99.0 85.0 72.0 92.6
+> + RV-ICL (Codex, GPT-6 Astra, low) 100.0 100.0 100.0 100.0 100.0 98.0 90.0 84.0 96.5
+
+Table 1: Success rate (%) on LIBERO-PRO under instruction redirection (T) and position swap (S). Baseline cells aggregate 100 episodes (10 tasks × 10 seeds) and our cells 50 episodes (10 tasks × 5 seeds). All rows except ours are reported by Zhang et al. (2026c); “/” marks cells the original works do not report, and the overall score of Cap-X and RATS averages their six reported cells. HarnessVLA uses π0.5 fine-tuned by RLinf as its VLA primitive; 
+
+RV-ICL adds the hierarchy to its GPT-6 Astra configuration. Bold marks the best result in each column. 
+
+NORA, X-VLA, AtomVLA and π0.5 fine-tuned with RLinf), two agentic systems (Cap-X and RATS), and HarnessVLA with three planners. All baseline numbers are taken from Zhang et al. (2026c). We define the ablation arms in §5.2. 
+
+Metrics. The primary metric is task success rate, read from the simulator’s own goal check. On LIBERO-PRO the baseline numbers come from separate runs, so we test the gap in success rate pooled over the eight cells with a two-proportion z-test (§5.1). To study how agents use the hierarchy, we log every demonstration call with its level, the phase or moment it shows, its camera and its turn. We also measure the cost of an episode in wall-clock time and tokens (§D). 
+
+Implementation. The agent is gpt-6-astra at low reasoning effort running in the Codex CLI, as in the strongest HarnessVLA configuration. 
+
+RV-ICL does not depend on this choice. It only adds read-only tools and a prompt section to the harness and changes nothing specific to the model, so any agent the harness supports can use the same demonstration hierarchy, for example Claude Code with Claude Opus 5.5 (§C). The VLA primitive is 
+
+π0.5 fine-tuned by RLinf on LIBERO and served locally, and SAM 3 (Carion et al., 2026) provides segmentation. Each episode is a single attempt. 
+
+5 Results 
+
+5.1 Main results 
+
+Table 1 reports success on the eight LIBERO-PRO cells for end-to-end VLAs, agentic systems and 
+
+RV-ICL . HarnessVLA lets a GPT-6 Astra agent call the end-to-end VLA πRLinf as a tool and raises its success by 42.6 points to 92.6%. RV-ICL 
+
+adds recursive access to demonstration clips on top of HarnessVLA and raises success by another 3.9 points to 96.5%. A two-proportion z-test on the pooled cells shows that this gain is significant (z = 2 .97 , two-sided p = 0 .003 ). While keeping the other five cells at or near the ceiling, RV-ICL brings clear gains on the three cells where HarnessVLA is weakest. Goal-T rises from 88.0 to 100.0, L10-T from 85.0 to 90.0 and L10-S from 72.0 to 84.0. LIBERO-10 is the long-horizon suite of the benchmark, and each of its tasks chains several grasps and releases. The gains there suggest that recursive access is especially effective on such tasks. The small drop on Goal-S (98.0 vs. 99.0) comes from a single failed episode. With five seeds per task, one episode moves a cell by two points. So the drop does not indicate that 
+
+RV-ICL is worse than HarnessVLA on Goal-S. 
+
+5.2 Ablations 
+
+We ablate the form in which the demonstration enters the agent’s context. All arms share the agent and the text memory and run on the two LIBERO-10 cells, which hold the longest tasks: • Text : HarnessVLA with text memory only. • Keyframes : only the event-driven keyframes of the demonstration ( L0). • Full video : the whole demonstration video, with no hierarchy. 6Watching the demonstration only when it is needed  LIBERO-10: “turn on the stove and put the moka pot on it” 
+
+① The grasp fails  ② Look up the demonstrated grasp  ③ Grasp by the handle       
+
+> robot demonstration robot
+> closes on the lid
+> handle
+> handle
+> handle ✓
+> stuck:
+> look it up apply
+> The policy closes the gripper on
+> top of the pot, not on its handle.
+> It opens only the grasp clip: “The demonstrated grasp is farther out on the handle.” It re-grasps the pot by the handle and lifts it.
+> The agent returns to the demonstration at every sub-goal, and only for the part it needs
+> before acting
+> keyframes and phase list
+> grasp the pot
+> grasp clip
+> place it on the stove
+> release clip
+> turn on the stove
+> knob-turn clip
+
+✓
+
+> task solved
+
+Figure 3: How the agent uses the demonstration in one LIBERO-10 episode from our LIBERO-PRO runs. Top: the policy closes the gripper on top of the moka pot (1). The agent does not replay the whole video. It opens only the grasp clip, where the demonstrator takes the pot by its handle (2), and then re-grasps the pot by the handle (3). Bottom: across the episode the agent reads the keyframes and the phase map before acting, then opens one short clip at each sub-goal. Robot views are crops of the episode video, demonstration views are frames of the demonstration, and the quote is the agent’s own message. 
+
+• RV-ICL : the full hierarchy ( L0–L3) with re-cursive access (§3.3). Table 2 reports the results. The Text and RV-ICL 
+
+rows are taken from the LIBERO-10 cells of Table 1. Showing the demonstration is not enough on its own. Keyframes raise success over text mem-ory by only 1.0 point on L10-T and 2.0 points on L10-S. The full video is 1.0 point below text mem-ory on L10-T and 6.0 points below it on L10-S. 
+
+RV-ICL is the best arm on both cells, with 90.0% on L10-T and 84.0% on L10-S. Its lead is largest on L10-S, the harder cell for every arm, where it is 10.0 points above keyframes and 18.0 points above the full video. All three video arms show the same demonstra-tion in different forms. Keyframes are coarse. They show where the gripper closes and opens but not how a grasp or a release is carried out. They are also what RV-ICL reads before planning, so the gap between the two arms comes from the phase map and the clips. The full video holds that detail but has no index into it, so the agent must find the moment it needs among unrelated frames. RV-ICL 
+
+keeps the detail and adds the index, whose text lev-els tell the agent which clip to ask for. The agent 
+
+Arm Demonstration Re-entry L10-T L10-S Text none – 85.0 72.0 Keyframes L0 keyframes – 86.0 74.0 Full video whole video – 84.0 66.0 
+
+RV-ICL L0–L3 ✓ 90.0 84.0 
+
+Table 2: Ablations on the two LIBERO-10 cells of LIBERO-PRO, the longest-horizon tasks (GPT-6 As-tra, success %). L0 denotes the keyframes and L3 the clips of the demonstration hierarchy (§3.2). Bold marks the best result in each column. 
+
+reads the coarse levels first and opens a clip only when a sub-goal calls for it, so the detail it sees is the detail it is about to use. The gap to the full video suggests that what helps is not seeing more but seeing the right part at the right time. 
+
+5.3 How agents recurse 
+
+Figure 3 shows what a re-entry gives the agent. After the failed grasp it asks for the grasp moment alone and reads from the clip how the demonstrator holds the pot: by the handle, with the fingers farther out than its own. Where that handle lies in its own scene it determines from its own cameras, since the demonstration was recorded in another layout. The clip thus supplies what text memory cannot record, and nothing else from the video enters the context. 7Suite Episodes Clip views / episode With re-entry Spatial 100 2.8 98% Object 100 2.3 98% Goal 100 3.9 92% LIBERO-10 100 10.4 98% All 400 4.8 97% 
+
+> Table 3: How the agent uses the demonstration in the 400 LIBERO-PRO episodes of Table 1 (T and S cells pooled). Clip views are re-entries during execution; the last column is the share of episodes with at least one.
+
+Table 3 shows that this pattern holds across all 400 LIBERO-PRO episodes of Table 1: the agent opens a few clips per episode, and almost every episode contains a re-entry. 
+
+Coarse levels first. In every episode the agent reads the keyframes ( L0) and the phase map (L1/L2) before its first robot action. 
+
+Re-entry is frequent and targeted. In 97% of the episodes the agent re-enters the demonstra-tion during execution. It asks for short moments far more often than for whole phases: of the clip views, 40% are grasp moments, 30% release mo-ments, 15% fixture or end-of-task moments and 16% whole phases (rounded). Re-entries cluster in the second half of an episode (78%), when the agent is executing contacts rather than planning. Longer tasks call for more of them, from 2.3 per episode on Object to 10.4 on LIBERO-10. 
+
+What prompts a re-entry. We read the agent’s message before each of 100 randomly sampled re-entries. In 68 of them the agent re-enters after a step went wrong, such as a grasp that did not close, a descent that stopped short or an object that slipped. In the other 32 it re-enters to prepare the next contact, most often right before a grasp or a release. The sample covers the 77% of re-entries that the agent introduces with a message. 
+
+Failed episodes. These are almost all on LIBERO-10 and contain 21.2 clip views on average against 4.3 in solved ones. In each the agent keeps re-entering at the same kind of step, most often a grasp or a fixture, without resolving it: watching the demonstration again does not change what the robot can do. 
+
+5.4 Robustness on LIBERO-Plus 
+
+Table 4 reports success on LIBERO-Plus by pertur-bation dimension. RV-ICL raises overall success from 86.7% to 95.8% and is at least as good as                     
+
+> Dimension Lay. Cam. Rob. Lang. Light Back. Noise All HarnessVLA 82.4 83.3 82.4 100.0 76.5 88.2 94.1 86.7 +RV-ICL 88.2 94.4 94.1 100.0 94.1 100.0 100.0 95.8
+> Suite Spatial Object Goal L10 HarnessVLA 100.0 96.7 76.7 73.3 +RV-ICL 96.7 100.0 90.0 96.7
+> Table 4: Success rate (%) on LIBERO-Plus by perturba-tion dimension (top: object layout, camera viewpoint, robot initial state, language, lighting, background and sensor noise) and by suite (bottom). Bold marks the best result in each column.
+
+HarnessVLA on every dimension. The largest gain is under changed lighting (76.5 to 94.1), followed by background, robot initial state and camera view-point with about 11 points each. Both methods solve every language variant. As on LIBERO-PRO, the gain concentrates in LIBERO-10 (29 of 30 vari-ants solved against 22) and Goal (27 against 23; Table 4, bottom). It is below HarnessVLA only on Spatial, by one variant. Every perturbation separates the episode from the demonstration, which was recorded in the origi-nal scene, camera, light and start pose. The demon-stration still helps, which fits how the agent uses it: it takes from a clip how a step is done and lo-calises every object in its own camera images. A new viewpoint or light therefore changes what the agent sees in the episode but not what it learns from the clip. Each dimension has only 17 or 18 variants, so one episode moves a cell by about six points. We therefore read Table 4 as evidence that no perturbation breaks RV-ICL , not as a ranking of the dimensions. 
+
+6 Conclusion 
+
+We presented Recursive Video In-Context Learning (RV-ICL ), which gives an LLM robot agent one demonstration of its task as a hierarchy it navigates: coarse levels ground the plan, and during execution the agent returns to the demonstration at the node of its current sub-goal whenever it needs more detail. The approach needs no training and no change to the policy. The hierarchy is built from the sub-events of the demonstration, so it applies to any task that decomposes into sub-tasks. On LIBERO-PRO it raises the success rate of HarnessVLA from 92.6% to 96.5%, most of all on the long LIBERO-10 tasks, where keyframes or the whole video add little. Agents re-enter the demonstration in 97% of episodes, mostly to see a grasp or a release. On LIBERO-Plus RV-ICL holds up under all seven 8kinds of perturbation, and it carries over to a second planner without change. More broadly, treating demonstrations as an environment to be queried, rather than as a prefix, is a natural fit for agents whose information needs change as they act. 
+
+Limitations 
+
+RV-ICL assumes one demonstration per base task; when a benchmark rewrites the goal of a task, parts of the demonstration become invalid and must be flagged to the agent. On LIBERO we detect sub-events from the gripper and from fixture joints. Tasks whose sub-tasks leave no such trace in the recorded state, such as pushing, wiping or pour-ing, need another detector, for example one that reads the end-effector trajectory or asks a vision-language model. When contact is executed by a learned skill whose motion differs from the demon-strator’s, the finer levels carry little that the agent can act on. Each demonstration view stays in context for the rest of the episode, so cost grows with the number of re-entries. All our experiments use LIBERO tasks with a single robot and a single VLA, so other embodiments and demonstration sources re-main untested. Our agents are proprietary models accessed through third-party endpoints, whose be-haviour may change over time. Our LIBERO-PRO cells hold 50 episodes and each LIBERO-Plus di-mension 17 or 18 variants on one seed, so a single episode moves a cell by two to six points. The base-lines in Table 1 come from separate runs, so they cannot be compared with ours episode by episode. 
+
+Ethics Statement 
+
+All experiments are conducted in simulation. The LLM agents run shell commands and could read files outside their task; we isolated conditions by restricting directory permissions and audited every shell command afterwards. Deploying such agents on physical robots requires stronger sandboxing and human oversight. Demonstrations are taken from public benchmark datasets. 
+
+References 
+
+Michael Ahn, Anthony Brohan, Noah Brown, Yevgen Chebotar, Omar Cortes, et al. 2022. Do as I can, not as I say: Grounding language in robotic affordances. In Conference on Robot Learning .Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, An-toine Miech, et al. 2022. Flamingo: a visual language model for few-shot learning. In Advances in Neural Information Processing Systems .Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. 2024. Self-RAG: Learning to retrieve, generate, and critique through self-reflection. In International Conference on Learning Representa-tions .Kevin Black, Noah Brown, Danny Driess, Adnan Es-mail, Michael Equi, et al. 2025. π0: A vision-language-action flow model for general robot control. In Robotics: Science and Systems .Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, et al. 2020. Language models are few-shot learners. In Advances in Neural Information Process-ing Systems .Nicolas Carion, Laura Gustafson, Yuan-Ting Hu, Shoub-hik Debnath, Ronghang Hu, et al. 2026. SAM 3: Segment anything with concepts. In International Conference on Learning Representations .Norman Di Palo and Edward Johns. 2024. Keypoint action tokens enable in-context imitation learning in robotics. arXiv preprint arXiv:2403.19578 .Senyu Fei, Siyin Wang, Junhao Shi, Zihao Dai, Jikun Cai, Pengfang Qian, et al. 2025. LIBERO-Plus: In-depth robustness analysis of vision-language-action models. arXiv preprint arXiv:2510.13626 .Letian Fu, Huang Huang, Gaurav Datta, Lawrence Yun-liang Chen, William Chung-Ho Panitch, Fangchen Liu, et al. 2024. In-context imitation learn-ing via next-token prediction. arXiv preprint arXiv:2408.15980 .Letian Fu, Justin Yu, Karim El-Refai, Ethan Kou, Haoru Xue, et al. 2026. CaP-X: A framework for bench-marking and improving coding agents for robot ma-nipulation. arXiv preprint arXiv:2603.22435 .Wenlong Huang, Chen Wang, Ruohan Zhang, Yunzhu Li, Jiajun Wu, and Li Fei-Fei. 2023. VoxPoser: Com-posable 3D value maps for robotic manipulation with language models. In Conference on Robot Learning .Wenlong Huang, Fei Xia, Ted Xiao, Harris Chan, Jacky Liang, et al. 2022. Inner monologue: Embodied reasoning through planning with language models. In Conference on Robot Learning .Chia-Yu Hung, Qi Sun, Pengfei Hong, Amir Zadeh, Chuan Li, et al. 2025. NORA: A small open-sourced generalist vision language action model for embodied tasks. arXiv preprint arXiv:2504.19854 .Vidhi Jain, Maria Attarian, Nikhil J. Joshi, Ayzaan Wahid, Danny Driess, Quan Vuong, et al. 2024. Vid2Robot: End-to-end video-conditioned policy learning with cross-attention transformers. arXiv preprint arXiv:2403.12943 .
+
+9Zhengbao Jiang, Frank F. Xu, Luyu Gao, Zhiqing Sun, Qian Liu, Jane Dwivedi-Yu, et al. 2023. Active re-trieval augmented generation. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, et al. 2024. OpenVLA: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 .Jason Lee, Jiafei Duan, Haoquan Fang, Yuquan Deng, Shuo Liu, et al. 2025. MolmoAct: Action reason-ing models that can reason in space. arXiv preprint arXiv:2508.07917 .Zexi Li, Yehang Zhang, Wenqian Li, Haojian Huang, Chenxu Wang, et al. 2026. Robo-Harness K1: Har-nessing robot-use agents via perception augmenta-tion. arXiv preprint arXiv:2609.29389 .Jacky Liang, Wenlong Huang, Fei Xia, Peng Xu, Karol Hausman, Brian Ichter, Pete Florence, and Andy Zeng. 2023. Code as policies: Language model pro-grams for embodied control. In IEEE International Conference on Robotics and Automation .Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. 2023. LIBERO: Benchmarking knowledge transfer for lifelong robot learning. In Advances in Neural Information Pro-cessing Systems Datasets and Benchmarks Track .Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the middle: How language mod-els use long contexts. Transactions of the Association for Computational Linguistics , 12. Yuyao Liu, Jiayuan Mao, David Hsu, Leslie Pack Kael-bling, and Tomás Lozano-Pérez. 2026. RAPID: Robot agentic programming from demonstrations. 
+
+arXiv preprint arXiv:2609.30249 .Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, et al. 2023. Self-refine: Iterative refinement with self-feedback. In Advances in Neural Information Processing Sys-tems .Sewon Min, Xinxi Lyu, Ari Holtzman, Mikel Artetxe, Mike Lewis, Hannaneh Hajishirzi, and Luke Zettle-moyer. 2022. Rethinking the role of demonstrations: What makes in-context learning work? In Proceed-ings of the 2022 Conference on Empirical Methods in Natural Language Processing .Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, and Joseph E. Gonzalez. 2023. MemGPT: Towards LLMs as operating sys-tems. arXiv preprint arXiv:2310.08560 .Physical Intelligence, Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, et al. 2025. π0.5: avision-language-action model with open-world gen-eralization. arXiv preprint arXiv:2504.16054 .Archiki Prasad, Alexander Koller, Mareike Hartmann, Peter Clark, Ashish Sabharwal, Mohit Bansal, and Tushar Khot. 2024. ADaPT: As-needed decompo-sition and planning with language models. In Find-ings of the Association for Computational Linguistics: NAACL 2024 .Parth Sarthi, Salman Abdullah, Aditi Tuli, Shubh Khanna, Anna Goldie, and Christopher D. Manning. 2024. RAPTOR: Recursive abstractive processing for tree-organized retrieval. In International Confer-ence on Learning Representations .Philip Schroeder, Nathaniel W. Morgan, Hongyin Luo, and James R. Glass. 2025. THREAD: Thinking deeper with recursive spawning. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Lin-guistics: Human Language Technologies (Volume 1: Long Papers) .Noah Shinn, Federico Cassano, Edward Berman, Ash-win Gopinath, Karthik Narasimhan, and Shunyu Yao. 2023. Reflexion: Language agents with verbal rein-forcement learning. In Advances in Neural Informa-tion Processing Systems .Ishika Singh, Valts Blukis, Arsalan Mousavian, Ankit Goyal, Danfei Xu, Jonathan Tremblay, et al. 2023. ProgPrompt: Generating situated robot task plans using large language models. In IEEE International Conference on Robotics and Automation .Xiaoquan Sun, Zetian Xu, Chen Cao, Zonghe Liu, Yi-han Sun, et al. 2026. AtomVLA: Scalable post-training for robotic manipulation via predictive latent world models. arXiv preprint arXiv:2603.08519 .Guanzhi Wang, Yuqi Xie, Yunfan Jiang, Ajay Man-dlekar, Chaowei Xiao, Yuke Zhu, Linxi Fan, and Anima Anandkumar. 2023. Voyager: An open-ended embodied agent with large language models. arXiv preprint arXiv:2305.16291 .Xiaohan Wang, Yuhui Zhang, Orr Zohar, and Serena Yeung-Levy. 2024. VideoAgent: Long-form video understanding with large language model as agent. In European Conference on Computer Vision .Ziyang Wang, Shoubin Yu, Elias Stengel-Eskin, Jae-hong Yoon, Feng Cheng, Gedas Bertasius, and Mohit Bansal. 2025. VideoTree: Adaptive tree-based video representation for LLM reasoning on long videos. In Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) .Jeff Wu, Long Ouyang, Daniel M. Ziegler, Nisan Sti-ennon, Ryan Lowe, Jan Leike, and Paul Christiano. 2021. Recursively summarizing books with human feedback. arXiv preprint arXiv:2109.10862 .Siyu Xu, Yunke Wang, Zijian Wang, Dihao Zhu, Chenghao Xia, et al. 2026. StellaVLA: In-context structured demonstration for generalizable vision-language-action models. arXiv preprint arXiv:2608.11671 .
+
+10 Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of thoughts: Deliberate problem solving with large language models. In Ad-vances in Neural Information Processing Systems .Chao Yu, Yuanqing Wang, Zhen Guo, Hao Lin, Si Xu, et al. 2025. RLinf: Flexible and efficient large-scale reinforcement learning via macro-to-micro flow trans-formation. arXiv preprint arXiv:2509.15965 .Tianhe Yu, Chelsea Finn, Annie Xie, Sudeep Dasari, Tianhao Zhang, Pieter Abbeel, and Sergey Levine. 2018. One-shot imitation from observing humans via domain-adaptive meta-learning. In Robotics: Sci-ence and Systems .Alex L. Zhang, Tim Kraska, and Omar Khattab. 2025. Recursive language models. arXiv preprint arXiv:2512.24601 .Junyi Zhang, Jiaxin Ge, Hanjun Yoo, Letian Fu, Zihan Yang, et al. 2026a. Playful agentic robot learning. 
+
+arXiv preprint arXiv:2606.19419 .Wenbo Zhang, Kaixuan Wang, Yutao Ouyang, Xiaoyu Huang, Liyang Li, Kailun Su, et al. 2026b. An un-expected robot policy: Early evaluations of GPT-6 Astra on RoboDojo and beyond. arXiv preprint arXiv:2609.24170 .Yixian Zhang, Huanming Zhang, Feng Gao, Xiao Li, Zhihao Liu, et al. 2026c. Harness VLA: Steer-ing frozen VLAs into reliable manipulation prim-itives via memory-guided agents. arXiv preprint arXiv:2607.08448 .Jinliang Zheng, Jianxiong Li, Zhihao Wang, Dongxiu Liu, Xirui Kang, et al. 2026. X-VLA: Soft-prompted transformer as scalable cross-embodiment vision-language-action model. In International Conference on Learning Representations .Xueyang Zhou, Yangming Xu, Guiyao Tie, Yongchao Chen, Guowen Zhang, et al. 2025. LIBERO-PRO: Towards robust and fair evaluation of vision-language-action models beyond memorization. arXiv preprint arXiv:2510.03827 .
+
+11 Tool Arguments Returns and intended use              
+
+> view_task_video part (page, default 1) L0: eight captioned keyframes per page (third-person and wrist). Called before planning.
+> view_task_map –L1and L2as text: duration, phases between sub-events with what each achieved, moments, goal predicates, task objects and regions. Called before planning.
+> view_demo_clip moment or phase ;
+> camera ∈{agentview, wrist, both}
+> L3: up to 20 frames of the requested node. Default camera: both for a moment (contact is legible in the wrist view), agentview for a phase (gross motion). Called when about to make a contact, or when a sub-goal stalls.
+
+Table 5: The read-only demonstration tools. None of them moves the robot. Tool descriptions instruct the agent not to read positions from the demonstration and to re-localise every object in its own camera images.                              
+
+> Planner Spat-T Spat-S Obj-T Obj-S Goal-T Goal-S L10-T L10-S Overall
+> RV-ICL (Codex, GPT-6 Astra, low) 100.0 100.0 100.0 100.0 100.0 98.0 90.0 84.0 96.5 RV-ICL (Claude Code, Opus 5.5) 100.0 100.0 100.0 100.0 96.0 92.0 90.0 80.0 94.8
+
+Table 6: Success rate (%) of RV-ICL on LIBERO-PRO with two planners: GPT-6 Astra at low effort in the Codex CLI and Claude Opus 5.5 in Claude Code. Bold marks the best result in each column. 
+
+A Demonstration Tools 
+
+Table 5 lists the three tools exposed to the agent. The phase map for the task in Figure 1 reads, in abridged form:            
+
+> phase 1 [0,87) gripper open: approach phase 2[87,178) gripper closed: carries white_yellow_mug_1 into microwave_1_heating_region phase 3 [178,329) gripper open: pushes the mug in; closes microwave_1 moments: grasp 1 (87), release 1 (178), close microwave_1 (310) goal: (And (In white_yellow_mug_1 microwave_1_heating_region) (Close microwave_1))
+
+B Hierarchy Statistics 
+
+Both benchmarks reuse the same 40 demonstra-tions, one per LIBERO base task. Table 7 sum-marises their hierarchies. Every demonstration has 
+
+K=16 keyframes, rendered at 512 px and shown as two pages of eight. They include the first and last frames, three frames for every grasp (just be-fore the gripper closes, as it closes, and at the top of the lift) and two for every release (above the target and as the gripper opens). A moment spans 40 frames around a gripper event and 50 around a fixture event, and the last moment covers the final 40 frames of the episode. A clip holds at most 20 frames per camera at 128 px. In the agent’s context a page of keyframes adds about 5k input tokens, the phase map about 2.4k and one clip about 3.1k. We estimate the image levels from the growth of the input between consecutive model calls in the 240 episodes of Table 3.                     
+
+> Suite Length (s) Phases Moments Map tokens Spatial 6.4 3.0 2.0 2.4k Object 7.8 3.2 2.2 2.3k Goal 6.8 2.7 2.0 2.2k LIBERO-10 14.6 4.6 3.9 2.6k
+
+Table 7: The demonstration hierarchy per LIBERO suite over its ten base tasks: mean demonstration length, phases and moments, and the median size of the phase map ( L1 and L2) in tokens. 
+
+C Swapping the Planner 
+
+RV-ICL changes nothing that is specific to the planner, so the same demonstration hierarchy and tools serve any agent the harness supports. To check this, we run RV-ICL with Claude Opus 5.5 in Claude Code on LIBERO-PRO with five seeds per task, as in Table 1, and compare it with GPT-6 Astra in Table 6. RV-ICL with Opus 5.5 reaches 94.8% overall, 1.7 points below GPT-6 As-tra (96.5%). Both planners solve every episode on Spatial and Object and tie on L10-T, so the gap comes from Goal and L10-S. RV-ICL with Opus 5.5 still scores above every baseline in Table 1. The method thus carries over to a second planner without any change. 
+
+D Cost 
+
+Table 8 compares the cost of an episode with and without the demonstration hierarchy on the 120 LIBERO-Plus variants, which both methods ran in the same time window. RV-ICL takes 1.8 times the wall-clock time and 1.4 times the input tokens of HarnessVLA. For both methods almost nine 12 Method Time (min) Model calls Input tokens (M) Cached (%) Output tokens (k) Final context (k) HarnessVLA 8.3 18 1.19 88.0 3.6 91.4 + RV-ICL 14.6 20 1.71 88.6 4.5 109.3 
+
+Table 8: Median cost of one episode on the 120 LIBERO-Plus variants: wall-clock time, model calls, input tokens and the share served from the cache, output tokens, and the size of the final context. 
+
+in ten input tokens are cache hits, because each turn resends the growing context. Demonstration views make up about 21% of the final context of a RV-ICL episode. On LIBERO-PRO a RV-ICL 
+
+episode takes a median of 11.0 minutes and 1.7M input tokens, and a LIBERO-10 episode 26.2 min-utes and 4.2M. 13

@@ -1,0 +1,2889 @@
+Title: Towards Optimal Policy Improvement
+
+URL Source: https://arxiv.org/pdf/2610.01566v1
+
+Published Time: Fri, 02 Oct 2026 01:36:41 GMT
+
+Number of Pages: 46
+
+Markdown Content:
+Preprint 
+
+# TOWARDS OPTIMAL POLICY IMPROVEMENT 
+
+Yaniv Oren 1,5 Viliam Vadocz 2 Wiktor Zabka 1 Thomas Evers 1 Jan Robine 1
+
+Wendelin B¨ ohmer 1 Matthijs T. J. Spaan 1 Martha White 3 Hendrik Baier 4,5
+
+Fenghui Yu 61Department of Intelligent Systems, TU Delft 
+
+> 2
+
+Department of Computer Science, ETH Z¨ urich 
+
+> 3
+
+Department of Computing Science, University of Alberta 
+
+> 4
+
+Information Systems, TU Eindhoven 
+
+> 5
+
+Centrum Wiskunde & Informatica, Amsterdam 
+
+> 6
+
+Delft Institute of Applied Mathematics, TU Delft 
+
+{y.oren,j.w.bohmer,m.t.j.spaan,fenghui.yu }@tudelft.nl vvadocz@student.ethz.ch whitem@ualberta.ca h.j.s.baier@tue.nl 
+
+## ABSTRACT 
+
+Practical Reinforcement Learning (RL) algorithms learn to solve Markov Decision Processes (MDPs) through iterative policy improvement in the presence of approx-imate evaluation. We study policy improvement from first principles, defining optimal policy improvement as producing the best policy attainable in a single update under specified constraints. We show that optimal improvement restricted to a set of states is equivalent to solving an induced MDP, characterizing planning with an explicit or implicit model as a path towards optimal policy improvement. Because practical methods commonly solve such induced problems through iter-ative improvement in the form of greedification, we take steps towards optimal greedification under the central practical constraint of approximate evaluation. We formulate greedification under this constraint as probabilistic decision-making under uncertainty and derive a novel operator that is optimal with respect to the resulting objective. Empirically, the operator and its practical gradient-based ap-proximations improve aggregate performance across GumbelAlphaZero, SAC, ReBRAC and Generalized Policy Iteration, in experiments spanning discrete and continuous actions, model-based and model-free, online and offline RL. 
+
+## 1 INTRODUCTION 
+
+The objective of Reinforcement Learning (RL) agents is to find well-performing policies for se-quential decision problems, formalized as Markov Decision Processes (MDPs, Bellman, 1957). The performance of the policy is measured as its expected return , also called the policy’s value . To find such policies, practical algorithms rely on the (approximately) monotonic learning process of iterative 
+
+Policy Improvement (Sutton & Barto, 2018). Examples of algorithms that can be abstracted to this process are (Deep) Q-learners (Watkins & Dayan, 1992; Mnih et al., 2015), Actor-Critics (Konda & Tsitsiklis, 1999), learners-in-the-model (Hafner et al., 2023), planning-based learners (Silver et al., 2018; Schrittwieser et al., 2020) and many others. To drive policy improvement, RL algorithms use 
+
+Policy Improvement Operators which take the agent’s current policy and produce a better policy (Oren et al., 2025b; Chan et al., 2022). Prominent examples of policy improvement operators are Policy Gradient (Sutton et al., 2000), Monte Carlo Tree Search (Kocsis & Szepesv´ ari, 2006) and the greedy operator used by Q-Learning. A central design question in RL is which policy improvement operator best uses the information available to the agent under practical constraints. Approximate evaluation is particularly important 1arXiv:2610.01566v1 [cs.LG] 1 Oct 2026 Preprint because of both its prevalence and its adverse effects on learning (Baird, 1995; Tsitsiklis & Roy, 1997; Thrun & Schwartz, 2014; van Hasselt, 2010; van Hasselt et al., 2016; 2018). Popular algorithms mitigate the effects of evaluation error on policy improvement by constraining policy updates through different forms of regularization (Schulman et al., 2017; Haarnoja et al., 2018; Abdolmaleki et al., 2018; Danihelka et al., 2022; Hafner et al., 2023). These methods implicitly encode decisions about how uncertain evaluation should affect improvement. Making those decisions explicit and deriving operators that optimize the resulting objective remains an important avenue for research. In this work we take steps towards optimal policy improvement under practical constraints such as approximate evaluation, in two central parts. First, we characterize optimal improvement under state-restricted policy updates. We show that constrained optimal improvement is equivalent to solving an induced MDP. These results connect optimal policy improvement to planning with explicit models such as world models and implicit models such as replay buffers. To solve the MDP in the model, practical RL algorithms rely on greedification for policy improvement (Sutton & Barto, 2018; Oren et al., 2025b). This motivates the second part of our analysis: optimal greedification under approximate evaluation. We model this problem explicitly as a problem of optimization under uncertainty formulated as Maximum a Posteriori optimization, and derive Iopt , a novel greedification operator which is optimal for the derived optimization objective. Iopt generalizes an operator arising from Regularized Policy Optimization (Neu et al., 2017), Control as Inference (Levine, 2018), Mirror Descent (Tomar et al., 2022), and Trust Region Policy Optimization (Schulman et al., 2015), and used by popular algorithms such as GumbelAlpha/MuZero (Danihelka et al., 2022) and TDMPC variants (Hansen et al., 2024). Theoretically, we investigate the soundness of Iopt for driving the RL process by establishing convergence in a Dynamic Programming setup underlying the general learning process of RL (Oren et al., 2025b). Empirically, Iopt and its practical gradient-based approximations improve performance across experiments encompassing RL and Dynamic Programming, discrete and continuous action spaces, model based and model free, classical and modern, online and offline algorithms. These include GumbelAlphaZero (Danihelka et al., 2022) in 9x9 Go and Chess , Soft Actor-Critic (Haarnoja et al., 2018) in 10 classical DeepMind Control (Tunyasuvunakool et al., 2020) continuous-action environments, ReBRAC (Tarasov et al., 2023) in 4 classical offline RL domains of D4RL (Fu et al., 2020) and Policy Iteration algorithms (Sutton & Barto, 2018) across infinite horizon grid environments. These results support the design of improved policy improvement operators as a promising basis for better performing RL algorithms, and in addition, the construction of explicit, uncertainty-aware decision objectives as a promising basis for designing stronger policy improvement operators. 
+
+## 2 PRELIMINARIES 
+
+In RL, the environment is represented by an MDP M = ⟨S , A, ρ, R, P, γ ⟩ ∈ M , where S is a set of states, A a set of actions, ρ an initial state distribution. For simplicity of presentation, we will focus on discrete and finite state and action spaces. R : S × A → R is a bounded possibly stochastic reward function, and P is a transition distribution such that P (s′|s, a ) specifies the probability of transitioning from state s to state s′ with action a. A policy π ∈ Π is a stochastic mapping from states s ∈ S to probability distributions on the action space A. We write a ∼ π(s) and denote the probability of a at s under π with π(a|s). The objective of RL is to find a policy which maximizes 
+
+the expected discounted return (or value ) V π :
+
+J π := Es∼ρ[V π (s)] := E
+
+hPHt=1 γt−1R(st, a t)
+
+i
+
+, s 1 ∼ ρ, a t ∼ π(·| st), s t+1 ∼ P (· | st, a t). (1) The discount factor γ ∈ (0 , 1) is introduced in the infinite-horizon setting ( H → ∞ ) to ensure that the value function V π is well-defined and bounded. In the finite-horizon case, one typically sets γ = 1 .The state-action value function (Q-function) associated with a policy π is defined by Qπ (s, a ) := 
+
+E
+
+h
+
+R(s, a ) + γV π (s′)
+
+i
+
+, where s′ ∼ P (· | s, a ). The optimal state-value function, and state-action value function are defined, respectively, by V ∗(s) := sup π∈Π V π (s), Q ∗(s, a ) := sup π∈Π Qπ (s, a ),
+
+and an optimal policy π∗ satisfies ∀s ∈ S : V π∗
+
+(s) = V ∗(s). The advantage function is defined as: 
+
+Aπ (s, a ) = Qπ (s, a ) − V π (s) = Qπ (s, a ) − P
+
+> b∈A
+
+π(b|s)Qπ (s, b ). (2) 2Preprint With access to the dynamics of the environment M , MDPs can be solved using Dynamic Programming (DP) methods, such as Value Iteration or Policy Iteration (Bertsekas, 2025). These methods can be cast as instances of Generalized Policy Iteration (GPI, Algorithm 1), which iterate policy improvement 
+
+and policy evaluation using different policy improvement operators and underpin the learning process of many RL algorithms (Sutton & Barto, 2018; Oren et al., 2025b). The policy improvement operator is generally defined as follows (Sutton & Barto, 2018): 
+
+Definition 1 (Policy Improvement Operator) . We call an operator I : Π → Π a policy improvement operator if, ∀π ∈ Π as long as the policy is not already optimal, it satisfies: 
+
+∀s ∈ S : V I(π)(s) ≥ V π (s) and ∃s ∈ S : V I(π)(s) > V π (s). (3) A popular class of policy improvement operators are greedification operators :
+
+Definition 2 (Greedification Operator) . We call I : Π × Q → Π a greedification operator if 
+
+∀π ∈ Π, ∀Q ∈ Q , ∀s ∈ S it satisfies: 
+
+P
+
+> a∈A
+
+I(π, Q )( a|s)Q(s, a ) ≥ P
+
+> a∈A
+
+π(a|s)Q(s, a ), (4) 
+
+and ∃s ∈ S such that the inequality is strict, unless π is already greedy with respect to Q.
+
+Q denotes the set of all bounded functions Q : S × A → R, to indicate that greedification is well defined with respect to exact evaluation Q = Qπ as well as approximate evaluation 
+
+Q = ˆQπ ≈ Qπ . When Q = Qπ , greedification (Inequality 4) guarantees policy improvement (Sutton & Barto, 2018). A popular example of a greedification operator is the greedy operator 
+
+Iarg max (π, Q )( s) = arg max a∈A Q(s, a ) used by Q-learning and Value / Policy Iteration. We define arg max a∈A generally as any distribution which has support only over maximizing actions. Another popular example is Ireg (π, Q )( a|s) ∝ π(a|s) exp( Q(s, a )/η ) (Neu et al., 2017; Levine, 2018; Xiao, 2022) which satisfies Definition 2 when π has support over the entire domain A.
+
+## 3 A P ATH TO OPTIMAL POLICY IMPROVEMENT 
+
+Our aim in this work is to chart a path towards RL algorithms driven by policy improvement operators which are optimal under practical constraints. We first show that under a natural definition and a common constraint, optimal improvement is equivalent to solving an induced MDP in the model. 3.1 PLANNING AS A FOUNDATION FOR OPTIMAL POLICY IMPROVEMENT 
+
+We begin with a definition of optimal improvement: 
+
+Definition 3 (Optimal Policy Improvement) . We call I∗ an optimal policy improvement operator if it satisfies the following: 
+
+∀π ∈ Π, ∀s ∈ S : I∗ ∈ arg inf I
+
+h
+
+V ∗(s) − V I(π)(s)
+
+i
+
+= arg sup I
+
+h
+
+V I(π)(s) − V π (s)
+
+i
+
+. (5) In fact, the constants V ∗ and V π do not influence the optimization problem, and are included only to emphasize that improvement is equivalent to minimizing the distance from the optimum as well as maximizing the increase over any policy π. Without imposing constraints on I, this natural definition immediately makes the optimal improvement equivalent to simply solving the MDP: 
+
+I∗(π)( s) = π∗(s). Such operators are not artificial, and can be interpreted as finding the optimal policy using exhaustive planning (Osband et al., 2013; Marjani & Prouti` ere, 2021) or training to global convergence with a replay buffer that contains every transition in the environment, which itself can be viewed as planning with a pseudo-model (Sutton & Barto, 2018; Young et al., 2023). However, in practice improving the policy at all states at the same time is often impractical due to the size of |S| or lack of coverage of S in the data. In this case, we can think of operators as constrained to improving the policy at a batch of states S ⊆ S . We find that even when limiting the operator to improving only in S ⊂ S , optimal improvement is equivalent to solving a (semi-)MDP M semi S,π :
+
+Theorem 1. (Informal) Optimal policy improvement constrained by S ⊂ S , such that ∀s / ∈ S :
+
+I(π)( s) = π(s), is equivalent to solving the induced semi-MDP M semi  
+
+> S,π
+
+.
+
+3Preprint 
+
+Intuition: The semi-MDP M semi  
+
+> S,π
+
+can be understood as equal to M on the decision states in S.Whenever a transition leaves S, the resulting excursion is collapsed into a temporally extended transition: the agent follows π until it next returns to S, while preserving the discounted return accumulated along the excursion and the corresponding discounted continuation value. We provide formal definitions and proof in Appendix A.1. As any discounted SMDP admits an equivalent MDP representation (Sutton et al., 1999), we refer to solving this induced SMDP interchangeably as solving an induced MDP. Constructing M semi S,π requires knowledge of transitions outside of S, however. Thus, it does not directly represent the setting where the agent only has access to a dataset composed of transitions in the environment which were gathered during training and are memorized in a replay buffer or encoded in a learned model. More closely related to this setting, we can define the sub-MDP M sub S,π 
+
+on S as the MDP which maintains the original dynamics for transitions within S but terminates whenever a transition leaves S with returns bootstrapped R(s, a ) + γV π (s′). Thus, M sub S,π optimizes within S, but does not model the trajectory after leaving S. In this case, we have a similar result: 
+
+Theorem 2. (Informal) Optimal policy improvement constrained by S ⊂ S is equivalent to solving the sub-MDP M sub S,π , if leaving S precludes returning to S. More generally, solving the sub-MDP 
+
+M sub S,π lower bounds the optimum and upper bounds a single step greedification followed by the policy 
+
+π, i.e. max a Qπ (s, a ).
+
+Intuition: If leaving S precludes returning to S, the sub and semi MDPs coincide. If it is possible to leave and then return to S, both planning as well as single step greedification can only account for the future outside of S through the value function. We provide a formal description of M sub S,π and a full proof in Appendix A.2. Such an operator can be interpreted as approximated by learning a model for transitions in S and conducting search inside this model, such as MuZero (Schrittwieser et al., 2020), or training in this model, such as Dreamer (Hafner et al., 2023), or repeatedly training on transitions in S × A while bootstrapping from V π (s′) when the successor lies outside S.
+
+We conclude: constrained optimal policy improvement is equivalent to solving an induced MDP ,directly connecting optimal improvement to planning with an explicit or implicit model. 3.2 GREEDIFICATION AS A DRIVER OF PLANNING -B ASED POLICY IMPROVEMENT 
+
+Theorems 1 and 2 show that optimal improvement is equivalent to, or bounded by, solving MDPs induced by the model, but do not show us how to solve these MDPs. In the RL literature, the popular choice for driving policy improvement within the model is greedification (Definition 2) (Sutton & Barto, 2018; Oren et al., 2025b). Thus, a natural starting point for designing optimal policy improvement operators is the investigation of optimal greedification . We define optimal greedification 
+
+as satisfying the objective: 
+
+arg max 
+
+> π′
+
+X
+
+> a∈A
+
+Qπ (s, a )π′(a|s) = arg max 
+
+> π′
+
+X
+
+> a∈A
+
+Aπ (s, a )π′(a|s), (6) i.e. maximizing with respect to the exact evaluation Aπ (s, a ) = Qπ (s, a ) − V π (s) at a state s. Under exact evaluation, Equation 6 defines an unambiguous greedification objective, whose solutions are greedy policies, with Iarg max naturally emerging as the optimal greedification operator (see Lemma 1 in Appendix A.4). When evaluation is approximate however, optimization should account for the evaluation uncertainty and optimal greedification must therefore be defined relative to specific decision formulations, which we address next. 
+
+## 4 OPTIMAL GREEDIFICATION UNDER APPROXIMATE EVALUATION 
+
+In this section we formulate greedification under approximate evaluation as a probabilistic decision problem, make the required modeling choices and approximations to arrive at a tractable decision objective and derive a novel greedification operator which is optimal with respect to the derived decision problem. We then proceed to establish that the operator is sound for driving the iterative learning process underlying practical RL algorithms by showing that it is sufficient for convergence to the optimal policy in a popular setup for such analysis (Tsitsiklis, 2002; Oren et al., 2025b). 4Preprint 4.1 DERIVING THE OPERATOR 
+
+Approximate evaluation ˆQπ ≈ Qπ induces uncertainty over which candidate policy π′ maximizes P 
+
+> a∈A
+
+π′(a | s)Aπ (s, a ). Translating this uncertainty into a policy update requires specifying a decision problem. We develop an explicit formulation of such a decision problem based on generalized Bayesian inference (Bissiri et al., 2016): the current policy supplies a prior over candidate policies, while an uncertainty-marginalized utility factor represents the evidence favoring each candidate. This gives the generalized posterior: 
+
+pG
+
+
+
+π′ | ˆAπ (s, ·), π, s 
+
+
+
+∝ L (π′; ˆAπ (s, ·), π, s )
+
+| {z }
+
+> Utility factor
+
+p(π′ | π, s )
+
+| {z }
+
+> Prior
+
+. (7) 
+
+Modeling the Prior. The current policy π distills the behavior learned so far. Absent additional information, we favor policies close to π, modeled using a KL divergence with strength β > 0:
+
+p(π′ | π, s ) ∝ exp ( −β0 KL( π′(·| s) ∥ π(·| s))) . (8) 
+
+Modeling the Utility Factor. We model the evaluation error as an unbiased heteroscedastic Gaussian: 
+
+ˆQπ (s, a ) = Qπ (s, a ) + ϵ(s, a ), ϵ(s, a ) ∼ N 
+
+
+
+0, σ 2ˆQπ (s, a )
+
+
+
+, (9) independent across states and actions. The modeling choice of heteroscedastic unbiased Gaussian error is motivated by more than analytical tractability. Hui et al. (2023) motivate Gaussian TD error through the Central Limit Theorem and empirically find a moment-matched heteroscedastic Gaussian to provide a suitable approximation. Classical MCTS (Kocsis & Szepesv´ ari, 2006) was designed around unbiased sample means of bounded Monte Carlo returns, which are asymptotically Gaussian. Despite the DNN-based evaluation used in modern MCTS (Silver et al., 2018; Schrittwieser et al., 2020), MCTS remains highly successful. In Appendix F.2, we similarly find that the residual errors in our MCTS experiments are reasonably modeled by a heteroscedastic Gaussian. We discuss the modeling assumptions further in Section 4.2. The uncertain advantage ˆAπ (s, a ) = ˆQπ (s, a ) − P 
+
+> b∈A
+
+π(b|s) ˆQπ (s, b ) therefore satisfies the action-wise observation model: 
+
+ˆAπ (s, a )|Aπ (s, a ), π, s ∼ N 
+
+
+
+Aπ (s, a ), (1 − π(a|s)) 2σ2ˆQπ (s, a ) + X
+
+> b̸=a
+
+π(b|s)2σ2ˆQπ (s, b )
+
+| {z } 
+
+> =: σ2ˆAπ(s,a )
+
+
+
+. (10) For analytical tractability, we model the action-wise advantage prior independently across actions as not favoring any action over another Aπ (s, a ) ∼ N (0 , τ 2). Applying Bayes’ rule to the advantage likelihood and prior using Normal–Normal conjugacy gives the action-wise posterior: 
+
+p
+
+
+
+Aπ (s, a ) | ˆAπ (s, a ), π, s 
+
+
+
+= N
+
+ τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a ), τ 2σ2ˆAπ (s, a )
+
+τ 2 + σ2ˆAπ (s, a )
+
+
+
+. (11) Equations 10 and 11 give action-wise posteriors conditioned on ˆAπ (s, a ). Although the Q-value errors are independent across actions, the advantage errors are correlated through their shared dependence on ˆQπ . To combine the action-wise posteriors tractably, we adopt the approximate joint posterior across all actions: 
+
+˜p
+
+
+
+Aπ (s, ·) | ˆAπ (s, ·), π, s 
+
+
+
+:= Y
+
+> a∈A
+
+p
+
+
+
+Aπ (s, a ) | ˆAπ (s, a ), π, s 
+
+
+
+. (12) For a candidate policy π′, we define its utility relative to π as Aπ′,π (s) := P 
+
+> a∈A
+
+π′(a | s)Aπ (s, a ),
+
+the maximization objective of greedification. Following the widely used exponential transformation of utility in decision models (Train, 2009; Bissiri et al., 2016; Levine, 2018), we map this utility to an exponential score. Because the true advantage vector Aπ (s, ·) is unobserved, the utility factor entering the generalized posterior in Equation 7 is obtained by marginalizing this score over the approximate joint advantage posterior, where λ > 0 controls the scale of the exponentiated utility: 
+
+L
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+:= EAπ (s, ·)∼ ˜p(·| ˆAπ (s, ·),π,s )
+
+h
+
+exp 
+
+
+
+λA π′,π (s)
+
+i 
+
+. (13) 5Preprint Evaluating this expectation under the factorized Gaussian posterior introduces quadratic terms 
+
+λ2(π′(a | s)) 2 through the Gaussian moment-generating function, precluding a simple closed-form solution to the resulting MAP. To retain tractability, we adopt a certainty-equivalent approximation (van de Water & Willems, 1981), replacing each uncertain advantage by its posterior mean. We denote the certainty-equivalent approximation to the uncertainty-marginalized utility factor by: 
+
+LCE 
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+:= exp λ X
+
+> a∈A
+
+π′(a|s) τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a )
+
+!
+
+≈ L 
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+.
+
+(14) The corresponding tractable generalized posterior is 
+
+pCE 
+
+
+
+π′ | ˆAπ (s, ·), π, s 
+
+
+
+∝ L CE 
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+p(π′ | π, s ). (15) Only the ratio β = β0/λ affects the MAP solution, which we use in the rest of the derivation for simplicity of notation. The log-posterior then induces the following tractable decision objective: 
+
+JCE 
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+:= X
+
+> a∈A
+
+π′(a | s) τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a ) − βD KL (π′(·| s) ∥ π(·| s)) . (16) We define Iopt as the operator which solves this decision problem: 
+
+Iopt (π, ˆQπ )( ·| s) := arg max 
+
+> π′∈∆( A)
+
+JCE 
+
+
+
+π′; ˆAπ (s, ·), π, s 
+
+
+
+. (17) Assuming that π has full support over A, the objective in Equation 16 is strictly concave in π′(· | s)
+
+and therefore has a unique global maximizer: 
+
+Iopt (π, ˆQπ )( a|s) ∝ π(a|s) exp τ 2
+
+ τ 2 + σ2ˆAπ (s, a )β ˆAπ (s, a )
+
+!
+
+(18) 
+
+= π(a|s) exp ˆAπ (s, a )
+
+η(s, a )
+
+!
+
+, where η(s, a ) := 
+
+ τ 2 + σ2ˆAπ (s, a )βτ 2 . (19) 
+
+Iopt is the unique MAP optimizer of the certainty-equivalent generalized posterior (Equation 15), which itself approximates the original posterior formulated for the decision objective (Equation 7). Equivalently, Iopt is the optimal operator with respect to the derived objective (Equation 16). In the no-uncertainty setting, where ∀a ∈ A : σ2ˆAπ (s, a ) = 0 and β → 0, Iopt reduces to Iarg max . For detailed derivations see Appendix B. 4.2 THEORETICAL ANALYSIS 
+
+We proceed to establish that Iopt is sound for driving the iterative learning process, in a setup used for analysis of the underlying learning behavior of RL algorithms (Tsitsiklis, 2002; Oren et al., 2025b) (GPI, Algorithm 1 in Appendix D). We begin by showing that Iopt satisfies greedification :
+
+Theorem 3. For any β > 0, τ 2 > 0, σ 2ˆQπ ≥ 0 and policy π with full support over A, Iopt (π, ˆQπ ) is a greedification operator (Definition 2). 
+
+Intuition: Iopt exclusively increases the unnormalized log-probability of advantage-positive and 
+
+decreases the unnormalized log-probability of advantage-negative actions, which guarantees greedifi-cation (Danihelka et al., 2022). See Appendix A.5 for full proof. Using the greedification property, we show that Iopt is sufficient for convergence: 
+
+Theorem 4 (Convergence) . Let β > 0 and τ 2 > 0, π0 have full support, the evaluation errors be fresh and independent conditional on the history Fi: ϵi(s, a ) | F i ∼ N (0 , σ 2 
+
+> Qi
+
+(s, a )) , where the corresponding variances are supplied to Iopt and satisfy σ2 
+
+> Qi
+
+(s, a ) → 0. Then, in the finite state, action and horizon GPI process (Algorithm 1 with its δ → 0): 
+
+V πi a.s.
+
+−−−→ 
+
+> i→∞
+
+V ∗, X 
+
+> a / ∈arg max bQ∗(s,b )
+
+πi(a|s) a.s.
+
+−−−→ 
+
+> i→∞
+
+0, ∀s. (20) 6Preprint 
+
+Intuition: Iopt satisfies a Limit-Sufficient Greedification condition, established by Oren et al. (2025b) to induce convergence, almost surely under vanishing evaluation noise. See Appendix A.6 for proof. 
+
+Remark. Optimality under approximate evaluation is necessarily relative to a decision formulation: different objectives, likelihoods, priors, utilities, or approximations can yield different operators. Within this family of possible formulations, we choose modeling assumptions and approximations that yield a practical operator which accounts for evaluation uncertainty, is inexpensive to compute, and admits theoretical analysis (Theorems 3 and 4). Our contribution is to instantiate an explicit, informed approach to operator design and solve the resulting tractable objective exactly. Possible interactions between a policy improvement operator which accounts for evaluation uncertainty and exploration are discussed in Appendix B.7. 
+
+## 5 CONNECTIONS TO PRIOR WORK 
+
+Iopt generalizes the widely used shift-invariant Ireg operator parameterized by η:
+
+Ireg (π, Q )( a|s) ∝ π(a|s) exp ( Q(s, a )/η ) ∝ π(a|s) exp ( A(s, a )/η ) .
+
+Ireg itself emerges independently from several seminal directions: Regularized Policy Optimization 
+
+(Neu et al., 2017); Control as Inference and “Optimal Control” (Levine, 2018; Kappen et al., 2012), which interpret π′(s) = Ireg (π, Q π′
+
+> sof t
+
+)( s) as a “soft-optimal” policy and motivate SAC (Haarnoja et al., 2018), MPO (Abdolmaleki et al., 2018) and TDMPC (Hansen et al., 2022; 2024); The Natural Policy Gradient (Kakade, 2001), Trust Region Policy Optimization (Schulman et al., 2015) and Mirror Descent (Tomar et al., 2022) whose improvement steps have all been shown to connect to Ireg (Neu et al., 2017; Xiao, 2022). For additional detail see Appendix C. In view of Iopt , the regularization term used by Regularized Policy Optimization induces a prior over candidate policies. From the perspective of Control as Inference, Ireg is most directly interpreted as a form of optimal improvement , rather than as approximating a globally optimal policy . Moreover, 
+
+1/η (s, a ) can be interpreted as an action-dependent step size which accounts for the uncertainty in the improvement signal. Conversely, when we do not have any information about the evaluation error we can model the uncertainty as uniformly bounded by a constant, use σ2ˆA(s, a ) = σ2 conservatively, reducing η(s, a ) to η and Iopt to Ireg , which thus can be viewed as optimal with respect to the same decision objective as Iopt , when we are uninformed about error. Gumbel-AlphaZero/MuZero (GA/MZ) (Danihelka et al., 2022) use Ireg within MCTS, where the coefficient 1/η (s) increases with N (s, a ), the number of evaluations at each node in the search tree: 1/η (s) = ( cvisit + max a N (s, a )) cscale . This heuristic mechanism is inspired by the original MCTS assumptions which induce N (s, a ) ∝ 1/σ 2ˆQπ (s, a ) and increases as evaluation error reduces (Kocsis & Szepesv´ ari, 2006). Rather than using N (s, a ) directly which does not guarantee policy improvement, GA/MZ use max a N (s, a ) ∝ max a 1/σ 2ˆQπ (s, a ): a per-node surrogate for a quantity that is inherently per-action . Iopt can circumvent this heuristic and use N (s, a ) per action directly. Several previous works incorporate uncertainty into policy optimization for specific algorithms or sources of uncertainty. POMBU (Zhou et al., 2020) uses Q-value uncertainty to make PPO updates more conservative. Queeney et al. (2021) (UA-TRPO) make TRPO robust in the estimated policy gradient to uncertainty sourced from finite sampling. UWAC (Wu et al., 2021), specifically addressing offline RL, uses epistemic uncertainty to down-weigh the contribution of out-of-distribution predic-tions in actor-critic training. Hui et al. (2023) model Q-function evaluation error probabilistically and derive a modified Q-learning objective. In contrast, we study policy improvement at the operator level rather than within a particular algorithmic framework. We formulate greedification under uncertain evaluation as an explicit optimization problem and derive an operator that is optimal for the resulting uncertainty-aware objective under the stated probabilistic modeling and approximation choices. The operator admits convergence guarantees in the analyzed GPI setting and can be incorporated modularly into algorithms with different policy-improvement mechanisms (see Section 6). 
+
+## 6 EXPERIMENTS 
+
+Iopt exactly solves the decision objective derived in Equation 16. Our experiments investigate whether optimizing this local decision objective indeed facilitates improvement in the broader 7Preprint iterative learning process. We ask two questions. First, does Iopt improve sample efficiency in a controlled Policy Iteration setting that matches its evaluation assumptions ? Second, do Iopt and its gradient-based practical approximations improve established RL algorithms when uncertainty must be estimated during training ? We study these questions across Dynamic Programming, model-based and model-free RL, discrete and continuous actions, and online and offline learning. 
+
+Iopt ’s hyperparameters were tuned per baseline algorithm it was incorporated into and in a similar manner in which each baseline algorithm was itself tuned. For additional details see Appendix G.1. opt reg reg +LCB arg max arg max +LCB cpi  
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Score
+> Noised policy iteration (Grid MDPs)
+> GAZ +opt +Q
+> GAZ +opt GAZ GAZ +Q
+> 200
+> 0200 400 Model-based, discrete (9×9 Go)
+> SAC +opt SAC
+> 0.0 0.1 0.2 0.3 0.4 0.5 Model-free, continuous (DMC)
+> ReBRAC +opt ReBRAC
+> 0.0 0.2 0.4 0.6 0.8 Offline (D4RL)
+
+Figure 1: Noised policy iteration: normalised V π (s0) at iteration 40 over 20 grid environments, 95% Gaussian CI. Model-based, discrete: Bayes Elo at 34 M training frames, mean, min. and max. over 5 training seeds in 9x9 Go. Model-free, continuous: mean normalised returns at 1M steps on 
+
+10 DeepMind Control Suite tasks, mean and 95% Gaussian CI. Offline: normalised return at 1Msteps on 4 D4RL medium-replay tasks, mean and 95% Gaussian CI. 
+
+Policy Iteration (Grid MDPs). We compare Policy Iteration algorithms with different policy improvement operators I (Algorithm 1 with k → ∞ ) with evaluation error which coincides with the assumptions under which Iopt is designed. At each iteration i the exact evaluation Qπi is computed analytically and corrupted by heteroscedastic noise ˆQπi (s, a ) ∼ N (Qπi (s, a ), σ 2 
+
+> Qi
+
+(s, a )) .
+
+The variances σ2 
+
+> Qi
+
+(s, a ) are sampled each iteration from a decaying schedule. We compare Iopt to the following standard operators: Iarg max (standard policy iteration), Ireg and Icpi (Pirotta et al., 2013), a variant of Conservative Policy Iteration (Kakade & Langford, 2002), a method designed for Policy Iteration in the presence of approximate evaluation. We include pessimistic variants of Iarg max 
+
+and Ireg that use the lower-confidence bound (LCB) ˆQπi (s, a ) −λLCB   
+
+> q
+> σ2
+> Qi(s,a )
+
+to test whether Iopt ’s uncertainty-awareness merely reproduces standard LCB-based pessimism. 
+
+Iopt outperforms every operator tested (Figure 1, left) in the presence of the evaluation error of the type for which it was designed to account. The effect of Iopt is clearly different from that of LCB-based pessimism, which does not contribute to performance in this setting. See Appendix E.1 for implementation and experimental details and Appendix F.1 for additional results including the learning curves, an investigation of the effect of the magnitude of the noise, sensitivity to the hyperparameters τ, β and an experiment with biased evaluation rather than unbiased. 
+
+Model-based discrete action (GAZ on board games). In Section 3, we showed how greedification connects to search for policy improvement. With this experiment, we circle back to this connection and evaluate Iopt ’s contribution to search-based policy improvement with the search operator Gum-belMCTS used by the modern AlphaZero variant GumbelAlphaZero (GAZ), which remains a popular and well-performing RL algorithm (Danihelka et al., 2022; Wang et al., 2024; Oren et al., 2026b). As discussed in Section 5, it is natural to replace the heuristic η(s) GAZ uses in Ireg with the theoretically motivated Iopt . This enables the algorithm to account for the variance using σ2 
+
+> Qi
+
+(st, a ) ∝ 1/N (s, a )
+
+at each node and action (st, a ) independently, as was enabled by the PUCT search policy (Rosin, 2011; Silver et al., 2016) which originally inspired using Ireg in MCTS (Grill et al., 2020). We include a comparison to VanillaAZ with PUCT for reference in Figure 5 in Appendix F.2. 
+
+Ireg requires an estimate of Qπ (s, a ) for each state and action, which traditional MCTS architectures do not provide. GumbelMCTS instead uses the completed Q-values mechanism, which substitutes a prediction of V π (s) for Qπ (s, a ) for unsearched actions, composed of the predictions of all searched actions weighted under π. This substitution removes action-specific information, since every unsearched action receives the same value prediction. When action-wise prediction errors contain independent or weakly correlated components, this averaging reduces their variance. Moreover, 8Preprint actions with greater policy support are generally searched or played, and consequently trained, more frequently; weighting by π therefore tends to emphasize better-supported estimates while assigning less weight to weakly supported, higher-error actions. Consistent with this reasoning, using the empirical proxy described in Appendix F.3, we observe lower estimated error variance for the V π -based predictions in our experiments. We therefore hypothesize that Iopt , which is designed to exploit action-specific Qϕ predictions while accounting for their estimated uncertainty, will benefit more than baseline GAZ from incorporating a Qϕ critic. Such a critic is inexpensive to incorporate as a small additional head on the shared-body DNN of GAZ. Figure 1 (second from the left) reports Bayes Elo (Coulom, 2010) on 9 × 9 Go after 34 M frames of training, averaged over five training seeds per agent. Iopt benefits substantially from a Qϕ critic, while the baseline’s performance degrades with a Qϕ critic. Iopt mean Elo is 107.8 higher than the baseline’s, even without the addition of the Qϕ critic. With Qϕ the difference increases to 277 Elo. See Appendix E.2 for additional experimental and implementation details and Appendix F.2 for additional results, including per-seed results, an investigation of the error behavior in MCTS and a fixed-network comparison along compute budgets M which includes the additional board game chess and the additional search policy PUCT. In the fixed-network comparison, GumbelMCTS with Iopt 
+
+and the Qϕ critic achieves the highest playing strength among all tested GumbelMCTS and PUCT variants at every evaluated search budget in both 9 × 9 Go and chess (Figure 5). 
+
+Model free classical continuous control (SAC on DMC). We incorporate Iopt into the classical continuous-control RL algorithm SAC (Haarnoja et al., 2018). In practical implementations, SAC approximates a projection of the target soft distribution Ireg (μ, Q sof t )( a|s) (where μ is the uniform policy and Qsof t is the soft Q-value function) to the parameterized policy using empirical gradient descent. We incorporate Iopt into this traditional implementation of SAC similarly, with a gradient based approximation of Iopt (see Appendix E.3 for details). To estimate σ2 
+
+> Q
+
+we use the rudimentary and cheap uncertainty estimation already provided by SAC’s two critic value ensemble. Results are aggregated across 10 classical continuous control environments from the DeepMind Control suite (DMC, Tunyasuvunakool et al., 2020). Figure 1 (second from right) reports normalised returns after 1M steps. Even in the presence of the rudimentary uncertainty estimation provided by the value ensemble, which was not designed for explicit uncertainty estimation, the gradient-based approximation of Iopt is able to provide performance improvement over baseline SAC. See Appendix E.3 for implementation and experimental details and Appendix F.4 for per-environment results. 
+
+Offline RL (ReBRAC on D4RL). We evaluate Iopt ’s contribution to performance in offline RL, incorporating it into the recent ReBRAC algorithm (Tarasov et al., 2023) similarly using the two critic value ensemble (see Appendix E.4 for details). We evaluate on the medium-replay datasets of the D4RL Gym-MuJoCo suite (Fu et al., 2020) using four locomotion environments: halfcheetah ,
+
+hopper , walker2d and ant with the medium-replay datasets. Scores are D4RL-normalized, where 0 corresponds to a random policy and 100 to an expert (SAC) policy. Each agent trains for 1Mgradient steps. Figure 1 (right) reports the return of the final policy at the end of training. The gradient-based approximation of Iopt improves on the baseline in this domain as well. See Appendix E.4 for implementation and experimental details and Appendix F.5 for per-environment results. 
+
+## 7 CONCLUSIONS AND FUTURE WORK 
+
+In this work, we took steps towards practical RL algorithms driven by optimal policy improvement operators. We characterized optimal policy improvement, showing that optimal improvement is itself equivalent to solving MDPs and fundamentally connecting optimal policy improvement to planning with an explicit and implicit model. To solve the MDP in the explicit or implicit model, practical methods rely on greedification , which lead us to focus on optimal greedification under practical constraints. We formulated greedification under approximate evaluation as probabilistic decision-making under uncertainty and derived a tractable decision objective. Solving for this objective, we derived Iopt , a novel greedification operator which is optimal with respect to the probabilistic decision objective. We established convergence for algorithms driven by Iopt in a Generalized Policy Iteration setting and shown that Iopt generalizes a popular greedification operator in literature, Ireg , extending it with explicit accounting for evaluation uncertainty. Empirically, Iopt 
+
+and its practical gradient-based approximations improved aggregate performance over the respective GumbelAlphaZero, SAC, and ReBRAC baselines in board games, online continuous control, and 9Preprint offline continuous control, respectively. In a noised Policy Iteration experiment which coincides with the assumptions under which Iopt was designed, the novel operator outperformed all other tested operators. Iopt presents a new, attractive choice for greedification, unified across different algorithms, and lays a path towards optimal policy improvement through the design of operators which are optimal with respect to practical RL constraints. AI USE STATEMENT 
+
+In this work, we used generative AI tools to assist with writing and checking proofs, developing and implementing experimental code, analyzing and plotting results, and supporting literature research. We did not use generative AI for any other task requiring disclosure. We reviewed all AI-assisted content and verified and tested all AI-generated code. We take full responsibility for the final manuscript, including all text, claims, code, and other artifacts produced with AI assistance. 
+
+## REFERENCES 
+
+Abbas Abdolmaleki, Jost Tobias Springenberg, Yuval Tassa, Remi Munos, Nicolas Heess, and Martin Riedmiller. Maximum a posteriori policy optimisation. arXiv preprint arXiv:1806.06920 , 2018. Kenneth J Arrow. Social choice and individual values , volume 12. Yale university press, 2012. Leemon Baird. Residual algorithms: Reinforcement learning with function approximation. In 
+
+Machine Learning, Proceedings of the Twelfth International Conference on Machine Learning ,1995. doi: 10.1016/B978-1-55860-377-6.50013-X. Gary S Becker. The economic approach to human behavior , volume 803. University of Chicago press, 1976. Richard Bellman. A Markovian Decision Process. Journal of Mathematics and Mechanics , 6(5): 679–684, 1957. Dimitri P Bertsekas. Neuro-dynamic programming. In Encyclopedia of optimization , pp. 1–6. Springer, 2025. Pier Giovanni Bissiri, Chris C. Holmes, and Stephen G. Walker. A general framework for updating belief distributions. Journal of the Royal Statistical Society: Series B (Statistical Methodology) , 78 (5):1103–1130, 2016. doi: 10.1111/rssb.12158. Alan Chan, Hugo Silva, Sungsu Lim, Tadashi Kozuno, A. Rupam Mahmood, and Martha White. Greedification Operators for Policy Optimization: Investigating Forward and Reverse KL Diver-gences. Journal of Machine Learning Research , 23(253):1–79, 2022. R´ emi Coulom. Bayesian Elo rating. https://www.remi-coulom.fr/Bayesian-Elo/ ,2010. Ivo Danihelka, Arthur Guez, Julian Schrittwieser, and David Silver. Policy improvement by planning with Gumbel. In The Tenth International Conference on Learning Representations , 2022. Joery A. de Vries, Jinke He, Yaniv Oren, and Matthijs T. J. Spaan. Trust-Region Twisted Policy Improvement. In Forty-second International Conference on Machine Learning , 2025. Justin Fu, Aviral Kumar, Ofir Nachum, George Tucker, and Sergey Levine. D4rl: Datasets for deep data-driven reinforcement learning. arXiv preprint arXiv:2004.07219 , 2020. Chao Gao, Martin M¨ uller, and Ryan Hayward. Three-head neural network architecture for monte carlo tree search. In Proceedings of the Twenty-Seventh International Joint Conference on Artificial Intelligence , pp. 1814–1820. International Joint Conferences on Artificial Intelligence Organization, 2018. doi: 10.24963/ijcai.2018/523. Jakob Gawlikowski, Cedrique Rovile Njieutcheu Tassi, Mohsin Ali, Jongseok Lee, Matthias Humt, Jianxiang Feng, Anna Kruspe, Rudolph Triebel, Peter Jung, Ribana Roscher, Muhammad Shahzad, Wen Yang, Richard Bamler, and Xiao Xiang Zhu. A survey of uncertainty in deep neural networks. 
+
+Artificial Intelligence Review , 56:1513–1589, 2023. doi: 10.1007/s10462-023-10562-9. 10 Preprint Jean-Bastien Grill, Florent Altch´ e, Yunhao Tang, Thomas Hubert, Michal Valko, Ioannis Antonoglou, and Remi Munos. Monte-Carlo Tree Search as Regularized Policy Optimization. In Proceedings of the 37th International Conference on Machine Learning , volume 119, pp. 3769–3778. PMLR, 2020. Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor. In Proceedings of the 35th International Conference on Machine Learning , volume 80, pp. 1861–1870. PMLR, 2018. Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. arXiv preprint arXiv:2301.04104 , 2023. Peter Hall and Christopher C. Heyde. Martingale Limit Theory and Its Application . Academic Press, New York, 1980. Nicklas Hansen, Hao Su, and Xiaolong Wang. TD-MPC2: Scalable, Robust World Models for Continuous Control. In International Conference on Learning Representations , 2024. Nicklas A Hansen, Hao Su, and Xiaolong Wang. Temporal Difference Learning for Model Predictive Control. In Proceedings of the 39th International Conference on Machine Learning , volume 162, pp. 8387–8406. PMLR, 2022. Shengyi Huang, Rousslan Fernand Julien Dossa, Chang Ye, Jeff Braga, Dipam Chakraborty, Kinal Mehta, and Jo˜ ao G.M. Ara´ ujo. Cleanrl: High-quality single-file implementations of deep rein-forcement learning algorithms. Journal of Machine Learning Research , 23(274):1–18, 2022. URL 
+
+http://jmlr.org/papers/v23/21-1342.html .David Yu-Tung Hui, Aaron C Courville, and Pierre-Luc Bacon. Double gumbel q-learning. Advances in Neural Information Processing Systems , 36:2580–2616, 2023. Eyke H¨ ullermeier and Willem Waegeman. Aleatoric and epistemic uncertainty in machine learning: An introduction to concepts and methods. Machine Learning , 110(3):457–506, 2021. Sham M. Kakade. A natural policy gradient. In Advances in Neural Information Processing Systems 14 , 2001. Sham M. Kakade and John Langford. Approximately optimal approximate reinforcement learning. In Proceedings of the Nineteenth International Conference on Machine Learning , 2002. Hilbert J Kappen, Vicenc ¸ G´ omez, and Manfred Opper. Optimal control as a graphical model inference problem. Machine learning , 87(2):159–182, 2012. Zohar Karnin, Tomer Koren, and Oren Somekh. Almost Optimal Exploration in Multi-Armed Bandits. In Proceedings of the 30th International Conference on Machine Learning , volume 28, pp. 1238–1246. PMLR, 2013. Toshinori Kitamura and Ryo Yonetani. Shinrl: A library for evaluating rl algorithms from theoretical and practical perspectives. arXiv preprint arXiv:2112.04123 , 2021. Levente Kocsis and Csaba Szepesv´ ari. Bandit based Monte-Carlo planning. In Johannes F¨ urnkranz, Tobias Scheffer, and Myra Spiliopoulou (eds.), 17th European Conference on Machine , 2006. doi: 10.1007/11871842 \ 29. Vijay Konda and John Tsitsiklis. Actor-critic algorithms. Advances in neural information processing systems , 12, 1999. Sotetsu Koyamada, Shinri Okano, Soichiro Nishimori, Yu Murata, Keigo Habara, Haruka Kita, and Shin Ishii. Pgx: Hardware-accelerated parallel game simulators for reinforcement learning. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) Datasets and Benchmarks Track ,2023. Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell. Simple and scalable predictive uncertainty estimation using deep ensembles. In Advances in Neural Information Processing Systems , 2017. 11 Preprint Sergey Levine. Reinforcement Learning and Control as Probabilistic Inference: Tutorial and Review. arXiv:1805.00909, 2018. R Duncan Luce et al. Individual choice behavior , volume 4. Wiley New York, 1959. Aymen Al Marjani and Alexandre Prouti` ere. Adaptive sampling for best policy identification in markov decision processes. In Proceedings of the 38th International Conference on Machine Learning , Proceedings of Machine Learning Research, 2021. Daniel McFadden. Conditional logit analysis of qualitative choice behavior. Frontier in Econometrics ,1973. Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A Rusu, Joel Veness, Marc G Bellemare, Alex Graves, Martin Riedmiller, Andreas K Fidjeland, Georg Ostrovski, et al. Human-level control through deep reinforcement learning. nature , 518(7540):529–533, 2015. Gergely Neu, Anders Jonsson, and Vicenc ¸ G´ omez. A unified view of entropy-regularized markov decision processes. arXiv preprint arXiv:1705.07798 , 2017. Yaniv Oren, Viliam Vadocz, Matthijs T. J. Spaan, and Wendelin Boehmer. Epistemic Monte Carlo Tree Search. In The Thirteenth International Conference on Learning Representations , 2025a. Yaniv Oren, Moritz A Zanger, Pascal R Van der Vaart, Mustafa Mert C ¸ elikok, Matthijs TJ Spaan, and Wendelin Boehmer. Value Improved Actor Critic Algorithms. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025b. Yaniv Oren, Joery A de Vries, Pascal R van der Vaart, Matthijs TJ Spaan, and Wendelin B¨ ohmer. Twice sequential monte carlo for tree search. ICML , 2026a. Yaniv Oren, Viliam Vadocz, Joery A de Vries, Wendelin B¨ ohmer, Matthijs TJ Spaan, and Hendrik Baier. Pmcts: Particle monte carlo tree search for principled parallelized inference time scaling. 
+
+arXiv preprint arXiv:2605.08982 , 2026b. Ian Osband, Daniel Russo, and Benjamin Van Roy. (more) efficient reinforcement learning via posterior sampling. In 27th Annual Conference on Neural Information Processing Systems , 2013. Matteo Pirotta, Marcello Restelli, Alessio Pecorino, and Daniele Calandriello. Safe policy iteration. In Proceedings of the 30th International Conference on Machine Learning , 2013. James Queeney, Ioannis Ch. Paschalidis, and Christos G. Cassandras. Uncertainty-aware policy optimization: A robust, adaptive trust region approach. In Proceedings of the AAAI Conference on Artificial Intelligence , 2021. doi: 10.1609/aaai.v35i11.17130. Christopher D Rosin. Multi-armed bandits with episode context. Annals of Mathematics and Artificial Intelligence , 61(3):203–230, 2011. Leonard J Savage. The foundations of statistics . Courier Corporation, 2012. Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. Mastering Atari, Go, chess and shogi by planning with a learned model. Nature , 588 (7839):604–609, 2020. doi: 10.1038/s41586-020-03051-4. John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. Trust region policy optimization. In International conference on machine learning , pp. 1889–1897. PMLR, 2015. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal Policy Optimization Algorithms. arXiv:1707.06347, 2017. David Silver, Aja Huang, Chris J. Maddison, Arthur Guez, Laurent Sifre, George van den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershelvam, Marc Lanctot, Sander Dieleman, Dominik Grewe, John Nham, Nal Kalchbrenner, Ilya Sutskever, Timothy Lillicrap, Madeleine Leach, Koray Kavukcuoglu, Thore Graepel, and Demis Hassabis. Mastering the game of Go with deep neural networks and tree search. Nature , 529(7587):484–489, 2016. doi: 10.1038/ nature16961. 12 Preprint David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran, Thore Graepel, Timothy Lillicrap, Karen Simonyan, and Demis Hassabis. A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play. Science , 362(6419):1140–1144, 2018. doi: 10.1126/science. aar6404. Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction . A Bradford Book, 2nd edition, 2018. Richard S Sutton, Doina Precup, and Satinder Singh. Between mdps and semi-mdps: A framework for temporal abstraction in reinforcement learning. Artificial intelligence , 112(1-2):181–211, 1999. Richard S. Sutton, David McAllester, Satinder P. Singh, and Yishay Mansour. Policy gradient methods for reinforcement learning with function approximation. In Advances in Neural Information Processing Systems , volume 12, pp. 1057–1063, 2000. Denis Tarasov, Vladislav Kurenkov, Alexander Nikulin, and Sergey Kolesnikov. Revisiting the minimalist approach to offline reinforcement learning. Advances in Neural Information Processing Systems , 2023. Sebastian Thrun and Anton Schwartz. Issues in using function approximation for reinforcement learning. In Proceedings of the 1993 connectionist models summer school , pp. 255–263. Psychology Press, 2014. Manan Tomar, Lior Shani, Yonathan Efroni, and Mohammad Ghavamzadeh. Mirror descent policy optimization. In The Tenth International Conference on Learning Representations , 2022. Kenneth E. Train. Discrete Choice Methods with Simulation . Cambridge University Press, 2 edition, 2009. doi: 10.1017/CBO9780511805271. John N. Tsitsiklis. On the convergence of optimistic policy iteration. J. Mach. Learn. Res. , 3:59–72, 2002. John N. Tsitsiklis and Benjamin Van Roy. An analysis of temporal-difference learning with function approximation. IEEE Trans. Autom. Control. , 42(5):674–690, 1997. doi: 10.1109/9.580874. Saran Tunyasuvunakool, Alistair Muldal, Yotam Doron, Siqi Liu, Steven Bohez, Josh Merel, Tom Erez, Timothy Lillicrap, Nicolas Heess, and Yuval Tassa. dm control: Software and tasks for continuous control. Software Impacts , 6:100022, 2020. ISSN 2665-9638. Henk van de Water and Jan C. Willems. The certainty equivalence property in stochastic control theory. IEEE Transactions on Automatic Control , 26(5):1080–1087, 1981. doi: 10.1109/TAC. 1981.1102781. Hado van Hasselt. Double q-learning. In John D. Lafferty, Christopher K. I. Williams, John Shawe-Taylor, Richard S. Zemel, and Aron Culotta (eds.), Advances in Neural Information Processing Systems , 2010. Hado van Hasselt, Arthur Guez, and David Silver. Deep reinforcement learning with double q-learning. In Dale Schuurmans and Michael P. Wellman (eds.), Proceedings of the Thirtieth AAAI Conference on Artificial Intelligence , 2016. doi: 10.1609/AAAI.V30I1.10295. Hado van Hasselt, Yotam Doron, Florian Strub, Matteo Hessel, Nicolas Sonnerat, and Joseph Modayil. Deep reinforcement learning and the deadly triad. CoRR , abs/1812.02648, 2018. URL 
+
+http://arxiv.org/abs/1812.02648 .John von Neumann and Oskar Morgenstern. Theory of Games and Economic Behavior . Princeton University Press, 2007. ISBN 978-0-691-13061-3. Shengjie Wang, Shaohuai Liu, Weirui Ye, Jiacheng You, and Yang Gao. Efficientzero V2: mastering discrete and continuous control with limited data. In Forty-first International Conference on Machine Learning , Proceedings of Machine Learning Research, 2024. Christopher JCH Watkins and Peter Dayan. Q-learning. Machine learning , 8(3):279–292, 1992. 13 Preprint B. L. Welch. The generalization of ‘student’s’ problem when several different population variances are involved. Biometrika , 34(1–2):28–35, 1947. doi: 10.1093/biomet/34.1-2.28. Yue Wu, Shuangfei Zhai, Nitish Srivastava, Joshua M. Susskind, Jian Zhang, Ruslan Salakhutdinov, and Hanlin Goh. Uncertainty weighted actor-critic for offline reinforcement learning. In Proceed-ings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pp. 11319–11328. PMLR, 2021. Lin Xiao. On the convergence rates of policy gradient methods. Journal of Machine Learning Research , 23(282):1–36, 2022. Kenny John Young, Aditya A. Ramesh, Louis Kirsch, and J¨ urgen Schmidhuber. The benefits of model-based generalization in reinforcement learning. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett (eds.), International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pp. 40254–40276. PMLR, 2023. Qi Zhou, HouQiang Li, and Jie Wang. Deep model-based reinforcement learning via estimated uncertainty and conservative policy optimization. In Proceedings of the AAAI Conference on Artificial Intelligence , 2020. doi: 10.1609/aaai.v34i04.6177. 14 Preprint 
+
+## APPENDIX CONTENTS 
+
+A Proofs 16 
+
+A.1 Optimal policy improvement as solving an induced MDP . . . . . . . . . . . . . . 16 A.2 Solving sub-MDPs is a lower bound on optimal policy improvement . . . . . . . . 17 A.3 Even when |S| = 1 , greedification is not generally optimal policy improvement . . 19 A.4 Optimal greedification under exact evaluation . . . . . . . . . . . . . . . . . . . . 20 A.5 Greedification . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 A.6 Convergence . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 
+
+B Derivations and Discussion 25 
+
+B.1 Derivation of the advantage posterior in the likelihood . . . . . . . . . . . . . . . . 25 B.2 Modeling the Utility Factor using Rational Choice and Expected Utility Theory . . 26 B.3 The utility as the local improvement of π′ over π . . . . . . . . . . . . . . . . . . 27 B.4 Derivation of the certainty-equivalent MAP objective . . . . . . . . . . . . . . . . 27 B.5 Derivation of the solution for the certainty-equivalent MAP objective . . . . . . . . 27 B.6 Modeling evaluation uncertainty with the Normal distribution . . . . . . . . . . . . 28 B.7 Iopt and exploration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 
+
+C Connections to prior work in more detail 30 D Pseudo Code 31 E Experimental and Implementation Details 31 
+
+E.1 Policy Iteration Experiments . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 E.2 Discrete-Action Model Based RL (GumbelAlphaZero on board games) . . . . . . 32 E.3 Classical Control Model-Free RL (SAC on DMC) . . . . . . . . . . . . . . . . . . 35 E.4 Offline RL (ReBRAC on D4RL) . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 
+
+F Additional Results 37 
+
+F.1 Dynamic Programming additional results . . . . . . . . . . . . . . . . . . . . . . 37 F.2 Discrete-action model-based, additional results . . . . . . . . . . . . . . . . . . . 39 F.3 Investigation of error in MCTS with DNNs . . . . . . . . . . . . . . . . . . . . . 40 F.4 Learning curves on model-free online continuous control (SAC on DMC) . . . . . 41 F.5 Offline RL: per-environment results . . . . . . . . . . . . . . . . . . . . . . . . . 41 
+
+G Hyperparameters 42 
+
+G.1 Hyperparameter tuning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 G.2 Hyperparameter tables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43 15 Preprint 
+
+## A PROOFS 
+
+A.1 OPTIMAL POLICY IMPROVEMENT AS SOLVING AN INDUCED MDP Let S ⊆ S denote the subset of states at which the policy is permitted to change, and let π denote the current policy. We construct an induced semi-Markov decision process (SMDP) M semi  
+
+> S,π
+
+whose decision states are exactly the states in S.Starting from a decision state s0 = s ∈ S, the agent first selects an action a0 = a. The environment then evolves according to the original transition dynamics P . Whenever the resulting trajectory leaves S, actions are subsequently sampled from the fixed policy π until the process first returns to S.Define this first-return time as 
+
+τ := inf {t ≥ 1 : st ∈ S}. (21) If the process transitions directly from one state in S to another, then τ = 1 .Each state-action pair (s, a ) in the induced SMDP therefore corresponds to a temporally extended transition in the original MDP: take action a at s, and, whenever the process leaves S, follow π until the next state in S is reached. The reward of this temporally extended transition is the expected discounted return accumulated before the next decision state: 
+
+RM semi  
+
+> S,π
+
+(s, a ) := E
+
+"τ −1X
+
+> t=0
+
+γtR(st, a t) s0 = s, a 0 = a, π 
+
+#
+
+. (22) Here and below, if the process never returns to S, we take τ = ∞, so that the trajectory contributes its complete discounted return to Equation 22 and no continuation value. The transition dynamics of the induced SMDP are described jointly by the next decision state and the duration of the temporally extended transition: 
+
+PM semi  
+
+> S,π
+
+(s′, k |s, a ) := Pr ( sτ = s′, τ = k | s0 = s, a 0 = a, π ) , s, s ′ ∈ S, k ≥ 1. (23) Consequently, the Bellman optimality equation of M semi  
+
+> S,π
+
+is 
+
+V ∗,semi (s) = max 
+
+> a∈A
+
+"
+
+RM semi  
+
+> S,π
+
+(s, a ) + X
+
+> s′∈S
+> ∞
+
+X
+
+> k=1
+
+PM semi  
+
+> S,π
+
+(s′, k |s, a )γkV ∗,semi (s′)
+
+#
+
+. (24) The factor γk accounts for the possibly variable duration of the temporally extended transition. We can now re-describe Theorem 1 more formally. 
+
+Theorem 5. Let 
+
+ΠS (π) := {π′ ∈ Π : π′(·| s) = π(·| s), ∀s / ∈ S} (25) 
+
+denote the set of policies that may differ from π only on S ⊆ S . Let π∗,semi  
+
+> S
+
+be an optimal policy of 
+
+M semi  
+
+> S,π
+
+, and extend it to the original MDP by 
+
+¯π(a|s) := 
+
+(
+
+π∗,semi  
+
+> S
+
+(a|s), s ∈ S, π(a|s), s / ∈ S. (26) 
+
+Then ¯π is an optimal policy among all policies in ΠS (π). In particular, 
+
+∀s ∈ S : V ¯π (s) = sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s). (27) 
+
+Equivalently, since V ∗(s) ≥ V π′
+
+(s) for every policy π′,
+
+∀s ∈ S : ¯π ∈ arg inf  
+
+> π′∈ΠS(π)
+
+h
+
+V ∗(s) − V π′
+
+(s)
+
+i
+
+. (28) 
+
+Thus, solving M semi  
+
+> S,π
+
+is equivalent to optimal policy improvement under the constraint that the policy may be modified only on S.
+
+16 Preprint 
+
+Proof. Consider any policy π′ ∈ ΠS (π). Whenever the process is in a state s ∈ S, π′ selects an action according to π′(·| s). After this action, if the trajectory leaves S, the policies π′ and π coincide by definition of ΠS (π). Hence, until the trajectory next reaches a state in S, its action distribution is exactly the one used in the construction of M semi  
+
+> S,π
+
+.Therefore, every policy π′ ∈ ΠS (π) induces a policy on M semi  
+
+> S,π
+
+given by its restriction to S. Con-versely, every policy on M semi  
+
+> S,π
+
+uniquely induces a policy in ΠS (π) by using that policy on S and π
+
+on S \ S.By Equations 22 and 23, each temporally extended transition in M semi  
+
+> S,π
+
+preserves both the discounted reward accumulated during the corresponding trajectory segment in the original MDP and the discounted continuation value upon returning to S. Thus, under the policy correspondence above, 
+
+V π′ 
+
+> M
+
+(s) = V π′|S 
+
+> Msemi
+> S,π
+
+(s), ∀s ∈ S. (29) It follows that an optimal policy of M semi  
+
+> S,π
+
+maximizes the value in the original MDP among all policies that differ from π only on S, for every s ∈ S.Finally, consider any state s / ∈ S. Every policy in ΠS (π) follows the same policy π until either the process terminates or first reaches S. Therefore, the distribution of rewards and of the first state reached in S before that point is independent of the choice of policy within S. Since ¯π maximizes the continuation value at every state in S, it also maximizes the value from every state s / ∈ S. Hence, 
+
+V ¯π (s) = sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s), ∀s ∈ S . (30) Therefore, solving M semi  
+
+> S,π
+
+is equivalent to solving the original MDP under the constraint that the policy equals π on S \ S, proving the result. A.2 SOLVING SUB -MDP S IS A LOWER BOUND ON OPTIMAL POLICY IMPROVEMENT 
+
+Let S ⊆ S denote the subset of states at which the policy is permitted to change, and let π denote the current policy. We define the sub-MDP M sub S,π by preserving the original dynamics within S and terminating trajectories whenever they leave S.Specifically, for a transition (s, a, s ′) with s ∈ S and s′ ∈ S, the original transition probability and reward are preserved. For a transition with s ∈ S and s′ /∈ S, the transition is made terminal and bootstrapped using the value of the current policy at the realized successor state s′. Thus, the value associated with such an exit transition is 
+
+R(s, a ) + γV π (s′). (31) Importantly, this boundary value depends on the realized successor s′, rather than on the unconditional state-action value Qπ (s, a ).Equivalently, the Bellman optimality operator of M sub S,π is, for every s ∈ S,
+
+ T sub S,π V  (s) := max 
+
+> a∈A
+
+"
+
+R(s, a ) + γ X
+
+> s′∈S
+
+P (s′|s, a )V (s′) + γ X 
+
+> s′/∈S
+
+P (s′|s, a )V π (s′)
+
+#
+
+. (32) Let V ∗,sub S,π denote the unique fixed point of T sub S,π .The difference between M sub S,π and the induced semi-MDP M semi S,π of the previous section is therefore that M semi S,π remains connected through the behavior of π outside S, whereas M sub S,π terminates immediately upon leaving S and bootstraps from V π at the boundary. Consequently, constructing M sub S,π does not require a transition model beyond transitions originating from state-action pairs in S × A . It does, however, require the boundary values V π (s′) for successor states s′ /∈ S. In model-free RL, the former may correspond to transitions available in a replay buffer, while the latter may be supplied by a value estimator. 17 Preprint Let π∗,sub S denote an optimal policy of M sub S,π . We extend this policy to the original MDP as 
+
+¯π(a|s) := 
+
+(
+
+π∗,sub S (a|s), s ∈ S, π(a|s), s / ∈ S. (33) The corresponding policy-improvement operator is denoted by Isolve M sub S,π .We can now state Theorem 2 more formally. 
+
+Theorem 6. Let 
+
+ΠS (π) := {π′ ∈ Π : π′(·| s) = π(·| s), ∀s / ∈ S} . (34) 
+
+Then, for every s ∈ S,
+
+max  
+
+> a∈A
+
+Qπ (s, a ) ≤ V ∗,sub S,π (s) ≤ V ¯π (s) ≤ sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s). (35) 
+
+If leaving S precludes returning to S, then, for every s ∈ S,
+
+V ∗,sub  
+
+> S,π
+
+(s) = V ¯π (s) = sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s). (36) 
+
+Thus, under this condition, solving M sub  
+
+> S,π
+
+is equivalent to optimal policy improvement constrained by 
+
+S. Consequently, since sup π′∈ΠS (π) V π′
+
+(s) ≤ V ∗(s),
+
+V ∗(s) − max  
+
+> a∈A
+
+Qπ (s, a ) ≥ V ∗(s) − V Isolve M sub S,π 
+
+> (π)
+
+(s) ≥ inf   
+
+> π′∈ΠS(π)
+
+V ∗(s) − V π′
+
+(s) . (37) 
+
+Thus, solving M sub S,π yields an improvement that is bounded below by one-step greedification 
+
+max a Qπ (s, a ) and above by optimal policy improvement under the constraint that the policy may be modified only on S.Proof. First observe that restricting the original policy π to S yields exactly its original value on the sub-MDP. Indeed, for every s ∈ S,
+
+V π (s) = X
+
+> a∈A
+
+π(a|s)
+
+"
+
+R(s, a ) + γ X
+
+> s′∈S
+
+P (s′|s, a )V π (s′) + γ X 
+
+> s′/∈S
+
+P (s′|s, a )V π (s′)
+
+#
+
+. (38) Hence V π |S is the value of the policy π|S in M sub S,π , and therefore 
+
+V ∗,sub S,π (s) ≥ V π (s), ∀s ∈ S. (39) Applying the optimality operator of the sub-MDP to V π gives 
+
+ T sub S,π V π  (s) = max 
+
+> a∈A
+
+"
+
+R(s, a ) + γ X
+
+> s′∈S
+
+P (s′|s, a )V π (s′) + γ X 
+
+> s′/∈S
+
+P (s′|s, a )V π (s′)
+
+#
+
+(40) 
+
+= max  
+
+> a∈A
+
+Qπ (s, a ). (41) Since T sub S,π is monotone and V ∗,sub S,π is its optimal fixed point, 
+
+V ∗,sub S,π (s) ≥  T sub S,π V π  (s) = max  
+
+> a∈A
+
+Qπ (s, a ), ∀s ∈ S. (42) We next relate the value of the sub-MDP to the value obtained by extending its optimal policy to the original MDP according to Equation 33. Define 
+
+W (s) := 
+
+(
+
+V ∗,sub S,π (s), s ∈ S, V π (s), s / ∈ S. (43) 18 Preprint For s ∈ S, optimality of π∗,sub S in the sub-MDP gives 
+
+ T ¯π W  (s) = W (s). (44) For s / ∈ S, ¯π coincides with π. Moreover, Equation 39 implies W ≥ V π everywhere. By monotonic-ity of the Bellman operator, 
+
+ T ¯π W  (s) = ( T π W ) ( s) (45) 
+
+≥ (T π V π ) ( s) = V π (s) = W (s), s / ∈ S. (46) Therefore, 
+
+T ¯π W ≥ W. (47) Repeated application of the monotone Bellman operator T ¯π , together with its convergence to V ¯π ,yields 
+
+V ¯π (s) ≥ W (s), (48) and hence, in particular, 
+
+V ¯π (s) ≥ V ∗,sub S,π (s), ∀s ∈ S. (49) It remains to establish the equivalence when leaving S precludes returning to S. Consider any 
+
+π′ ∈ ΠS (π). While the process remains in S, the original MDP and M sub  
+
+> S,π
+
+have identical dynamics and rewards. If the process leaves S at a successor state s′ /∈ S, it follows π thereafter, since π′ and 
+
+π coincide outside S. By assumption, it never returns to a state at which the two policies may differ. Its exact continuation value is therefore V π (s′), precisely the boundary value used by M sub  
+
+> S,π
+
+.Consequently, for every π′ ∈ ΠS (π) and every s ∈ S,
+
+V π′ 
+
+> M
+
+(s) = V π′|S 
+
+> Msub
+> S,π
+
+(s). (50) Optimizing both sides over π′ ∈ ΠS (π) gives 
+
+V ∗,sub  
+
+> S,π
+
+(s) = sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s). (51) Since ¯π|S = π∗,sub  
+
+> S
+
+, the same correspondence gives 
+
+V ¯π (s) = V ∗,sub  
+
+> S,π
+
+(s), (52) which proves Equation 36. Finally, ¯π ∈ ΠS (π) by construction. It follows immediately that 
+
+V ¯π (s) ≤ sup  
+
+> π′∈ΠS(π)
+
+V π′
+
+(s). (53) Combining this inequality with Equations 42 and 49 proves Equation 35, and therefore also Equa-tion 37. The first inequality is strict at any state s ∈ S for which 
+
+V ∗,sub S,π (s) >  T sub S,π V π  (s) = max  
+
+> a∈A
+
+Qπ (s, a ). (54) Thus, whenever a single greedy Bellman backup from V π does not attain the optimal sub-MDP value, solving the sub-MDP can provide a strictly stronger improvement than single-step greedification followed by followed by π. 
+
+A.3 EVEN WHEN |S| = 1 , GREEDIFICATION IS NOT GENERALLY OPTIMAL POLICY IMPROVEMENT 
+
+Perhaps surprisingly, the greedy operator is not an optimal policy improvement operator in general even when |S| = 1 . This arises from the fact that the greedy operator does not account for the benefits of taking better decisions π′(s) at s. We will show this with an example. If the agent cannot return 19 Preprint from s back to s in the MDP (e.g. in non-cyclical MDPs), this is not a problem and indeed in this case the greedy operator is an optimal policy improvement operator on S = {s}.
+
+Consider the following Markov Decision Process (MDP): S = {s, s terminal }, A = {a0, a 1, a 2}.Discount factor: γ = 0 .9. Deterministic rewards: R(s, a 0) = 0 , R (s, a 1) = 10 , R (s, a 2) = 9 .Deterministic transitions: P (sterminal |s, a 0) = 1 , P (sterminal |s, a 1) = 1 , P (s|s, a 2) = 1 and otherwise 0. The optimal policy in this MDP π∗(s) always chooses a2 yielding a return of P∞ 
+
+> t=0
+
+0.9t ·
+
+9 = 91−0.9 = 90 .Let the current policy π(s) be a policy that always chooses a0. Therefore, V π (s) = R(s, a 0) + 
+
+γV π (sterminal ) = 0 . Let us compute Qπ (s, ·) : 
+
+Qπ (s, a 0) = 0 + 0 .9V π (sterminal ) = 0 + 0 = 0 , (55) 
+
+Qπ (s, a 1) = 10 + 0 .9V π (sterminal ) = 10 + 0 = 10 , (56) 
+
+Qπ (s, a 2) = 9 + 0 .9V π (s) = 9 + 0 .9 · 0 = 9 . (57) If we use the greedy operator to improve the policy, we have: 
+
+π′(s) = arg max 
+
+> a∈A
+
+Qπ (s, a ), Pπ′(s)(a = a1) = 1 , V π′
+
+(s) = 10 . (58) Which is not the optimal policy. In this MDP, optimal policy improvement will always select a2 at state s. 
+
+We conclude that if the MDP is cyclical, the greedy operator is not guaranteed to provide optimal policy improvement even in an MDP where the policy is permitted to be modified only at one state .A.4 OPTIMAL GREEDIFICATION UNDER EXACT EVALUATION 
+
+Lemma 1 (Optimal greedification under exact evaluation) . Fix a policy π ∈ Π and a state s ∈ S . If 
+
+bQπ = Qπ , then any distribution μ∗(· | s) supported on arg max a∈A Qπ (s, a ) satisfies 
+
+μ∗ ∈ arg max 
+
+> μ∈∆( A)
+
+X
+
+> a∈A
+
+μ(a | s)Qπ (s, a ) = arg max 
+
+> μ∈∆( A)
+
+X
+
+> a∈A
+
+μ(a | s)Aπ (s, a ).
+
+Consequently, Iarg max is an optimal greedification operator under exact evaluation. Proof. Both objectives are linear in μ. Moreover, 
+
+X
+
+> a
+
+μ(a | s)Aπ (s, a ) = X
+
+> a
+
+μ(a | s)Qπ (s, a ) − V π (s),
+
+and V π (s) is constant with respect to μ. Hence the two objectives have the same maximizers, namely the distributions supported on arg max a Qπ (s, a ).
+
+Lemma 2 (When optimal greedification is optimal one-state improvement) . Fix π ∈ Π and s ∈ S ,and define 
+
+Π{s}(π) := {π′ ∈ Π : π′(· | x) = π(· | x), ∀x̸ = s} .
+
+Assume that, after leaving s, the process cannot revisit s under the continuation policy π. Then, for every π′ ∈ Π{s}(π),
+
+V π′
+
+(s) − V π (s) = X
+
+> a∈A
+
+π′(a | s)Aπ (s, a ).
+
+Therefore, 
+
+arg max  
+
+> π′∈Π{s}(π)
+
+V π′
+
+(s) = arg max 
+
+> π′∈Π{s}(π)
+
+X
+
+> a∈A
+
+π′(a | s)Qπ (s, a ),
+
+and Iarg max is also an optimal policy-improvement operator within Π{s}(π).Proof. Because s cannot be revisited, after the initial action the policies π′ and π coincide on every state that can subsequently be visited. Hence 
+
+V π′
+
+(s) = X
+
+> a∈A
+
+π′(a | s)Qπ (s, a ).
+
+Subtracting V π (s) = P 
+
+> a
+
+π(a | s)Qπ (s, a ) gives the first identity. The remaining claims follow by maximizing the resulting linear objective. 20 Preprint The second lemma does not generally hold when s can be revisited, as demonstrated by the coun-terexample in Appendix A.3. A.5 GREEDIFICATION 
+
+Proof. Write w(s, a ) := 1 /σ 2(s, a ) = τ 2/ (τ 2 + σ2
+
+> A
+
+(s, a )) β, which is strictly positive for every 
+
+a because β > 0, τ 2 > 0 and σ2
+
+> A
+
+(s, a ) ≥ 0. Let f (a) := exp  w(s, a )A(s, a ) > 0 and Z := P 
+
+> b∈A
+
+π(b|s)f (b) > 0, so that Iopt (π, Q )( a|s) = π(a|s)f (a)/Z .Because A(s, a ) = Q(s, a ) − P 
+
+> b∈A
+
+π(b|s)Q(s, b ), the advantage satisfies 
+
+X
+
+> a∈A
+
+π(a|s)A(s, a ) = 0 . (59) Subtracting a constant from Q(s, ·) shifts both sides of Definition 2 equally, so it suffices to show P 
+
+> a
+
+Iopt (π, Q )( a|s)A(s, a ) ≥ 0.Compare π(a|s)f (a)A(s, a ) with π(a|s)A(s, a ) term by term. Since w(s, a ) > 0: if A(s, a ) > 0
+
+then f (a) > 1 and hence f (a)A(s, a ) > A (s, a ); if A(s, a ) < 0 then f (a) < 1 and hence 
+
+f (a)A(s, a ) > A (s, a ); and if A(s, a ) = 0 both sides vanish. In every case f (a)A(s, a ) ≥ A(s, a ),strictly whenever A(s, a )̸ = 0 . Multiplying by π(a|s) ≥ 0, summing, and applying equation 59, 
+
+X
+
+> a∈A
+
+π(a|s)f (a)A(s, a ) ≥ X
+
+> a∈A
+
+π(a|s)A(s, a ) = 0 . (60) Dividing by Z > 0 gives P 
+
+> a
+
+Iopt (π, Q )( a|s)A(s, a ) ≥ 0, with strict inequality as soon as some 
+
+a with π(a|s) > 0 has A(s, a )̸ = 0 , i.e. unless π is already indifferent among the actions it plays. 
+
+Remark 1 (why the advantage, and not Q, is essential) . For Ireg the substitution A ↔ Q is harmless: a single scalar temperature makes the softmax shift-invariant. For Iopt it is not. With per-action weights w(s, a ), adding a constant c to every Q(s, a ) changes the operator, because 
+
+exp  w(s, a )( Q(s, a ) + c) ∝ exp  w(s, a )c is not a common factor. The proof above uses Equation 59 and therefore genuinely requires the advantage; implementations must centre by V π before applying the weights. The following counter-example makes the point concrete and shows that the Q-based variant is not a greedification operator. Take A = {a1, a 2}, Q(s, a 1) = 1 , Q(s, a 2) = 2 , π = [0 .3, 0.7] , and weights 
+
+w(s, a 1) = 10 , w(s, a 2) = 1 . Here V π (s) = 1 .7 and A(s, ·) = [ −0.7, +0 .3] . The advantage-based operator gives 
+
+π′ ∝ [ 0 .3e−7, 0.7e0.3 ] ≈ [0 .0003 , 0.9997] , P 
+
+> a
+
+π′(a|s)Q(s, a ) ≈ 2.00 > 1.7, (61) 
+
+so greedification holds, as guaranteed above. Substituting Q for A gives instead 
+
+π′ ∝ [ 0 .3e10 , 0.7e2 ] ≈ [0 .999 , 0.001] , P 
+
+> a
+
+π′(a|s)Q(s, a ) ≈ 1.00 < 1.7, (62) 
+
+which moves mass onto the worse action. 
+
+A.6 CONVERGENCE 
+
+We prove convergence of Generalized Policy Iteration (Algorithm 1) driven by Iopt using the finite-horizon analysis of Tsitsiklis (2002) and the machinery developed by Oren et al. (2025b). In particular, the convergence proof of Oren et al. (2025b) relies on the Limit-Sufficient Greedification condition (Definition 5 therein). We first show that Iopt satisfies the corresponding condition almost surely in the presence of fresh, unbiased Gaussian evaluation noise whose variance vanishes over iterations. A.6.1 LIMIT -S UFFICIENT GREEDIFICATION 
+
+Lemma 3 (Limit-Sufficient Greedification under Vanishing Evaluation Noise) . Let Q0, Q 1, · · · ∈ Q 
+
+be a sequence of bounded functions such that, for every s ∈ S and a ∈ A ,
+
+Qi(s, a ) a.s.
+
+−−−→ 
+
+> i→∞
+
+Q(s, a ) (63) 21 Preprint 
+
+for some Q ∈ Q .Let Fi denote the history prior to drawing the evaluation noise at iteration i. Assume that Qi and 
+
+πi are Fi-measurable and that, conditional on Fi, the evaluation errors are fresh, independent zero-mean Gaussian random variables, 
+
+ϵi(s, a ) | F i ∼ N  0, σ 2 
+
+> Qi
+
+(s, a ) , (64) 
+
+where 
+
+lim  
+
+> i→∞
+
+σ2 
+
+> Qi
+
+(s, a ) = 0 , ∀s ∈ S , a ∈ A . (65) 
+
+Let 
+
+ˆQi(s, a ) := Qi(s, a ) + ϵi(s, a ), (66) 
+
+and let 
+
+πi+1 = Iopt (πi, ˆQi). (67) 
+
+Assume that A is finite and that π0 has full support over A.Then, for every state s ∈ S , if 
+
+A∗(s) := arg max 
+
+> a∈A
+
+Q(s, a ), (68) 
+
+the policy asymptotically concentrates on the maximizing action set: 
+
+X
+
+> a∈A ∗(s)
+
+πi(a|s) a.s.
+
+−−−→ 
+
+> i→∞
+
+1. (69) 
+
+Consequently, 
+
+X
+
+> a∈A
+
+πi(a|s)Qi(s, a ) a.s.
+
+−−−→ 
+
+> i→∞
+
+max  
+
+> a∈A
+
+Q(s, a ), (70) 
+
+which is the Limit-Sufficient Greedification condition of Oren et al. (2025b), extended here to vanishing stochastic evaluation error. Proof. Fix a state s ∈ S and suppress s from the notation where convenient. Define the true and noisy advantages at iteration i by 
+
+Ai(a) := Qi(s, a ) − X
+
+> b∈A
+
+πi(b | s)Qi(s, b ), (71) 
+
+ˆAi(a) := ˆQi(s, a ) − X
+
+> b∈A
+
+πi(b | s) ˆQi(s, b ). (72) Let 
+
+vi(a) := σ2ˆAi
+
+(s, a ) (73) 
+
+:=  1 − πi(a | s)2σ2 
+
+> Qi
+
+(s, a ) + X
+
+> b̸=a
+
+πi(b | s)2σ2 
+
+> Qi
+
+(s, b ), (74) and denote the denominator in the exponent of Iopt by 
+
+di(a) := β τ 2 + vi(a)
+
+τ 2 . (75) Because 
+
+0 ≤ vi(a) ≤ X
+
+> b∈A
+
+σ2 
+
+> Qi
+
+(s, b ), (76) the finiteness of A and the assumption σ2 
+
+> Qi
+
+(s, b ) → 0 imply 
+
+di(a) → β (77) 22 Preprint uniformly over a ∈ A . Moreover, di(a) ≥ β > 0 for every i and a.The policy update can now be written as 
+
+πi+1 (a | s) ∝ πi(a | s) exp ˆAi(a)
+
+di(a)
+
+!
+
+. (78) Because π0 has full support and the multiplicative factor is strictly positive, πi has full support for every finite i.Fix an optimal action a⋆ ∈ A ⋆(s) and a suboptimal action a / ∈ A ⋆(s), and define their limiting action gap 
+
+∆a := Q(s, a ⋆) − Q(s, a ) > 0. (79) Taking the ratio of their probabilities eliminates the normalization constant: 
+
+log πi+1 (a⋆ | s)
+
+πi+1 (a | s) = log πi(a⋆ | s)
+
+πi(a | s) + Yi, (80) 
+
+Yi := ˆAi(a⋆)
+
+di(a⋆) − ˆAi(a)
+
+di(a) . (81) Decompose this increment into its conditional mean and a zero-mean remainder: 
+
+gi := E[Yi | F i], ξi := Yi − gi. (82) Because the evaluation errors have conditional mean zero, 
+
+gi = Ai(a⋆)
+
+di(a⋆) − Ai(a)
+
+di(a) . (83) Writing 
+
+Bi := X
+
+> b∈A
+
+πi(b | s)Qi(s, b ), (84) we equivalently have 
+
+gi = Qi(s, a ⋆)
+
+di(a⋆) − Qi(s, a )
+
+di(a) + Bi
+
+ 1
+
+di(a) − 1
+
+di(a⋆)
+
+
+
+. (85) Since Qi(s, ·) → Q(s, ·) over the finite action set, the sequence {Bi} is bounded. Together with the uniform convergence di(·) → β, this gives 
+
+gi
+
+> a.s.
+
+−−−→
+
+> i→∞
+
+Q(s, a ⋆) − Q(s, a )
+
+β = ∆a
+
+β > 0. (86) Consequently, by the elementary Ces` aro lemma, 
+
+1
+
+n
+
+> n−1
+
+X
+
+> i=0
+
+gi
+
+> a.s.
+
+−−−−→
+
+> n→∞
+
+∆a
+
+β . (87) By construction, E[ξi | F i] = 0 , so {ξi} is a martingale-difference sequence. Each ξi is a finite linear combination of the evaluation errors. Because di(a) ≥ β > 0 and the convergent variance sequences 
+
+{σ2 
+
+> Qi
+
+(s, b )}i are bounded, there exists a finite constant C such that 
+
+E[ξ2 
+
+> i
+
+| F i] ≤ C ∀i. (88) Hence, 
+
+> ∞
+
+X
+
+> i=0
+
+E[ξ2 
+
+> i
+
+| F i](i + 1) 2 < ∞. (89) 23 Preprint The strong law for martingale-difference sequences (Hall & Heyde, 1980, Theorem 2.18) therefore gives 
+
+1
+
+n
+
+> n−1
+
+X
+
+> i=0
+
+ξi
+
+> a.s.
+
+−−−−→ 
+
+> n→∞
+
+0. (90) Unrolling the log-ratio recursion and dividing by n now yields 
+
+1
+
+n log πn(a⋆ | s)
+
+πn(a | s) = 1
+
+n log π0(a⋆ | s)
+
+π0(a | s) + 1
+
+n
+
+> n−1
+
+X
+
+> i=0
+
+gi + 1
+
+n
+
+> n−1
+
+X
+
+> i=0
+
+ξi (91) 
+
+> a.s.
+
+−−−−→
+
+> n→∞
+
+∆a
+
+β > 0. (92) Therefore, 
+
+πn(a | s)
+
+πn(a⋆ | s)
+
+> a.s.
+
+−−−−→ 
+
+> n→∞
+
+0. (93) Since πn(a⋆ | s) ≤ 1, this implies 
+
+πn(a | s) a.s.
+
+−−−−→ 
+
+> n→∞
+
+0 ∀a / ∈ A ⋆(s). (94) Because A is finite, 
+
+X
+
+> a∈A ⋆(s)
+
+πn(a | s) a.s.
+
+−−−−→ 
+
+> n→∞
+
+1, (95) which proves the first claim. Finally, let Qmax (s) := max a Q(s, a ). Then 
+
+0 ≤ Qmax (s) − X
+
+> a∈A
+
+πi(a | s)Q(s, a ) (96) 
+
+= X
+
+> a / ∈A ⋆(s)
+
+πi(a | s) Qmax (s) − Q(s, a ) a.s.
+
+−−−→ 
+
+> i→∞
+
+0. (97) Moreover, 
+
+X
+
+> a∈A
+
+πi(a | s)Qi(s, a ) − Qmax (s) ≤ ∥ Qi(s, ·) − Q(s, ·)∥∞ (98) 
+
++ X
+
+> a∈A
+
+πi(a | s)Q(s, a ) − Qmax (s) a.s.
+
+−−−→ 
+
+> i→∞
+
+0. (99) This is the required Limit-Sufficient Greedification condition. A.6.2 CONVERGENCE USING LIMIT -S UFFICIENT GREEDIFICATION 
+
+Proof. We extend the Generalized Policy Iteration setup of Algorithm 1 by allowing the evaluation supplied to the policy improvement operator at iteration i to be corrupted according to 
+
+ˆQi(s, a ) = Qi(s, a ) + ϵi(s, a ), (100) where the errors satisfy the assumptions of Lemma 3. The underlying evaluation update of Algorithm 1 remains unchanged; the additional error affects the evaluation supplied to the policy-improvement operator. The convergence proof of Theorem 3 in Oren et al. (2025b) proceeds by induction backwards from terminal states in a finite-horizon MDP. Its Limit-Sufficient Greedification step requires that, 24 Preprint whenever the sequence of action-value estimates at a state converges to some limiting function Q, the corresponding policy sequence satisfies 
+
+X
+
+> a∈A
+
+πi(a|s)Qi(s, a ) −→ max  
+
+> a∈A
+
+Q(s, a ). (101) Lemma 3 establishes exactly Equation 101 almost surely under the additional evaluation noise considered here. Condition on the probability-one event on which Equation 101 holds at every state. The finite-horizon induction of Oren et al. (2025b) then applies unchanged: convergence at terminal states implies convergence of the action values at the preceding time step; Limit-Sufficient Greedification implies that the policy becomes greedy with respect to those limiting action values; and the argument proceeds recursively backwards through the horizon. Since the state and action spaces and the horizon are finite, the intersection of the corresponding probability-one events is itself a probability-one event. Therefore, Generalized Policy Iteration driven by Iopt converges almost surely to the optimal value: 
+
+Qi
+
+> a.s.
+
+−−−→ 
+
+> i→∞
+
+Q∗, V πi a.s.
+
+−−−→ 
+
+> i→∞
+
+V ∗. (102) Moreover, at every state, 
+
+X 
+
+> a∈arg max bQ∗(s,b )
+
+πi(a|s) a.s.
+
+−−−→ 
+
+> i→∞
+
+1. (103) Thus, the policy converges to the set of optimal policies in the sense that all probability mass assigned to strictly suboptimal actions vanishes. If every state has a unique optimal action, then πi itself converges almost surely to the corresponding optimal policy. 
+
+## B DERIVATIONS AND DISCUSSION 
+
+B.1 DERIVATION OF THE ADVANTAGE POSTERIOR IN THE LIKELIHOOD 
+
+For a fixed state s, we model the approximate evaluation as 
+
+ˆQπ (s, a ) = Qπ (s, a ) + ϵ(s, a ), ϵ(s, a ) ∼ N 
+
+
+
+0, σ 2ˆQπ (s, a )
+
+
+
+, (104) with the errors independent across actions. The corresponding approximate advantage is 
+
+ˆAπ (s, a ) := ˆQπ (s, a ) − X
+
+> b∈A
+
+π(b | s) ˆQπ (s, b )= Aπ (s, a ) +  1 − π(a | s)ϵ(s, a ) − X
+
+> b̸=a
+
+π(b | s)ϵ(s, b ). (105) Because Equation 105 is an affine transformation of independent Gaussian errors, 
+
+ˆAπ (s, a ) | Aπ (s, a ), π, s ∼ N  Aπ (s, a ), σ 2ˆAπ (s, a ) , (106) where 
+
+σ2ˆAπ (s, a ) :=  1 − π(a | s)2σ2ˆQπ (s, a ) + X
+
+> b̸=a
+
+π(b | s)2σ2ˆQπ (s, b ). (107) For analytical tractability, we place the action-wise prior 
+
+Aπ (s, a ) ∼ N (0 , τ 2). (108) Taken jointly across actions, the corresponding product prior ignores the exact constraint 
+
+X
+
+> a∈A
+
+π(a | s)Aπ (s, a ) = 0 .
+
+25 Preprint We make this modeling approximation because it yields a tractable action-wise posterior and expresses that, absent evaluation evidence, the model does not favor any action over another. By Bayes’ rule, 
+
+p
+
+
+
+Aπ (s, a ) | ˆAπ (s, a ), π, s 
+
+
+
+∝ exp 
+
+"
+
+− 12
+
+(Aπ (s, a )) 2
+
+τ 2 +
+
+  ˆAπ (s, a ) − Aπ (s, a )2
+
+σ2ˆAπ (s, a )
+
+!# 
+
+. (109) Completing the square gives 
+
+p
+
+
+
+Aπ (s, a ) | ˆAπ (s, a ), π, s 
+
+
+
+= N (mπ (s, a ), v π (s, a )) , (110) with 
+
+mπ (s, a ) = τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a ), (111) 
+
+vπ (s, a ) = τ 2σ2ˆAπ (s, a )
+
+τ 2 + σ2ˆAπ (s, a ) . (112) This posterior is exact for the scalar action-wise observation model. In the main text, we approximate the joint posterior over Aπ (s, ·) by the product of these action-wise posteriors. B.2 MODELING THE UTILITY FACTOR USING RATIONAL CHOICE AND EXPECTED UTILITY 
+
+THEORY 
+
+Rational Choice Theory is a foundational framework widely popular in the fields of economics, political science, and behavioral sciences for modeling complex, goal-oriented decision-making (Becker, 1976). Rational Choice Theory posits that decision-makers consistently select actions that maximize their subjective preferences (Arrow, 2012). Under conditions of uncertainty, this is formalized by Expected Utility Theory (EUT), which demonstrates that a rational agent’s preferences can be mathematically represented by the expectation of a scalar utility function over possible outcomes (von Neumann & Morgenstern, 2007; Savage, 2012). To operationalize EUT within probabilistic frameworks, deterministic utility maximization is standardly relaxed into probabilistic choice models. Rooted in Luce’s choice axiom (Luce et al., 1959) and random utility theory (McFadden, 1973), these models construct likelihood functions where the probability of selecting an alternative is proportional to its exponentiated utility. This approach allows us to model policy optimization as reasoning over which policy π′ is pre-ferred based on its expected utility Aπ′,π (s). We model the policy’s expected utility for im-provement Aπ′,π (s) with its local improvement surrogate over π. The derived Bayesian posterior 
+
+p(Aπ (s, a )| ˆAπ (s, a ), π, s ) for the uncertain advantage allows us to account for the evaluation uncer-tainty within policy optimization and yields the tractable certainty-equivalent objective in Equation 16, for which Iopt is the exact MAP optimizer. 26 Preprint B.3 THE UTILITY AS THE LOCAL IMPROVEMENT OF π′ OVER π
+
+We have: 
+
+Aπ′,π (s) = X
+
+> a∈A
+
+π′(a|s)Aπ (s, a ) (113) 
+
+= X
+
+> a∈A
+
+π′(a|s)( Qπ (s, a ) − V π (s)) (114) 
+
+= X
+
+> a∈A
+
+π′(a|s)Qπ (s, a ) − X
+
+> a∈A
+
+π′(a|s)V π (s) (115) 
+
+= X
+
+> a∈A
+
+π′(a|s)Qπ (s, a ) − V π (s) X
+
+> a∈A
+
+π′(a|s) (116) 
+
+= X
+
+> a∈A
+
+π′(a|s)Qπ (s, a ) − V π (s) (117) 
+
+= V π′
+
+(s) − V π (s). (118) Equation 118 holds when π′ differs from π only at s and s cannot be revisited after leaving it. In particular, this holds for a one-state policy update in a non-cyclical MDP. However, we always have: 
+
+arg max 
+
+> π′
+
+Aπ′,π (s) = arg max 
+
+> π′
+
+X
+
+> a∈A
+
+π′(a|s)Aπ (s, a ) = arg max 
+
+> π′
+
+X
+
+> a∈A
+
+π′(a|s)Qπ (s, a ) (119) because V π (s) does not depend on a. In other words, this objective is always sound as it shares the same maximizer as arg max π′
+
+P 
+
+> a∈A
+
+π′(a|s)Qπ (s, a ).
+
+We use Aπ′,π (s) = P 
+
+> a∈A
+
+π′(a|s)Aπ (s, a ) instead of arg max π′
+
+P 
+
+> a∈A
+
+π′(a|s)Qπ (s, a ), because the advantage has important properties for policy improvement. Specifically, it is informed with respect to π, guaranteeing that the sign is always positive Aπ (s, a ) > 0 for actions that are better 
+
+than those chosen by the policy (e.g. improved ) and negative Aπ (s, a ) < 0 for actions that are worse .B.4 DERIVATION OF THE CERTAINTY -EQUIVALENT MAP OBJECTIVE 
+
+Writing β0 for the coefficient of the policy prior in Equation 8, the certainty-equivalent posterior is 
+
+pCE 
+
+
+
+π′ | ˆAπ (s, ·), π, s 
+
+
+
+∝ exp λ X
+
+> a∈A
+
+π′(a | s) τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a )
+
+!
+
+× exp ( −β0DKL (π′(· | s) ∥ π(· | s))) . (120) Therefore, because λ > 0,
+
+arg max  
+
+> π′
+
+pCE 
+
+
+
+π′ | ˆAπ (s, ·), π, s 
+
+
+
+= arg max 
+
+> π′
+
+(X
+
+> a∈A
+
+π′(a | s) τ 2
+
+τ 2 + σ2ˆAπ (s, a ) ˆAπ (s, a )
+
+− β0
+
+λ DKL (π′(· | s) ∥ π(· | s)) 
+
+
+
+. (121) Defining β := β0/λ recovers the certainty-equivalent objective in Equation 16. B.5 DERIVATION OF THE SOLUTION FOR THE CERTAINTY -EQUIVALENT MAP OBJECTIVE 
+
+We derive Iopt , the solution to the optimization problem: 
+
+Iopt (π, ˆQπ )( s) = arg max 
+
+> π′
+
+X
+
+> a
+
+π′(a|s)w(s, a ) ˆAπ (s, a ) − β X
+
+> a
+
+π′(a|s) log π′(a|s)
+
+π(a|s)
+
+!
+
+, (122) where w(s, a ) = τ 2   
+
+> τ2+σ2ˆAπ(s,a )
+
+, below. 27 Preprint Introduce a Lagrange multiplier ν for the constraint P 
+
+> a
+
+π′(a|s) = 1 :
+
+L = X
+
+> a
+
+π′(a|s)w(s, a ) ˆAπ (s, a ) − β X
+
+> a
+
+π′(a|s) log π′(a|s)
+
+π(a|s) + ν X
+
+> a
+
+π′(a|s) − 1
+
+!
+
+. (123) Take derivative w.r.t. π′(a|s) and set to zero: 
+
+0 = w(s, a ) ˆAπ (s, a ) − β
+
+
+
+log π′(a|s)
+
+π(a|s) + 1 
+
+
+
++ ν. (124) Rearranging, 
+
+log π′(a|s)
+
+π(a|s) = 1
+
+β w(s, a ) ˆAπ (s, a ) + νβ − 1. (125) Exponentiating, 
+
+π′(a|s) = π(a|s) exp 
+
+ 1
+
+β w(s, a ) ˆAπ (s, a )
+
+
+
+exp 
+
+ νβ − 1
+
+
+
+. (126) To guarantee that π′ is a proper probability distribution P 
+
+> a∈A
+
+π′(a|s) = 1 , ν is chosen such that 
+
+exp 
+
+ νβ − 1
+
+
+
+is the normalization constant: 
+
+exp 
+
+ νβ − 1
+
+
+
+=
+
+"X
+
+> b
+
+π(b|s) exp 
+
+ 1
+
+β w(s, b ) ˆAπ (s, b )
+
+#−1
+
+. (127) Thus, we have: 
+
+π′(a|s) = 
+
+π(a|s) exp 
+
+ 1 
+
+> β
+
+w(s, a ) ˆAπ (s, a )
+
+P 
+
+> b
+
+π(b|s) exp 
+
+ 1 
+
+> β
+
+w(s, b ) ˆAπ (s, b )
+
+ (128) 
+
+∝ π(a|s) exp τ 2
+
+(τ 2 + σ2ˆAπ (s, a )) β ˆAπ (s, a )
+
+!
+
+(129) B.6 MODELING EVALUATION UNCERTAINTY WITH THE NORMAL DISTRIBUTION 
+
+In this section we further discuss the suitability of a Gaussian distribution to model the evaluation error, beyond its advantages for analytical tractability, and how we estimate the error in practice. As discussed in Section 4, Hui et al. (2023) motivate Gaussian TD error through the Central Limit Theorem and empirically find a moment-matched heteroscedastic Gaussian to provide a suitable approximation throughout training. More generally, evaluation error in modern RL can arise from stochastic returns, bootstrapped targets, sampled actions and function approximation. These sources need not be independent or exactly Gaussian, so we use the heteroscedastic Gaussian as an approxi-mation rather than an exact description of modern evaluation error. The better we can estimate the resulting state-action evaluation uncertainty, the better Iopt can be expected to perform. Uncertainty estimation remains an active and major field of research for AI, ML and RL, and we expect the potential of Iopt to grow with the quality of the estimator. To strengthen the significance of the contribution of Iopt to RL, in this work we incorporate Iopt into algorithms that already use some form of uncertainty estimation, and rely on this source - even when it is rudimentary. In Policy Iteration, we noise the evaluation with Gaussian noise with known variance, and provide the agent with this exact variance. As expected, Iopt is the best performer in this setting. In model-based RL, we incorporate Iopt into MCTS. Classical MCTS estimates action values from sample means of bounded Monte-Carlo returns (Kocsis & Szepesv´ ari, 2006). Under fixed-distribution independent sampling, these means are unbiased, their variance decreases as 1/N (s, a ), and their error becomes asymptotically Gaussian. Modern DNN-based MCTS (Silver et al., 2018; Schrittwieser 28 Preprint et al., 2020) departs substantially from this idealized sampling setting yet remains highly successful, suggesting that exact satisfaction of these assumptions is not necessary for the corresponding design principles to remain useful. We therefore use σ2ˆQπ (s, a ) ∝ 1/N (s, a ) as a simple variance proxy and directly examine the resulting DNN residuals in Figure 6. In model free RL (SAC and ReBRAC) we use the two-critic value ensemble. Value ensembles are a standard approach for value-uncertainty estimation in RL (Lakshminarayanan et al., 2017; Gawlikowski et al., 2023) and as we see, they are sufficient to enable Iopt to provide improvement over the baseline, both in offline as well as online RL (Figures 1 and 7, and Table 1). B.7 Iopt AND EXPLORATION 
+
+The operator Iopt can be expected to have an effect on the exploration of RL algorithms along multiple lines. Due to the complexity of exploration as its own independent research field, we divide the discussion into three parts. First, we will motivate why exploration does not need to be considered by Iopt at all. Second, we will motivate what effects Iopt could have on exploration. Last, we will discuss how exploration should be incorporated into algorithms utilizing Iopt .B.7.1 WHY WE NEED NOT WORRY ABOUT THE EFFECTS Iopt HAS ON EXPLORATION 
+
+Although the simplest and most popular approach is to use trained exploitation policy πθ to act in the environment, and implicitly to explore, there is no principle necessitating that. πθ need not be used for exploration at all. Oren et al. (2025a) showed that one could use in a principled manner a policy trained explicitly for exploration to benefit the exploitation policy learned by πθ .Due to this principled separation between policies, we need not even consider explicitly the effects 
+
+Iopt has on exploration - because the policy it is used to train πθ need not be used for exploration at all. B.7.2 WHAT EFFECTS Iopt could HAVE ON EXPLORATION 
+
+Of course, in practice, the simplest approach would be to replace the existing greedification operator used by an RL algorithm with Iopt and act with the trained exploitation policy πθ in the environment (which is indeed how many popular, practical algorithms work in practice (Danihelka et al., 2022; Hansen et al., 2024; Haarnoja et al., 2018)). Despite not being the only alternative, it is popular in practice for several reasons. Not only is it simpler, but in complex environments such as Chess or Go it is not immediately clear which principled exploration policy is best suited, and acting with the trained policy is known to work well in practice (Silver et al., 2018; Danihelka et al., 2022). From this perspective, it may still be interesting to reason over what effects Iopt could have on exploration. We provide a detailed set of conjectures below: 1. Over-estimation bias should reduce, because the operator is more stable, because it prop-agates less error, because it favors high-error values less. As a result of reduced over-estimation bias, exploration may reduce. 2. During acting, exploration may also be reduced as a result of not favoring high-error, high-value actions. 3. However, because high -error, low -value actions are less unfavored, exploration can overall 
+
+increase , as well. Due to these conflicting possible effects, it is hard to predict whether acting with πθ trained with Iopt 
+
+increase, decrease or have other effects on exploration in aggregate. However, due to the last point in this list, we would expect Iopt in practice to simply induce a better learning behavior over algorithms that do not employ explicit directed exploration in the majority of domains. This result is supported by the results of our experiments in online RL (GumbelAlphaZero and SAC). B.7.3 HOW TO UTILIZE Iopt FOR PRINCIPLED EXPLORATION 
+
+As shown by Oren et al. (2025a), a principled approach to training an exploration policy πe is using policy improvement operators. However, instead of the improvement being with respect to Q or 29 Preprint 
+
+A, it is with respect to an exploration statistic . A popular and principled exploration statistic is the maximum upper confidence bound (UCB), to drive classical, principled UCB exploration. This statistic can be modeled as U πM (s, a ) = QπM (s, a ) + βpVepistemic [QπM ] where Vepistemic here denotes the epistemic uncertainty with respect to QπM . The random variable is the model M , and the uncertainty stems from the model not necessarily being aligned with reality. We refer to Oren et al. (2025a) for more detail. Similarly, Iopt can be used to maximize arg max π′
+
+P 
+
+> a∈A
+
+U π (s, a )π′(a|s) in the same manner it is used to maximize arg max π′
+
+P 
+
+> a∈A
+
+Qπ (s, a )π′(a|s). We leave investigating the effect of such operator on the exploration policy to future work. However, we can predict that the operator has the same underlying effect: actions with certain high UCB will be favored, actions with certain low UCB will be unfavored, and actions with uncertain UCB will not be strongly modified in the exploration policy. 
+
+## C CONNECTIONS TO PRIOR WORK IN MORE DETAIL 
+
+Control as Inference (CAI) and ”Optimal Control” (Levine, 2018; Kappen et al., 2012) formulate finding a policy that maximizes expected return as a probabilistic inference problem in a graphical model. Trajectories are treated as latent variables generated by the dynamics P and a prior policy π.Rewards are incorporated as likelihood terms by introducing binary optimality variables Ot such that 
+
+p(Ot = 1 |st, a t) ∝ exp( r(st, a t)/η ). Inference in this model leads to the ”soft-optimal” state value function V π′
+
+> soft
+
+(s) and action-value function Qπ′
+
+> soft
+
+(s, a ) : 
+
+Qsoft (s, a ) = r(s, a ) + γEs′∼P (·| s,a )[Vsoft (s′)] , (130) 
+
+Vsoft (s) = η log X
+
+> a
+
+π(a|s) exp ( Qsoft (s, a )/η ) . (131) The so-called ”soft-optimal” policy π′ is given by: 
+
+π′(a|s) = Icai (π, Q π′
+
+)( a|s) = π(a|s) exp   Qπ′
+
+> soft
+
+(s, a ) − V π′
+
+> soft
+
+(s)
+
+η
+
+ = π(a|s) exp   Aπ′
+
+> soft
+
+(s, a )
+
+η
+
+.
+
+In practice, the agent does not have access to Qπ′
+
+> soft
+
+, V π′ 
+
+> soft
+
+and therefore Qπ 
+
+> soft
+
+≈ Qπ′
+
+> soft
+
+, V π 
+
+> soft
+
+≈ V π′
+
+> soft
+
+is used. This is equivalent to Ireg with Aπ (except for softness, which is often omitted in practice (Hansen et al., 2024; de Vries et al., 2025)), and equivalently to Iopt with σ2ˆAπ (s, a ) = σ, a notion of uniform uncertainty across all state-action pairs. This is also the operator used by MPO (Abdolmaleki et al., 2018). Section 4 suggests that it is more accurate to interpret Icai as producing a notion of optimal improve-ment with respect to π rather than as producing an approximation of the (soft) optimal policy . It also shows how this operator emerges naturally from modeling policy improvement under evalua-tion uncertainty, without necessitating the modified objective, soft-values and non-trivial additional complexity resulting from modeling RL as a probabilistic inference problem. 
+
+Mirror Descent (MD) and The Natural Policy Gradient (NPG) (Tomar et al., 2022; Kakade, 2001) connect to Ireg in the finite tabular setting with direct policy parameterization. For a KL-Bregman divergence, the exact PMD update with step size αk > 0 has the state-wise form (Xiao, 2022) 
+
+πk+1 (a | s) ∝ πk(a | s) exp ( αkQπk (s, a )) 
+
+∝ πk(a | s) exp ( αkAπk (s, a )) . (132) Xiao (2022) identifies this exact policy-space update with NPG. Thus, using our inverse-step-size notation η = 1 /α k, the update is precisely Ireg .
+
+Trust Region Policy Optimization (Schulman et al., 2015; 2017) bounds the approximation error between the true RL objective and a local surrogate by constraining the policy update within a trust region defined by KL (π′|π) ≤ δ. Neu et al. (2017) analyze an exact, additively KL-regularized TRPO surrogate in which the current policy is fully evaluated and the current-policy state distribution is held fixed: 
+
+πk+1 ∈ arg max 
+
+> π′
+
+X
+
+> s
+
+dπk (s)
+
+"X
+
+> a
+
+π′(a | s)Aπk (s, a ) − ηD KL (π′(· | s) ∥ πk(· | s)) 
+
+#
+
+. (133) 30 Preprint Its exact tabular solution is 
+
+πk+1 (a | s) ∝ πk(a | s) exp ( Aπk (s, a )/η ) . (134) which is exactly Ireg .
+
+Regularized Policy Optimization is motivated from the perspective of greedy updates often being unstable in practice (Neu et al., 2017). It models policy optimization using a weighted regularizer 
+
+ηR(π′, π ) (left), which is often chosen to be ηKL (π′|π), recovering (right, Grill et al., 2020): 
+
+arg max 
+
+> π′
+
+X
+
+> a∈A
+
+π′(a|s)Qπ (s, a ) − ηR(π′(s), π (s)) , Ireg (π, Q π )( a|s) = π(a|s) exp( Qπ (s, a )/η ).
+
+In view of Iopt , we can see that R(π′, π ) connects to a Bayesian prior p(π′|π). Similarly, η(s, a )
+
+allows Iopt to regularize each state action differently , as a function of the certainty in the advantage 
+
+A(s, a ).
+
+## D PSEUDO CODE 
+
+Algorithm 1 Generalized Policy Iteration 
+
+1: For starting functions q ∈ Q , π ∈ Π greedification operator I, k ≥ 1 and δ > 0
+
+2: while max 
+
+> s∈S
+
+X
+
+> a∈A
+
+π(a|s)q(s, a ) − max  
+
+> b
+
+q(s, b ) > δ or max  
+
+> (s,a )∈S×A
+
+|q(s, a ) − T ∗q(s, a )| > δ 
+
+do 
+
+3: q(s, a ) ← (T π )kq(s, a ), ∀(s, a ) ∈ S × A 
+
+4: π(s) ← I (π, q )( s), ∀s ∈ S 
+
+5: end while 
+
+The Bellman update T π is defined as: T π qi(s, a ) = E[R(s, a )] + γEs′∼P [P 
+
+> a′∈A
+
+π(a′|s′)qi(s′, a ′)] .The notation (T π )k defines k repeating Bellman updates of this form with the same policy π,repeatedly updating the value q. T ∗ denotes the Bellman optimality operator, T ∗qi(s, a ) =
+
+E[R(s, a )] + γEs′∼P [max a′∈A q(s′, a ′)] .
+
+Algorithm 2 Simplified Model Based RL Training Loop with Modular Search 
+
+Require: Search algorithm (planner) P, neural networks πθ1 , v ϕ1 , replay buffer D1 = ∅, environ-ment’s dynamics model M = ( P, R ) and budget parameters B.
+
+1: for episode n = 1 to N do 
+
+2: Sample starting state s1 ∼ ρ.
+
+3: for step t = 1 in the environment to termination or timeout do 
+
+4: πsearch (st), V search (st) ← P (πθn , v ϕn , M, B )( st).
+
+5: at ∼ πsearch (st).
+
+6: st+1 ∼ P (·| st, a t), rt ∼ R(st, a t).
+
+7: Append (st, a t, r t, s t+1 , π search (st), V search (st)) to buffer Dn.
+
+8: end for 
+
+9: Update policy params θn+1 with SGD and CE loss on targets πsearch from Dn.
+
+10: Update value params ϕn+1 with SGD and MSE loss on TD-λ targets using Vsearch from Dn.
+
+11: Set Dn+1 ← D n.
+
+12: end for 
+
+## E EXPERIMENTAL AND IMPLEMENTATION DETAILS 
+
+E.1 POLICY ITERATION EXPERIMENTS 
+
+The generalized Policy Iteration algorithm which accepts different policy improvement operators is described in Algorithm 1. In these experiments, we vary the improvement operator I used by the 31 Preprint algorithm across different types of evaluation. Two evaluation methods are used: exact evaluation 
+
+(k → ∞ ) computed via matrix inversion and a single Bellman backup per iteration ( k = 1 ), similar to Value Iteration and TD-learning. Following both evaluation steps, the value is noised with independent zero-mean Gaussian noise with state-action-specific variances. The experiments’ results are presented in Figure 1 and Appendix F. 
+
+Environments. The environments used in this experiment are infinite horizon grid-world mazes, using the ShinRL framework (Kitamura & Yonetani, 2021). To vary the transition and reward dynamics we generate 20 fixed randomly generated MDPs and run several trials per algorithm in each (Table 3). Every trial starts from the uniform policy π0(a|s) = 1 /|A| .
+
+Noise schedule. At each iteration every state–action pair draws a fresh variance: 
+
+ci ∼ U  0, a 0γ i
+
+> dec
+
+, σ2 
+
+> Qi
+
+(s, a ) ∼ U  ci, c i + b, ˆQπi (s, a ) ∼ N  Qπi (s, a ), σ 2 
+
+> Qi
+
+(s, a ). (135) All constants are specified in Table 3. A random half of the pairs instead keeps σ2 
+
+> Qi
+
+∼ U (0 , 1) at every iteration to keep the variances of very mixed sizes, simulating the larger-error predictions from poorly or newly visited areas of the state space, as well as lower-error predictions of well visited, in RL. The floor ci decays as well, further simulating the reduction in evaluation error over the training process. 
+
+Operators compared. All operators act on the noisy ˆQπi and its advantage ˆAπi (s, a ) = ˆQπi (s, a ) −
+
+P 
+
+> b
+
+πi(b|s) ˆQπi (s, b ). Writing σ2ˆA for the advantage variance of Equation 10, the different operators are defined as follows: 
+
+Iopt (πi, ˆQπi )( a|s) ∝ πi(a|s) exp 
+
+ τ 2  
+
+> (τ2+σ2ˆA(s,a )) β
+
+ˆAπi (s, a )
+
+
+
+, (136) 
+
+Ireg (πi, ˆQπi )( a|s) ∝ πi(a|s) exp   ˆAπi (s, a )/η , (137) 
+
+Iarg max (πi, ˆQπi )( a|s) = arg max 
+
+> a
+
+ˆQπi (s, a ), (138) 
+
+Icpi (πi, ˆQπi )( s) = (1 − αi)πi(s) + αi arg max a ˆQπi (s, a ). (139) 
+
+Icpi (Kakade & Langford, 2002) interpolates towards the greedy policy rather than jumping to it. For αi we use Pirotta et al. (2013)’s more recent form, αi ∝ (1 −γ)2 
+
+> γ
+
+· |S| −1 P    
+
+> sB(s)max sB(s)−min s′B(s′)
+
+with 
+
+B(s) = P
+
+> a
+
+(πgreedy (a|s) − πi(a|s)) ˆQπi (s, a ).In addition, we include pessimistic (LCB) variants of Iarg max and Ireg to investigate the differences between the effect of Iopt ’s uncertainty awareness and standard pessimism. They receive the same 
+
+σ2 
+
+> Qi
+
+of Equation 135 but spend it as a value penalty, ˆQLCB  
+
+> i
+
+(s, a ) = ˆQπi (s, a ) − λ
+
+q
+
+σ2 
+
+> Qi
+
+(s, a ), before the unmodified operator is applied. 
+
+Score. Returns are min–max normalised per environment, V πi
+
+> norm
+
+(s0) = V πi (s0)−V π0 (s0)    
+
+> V∗(s0)−Vπ0(s0)
+
+, where V π0
+
+is the uniform policy and V ∗ is obtained per seed by running a noise-free arg max operator to conver-gence. Comparison and tuning use the normalised area under the curve, AUC = T −1 PTi=1 V πi
+
+> norm
+
+(s0).Curves aggregate all Nenvs · Ntrials = 2000 scores per iteration. Every aggregate interval holds the environments fixed and treats only seeds as random, so that Var = N −2
+
+> envs
+
+P 
+
+> e
+
+σ2 
+
+> e
+
+/n e with σ2 
+
+> e
+
+the across-seed variance inside environment e. The hyperparameters for all operators were tuned with an extensive grid search, described in more detail in Appendix G. E.2 DISCRETE -A CTION MODEL BASED RL (G UMBEL ALPHA ZERO ON BOARD GAMES )GumbelAlphaZero uses GumbelMCTS to drive policy improvement and action selection in RL. The GumbelMCTS algorithm is a modern variant of the MCTS algorithm which uses greedification operators directly within the search to drive policy improvement at the root. In broad strokes, MCTS is an iterative algorithm that constructs a search tree and uses statistics to direct its search towards increasingly more promising directions. In each iteration, the algorithm traverses the tree from the root using a search policy πi = Ireg (πθ , Q i), where πθ , often called the prior policy , the policy trained by the RL algorithm, and Qi is the aggregated value observed during search. When search arrives at an as-of-yet un-expanded action a at a node sT (a leaf in the tree), the node is expanded, evaluating 
+
+sT +1 ∼ P (·| sT , a ), Q i(sT , a ) = rT + γV ψ (sT +1 ). The reward and transition models are both 32 Preprint usually assumed to be deterministic. After the expansion step, the new information rT + γV ψ (sT +1 )
+
+observed in the expansion is backpropagated throughout the entire search trajectory all the way back to the root, the iteration has completed, and the next iteration starts from the top. The number of iterations, which is also the number of expansions, M , is the common compute budget considered for MCTS, as in many cases the DNN forward-pass-based expansion is the cost’s bottleneck. The GumbelAlphaZero (GAZ) algorithm is a natural test-bed for Iopt : its visit counts provide a natural state-action evaluation-variance estimator under the classical sample-mean interpretation of MCTS and its DNN-based evaluations test Iopt in fully the modern deep-RL setting. Finally, it already has a clear interpretation as using iterative greedification within the tree for policy improvement outside the tree, with Ireg .
+
+Evaluation in board game, a standard, hard, benchmark domain for RL and MCTS, is very expensive: the agents take relatively large number of steps before they have well functioning policies. To achieve high-quality training curves, the evaluation requires comparing every checkpoint to every other checkpoint across a large number of games, where each agent uses MCTS variants with the checkpoint’s DNN. Due to the high cost of this evaluation, we run two different experiments, answering two faces of the same question - how does GumbelAlphaZero perform when Ireg is replaced with Iopt ?
+
+In the first experiment we compare 4 agents: with and without a Qϕ critic, and with and without Iopt 
+
+in place of Ireg . This experiment allows us to evaluate which operator, in and out of the presence of the additional critic, produces better learning? This is the experiment presented in Figure 1. In the second experiment we compare 6 agents - the same 4 with additionally a vanilla-AlphaZero (Silver et al., 2018) PUCT-based (Silver et al., 2016; Rosin, 2011) agent, with and without a Qϕ critic. In this experiment, we use the same DNNs ( πθ , V ψ , Q ϕ) for all agents ( Qϕ when relevant). Rather than learning curves, this produces the playing strength of MCTS with each operator. This answers the question what is the direct contribution of each operator to action selection - playing strength - when all else is equal? We also repeat this experiment across different planning budgets M and in two environments: chess and 9x9 Go, allowing us to answer this question much more comprehensively. The experiments’ results are presented in Figure 1 in Section 6 and Figures 4 and 5 in Appendix F. E.2.1 THE OPERATOR 
+
+GumbelMCTS (Danihelka et al., 2022) uses Ireg for three purposes: (I) Policy improvement at the root of the tree, once search has concluded. (II) To drive the search at the root, using Sequential Halving (Karnin et al., 2013). (III) To drive the search within the tree, deciding which action to select at each state (each node) in the search tree. All three use the completed Q-values mechanism and a single node-level coefficient: 
+
+Ireg (πθ , Q i)( a|s) ∝ πθ (a|s) exp 
+
+ 1
+
+η(s) Qi(s, a )
+
+
+
+, 1
+
+η(s) = cscale 
+
+ cvisit + max  
+
+> b∈A
+
+N (s, b ), (140) where N (s, a ) is the number of simulations that have passed through (s, a ) and Qi is the value estimated by the search tree at search iteration i. This coefficient is a heuristic for the variance reduction produced by repeated evaluation: under a fixed rollout distribution and independent sampling, the variance of a sample mean decreases as 1/N (s, a ), so the inverse visit count is proportional to the variance. We replace every use of Ireg with Iopt , setting σ2
+
+> Q
+
+(s, a ) ∝ 1/N (s, a ), the corresponding classical evaluation variance estimator, obtain σ2
+
+> A
+
+(s, a ) from Equation 10, and η(s, a ) from Equation 19: 
+
+Iopt (πθ , Q i)( a|s) ∝ πθ (a|s) exp 
+
+ 1
+
+η(s, a ) Ai(s, a )
+
+
+
+. (141) To avoid division by zero, actions the search has not visited take N (s, a ) = 1 , and all other actions add additionally the number of evaluations through the node. The value of actions the search has not visited is completed by the network’s per-action Qϕ(s, a ) where a Q head is available and otherwise by the completed-Q value mechanism used by Danihelka et al. (2022). 33 Preprint E.2.2 TRAINING THE ACTOR AND THE CRITICS 
+
+The actor πθ is trained in the standard GumbelAlphaZero manner, with a cross entropy loss with the target πsearch (s) = I(πθ , Q M ), the improved policy at the root of the search tree at the last iteration 
+
+M (Danihelka et al., 2022). Baseline GumbelAlphaZero uses Ireg , while our version uses Iopt .The state-value critic Vψ (s) is trained with MSE loss with the modern model-based target Vsearch (s) = P 
+
+> a∈B
+
+¯πsearch (a|s)QM (s, a ) (Oren et al., 2025a; de Vries et al., 2025; Oren et al., 2026a;b). The set 
+
+B denotes the set of all searched actions at the root, and the ¯πsearch the improved policy at the root, renormalized only over the searched actions. MCTS does not traditionally train a Q-head, although it has been tried before (Gao et al., 2018). How-ever, since the popular, canonical approaches, AlphaZero (Silver et al., 2018), MuZero (Schrittwieser et al., 2020) and GumbelAlpha/MuZero (Danihelka et al., 2022) from DeepMind do not use a Q head, there is no one accepted canonical approach. Building on recent ideas and developments from MCTS and AlphaZero/MuZero literature (Oren et al., 2025a; 2026a) we train the Q-network as follows. The search at the root splits the action set in three, each receiving a different target: 1. Searched actions (N (s, a ) > 0) take the tree’s own backed-up value Qi at the end of search. 2. Bootstrapped actions: L of the unsearched legal actions are sampled from the improved policy at the end of search, without replacement and given the one-step TD-style target 
+
+T (s, a ) = r(s, a ) + γ V ψ (s′).3. All other actions receive no target and contribute zero gradient. The error vs. the target is measured with MSE. Each searched action is weighted by p1 + N (s, a ), i.e. by inverse standard error rather than inverse variance. Precision weighting (1 + N ) is maximum-likelihood only for unbiased targets, and these are not: an action is most-visited partly because its early estimates looked good, so its backup carries a winner’s curse that does not shrink like 1/N . Bootstrapped actions get unit weight; their noise is that of Vψ (s′) and is not on the √1 + N scale. The weighted regression constrains only actions that received a target, so we add one scalar constraint per state: the improved policy at the root πsearch -weighted mean of Qϕ must match the same mean over the tree’s completed values, with the target treated as a constant, providing some learning signal to all actions. The total loss is L = Lπ + Lv + λq Lq , with Lπ the cross-entropy against the improved policy over legal actions, Lv the squared error on the value head, and Lq the sum of the weighted regression and the calibration term. Hyperparameters are specified in Table 4. E.2.3 EVALUATION ACROSS TRAINING 
+
+Training. We use pgx (Koyamada et al., 2023) implementation of 9 × 9 Go and chess. All agents follow the training scheme of AlphaZero (Silver et al., 2018; Danihelka et al., 2022, Algorithm 2). Actions are sampled randomly from the acting policy for the first 8 moves and then acting is deterministic. The acting policy follows the conventions of AlphaZero and GumbelAlphaZero (visits at the root, and / or the action chosen by Sequential Halving in the GumbelAlphaZero case, see (Danihelka et al., 2022) and (Karnin et al., 2013)). All agents share every hyperparameter except the operator and the Q head, detailed in Table 4. 
+
+Evaluation. Evaluation with Bayes elo is conducted by playing every DNN checkpoint and search pair against every other. We train 5 seeds per agent and evaluate all of them in one tournament, so every checkpoint of every seed plays every other and the whole set is fitted on a single Elo scale. The results are presented in Figure 4. We report the mean over seeds and the minimum and maximum elo observed over seeds. BayesElo’s own interval is reported per seed. 34 Preprint E.2.4 EVALUATION AT A FIXED NETWORK 
+
+Setup. In the equalized-DNNs experiment, all agents use the same checkpoint trained with GAZ + 
+
+Qϕ, to make sure no advantage is given to Iopt from training its own networks. 
+
+Evaluation. Agents play a round robin from a fixed opening book, with every pairing played in both colours so that a first-move advantage term is not identifiable. Elo is fitted with BayesElo holding the colour-advantage at zero. E.3 CLASSICAL CONTROL MODEL -F REE RL (SAC ON DMC) 
+
+The Operator. SAC can be interpreted as policy iteration with the regularized policy-improvement operator πi+1 (a|s) = Ireg 
+
+
+
+μ, ˆQπi
+
+> soft
+
+
+
+(a|s). In a tabular or discrete-action setting, this improved policy can be computed explicitly over the action space. With a parameterized policy πθ , the improved policy can be projected onto the policy class directly using a KL loss with respect to the target πi+1 .In continuous-action settings, explicit construction and projection of the improved policy πi+1 (a|s)
+
+can also be performed using sampled actions, as in MPO (Abdolmaleki et al., 2018). This is not, however, the approach taken by commonly used continuous-action implementations of SAC. In popular implementations (Huang et al. (2022)’s implementation for example which we use in the experiments), the actor is optimized directly using the reparameterized loss 
+
+L(θ) = η log πθ (aθ |s) − Asoft (s, a θ ), (142) where aθ = fθ (ϵ; s), with ϵ denoting sampled noise. The reparameterization trick allows gradients to propagate through the sampled action to the policy parameters (Haarnoja et al., 2018). Here, using 
+
+Asoft instead of Qsoft is equivalent for the actor optimization, since Asoft (s, a ) = Qsoft (s, a ) −
+
+Vsoft (s), and Vsoft (s) is independent of the action and therefore does not affect the gradient with respect to θ.Thus, rather than explicitly constructing and projecting onto the improved policy, SAC directly optimizes the regularized objective whose unconstrained policy-space optimum is Ireg .Our objective is to evaluate whether Iopt can directly improve existing RL algorithms while retaining their practical design choices and tuning procedures. We therefore preserve the direct gradient-based actor optimization used by SAC. To incorporate Iopt while retaining SAC’s self-tuned temperature parameter, we set η = βτ 2 and incorporate the uncertainty-dependent weighting prescribed by Iopt .Specifically, we use 
+
+LIopt (θ) = η log πθ (aθ |s) − Asoft (s, a θ )
+
+τ 2 + σ2 
+
+> Asoft
+
+(s, a θ ) . (143) This leaves τ 2 as the only additional hyperparameter introduced by Iopt .For the uncertainty estimate, rather than combining the variances of the two value estimates as in Equation 10, which neglects their covariance, we compute the advantage separately using each critic and estimate its variance from their disagreement: 
+
+σ2 
+
+> Asoft
+
+(s, a θ ) = Var i
+
+Qϕi (s, a θ ) − Eb∼πθ (·| s)
+
+Qϕi (s, b ) . (144) The inner expectation is each critic’s own state value Vϕi (s), estimated by Monte Carlo with 32 
+
+actions drawn from πθ (·| s) at that state. Each critic therefore forms its own advantage of the sampled action aθ over the policy’s value, and the variance across critics of those advantage estimates is the uncertainty estimate. Centring each critic on its own value removes that critic’s state-dependent bias, so what remains is disagreement about the action rather than about the state; with the two critics used here the estimator reduces to 12 (A1 − A2)2. This requires no additional networks, at the cost of 32 
+
+further action samples and critic evaluations per state. The implementation weights Qsoft (s, a θ ) rather than Asoft (s, a θ ) in Equation 143; since the detached weight is treated as constant during differentiation, the two give identical actor gradients, by the argument given above for Equation 142. 35 Preprint In this implementation, gradients are stopped through the uncertainty estimate σ2 
+
+> Asoft
+
+(s, a θ ). Conse-quently, uncertainty determines the weighting assigned to each sampled state-action gradient, but does not contribute directly to the gradient through its dependence on the action. In particular, the resulting update retains the term: 
+
+1
+
+τ 2 + σ2 
+
+> Asoft
+
+(s, a θ ) ∇θ Asoft (s, a θ ), (145) while omitting the gradient of the uncertainty-dependent weight itself. Because gradients are stopped through the uncertainty estimate, uncertainty introduces no additional action-space gradient through 
+
+∇aσ2 
+
+> Asoft
+
+. For each sampled state-action pair, it only positively rescales the ordinary advantage gradient in Equation 143. Thus, under direct optimization of a single action at a fixed state, it does not change the stationary points or maximizers of the Q term. As demonstrated in our experiments, this approximation is sufficient to improve performance while retaining the original SAC optimization procedure. 
+
+Setup. We use ten popular DeepMind Control Suite tasks (Tunyasuvunakool et al., 2020) and train the agents up to 1 M steps. The environments are: cheetah-run , humanoid-run ,
+
+quadruped-run , fish-swim , humanoid-stand , quadruped-walk , hopper-hop ,
+
+humanoid-walk , walker-walk and hopper-stand .
+
+Metric and aggregation. Returns are min–max normalised per task over all seeds and then aggregated per agent across domains. We report the performance after 1M steps. Hyperparameters are specified in Appendix G, Table 5. E.4 OFFLINE RL (R EBRAC ON D4RL) 
+
+The Operator. ReBRAC (Tarasov et al., 2023) trains a deterministic actor to maximize 
+
+Qϕ(s, π θ (s)) under a behavior-cloning penalty. This penalty serves as the behavior-regularization term corresponding to the divergence from the prior in Equation 16. A deterministic actor does not provide a tractable Boltzmann policy target to project onto, as in the SAC case (Appendix E.3). We therefore apply the coefficient prescribed by Equation 19 directly to ReBRAC’s policy-improvement term: 
+
+LIopt (θ) = − λβτ 2
+
+τ 2 + σ2ˆA(s, a ) Qϕ
+
+ s, π θ (s) + β1 ∥πθ (s) − a∥22 . (146) The advantage with respect to a policy π and its value functions Qπ and V π is defined as Aπ (s, a ) = 
+
+Qπ (s, a ) − V π (s). In ReBRAC, however, the policy being evaluated and the policy serving as the behavior-regularization reference differ. The critic Qϕ ≈ Qπθ evaluates the learned policy πθ , while the behavior policy πb, represented by the actions in the offline dataset, serves as the reference toward which the actor is regularized. We therefore use: 
+
+ˆA(s, a ) = Qϕ
+
+ s, π θ (s) − Qϕ(s, a ), Qϕ(s, ·) = min  
+
+> i
+
+Qϕi (s, ·), (147) as the improvement quantity for constructing the uncertainty estimate. This quantity measures the predicted improvement of the learned action relative to ReBRAC’s behavior reference, with both actions evaluated by the learned critic. Since the dataset action a does not depend on the actor parameters, we have: 
+
+∇θ ˆA(s, a ) = ∇θ Qϕ
+
+ s, π θ (s), (148) and hence ˆA induces exactly the same actor gradient as ReBRAC’s original Q-maximization term when their coefficients are fixed. Estimating uncertainty in this difference therefore measures critic disagreement about the improvement of the learned action relative to the behavior action, rather than disagreement about their absolute values. To estimate this uncertainty, rather than combining the variances of the two value estimates as in Equation 10, which neglects their covariance, we compute the improvement separately using each 36 Preprint critic and estimate its variance from their disagreement: 
+
+σ2ˆA(s, a ) = Var i
+
+Qϕi
+
+ s, π θ (s) − Qϕi (s, a ) . (149) That is, each critic evaluates both the current policy action πθ (s) and the dataset action a, and the variance across critics of the resulting improvement estimates is used as the uncertainty estimate. Evaluating both actions with the same critic also allows errors shared between the two evaluations to cancel in their difference, rather than treating the two value estimates as independent sources of uncertainty. The resulting quantity therefore captures critic-ensemble disagreement about the estimated improvement of the current policy action over the action observed in the data. This requires no additional networks: with two critics, each critic evaluates both action inputs, in addition to the single actor evaluation required to obtain πθ (s).Writing 
+
+w(s, a ) = τ 2
+
+τ 2 + σ2ˆA(s, a ) (150) for the uncertainty-dependent coefficient, which is treated as constant with respect to the actor gradient, we apply w(s, a ) directly to ReBRAC’s original Q-maximization term. ReBRAC’s Q-scale normalizer λ is correspondingly computed from the weighted term as it actually enters the loss: 
+
+λ =  E(s,a )∼D 
+
+ w(s, a )Qϕ
+
+ s, π θ (s)  −1 . (151) This replaces ReBRAC’s original normalizer 
+
+ E(s,a )∼D 
+
+ Qϕ
+
+ s, π θ (s)  −1 , (152) so that ReBRAC’s Q-maximization term remains scale-normalized after introducing the uncertainty weighting. Although ˆA(s, a ) and Qϕ(s, π θ (s)) induce identical actor gradients when their coefficients are fixed, their numerical values generally differ and they are therefore not interchangeable inside the scale normalizer. Computing λ from E[|w(s, a ) ˆA(s, a )|] instead would generally produce a different λ,thereby changing the relative scale of the policy-improvement gradient and the behavior-cloning gradient. Equation 151 instead preserves ReBRAC’s normalization convention by forming λ from the weighted Q-maximization term that actually enters Equation 146. In particular, when w(s, a ) = 1 ,Equation 151 recovers ReBRAC’s original normalizer. The critic, both behavior-cloning coefficients, and all other components of ReBRAC are left un-changed. 
+
+Setup. Four D4RL (Fu et al., 2020) Gym-MuJoCo medium-replay datasets: halfcheetah , hopper ,
+
+walker2d and ant . Each run trains for 1M gradient steps. 
+
+Metric. The reported metric is the final policy evaluated over 56 episodes. The offline bar of Figure 1 is min–max normalised per environment over the runs of both arms and then averaged over the four environments, the normalisation the SAC bar of the same figure uses. Table 1 instead reports raw D4RL points ( 0 = random, 100 = expert). 
+
+## F ADDITIONAL RESULTS 
+
+In this section we provide additional results across the different experiment settings presented in Figure 1 in Section 6. These include the individual results aggregated in Figure 1, the behavior of the hyperparameters introduced with Iopt and additional experiments to answer specific research questions and further investigate the contribution of Iopt to performance in different domains and algorithms. F.1 DYNAMIC PROGRAMMING ADDITIONAL RESULTS 
+
+F.1.1 GENERALIZED POLICY ITERATION WITH k → ∞ 
+
+We include a set of additional experiments and results in the Policy Iteration setup presented in Figure 1. In Figure 2 left we provide the full learning curves (improvement of the value of the starting state across iterations), summarized in Figure 1. 37 Preprint In Figure 2 center we show the sample efficiency, measured as area under the curve (AUC), across increasing starting values of the noise schedule. We see that the dominance of Iopt grows significantly as the error grows. In Figure 2 right we investigate the dependence of the operator on the hyperparameters β, τ, which show a smooth ridge behavior, concentrating around smaller β and τ . This also supports the operator’s ability to exploit σA, as the effect of σA reduces with the size of τ , and the larger τ the worse the performance. 0 20 40 60 80 100          
+
+> Iterations
+> 0.2 0.4 0.6 0.8 1.0
+> Mean Normalized  V (s0)
+> opt reg reg + pess. argmax + pess. argmax cpi Optimum 10 210 3
+> Initial-Noise Magnitude
+> 0.2 0.4 0.6 0.8 1.0
+> Mean AUC of  V (s0)
+> 10 210 110 010 110 2
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> 0.0 0.2 0.4 0.6 0.8
+> AUC
+
+Figure 2: Policy Iteration experiments with different policy improvement operators and uncertain evaluation, mean and 95% Gaussian CI. Left: Example learning curves. Center: Sample-efficiency vs. starting noise magnitude, measured as Area Under the Curve (AUC) of learning curves until 100 iterations (higher is better). Right: AUC vs. hyperparameter combination. The performance landscape exhibits a single broad ridge of high performance, with performance degrading smoothly away from the ridge. F.1.2 GENERALIZED POLICY ITERATION WITH k = 1 
+
+In the majority of practical RL settings, we would not expect the evaluation to be truly unbiased (H¨ ullermeier & Waegeman, 2021). To investigate the behavior of Iopt in a setting that violates this idealized unbiased-evaluation assumption while remaining controlled (decoupled from additional effects such as exploration, whether there are true Gaussian components to the error, etc.), we repeat the Policy Iteration experiment presented in Figure 2 exactly but with k = 1 . That is, rather than exact evaluation followed by Gaussian noise, we use a single Bellman backup followed by the same noise, introducing approximation and bootstrapping error relative to Qπi in the manner of Value Iteration and TD learning. The results are presented in Figure 3. In Figure 3 left we see a single set of learning curves, where the conclusion holds: Iopt remains the best performer, albeit with a smaller advantage. In Figure 3 center we see the behavior with growing error schedules. Although Iopt remains the best performer, the advantage, which previously increased with error, now remains much more constant. In Figure 3 right we see that the behavior of the hyperparameters remains similar in that it is roughly a ridge, however the values of the optimal τ and β are now much larger. 0 200 400 600 800 1000          
+
+> Iterations
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Mean Normalized  V (s0)
+> opt reg reg + pess. argmax + pess. argmax cpi Optimum 10 310 4
+> Initial-Noise Magnitude
+> 0.2 0.4 0.6 0.8 1.0
+> Mean AUC of  V (s0)
+> 10 210 110 010 110 2
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> 0.1 0.2 0.3 0.4 0.5 0.6
+> AUC
+
+Figure 3: Policy Iteration with a 1-step Bellman update ( k = 1 ), otherwise identical to Figure 2. 38 Preprint 5 10 15 20 25 30 35 
+
+> Self-play frames (millions)
+> 250
+> 0250 500 750 1000 1250
+> Bayes Elo
+> GAZ +opt + Q
+> GAZ +opt GAZ GAZ + Q
+
+Figure 4: Playing strength in training on 9 × 9 Go with M = 64 . Every checkpoint of every agent and every seed plays every other resulting in a single set of Elo scores. Bold curves are the mean over 5 training seeds per agent. Faint curves are the seeds themselves, with 95% BayesElo CI. F.2 DISCRETE -ACTION MODEL -BASED , ADDITIONAL RESULTS 
+
+The contribution of Iopt to search-based policy improvement can be evaluated in different ways. In Figure 1 we include the comprehensive evaluation, comparing the strength of the agent that learns with each search variant, and then evaluates with it. We include checkpoints during training of all seeds of all agents in a single tournament below. Additionally, the contribution of Iopt to search based policy improvement can be evaluated more directly by comparing the playing strength of different MCTS variants using a single set of DNNs πθ , V ψ , Q ϕ in all variants. We include this comparison second. Since this comparison is much less compute intensive, we are able to expand it along an additional MCTS variant, PUCT, which is used by vanilla AlphaZero and in an additional environment, chess, and along different search-budgets M . Additionally, we include an investigation of the behavior of the error in MCTS with DNNs, where we find that indeed the Qϕ residuals have higher variance than the Vψ residuals. F.2.1 ELO -BASED LEARNING CURVES ACROSS AGENTS AND SEEDS 
+
+We include the complete learning curves across seeds in Figure 4. All training checkpoints of all agents play against all other checkpoints and each other, forming true Bayes-Elo curves. F.2.2 PLAYING STRENGTH ACROSS BUDGETS M AND GAMES 9X9 G O AND CHESS 
+
+We evaluate the effect of different operators used for search in MCTS for playing strength directly. We use the same set of DNNs for all agents to isolate the effect of the search operator and avoid confounding it with differences in network training. The DNNs were trained with GumbelAlphaZero rather than with Iopt . The results are presented in Figure 5. Across all M and both games, Iopt paired with Qϕ outperforms all other variants. Across most values of M , Iopt matches or outperforms Ireg . However, this does not hold for small values of M = 8 , 24 ,
+
+demonstrating a certain apparent dependence of Iopt . We note that only one set of hyperparameters was used for all agents, so we would not extract the conclusion here that one agent is better than the others in a certain M, but rather that the target budget should be taken into account when tuning the hyper parameters of each agent (see the next subsection in this Appendix, discussing tuning the parameters of Iopt ). PUCT is the worst performer in almost all domains, but benefits much more from Qϕ than Ireg ,
+
+which could be expected due to its explicit dependence on a Qϕ prediction per state and action, and lack of the completed-Q-values mechanism developed by Danihelka et al. (2022) for GumbelMCTS. Nonetheless, PUCT + Qϕ never competed with Iopt in playing strength in these experiments. 39 Preprint 050 100 150 200                
+
+> 9x9 Go Elo (AZ = 0)
+> M=8, K=4 M=24, K=8 M=64, K=16 M=128, K=16 M=256, K=16
+> 0100 200 300 400
+> Chess Elo (AZ = 0)
+> GumbelMCTS + opt +Qϕ
+> GumbelMCTS GumbelMCTS + opt
+> PUCT MCTS + Qϕ
+> GumbelMCTS + Qϕ
+> PUCT MCTS
+
+Figure 5: Playing strength per agent with the same set of DNNs. Bayes elo and 95% CIs. F.3 INVESTIGATION OF ERROR IN MCTS WITH DNN S
+
+In Section 6 we hypothesize that Iopt can be expected to benefit significantly from a Qϕ critic over the completed-Q-values mechanism used by baseline GumbelAlphaZero (GAZ), for two complementary reasons. On the one hand, the increased information provided by a unique Qπθ prediction per state and action, compared to a single prediction of V πθ (s) replacing the prediction of the value of every action. On the other hand, the presence of larger prediction variance in Qϕ for which Iopt is designed to account and Ireg is not. In this section, we investigate the behavior of the error empirically and whether this hypothesis is supported. In addition, we investigate to what extent the DNN evaluation residuals agree with the heteroscedastic Gaussian model used by Iopt . Since we do not have access to the ground-truth Qπθ or V πθ in 9x9 Go, we use one-step TD-style residuals as a proxy for evaluation error. We take a single set of DNNs 
+
+πθ , Q ϕ, V ψ and 8,192 positions drawn without replacement from the opening book. For every legal action we compute the one-step bootstrap target T (s, a ) = r(s, a ) + γV ψ (s′) and measure the signed residuals eV , e Q as follows: 
+
+eV (s) = P 
+
+> a
+
+π(a|s) T (s, a ) − Vψ (s), eQ(s, a ) = T (s, a ) − Qϕ(s, a ), (153) one per state and one per action at the state, respectively. The results are reported in Figure 6. On the left, we plot the variance, computed as 1
+
+> |S|
+
+P 
+
+> (s,a )∈S
+
+eQ(s, a )2 −   1
+
+> |S|
+
+P 
+
+> (s,a )∈S
+
+eQ(s, a )2
+
+over each action subset S, and the same over states for eV . As expected, the variance is larger for Qϕ
+
+than for Vψ , and increases as the degree of search and the quality (and weight) of the targets provided to the Qϕ critic reduces. On the right, we center and scale eQ per position and compare the standardized residual distribution to N (0 , 1) . The bulk is approximately Gaussian, with heavier tails, supporting the heteroscedastic Gaussian model as a useful approximation. 40 Preprint V Q            
+
+> top-
+> Q
+> searched
+> Q
+> all legal
+> Q
+> unsearched
+> 0.000 0.002 0.004 0.006 0.008
+> Variance of the one-step residual  Size of the evaluation error
+> 42024
+> Standardised residual
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Density (log) Shape of the Qerror
+> pooled (scale mixture) standardised per position fitted (0, 1)
+
+Figure 6: Left: Variance based on one-step TD residual proxies for evaluation error on different opening-book positions under one network on 9 × 9 Go with 95% percentile bootstrap over positions. 
+
+Right: the shape of the Qϕ residual, on a log density scale. In grey the raw pooled residual, a scale mixture over actions of differing σ. In blue is the same data centered and scaled per position; dashed is the fitted N (0 , 1) .F.4 LEARNING CURVES ON MODEL -FREE ONLINE CONTINUOUS CONTROL (SAC ON DMC) 0.0 0.5 1.0 020 40 60 80 100                    
+
+> Episodic Return hopper-hop
+> SAC SAC + opt
+> 0.0 0.5 1.0 020 40 60 80
+> humanoid-run
+> 0.0 0.5 1.0 050 100 150 200 250 300
+> humanoid-walk
+> 0.0 0.5 1.0 0100 200 300 400 500 600 700
+> hopper-stand
+> 0.0 0.5 1.0 0200 400 600
+> quadruped-run
+> 0.0 0.5 1.0 0100 200 300 400 500
+> Episodic Return humanoid-stand
+> 0.0 0.5 1.0 0200 400 600 800 1000
+> quadruped-walk
+> 0.0 0.5 1.0 0200 400 600 800 1000
+> walker-walk
+> 0.0 0.5 1.0 0200 400 600 800
+> cheetah-run
+> 0.0 0.5 1.0 50 100 150 200 250 300 350
+> fish-swim Environment Steps (millions)
+
+Figure 7: Per-environment learning curves on the 10 DeepMind Control Suite tasks, showing unnormalised episodic return against environment steps. Mean across 10 seeds and 95% interval. F.5 OFFLINE RL: PER -ENVIRONMENT RESULTS 
+
+We report the final performance per environment in Table 1. We include results with hyperparameters optimized per datasets, as is chosen by the baseline, as well as with one set of hyperparameters across all datasets, to demonstrate that the +Iopt algorithm does not appear to be sensitive to a unique per-environment configuration. 41 Preprint Table 1: Per-environment offline RL results on the four D4RL medium-replay datasets. Entries are the D4RL score of the final policy evaluated over 56 episodes, mean and 95% Gaussian CI over 20 
+
+runs per arm per environment ( 10 for the single-pair setting on halfcheetah). Bold marks the highest mean in each row together with every entry that is not significantly worse than it, at p < 0.05 under a two-sided Welch t-test over runs (Welch, 1947); several bold entries in a row therefore indicate a tie. 
+
+ReBRAC + Iopt 
+
+Dataset per-dataset τ 2, β single pair τ 2 = 2 , β = 0 .5 ReBRAC 
+
+halfcheetah-medium-replay 50 .86 ± 1.09 50 .30 ± 1.43 49 .65 ± 0.28 
+
+hopper-medium-replay 87 .00 ± 8.80 87 .00 ± 8.80 88 .24 ± 6.80 
+
+walker2d-medium-replay 84 .69 ± 3.19 84 .69 ± 3.19 78 .75 ± 3.91 
+
+ant-medium-replay 40 .17 ± 7.89 40 .17 ± 7.89 17 .09 ± 3.05 
+
+## G HYPERPARAMETERS 
+
+G.1 HYPERPARAMETER TUNING 
+
+To keep the comparisons as meaningful as possible, we use each baseline’s pre-tuned hyperparameters and network architecture unchanged for both the baseline and its +Iopt variant, apart from the additional Iopt hyperparameters. This controls the comparison by changing only the operator. It also leaves open the possibility that the +Iopt variants could perform better if the baseline hyperparameters were retuned jointly with τ 2 and β.As a result, outside of the policy iteration experiments, where all hyperparameters were tuned from scratch, the only hyperparameters that were tuned in this work are Iopt ’s τ 2, β . To further adhere to each algorithm’s standard tuning conditions τ 2, β are tuned per environment for algorithms which are tuned per-environment (ReBRAC), and one set of hyperparameters τ 2, β is tuned and used for an entire domain for the algorithms which are tuned in this way (all the rest: SAC, GumbelAlphaZero and the Policy Iteration experiments). In the Policy Iteration experiments, all hyperparameters for all algorithms were tuned with an extensive grid search across the 20 environments and the single set of hyperparameters that performed best was chosen. The experiment was then repeated for 100 seeds in all environments and only the repeated seeds are shown. GumbelAlphaZero uses the same set of GumbelMCTS hyperparameters across different board games, for which it was tuned. Following this choice, we have used one set of hyperparameters in all environments. To tune τ 2 and β we have chosen parameters that induce growth 1 
+
+> η(s,a )
+
+with N (s, a ),
+
+which approximately match the growth of the baseline. With this starting point, we’ve then chosen a set of hyperparameters τ 2, β that result in roughly matching growth within the range of popular evaluation resources used for MCTS M = (8 , 200) , from below. Our logic was that as 1
+
+> σ2(s,a )
+
+increases independently per action, rather than for all actions at the same time, the growth rate should be lower than that of 1 
+
+> η(s)
+
+. We’ve then conducted an elo evaluation sweep across hyperparameter combinations around these values with M = 64 in 9x9 Go, chosen one set of uniformly well performing hyperparameter, and repeated all experiments with them. The SAC baseline uses one set of hyperparameters across all environments. In accordance with this choice, we’ve done a sweep across hyperparameter combinations for Iopt across a subset of the environments. The single set of dominating hyperparameters was chosen and then the experiment was repeated for 10 seeds in all environments. In the offline RL experiments, the baseline’s hyperparameters were tuned per environment. Following the baselines choice, τ 2, β were tuned using a sweep across hyperparameter combinations per environment. The best performing hyperparameter combination was chosen per environment and the experiments were repeated for 20 additional seeds for this set of hyperparameters. However, we have also found that the same set of hyperparameters performed comparably to a unique set of hyperparameters per environment, and we present these results as well in Table 1 in Appendix F.5. Table 2 collects how many independent runs stand behind every number in Figure 1. 42 Preprint Table 2: Number of seeds included in each experiment. 
+
+Experiment Number of Seeds per Agent 
+
+Policy iteration 100 seeds × 20 environments Model-based, discrete 5 training seeds Model-free, continuous 10 seeds × 10 environments Offline 20 seeds × 4 environments G.2 HYPERPARAMETER TABLES 
+
+Table 3: Hyperparameters for the Policy Iteration experiments. 
+
+Component Parameter Value 
+
+Iopt Advantage prior variance ( τ 2) (0 .17) 2
+
+KL regularization strength ( β) 0.07 
+
+Ireg Temperature ( η) 4.89 
+
+Environments Grid size ( |S| × |A| ) 25 × 5
+
+Noise schedule Initial noise bound ( a0) 50 
+
+(Eq. 135) Decay ( γdec ) 0.998 
+
+Variance width ( b) 5
+
+43 Preprint Table 4: Hyperparameters for the discrete-action model-based GAZ experiments. 
+
+Component Parameter Value 
+
+Iopt Advantage prior variance ( τ 2) 0.08 
+
+KL regularization strength ( β) 0.01 
+
+Ireg (GumbelMCTS) cvisit 50 
+
+cscale 1.0
+
+PUCT (AlphaZero) cinit 1.25 
+
+cbase 19652 
+
+Dirichlet root noise fraction 0.25 
+
+Dirichlet root noise concentration ( α) 0.3
+
+Search Budget M , training runs 64 
+
+Budget M , fixed-network sweep 8, 24 , 64 , 128 , 256 
+
+Num. searched actions at the root ( K) 16 (unless otherwise specified) Particles ( N ) 1
+
+Root Gumbel scale 0.0
+
+Discount ( γ) 0.997 
+
+Qϕ head Loss weight ( λq ) 0.1
+
+Bootstrapped actions ( L) 16 
+
+Network Residual blocks 6
+
+Channels 128 
+
+Convolution kernel 3 × 3, stride 1
+
+Normalisation / activation batch norm / ReLU Training Self-play frames per iteration 262 ,144 
+
+(1024 games × 256 steps) Sampled opening plies 8
+
+Training minibatch 256 
+
+Optimiser Algorithm AdamW Learning rate 10 −3 (constant) First-moment decay 0.9
+
+Other Adam settings optax defaults 
+
+K (the number of actions searched by SH, see (Danihelka et al., 2022)) is capped at 16 ; at the two smallest budgets sequential halving’s divisibility constraints force it lower, giving K = 4 at M = 8 
+
+and K = 8 at M = 24 . The root Gumbel scale is 0 following Table 2 of Danihelka et al. (2022), whose board-game evaluations use 0; the value of 1 in their Table 4 applies to training self-play rather than evaluation. The body follows Silver et al. (2018): a batch-normalised, rectified 3 × 3 convolution, then 6 residual blocks of two batch-normalised, rectified 3 × 3 convolutions with a skip connection, all at 128 
+
+channels. The value head is a 1 × 1 convolution to one channel, batch norm and ReLU, a linear layer of width 128 , and a tanh linear layer to a scalar. The policy and Qϕ heads have the same shape as each other and differ by game: on 9 × 9 Go a 3 × 3 convolution, batch norm and ReLU, then a linear layer to the 82 actions; on chess a 3 × 3 convolution, batch norm and ReLU, then a second 3 × 3
+
+convolution to the 73 plane-encoded actions. Qϕ is tanh , one value per action, and is built in every arm but trained only where a Q head is used. Inputs are pgx ’s encodings: 17 planes for 9 × 9 Go and 119 for chess. 44 Preprint Table 5: Hyperparameters for the online classical continuous control SAC experiments 
+
+Component Parameter Value 
+
+Iopt Advantage prior variance ( τ 2) 0.4
+
+Num. actions sampled for Vϕi (s) 32 
+
+SAC Optimizer Adam Actor learning rate 3 · 10 −4
+
+Critic and entropy learning rate 10 −3
+
+Batch size 256 
+
+Replay buffer size 10 6
+
+Steps before learning starts 10 4
+
+Discount ( γ) 0.99 
+
+Target smoothing coefficient 0.005 
+
+Actor update interval 2
+
+Target network update interval 1
+
+Entropy coefficient ( α) autotuned Target entropy − dim( A)
+
+Critics 2
+
+Network Actor trunk 2 × 256 , ReLU Actor heads mean and log σ
+
+log σ range [−5, 2] 
+
+Action squashing tanh 
+
+Critic trunk (input [s, a ]) 2 × 256 , ReLU Normalisation none Initialisation PyTorch defaults 45 Preprint Table 6: Hyperparameters for the offline RL ReBRAC experiments. 
+
+Component Parameter Value 
+
+Iopt Advantage prior variance ( τ 2), halfcheetah-medium-replay 8
+
+Advantage prior variance ( τ 2), hopper-medium-replay 2
+
+Advantage prior variance ( τ 2), walker2d-medium-replay 2
+
+Advantage prior variance ( τ 2), ant-medium-replay 2
+
+KL regularization strength ( β), all datasets 0.5
+
+ReBRAC Critics ( num critics ) 2
+
+Optimizer Adam ( ϵ = 10 −5)Learning rate (actor and critics) 10 −3
+
+Batch size 1024 
+
+Gradient steps 10 6
+
+Discount ( γ) 0.99 
+
+Target smoothing coefficient 0.005 
+
+Target policy noise 0.2
+
+Target policy noise clip 0.5
+
+Critic updates per actor update 2
+
+Network Actor trunk 3 × 256 , ReLU Actor output dim( A), tanh 
+
+Critic trunk (input [s, a ]) 3 × 256 , ReLU, LayerNorm Critic weight sharing none Observation normalisation no Hidden bias initialisation 0.1
+
+Output initialisation, actor U(±10 −3)
+
+Output initialisation, critics U(±3 · 10 −3)
+
+Target networks actor and critics Actor BC β1, halfcheetah-medium-replay 0.01 
+
+coefficient β1, hopper-medium-replay 0.05 
+
+β1, walker2d-medium-replay 0.05 
+
+β1, ant-medium-replay 0.001 
+
+Critic BC β2, halfcheetah-medium-replay 0.001 
+
+coefficient β2, hopper-medium-replay 0.5
+
+β2, walker2d-medium-replay 0.01 
+
+β2, ant-medium-replay 0.01 
+
+46
